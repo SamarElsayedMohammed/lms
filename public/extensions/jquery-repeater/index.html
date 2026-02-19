@@ -1,0 +1,186 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Repeater jQuery Plugin Example: Create Repeatable Form Groups</title>
+    <title>jquery.repeater</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootswatch/5.1.3/quartz/bootstrap.min.css">
+<style>
+  .container { margin: 150px auto; }
+  input { margin: 1rem auto; }
+</style>
+</head>
+<body><div id="jquery-script-menu">
+<div class="jquery-script-center">
+<ul>
+<li><a href="https://www.jqueryscript.net/form/repeatable-field-group.html">Download This Plugin</a></li>
+<li><a href="https://www.jqueryscript.net/">Back To jQueryScript.Net</a></li>
+</ul><div id="carbon-block"></div>
+<div class="jquery-script-ads"><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2783044520727903"
+     crossorigin="anonymous"></script>
+<!-- jQuery_demo -->
+<ins class="adsbygoogle"
+     style="display:inline-block;width:728px;height:90px"
+     data-ad-client="ca-pub-2783044520727903"
+     data-ad-slot="2780937993"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script></div>
+<div class="jquery-script-clear"></div>
+</div>
+</div>
+  <div class="container">
+    <h1>Repeater jQuery Plugin Examples</h1>
+    <p class="lead">A jQuery plugin for creating repeatable form groups, which allows the user to duplicate and remove a repeatable group of fields in a form.</p>
+    <h2>Repeater</h2>
+    <form action="echo.php" class="repeater" enctype="multipart/form-data">
+      <div data-repeater-list="group-a">
+        <div data-repeater-item>
+          <input name="untyped-input" class="form-control" value="A"/>
+    
+          <textarea class="form-control" name="textarea-input">A</textarea>
+    
+          <input type="radio" name="radio-input" value="A" checked/>
+          <input type="radio" name="radio-input" value="B"/>
+    
+          <input type="checkbox" name="checkbox-input" value="A" checked/>
+          <input type="checkbox" name="checkbox-input" value="B"/>
+    
+          <select class="form-control" name="select-input">
+            <option value="A" selected>A</option>
+            <option value="B">B</option>
+          </select>
+    
+          <select class="form-control" name="multiple-select-input" multiple>
+            <option value="A" selected>A</option>
+            <option value="B" selected>B</option>
+          </select>
+    
+          <input data-repeater-delete type="button" class="btn btn-danger" value="Delete"/>
+        </div>
+        <div data-repeater-item>
+          <input name="untyped-input" class="form-control" value="A"/>
+    
+          <textarea class="form-control" name="textarea-input">B</textarea>
+    
+          <input type="radio" name="radio-input" value="A" />
+          <input type="radio" name="radio-input" value="B" checked/>
+    
+          <input type="checkbox" name="checkbox-input" value="A"/>
+          <input type="checkbox" name="checkbox-input" value="B" checked/>
+    
+          <select class="form-control" name="select-input">
+            <option value="A">A</option>
+            <option value="B" selected>B</option>
+          </select>
+    
+          <select class="form-control" name="multiple-select-input" multiple>
+            <option value="A" selected>A</option>
+            <option value="B" selected>B</option>
+          </select>
+    
+          <input data-repeater-delete type="button" class="btn btn-danger" value="Delete"/>
+        </div>
+      </div>
+      <input data-repeater-create type="button" class="btn btn-warning" value="Add"/>
+    </form>
+    
+    <h2>Nested</h2>
+    <form action="#" class="outer-repeater">
+      <div data-repeater-list="outer-group" class="outer">
+        <div data-repeater-item class="outer">
+          <input type="text" name="text-input" value="A" class="form-control outer"/>
+          <input data-repeater-delete type="button" value="Delete" class="btn btn-danger outer"/>
+          <div class="inner-repeater">
+            <div data-repeater-list="inner-group" class="inner">
+              <div data-repeater-item class="inner">
+                <input type="text" name="inner-text-input" value="B" class="form-control inner"/>
+                <input data-repeater-delete type="button" value="Delete" class="btn btn-danger inner"/>
+              </div>
+            </div>
+            <input data-repeater-create type="button" value="Add" class="btn btn-warning inner"/>
+          </div>
+        </div>
+      </div>
+      <input data-repeater-create type="button" value="Add" class="btn btn-warning outer"/>
+    </form>
+    </div>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="jquery.repeater.js"></script>
+    <script>
+    $(document).ready(function () {
+        'use strict';
+
+        $('.repeater').repeater({
+            defaultValues: {
+                'textarea-input': 'foo',
+                'text-input': 'bar',
+                'select-input': 'B',
+                'checkbox-input': ['A', 'B'],
+                'radio-input': 'B'
+            },
+            show: function () {
+                $(this).slideDown();
+            },
+            hide: function (deleteElement) {
+                if(confirm('Are you sure you want to delete this element?')) {
+                    $(this).slideUp(deleteElement);
+                }
+            },
+            ready: function (setIndexes) {
+
+            }
+        });
+
+        window.outerRepeater = $('.outer-repeater').repeater({
+            isFirstItemUndeletable: true,
+            defaultValues: { 'text-input': 'outer-default' },
+            show: function () {
+                console.log('outer show');
+                $(this).slideDown();
+            },
+            hide: function (deleteElement) {
+                console.log('outer delete');
+                $(this).slideUp(deleteElement);
+            },
+            repeaters: [{
+                isFirstItemUndeletable: true,
+                selector: '.inner-repeater',
+                defaultValues: { 'inner-text-input': 'inner-default' },
+                show: function () {
+                    console.log('inner show');
+                    $(this).slideDown();
+                },
+                hide: function (deleteElement) {
+                    console.log('inner delete');
+                    $(this).slideUp(deleteElement);
+                }
+            }]
+        });
+    });
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-1VDDWMRSTH"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-1VDDWMRSTH');
+</script>
+<script>
+try {
+  fetch(new Request("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", { method: 'HEAD', mode: 'no-cors' })).then(function(response) {
+    return true;
+  }).catch(function(e) {
+    var carbonScript = document.createElement("script");
+    carbonScript.src = "//cdn.carbonads.com/carbon.js?serve=CK7DKKQU&placement=wwwjqueryscriptnet";
+    carbonScript.id = "_carbonads_js";
+    document.getElementById("carbon-block").appendChild(carbonScript);
+  });
+} catch (error) {
+  console.log(error);
+}
+</script>
+</body>
+</html>

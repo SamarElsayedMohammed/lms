@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Details - LMS</title>
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/course-details.css">
+    
+    <style>
+        body {
+            background: #f5f7fa;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .demo-controls {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        
+        .demo-controls input {
+            padding: 10px 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            margin: 0 10px;
+            font-size: 1rem;
+            width: 200px;
+        }
+        
+        .demo-controls button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin: 0 5px;
+            transition: all 0.3s ease;
+        }
+        
+        .demo-controls button:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+        
+        .demo-controls button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .loading-spinner.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="course-details-container">
+        <!-- Demo Controls -->
+        <div class="demo-controls">
+            <h2>Course Details API Demo</h2>
+            <p>Enter a course ID or slug to load course details</p>
+            
+            <div style="margin: 20px 0;">
+                <input type="number" id="courseId" placeholder="Course ID (e.g., 1)" min="1">
+                <button onclick="loadCourseById()" id="loadByIdBtn">
+                    <i class="fas fa-search"></i> Load by ID
+                </button>
+            </div>
+            
+            <div style="margin: 20px 0;">
+                <input type="text" id="courseSlug" placeholder="Course Slug (e.g., ui-ux-design)">
+                <button onclick="loadCourseBySlug()" id="loadBySlugBtn">
+                    <i class="fas fa-search"></i> Load by Slug
+                </button>
+            </div>
+            
+            <div style="margin: 20px 0;">
+                <button onclick="loadSampleCourse()" id="sampleBtn">
+                    <i class="fas fa-play"></i> Load Sample Course
+                </button>
+                <button onclick="clearCourse()" id="clearBtn">
+                    <i class="fas fa-trash"></i> Clear
+                </button>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div class="loading-spinner" id="loadingSpinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Loading course details...</p>
+        </div>
+
+        <!-- Course Basic Info -->
+        <div id="course-basic-info"></div>
+
+        <!-- Course Description -->
+        <div id="course-description"></div>
+
+        <!-- Course Learnings -->
+        <div id="course-learnings"></div>
+
+        <!-- Course Requirements -->
+        <div id="course-requirements"></div>
+
+        <!-- Course Statistics -->
+        <div id="course-statistics"></div>
+
+        <!-- Course Content -->
+        <div id="course-content"></div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="js/course-details-example.js"></script>
+    
+    <script>
+        // Demo functions
+        function showLoading() {
+            document.getElementById('loadingSpinner').classList.add('show');
+            document.getElementById('course-basic-info').innerHTML = '';
+            document.getElementById('course-description').innerHTML = '';
+            document.getElementById('course-learnings').innerHTML = '';
+            document.getElementById('course-requirements').innerHTML = '';
+            document.getElementById('course-statistics').innerHTML = '';
+            document.getElementById('course-content').innerHTML = '';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingSpinner').classList.remove('show');
+        }
+
+        function disableButtons() {
+            document.getElementById('loadByIdBtn').disabled = true;
+            document.getElementById('loadBySlugBtn').disabled = true;
+            document.getElementById('sampleBtn').disabled = true;
+        }
+
+        function enableButtons() {
+            document.getElementById('loadByIdBtn').disabled = false;
+            document.getElementById('loadBySlugBtn').disabled = false;
+            document.getElementById('sampleBtn').disabled = false;
+        }
+
+        async function loadCourseById() {
+            const courseId = document.getElementById('courseId').value.trim();
+            if (!courseId) {
+                alert('Please enter a course ID');
+                return;
+            }
+
+            showLoading();
+            disableButtons();
+
+            try {
+                await courseManager.initCourseDetails({ id: parseInt(courseId) });
+            } catch (error) {
+                console.error('Error loading course:', error);
+            } finally {
+                hideLoading();
+                enableButtons();
+            }
+        }
+
+        async function loadCourseBySlug() {
+            const courseSlug = document.getElementById('courseSlug').value.trim();
+            if (!courseSlug) {
+                alert('Please enter a course slug');
+                return;
+            }
+
+            showLoading();
+            disableButtons();
+
+            try {
+                await courseManager.initCourseDetails({ slug: courseSlug });
+            } catch (error) {
+                console.error('Error loading course:', error);
+            } finally {
+                hideLoading();
+                enableButtons();
+            }
+        }
+
+        async function loadSampleCourse() {
+            showLoading();
+            disableButtons();
+
+            try {
+                // Simulate loading a sample course
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Create sample course data
+                const sampleCourse = {
+                    id: 1,
+                    slug: 'ui-ux-design-course',
+                    title: 'UI/UX Design Masterclass',
+                    short_description: 'Learn the art of crafting beautiful and functional user interfaces',
+                    description: 'Learn the art of crafting beautiful and functional user interfaces with this comprehensive UI design course. Dive into essential principles such as color theory, typography, layout, and visual hierarchy to create designs that are both engaging and user-friendly. Using industry-standard tools like Figma and Sketch, you\'ll gain hands-on experience building wireframes, prototypes, and polished interfaces. This course also includes practical projects to help you build a strong portfolio, making it the perfect starting point for anyone aspiring to excel in the field of UI design.',
+                    thumbnail: 'https://via.placeholder.com/400x250/667eea/ffffff?text=UI/UX+Design',
+                    price: 99.99,
+                    discounted_price: 79.99,
+                    discount_percentage: 20,
+                    course_type: 'paid',
+                    level: 'beginner',
+                    duration: '10 hours',
+                    is_active: true,
+                    status: 'published',
+                    approval_status: 'approved',
+                    category: {
+                        id: 1,
+                        name: 'Design',
+                        slug: 'design'
+                    },
+                    author: {
+                        id: 1,
+                        name: 'John Doe',
+                        email: 'john@example.com'
+                    },
+                    language: {
+                        id: 1,
+                        name: 'English'
+                    },
+                    tags: [
+                        { id: 1, name: 'UI Design' },
+                        { id: 2, name: 'UX Design' },
+                        { id: 3, name: 'Figma' }
+                    ],
+                    ratings: {
+                        count: 1250,
+                        average: 4.8
+                    },
+                    is_purchased: false,
+                    created_at: '2024-01-15T10:00:00Z',
+                    updated_at: '2024-01-15T10:00:00Z',
+                    course_statistics: {
+                        total_lectures: 45,
+                        total_assignments: 12,
+                        total_quizzes: 8,
+                        total_duration: '10hr:30 Min',
+                        total_chapters: 6
+                    },
+                    learnings: [
+                        { id: 1, title: 'Master essential UI design principles like color theory, typography, and layout' },
+                        { id: 2, title: 'Create wireframes, prototypes, and polished designs using Figma and Sketch' },
+                        { id: 3, title: 'Design responsive and user-friendly interfaces for web and mobile platforms' },
+                        { id: 4, title: 'Apply best practices in accessibility to build inclusive designs' },
+                        { id: 5, title: 'Build a portfolio of real-world projects to showcase your UI design expertise' }
+                    ],
+                    requirements: [
+                        { id: 1, requirement: 'Basic computer literacy' },
+                        { id: 2, requirement: 'A computer with Figma (free) or Sketch installed' },
+                        { id: 3, requirement: 'Stable internet connection' },
+                        { id: 4, requirement: 'Dedication to complete assignments and projects' },
+                        { id: 5, requirement: 'Passion for creativity and problem-solving' }
+                    ],
+                    course_content: [
+                        {
+                            id: 1,
+                            title: 'Introduction to UI/UX Design',
+                            description: 'Get started with the fundamentals of UI/UX design',
+                            order: 1,
+                            is_active: true,
+                            summary: '8 Lectures 4 Assignment 2 Quiz 1hr:23 Min',
+                            lectures: [
+                                { id: 1, title: 'Foundations of UI/UX Design', description: 'Understanding the basics', duration: 15, order: 1, is_active: true, type: 'video' },
+                                { id: 2, title: 'Principles of User-Centered Design', description: 'Core design principles', duration: 20, order: 2, is_active: true, type: 'video' },
+                                { id: 3, title: 'Visual Design Basics for Beginners', description: 'Visual design fundamentals', duration: 18, order: 3, is_active: true, type: 'video' },
+                                { id: 4, title: 'Understanding User Research & Personas', description: 'User research methods', duration: 25, order: 4, is_active: true, type: 'video' },
+                                { id: 5, title: 'Wireframing and Prototyping Essentials', description: 'Prototyping techniques', duration: 22, order: 5, is_active: true, type: 'video' },
+                                { id: 6, title: 'Knowledge Check', description: 'Test your understanding', duration: 10, order: 6, is_active: true, type: 'quiz' },
+                                { id: 7, title: 'Assignment On Wireframe', description: 'Practice wireframing', duration: 0, order: 7, is_active: true, type: 'assignment' },
+                                { id: 8, title: 'Introduction to Interaction Design', description: 'Interaction design basics', duration: 20, order: 8, is_active: true, type: 'video' },
+                                { id: 9, title: 'Design Systems and Style Guides', description: 'Creating design systems', duration: 18, order: 9, is_active: true, type: 'video' },
+                                { id: 10, title: 'Assignment on Design System', description: 'Build a design system', duration: 0, order: 10, is_active: true, type: 'assignment' }
+                            ],
+                            assignments: [
+                                { id: 1, title: 'Assignment On Wireframe', description: 'Create a wireframe for a mobile app', order: 1, is_active: true },
+                                { id: 2, title: 'Assignment on Design System', description: 'Design a comprehensive style guide', order: 2, is_active: true }
+                            ],
+                            quizzes: [
+                                { id: 1, title: 'Knowledge Check', description: 'Test your understanding of UI/UX fundamentals', order: 1, is_active: true }
+                            ],
+                            resources: [
+                                { id: 1, title: 'UI Design Checklist', description: 'Essential checklist for UI design', file_path: '/resources/ui-checklist.pdf', order: 1, is_active: true }
+                            ]
+                        },
+                        {
+                            id: 2,
+                            title: 'Color Theory and Typography',
+                            description: 'Master the fundamentals of color and typography',
+                            order: 2,
+                            is_active: true,
+                            summary: '6 Lectures 2 Assignment 1 Quiz 1hr:15 Min',
+                            lectures: [
+                                { id: 11, title: 'Color Psychology in Design', description: 'Understanding color meanings', duration: 20, order: 1, is_active: true, type: 'video' },
+                                { id: 12, title: 'Color Harmony and Contrast', description: 'Creating color schemes', duration: 18, order: 2, is_active: true, type: 'video' },
+                                { id: 13, title: 'Typography Fundamentals', description: 'Font selection and pairing', duration: 22, order: 3, is_active: true, type: 'video' },
+                                { id: 14, title: 'Hierarchy and Readability', description: 'Text organization principles', duration: 20, order: 4, is_active: true, type: 'video' },
+                                { id: 15, title: 'Color and Typography Quiz', description: 'Test your knowledge', duration: 15, order: 5, is_active: true, type: 'quiz' },
+                                { id: 16, title: 'Design a Color Palette', description: 'Create a brand color scheme', duration: 0, order: 6, is_active: true, type: 'assignment' }
+                            ],
+                            assignments: [
+                                { id: 3, title: 'Design a Color Palette', description: 'Create a comprehensive color palette for a brand', order: 1, is_active: true },
+                                { id: 4, title: 'Typography Exercise', description: 'Design a typography hierarchy system', order: 2, is_active: true }
+                            ],
+                            quizzes: [
+                                { id: 2, title: 'Color and Typography Quiz', description: 'Test your understanding of color and typography', order: 1, is_active: true }
+                            ],
+                            resources: [
+                                { id: 2, title: 'Color Palette Generator', description: 'Online tool for creating color schemes', file_path: '/resources/color-tools.pdf', order: 1, is_active: true }
+                            ]
+                        }
+                    ]
+                };
+
+                // Display the sample course
+                courseManager.displayCourseDetails(sampleCourse);
+            } catch (error) {
+                console.error('Error loading sample course:', error);
+            } finally {
+                hideLoading();
+                enableButtons();
+            }
+        }
+
+        function clearCourse() {
+            document.getElementById('courseId').value = '';
+            document.getElementById('courseSlug').value = '';
+            document.getElementById('course-basic-info').innerHTML = '';
+            document.getElementById('course-description').innerHTML = '';
+            document.getElementById('course-learnings').innerHTML = '';
+            document.getElementById('course-requirements').innerHTML = '';
+            document.getElementById('course-statistics').innerHTML = '';
+            document.getElementById('course-content').innerHTML = '';
+        }
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Course Details Demo Page Loaded');
+            console.log('Use the buttons above to load course details');
+            console.log('Or call courseManager.initCourseDetails() directly');
+        });
+    </script>
+</body>
+</html>

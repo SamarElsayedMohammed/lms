@@ -1,0 +1,2879 @@
+/**
+ *
+ * You can write your CSS code here, DO NOT touch the default JavaScript file
+ * because it will make it harder for you to update.
+ *
+ */
+
+/*# sourceMappingURL=custom.css.map */
+.form-group.mandatory .form-label:first-child:after {
+    color: #dc3545;
+    content: " *";
+}
+
+.custom-switch {
+    padding: 0 !important;
+}
+
+.custom-switch-2 {
+    padding-left: 2.25rem !important;
+}
+
+.edit-image-preview {
+    max-width: 10%;
+    height: auto;
+    margin-top: 5px;
+    border: 1px solid #ddd;
+    padding: 4px;
+    border-radius:5px;
+}
+
+.pagination{
+    justify-content: space-evenly;
+    flex-wrap: wrap;
+}
+.table:not(.table-sm):not(.table-md):not(.dataTable) td, .table:not(.table-sm):not(.table-md):not(.dataTable) th {
+    padding: 0 17px;
+}
+.btn.icon {
+    min-width: 30px !important;
+    min-height: 30px !important;
+}
+#table_list .dropdown{
+    padding: 0;
+    min-width: 20px !important; 
+    min-height: 30px !important;
+    width: 40px;
+}
+.draggable .draggable-item .bg-light {
+   height: 93% !important;
+}
+.chart-container {
+    position: relative;
+    height: 300px !important;
+    max-height: 300px;
+}
+
+#mainChart {
+    max-height: 300px !important;
+}
+
+.card-statistic-1 {
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    height: 100%;
+    overflow: hidden;
+}
+
+.card-statistic-1:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.card-statistic-1 .card {
+    height: 100%;
+    margin-bottom: 0;
+}
+
+.card-statistic-1 .card-wrap {
+    display: flex;
+    align-items: center;
+    padding: 20px;
+    gap: 15px;
+}
+
+.card-statistic-1 .card-icon {
+    flex-shrink: 0;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+}
+
+.card-statistic-1 .card-icon i {
+    font-size: 18px;
+}
+
+.card-statistic-1 .card-header {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-left: 5px;
+}
+
+.card-statistic-1 .card-header h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    color: #6c757d;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-wrap: break-word;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    max-height: 2.6em;
+    text-align: left;
+}
+
+.card-statistic-1 .card-body {
+    flex-shrink: 0;
+    text-align: right;
+    min-width: fit-content;
+}
+
+.card-statistic-1 .card-body span {
+    display: block;
+    font-size: 18px;
+    font-weight: 600;
+    color: #495057;
+    line-height: 1.2;
+}
+
+.card-statistic-1 .card-body .text-small {
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+/* Ensure equal heights for cards in rows */
+.row > [class*="col-"] {
+    display: flex;
+    flex-direction: column;
+}
+
+.row > [class*="col-"] > .card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+
+
+.media-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    margin-right: 15px;
+    padding: 8px;
+}
+
+.card-statistic-1 .card-icon i {
+    font-size: 18px;
+    color: white;
+}
+
+.card-statistic-2 .card-icon {
+    width: 45px;
+    height: 45px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.card-statistic-2 .card-icon i {
+    font-size: 18px;
+    color: white;
+}
+
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+ /* Mobile/Touch Support */
+ .sortable li {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.sortable li.ui-sortable-helper {
+    opacity: 0.8;
+    z-index: 1000;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.sortable li.ui-sortable-placeholder {
+    visibility: visible !important;
+    opacity: 0.3;
+    border: 2px dashed #007bff;
+    background: #f0f0f0;
+}
+.sortable > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;  
+    flex-direction: row !important; 
+}
+
+.sortable .ui-state-default {
+    display: flex;
+    flex-direction: row;
+}
+
+.sortable .ui-state-default > div {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+}
+
+.sortable .ui-state-default .row {
+    height: 100%;
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    margin: 0;
+}
+
+.sortable .ui-state-default .col-6 {
+    display: flex;
+    flex-direction: column;
+}
+
+.sortable .ui-state-default .col-6:first-child {
+    align-items: center;
+    justify-content: center;
+}
+
+.sortable .ui-state-default .col-6:first-child img {
+    max-height: 150px;
+    max-width: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+
+.sortable .ui-state-default .col-6:last-child {
+    justify-content: center;
+    align-items: center;
+}
+
+/* Mobile/Touch Support */
+.sortable li {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.sortable li.ui-sortable-helper {
+    opacity: 0.8;
+    z-index: 1000;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.sortable li.ui-sortable-placeholder {
+    visibility: visible !important;
+    opacity: 0.3;
+    border: 2px dashed #007bff;
+    background: #f0f0f0;
+}
+.bootstrap-table .fixed-table-container .fixed-table-body{
+    height: auto !important;
+}
+.language-switcher {
+    margin-right: 0;
+    white-space: nowrap;
+}
+
+.language-switcher .nav-link {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+    min-width: fit-content;
+    overflow: visible;
+}
+
+.language-switcher .nav-link:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.language-switcher .nav-link .language-name {
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: ellipsis;
+    max-width: 120px;
+    display: inline-block;
+    margin-right: 4px;
+}
+
+.language-switcher .nav-link span {
+    display: inline-block;
+}
+
+.language-dropdown {
+    min-width: 220px;
+    max-width: 300px;
+    border: 1px solid #e3e6f0;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 8px 0;
+    background-color:#fff;
+}
+
+.language-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    transition: all 0.2s ease;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    overflow: visible;
+    word-wrap: break-word;
+}
+
+.language-item:hover {
+    background-color: #f8f9fa;
+    color: #495057;
+}
+
+.language-item.active {
+    background-color: #e3f2fd;
+    color: #1976d2;
+    font-weight: 500;
+}
+
+.language-item .language-flag {
+    border-radius: 2px;
+    object-fit: cover;
+}
+
+.language-item span {
+    flex: 1;
+    margin-left: 8px;
+    white-space: normal;
+    overflow: visible;
+    word-wrap: break-word;
+    min-width: 0;
+}
+
+.language-item i {
+    font-size: 14px;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.language-item .rtl-indicator {
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+
+/* RTL Support */
+[dir="rtl"] .language-switcher .nav-link {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .language-item {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .language-item span {
+    margin-left: 0;
+    margin-right: 8px;
+}
+
+[dir="rtl"] .language-item i {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .language-switcher .nav-link span {
+        display: none;
+    }
+    
+    .language-dropdown {
+        min-width: 150px;
+    }
+    
+    .language-item span {
+        font-size: 14px;
+    }
+}
+
+/* Better touch targets on mobile */
+@media (max-width: 768px) {
+    .sortable li {
+        min-height: 120px;
+        padding: 10px;
+    }
+    
+    .sortable li .row {
+        min-height: 100px;
+    }
+}
+/* Better touch targets on mobile */
+@media (max-width: 768px) {
+    .sortable li {
+        min-height: 120px;
+        padding: 10px;
+    }
+    
+    .sortable li .row {
+        min-height: 100px;
+    }
+}
+/* Fix delete button click on mobile devices */
+@media (max-width: 768px) {
+    .delete-form,
+    .edit-data,
+    .edit_btn,
+    .set-form-url, .btn-icon {
+        pointer-events: auto !important;
+        touch-action: manipulation !important;
+        cursor: pointer !important;
+        z-index: 10 !important;
+        position: relative !important;
+        min-width: 48px !important;
+        min-height: 48px !important;
+        padding: 10px 12px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1) !important;
+        user-select: none !important;
+    }
+    
+    /* Status toggle switches */
+    .update-status,
+    .custom-control-input.update-status,
+    .custom-switch .custom-control-input {
+        pointer-events: auto !important;
+        touch-action: manipulation !important;
+        cursor: pointer !important;
+        z-index: 10 !important;
+        position: relative !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+    }
+    
+    /* Ensure buttons in mobile responsive table are clickable */
+    .bootstrap-table .fixed-table-body .table td .delete-form,
+    .bootstrap-table .fixed-table-body .table td .delete-form *,
+    .bootstrap-table .fixed-table-body .table td .edit-data,
+    .bootstrap-table .fixed-table-body .table td .edit-data *,
+    .bootstrap-table .fixed-table-body .table td .edit_btn,
+    .bootstrap-table .fixed-table-body .table td .edit_btn *,
+    .bootstrap-table .fixed-table-body .table td .set-form-url,
+    .bootstrap-table .fixed-table-body .table td .set-form-url * {
+        pointer-events: auto !important;
+        touch-action: manipulation !important;
+        min-width: 48px !important;
+        min-height: 48px !important;
+        padding: 10px 12px !important;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1) !important;
+    }
+    
+    /* Specific styles for action column in tables */
+    .bootstrap-table .fixed-table-body .table td[data-field="operate"] {
+        padding: 8px !important;
+    }
+    
+    .bootstrap-table .fixed-table-body .table td[data-field="operate"] a {
+        margin: 2px !important;
+        display: inline-block !important;
+    }
+    
+    /* Status switches in table */
+    .bootstrap-table .fixed-table-body .table td .update-status,
+    .bootstrap-table .fixed-table-body .table td .update-status *,
+    .bootstrap-table .fixed-table-body .table td .custom-control-input,
+    .bootstrap-table .fixed-table-body .table td .custom-control-input * {
+        pointer-events: auto !important;
+        touch-action: manipulation !important;
+    }
+   
+    .card-statistic-1 .card-wrap {
+        padding: 15px;
+        gap: 10px;
+    }
+    
+    .card-statistic-1 .card-icon {
+        width: 40px;
+        height: 40px;
+        padding: 10px;
+    }
+    
+    .card-statistic-1 .card-body span {
+        font-size: 16px;
+    }
+    
+    .card-statistic-1 .card-header h4 {
+        font-size: 13px;
+    }
+
+}
+/** Small mobile device (max-width: 480px) media query */
+@media (max-width: 480px) {
+    .card-statistic-1 .card-wrap {
+        flex-direction: column;
+        padding: 10px;
+        gap: 6px;
+    }
+    .card-statistic-1 .card-icon {
+        width: 32px !important;
+        height: 32px !important;
+        padding: 6px !important;
+        font-size: 16px !important;
+    }
+    .card-statistic-1 .card-header h4 {
+        font-size: 10px !important;
+    }
+    .card-statistic-1 .card-body span {
+        font-size: 13px !important;
+    }
+    .card-statistic-1 .card-body {
+        text-align:center;
+    }
+    .card-statistic-1 .card-header {
+        padding-bottom: 2px !important;
+        padding-top: 2px !important;
+        text-align:center;
+    }
+    .card-statistic-1 {
+        margin-bottom: 8px !important;
+    }
+}
+
+/* Resource Section UI Fixes */
+.resource-container {
+    margin-top: 15px;
+}
+
+.resource-input-section {
+    position: relative;
+    border: 1px solid #e3e6f0;
+    transition: all 0.3s ease;
+}
+
+.resource-input-section:hover {
+    border-color: #5a67d8;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Style Parsley error messages to be clean and inline */
+.parsley-errors-list {
+    list-style: none;
+    padding: 0;
+    margin: 5px 0 0 0 !important;
+    display: block;
+}
+
+.parsley-errors-list.filled {
+    margin-top: 5px !important;
+}
+
+.parsley-errors-list .parsley-required {
+    color: #dc3545;
+    font-size: 0.875rem;
+    margin: 0;
+    padding: 0;
+    display: block;
+    line-height: 1.4;
+}
+
+/* Remove any large error bars or alert boxes in resource section */
+.resource-container .alert-danger,
+.resource-container .alert,
+.resource-input-section .alert-danger,
+.resource-input-section .alert {
+    display: none !important;
+}
+
+/* Style resource form fields */
+.resource-container .form-group {
+    margin-bottom: 1rem;
+}
+
+.resource-container .form-control.parsley-error {
+    border-color: #dc3545;
+    padding-right: calc(1.5em + 0.75rem);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23dc3545' viewBox='0 0 12 12'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath stroke-linejoin='round' d='M5.8 3.6h.4L6 6.5z'/%3e%3ccircle cx='6' cy='8.2' r='.6' fill='%23dc3545' stroke='none'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right calc(0.375em + 0.1875rem) center;
+    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+}
+
+.resource-container .form-control.parsley-success {
+    border-color: #28a745;
+}
+
+/* Remove button styling for remove resource */
+.remove-resource {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+    padding: 5px 10px;
+    font-size: 0.875rem;
+}
+
+/* Ensure resource section spacing */
+.resource-section {
+    margin-top: 15px;
+}
+
+.resource-toggle-section {
+    margin-bottom: 15px;
+}
+
+/* Hide any unwanted error bars or boxes */
+.resource-container .bg-danger,
+.resource-container .text-danger.bg-danger,
+.resource-container [class*="error-bar"],
+.resource-container [class*="alert-bar"] {
+    display: none !important;
+}
+
+/* ============================================
+   Reports Pages CSS (from blade files 1-6)
+   ============================================ */
+
+/* Report Card Styles - Common for all reports */
+.report-card {
+    transition: transform 0.2s;
+    margin-bottom: 20px;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    background: white;
+}
+
+.report-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.report-card .card-icon {
+    width: 70px;
+    height: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.report-card .card-icon i {
+    font-size: 32px;
+    color: white;
+    line-height: 1;
+}
+
+.report-card .card-wrap {
+    display: flex;
+    align-items: center;
+    padding: 20px;
+}
+
+.report-card .card-header h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.report-card .card-body {
+    margin: 0;
+    padding: 0;
+}
+
+.report-card .card-body span {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2c3e50;
+    line-height: 1.2;
+    display: block;
+    white-space: nowrap;
+    overflow: visible;
+    word-wrap: normal;
+    text-overflow: clip;
+}
+
+/* Filter Section - Common for all reports */
+.filter-section {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 25px;
+}
+
+/* Revenue Report Specific Styles */
+.revenue-card {
+    border-left: 4px solid #28a745;
+}
+
+/* Sales Report Specific Styles */
+.report-card .card-header h4 {
+    margin: 0 0 4px 0;
+    font-size: 10px;
+    font-weight: 500;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.2px;
+    line-height: 1.3;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    height: auto;
+    min-height: 2.6em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.report-card .card-body {
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+    flex: 1;
+    min-width: fit-content;
+}
+
+/* Responsive font size for mobile - Sales Report */
+@media (max-width: 768px) {
+    .report-card .card-body span {
+        font-size: 14px;
+    }
+}
+
+/* For very large numbers, use smaller font - Sales Report */
+@media (max-width: 1200px) {
+    .report-card .card-body span {
+        font-size: 15px;
+    }
+}
+
+/* Chart Container - Sales Report */
+.chart-container {
+    height: 400px;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Commission Report Specific Styles */
+.commission-card {
+    border-left: 4px solid #28a745;
+}
+
+.report-card .card-icon.bg-primary {
+    background-color: #6777ef !important;
+}
+
+.report-card .card-icon.bg-success {
+    background-color: #6777ef !important;
+}
+
+.report-card .card-icon.bg-warning {
+    background-color: #ffa426 !important;
+}
+
+.report-card .card-icon.bg-info {
+    background-color: #17a2b8 !important;
+}
+
+.report-card .card-header {
+    flex: 1;
+    min-width: 0;
+    padding: 15px 15px 15px 15px !important;
+}
+
+/* Commission Report - Smaller card icon */
+.report-card .card-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 4px;
+}
+
+.report-card .card-icon i {
+    font-size: 20px;
+}
+
+.report-card .card-header h4 {
+    margin: 0 0 5px 0;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* ============================================
+   Admin Pages CSS (from blade files 13-20)
+   ============================================ */
+
+
+/* Admin Dashboard - Card Spacing */
+.list-unstyled-border li {
+    padding-bottom: 20px !important;
+    margin-bottom: 20px !important;
+}
+
+.card-body {
+    padding-bottom: 1.5rem !important;
+}
+
+.card-header {
+    margin-bottom: 0.5rem !important;
+}
+
+.card-header + .card-body {
+    padding-top: 1.5rem !important;
+}
+
+/* Invoice Page Styles */
+.invoice-container {
+    max-width: 800px;
+    margin: auto;
+}
+
+.invoice-header {
+    text-align: left;
+    padding-bottom: 20px;
+    border-bottom: 2px solid #000;
+    margin-bottom: 25px;
+}
+
+.invoice-header .logo {
+    max-height: 70px;
+    margin-bottom: 10px;
+}
+
+.invoice-company-name {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.invoice-title {
+    font-size: 24px;
+    font-weight: bold;
+    margin-top: 10px;
+}
+
+.invoice-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 25px;
+}
+
+.invoice-box {
+    width: 48%;
+}
+
+.invoice-box h3 {
+    font-size: 16px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #000;
+    padding-bottom: 5px;
+}
+
+.invoice-box p {
+    margin: 6px 0;
+}
+
+.invoice-box strong {
+    color: #000;
+}
+
+.invoice-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    border: 1px solid #000;
+}
+
+.invoice-table th,
+.invoice-table td {
+    border: 1px solid #000;
+    padding: 10px;
+    text-align: left;
+}
+
+.invoice-table th {
+    background: #f2f2f2;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.invoice-table td:last-child,
+.invoice-table th:last-child {
+    text-align: right;
+}
+
+.invoice-summary {
+    width: 300px;
+    margin-left: auto;
+    margin-top: 25px;
+}
+
+.invoice-summary-row {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid #000;
+    padding: 8px 0;
+    font-size: 14px;
+}
+
+.invoice-summary-row.total {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.invoice-promo-section {
+    margin-top: 25px;
+    padding: 10px;
+    border: 1px solid #000;
+}
+
+.invoice-promo-section h4 {
+    font-size: 15px;
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+.invoice-promo-item {
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.invoice-footer {
+    text-align: center;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid #000;
+    font-size: 13px;
+    color: #444;
+}
+
+/* Razorpay Payment Page Styles */
+.payment-container {
+    background: white;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    text-align: center;
+    max-width: 400px;
+    width: 90%;
+}
+
+.payment-header {
+    margin-bottom: 2rem;
+}
+
+.payment-header h1 {
+    color: #333;
+    margin-bottom: 0.5rem;
+}
+
+.payment-header p {
+    color: #666;
+    margin: 0;
+}
+
+.payment-details {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    text-align: left;
+}
+
+.payment-details h3 {
+    margin-top: 0;
+    color: #333;
+}
+
+.payment-detail-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.payment-detail-label {
+    font-weight: bold;
+    color: #555;
+}
+
+.payment-detail-value {
+    color: #333;
+}
+
+.pay-button {
+    background: #F37254;
+    color: white;
+    border: none;
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    width: 100%;
+    transition: background 0.3s;
+}
+
+.pay-button:hover {
+    background: #e55a3e;
+}
+
+.pay-button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+.payment-loading {
+    display: none;
+    margin-top: 1rem;
+}
+
+.payment-spinner {
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #F37254;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+/* Courses Index - Filter Button Styles */
+#reset_filters {
+    min-height: 38px !important;
+    height: 42px !important;
+    padding: 8px 16px !important;
+    line-height: 1.5 !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+#apply-filter, #clear-filter{
+    height: 42px !important;
+}
+
+.select2-container--default .select2-selection--single {
+    height: 38px !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+    line-height: 38px !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__arrow {
+    height: 36px !important;
+}
+
+#filter_is_active {
+    height: 38px;
+}
+
+/* Courses Requests - Filter Button Styles */
+#reset_request_filters {
+    min-height: 38px !important;
+    height: 38px !important;
+    padding: 8px 16px !important;
+    line-height: 1.5 !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+#request_instructor_id {
+    height: 38px;
+}
+
+/* Language Settings - Dropdown Menu Fix */
+#table_list .dropdown {
+    position: relative;
+    z-index: 1000;
+}
+
+#table_list .dropdown-menu {
+    position: absolute !important;
+    z-index: 1050 !important;
+    top: 100% !important;
+    left: auto !important;
+    right: 0 !important;
+    margin-top: 0.125rem !important;
+}
+
+#table_list td {
+    position: relative;
+    overflow: visible;
+}
+
+.fixed-table-body .dropdown-menu {
+    z-index: 9999 !important;
+}
+
+/* ============================================
+   Pages View CSS (from blade file 21)
+   ============================================ */
+:root {
+    --primary-color: #2563eb;
+    --primary-dark: #1d4ed8;
+    --text-color: #1f2937;
+    --text-light: #6b7280;
+    --bg-color: #ffffff;
+    --bg-secondary: #f8fafc;
+    --border-color: #e5e7eb;
+    --accent-gradient: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+}
+
+.page-header {
+    background: var(--accent-gradient);
+    padding: 60px 0 80px;
+    position: relative;
+    overflow: hidden;
+}
+
+.page-header::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 60%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.page-header::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 80px;
+    background: var(--bg-secondary);
+    clip-path: ellipse(55% 100% at 50% 100%);
+}
+
+.header-content {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+}
+
+.page-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.2);
+    backdrop-filter: blur(10px);
+    padding: 8px 16px;
+    border-radius: 50px;
+    font-size: 13px;
+    font-weight: 500;
+    color: white;
+    margin-bottom: 20px;
+    text-transform: capitalize;
+}
+
+.page-type-badge svg {
+    width: 16px;
+    height: 16px;
+}
+
+.page-title {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 700;
+    color: white;
+    margin-bottom: 16px;
+    letter-spacing: -0.02em;
+}
+
+.page-meta {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+    color: rgba(255,255,255,0.8);
+    font-size: 14px;
+}
+
+.meta-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.meta-item svg {
+    width: 16px;
+    height: 16px;
+    opacity: 0.8;
+}
+
+.page-container {
+    max-width: 900px;
+    margin: -40px auto 60px;
+    padding: 0 24px;
+    position: relative;
+    z-index: 2;
+}
+
+.content-card {
+    background: var(--bg-color);
+    border-radius: 20px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+}
+
+.page-icon-container {
+    padding: 32px 40px 0;
+    text-align: center;
+}
+
+.page-icon {
+    max-width: 120px;
+    max-height: 120px;
+    object-fit: contain;
+    border-radius: 16px;
+}
+
+.page-content {
+    padding: 40px;
+}
+
+.page-content h1,
+.page-content h2,
+.page-content h3,
+.page-content h4,
+.page-content h5,
+.page-content h6 {
+    font-family: 'Playfair Display', serif;
+    color: var(--text-color);
+    margin-top: 1.5em;
+    margin-bottom: 0.75em;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.page-content h1 { font-size: 2rem; }
+.page-content h2 { font-size: 1.75rem; }
+.page-content h3 { font-size: 1.5rem; }
+.page-content h4 { font-size: 1.25rem; }
+
+.page-content p {
+    margin-bottom: 1.25em;
+    color: var(--text-color);
+}
+
+.page-content a {
+    color: var(--primary-color);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+.page-content a:hover {
+    border-bottom-color: var(--primary-color);
+}
+
+.page-content ul,
+.page-content ol {
+    margin: 1em 0;
+    padding-left: 1.5em;
+}
+
+.page-content li {
+    margin-bottom: 0.5em;
+}
+
+.page-content blockquote {
+    margin: 1.5em 0;
+    padding: 20px 24px;
+    background: var(--bg-secondary);
+    border-left: 4px solid var(--primary-color);
+    border-radius: 0 12px 12px 0;
+    font-style: italic;
+    color: var(--text-light);
+}
+
+.page-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5em 0;
+}
+
+.page-content th,
+.page-content td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.page-content th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+}
+
+.page-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+    margin: 1em 0;
+}
+
+.page-content pre,
+.page-content code {
+    font-family: 'Fira Code', monospace;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.page-content code {
+    padding: 2px 8px;
+    font-size: 0.9em;
+}
+
+.page-content pre {
+    padding: 16px 20px;
+    overflow-x: auto;
+    margin: 1.5em 0;
+}
+
+.page-content pre code {
+    padding: 0;
+    background: transparent;
+}
+
+.page-footer {
+    background: var(--bg-color);
+    border-top: 1px solid var(--border-color);
+    padding: 24px 0;
+    text-align: center;
+}
+
+.footer-content {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 24px;
+    color: var(--text-light);
+    font-size: 14px;
+}
+
+.footer-content a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.footer-content a:hover {
+    text-decoration: underline;
+}
+
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.9);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 24px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.back-link:hover {
+    background: rgba(255,255,255,0.2);
+    color: white;
+}
+
+.back-link svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (max-width: 768px) {
+    .page-header {
+        padding: 40px 0 60px;
+    }
+    
+    .page-content {
+        padding: 24px;
+    }
+    
+    .page-meta {
+        gap: 16px;
+    }
+    
+    .content-card {
+        border-radius: 16px;
+    }
+}
+
+@media print {
+    .page-header {
+        background: none !important;
+        color: black !important;
+        padding: 20px 0;
+    }
+    
+    .page-header::before,
+    .page-header::after {
+        display: none;
+    }
+    
+    .page-title {
+        color: black !important;
+    }
+    
+    .back-link,
+    .page-type-badge {
+        display: none;
+    }
+    
+    .content-card {
+        box-shadow: none;
+    }
+}
+
+/* ============================================
+   Feature Sections Index CSS (from blade file 22)
+   ============================================ */
+#table_list.disable-drag-drop tbody tr,
+#table_list.disable-drag-drop tbody tr td {
+    cursor: default !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    -moz-user-select: none !important;
+    -ms-user-select: none !important;
+    pointer-events: auto !important;
+    -webkit-touch-callout: none !important;
+}
+
+#table_list.disable-drag-drop tbody tr:hover,
+#table_list.disable-drag-drop tbody tr td:hover {
+    cursor: default !important;
+}
+
+#table_list.disable-drag-drop tbody tr.ui-sortable-helper,
+#table_list.disable-drag-drop tbody tr.ui-sortable-placeholder,
+#table_list.disable-drag-drop tbody tr.ui-draggable-dragging {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+#table_list.disable-drag-drop tbody tr .drag-handle,
+#table_list.disable-drag-drop tbody tr::before,
+#table_list.disable-drag-drop tbody tr::after {
+    display: none !important;
+    cursor: default !important;
+}
+
+#table_list.disable-drag-drop tbody tr.reorder-rows-on-drag-class {
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+
+#rank-note.hidden {
+    display: none !important;
+}
+
+/* ============================================
+   Notifications Index CSS (from blade file 23)
+   ============================================ */
+#table_list th[data-field="title"],
+#table_list td[data-field="title"] {
+    width: 200px !important;
+    max-width: 200px !important;
+    min-width: 200px !important;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+#table_list th[data-field="message"],
+#table_list td[data-field="message"] {
+    width: 300px !important;
+    max-width: 300px !important;
+    min-width: 300px !important;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+#table_list th[data-field="type_id_display"],
+#table_list td[data-field="type_id_display"] {
+    width: 200px !important;
+    max-width: 200px !important;
+    min-width: 200px !important;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+#table_list table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+/* ============================================
+   FAQ Index CSS (from blade file 24)
+   ============================================ */
+.faq-answer-container {
+    max-width: 100%;
+    word-wrap: break-word;
+}
+
+.faq-answer-text {
+    line-height: 1.6;
+    color: #333;
+}
+
+.view-more-link, .view-less-link {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: 500;
+    margin-left: 5px;
+    cursor: pointer;
+}
+
+.view-more-link:hover, .view-less-link:hover {
+    color: #0056b3;
+    text-decoration: underline;
+}
+
+.view-more-text, .view-less-text {
+    font-size: 0.9em;
+}
+
+/* ============================================
+   Helpdesk Groups CSS (from blade file 25)
+   ============================================ */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border-radius: 0.2rem;
+    margin-right: 2px;
+}
+
+.btn-sm i {
+    font-size: 12px;
+}
+
+/* ============================================
+   Course Certificate Template CSS (from blade file 26)
+   ============================================ */
+.certificate-container {
+    position: relative;
+    width: 800px;
+    height: 600px;
+    margin: 0 auto;
+    padding: 0;
+    background-color: #ffffff;
+    border: 2px dashed #d3d3d3;
+    overflow: hidden;
+}
+
+.certificate-number {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #333333;
+}
+
+.student-name {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 36px;
+    font-weight: bold;
+    color: #333333;
+    text-align: center;
+    max-width: 70%;
+    word-wrap: break-word;
+}
+
+.course-name {
+    position: absolute;
+    top: 30px;
+    right: 30px;
+    font-size: 18px;
+    font-weight: bold;
+    color: #333333;
+    text-align: right;
+    max-width: 40%;
+    word-wrap: break-word;
+}
+
+.completion-date {
+    position: absolute;
+    bottom: 40px;
+    left: 50px;
+    font-size: 14px;
+    color: #999999;
+    text-align: left;
+}
+
+.sub-text {
+    position: absolute;
+    top: 45px;
+    left: 20px;
+    font-size: 12px;
+    color: #999999;
+}
+
+/* ============================================
+   Quiz Certificate Template CSS (from blade file 27)
+   ============================================ */
+.title {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.subtitle {
+    font-size: 18px;
+    margin-top: 10px;
+}
+
+.score {
+    font-size: 16px;
+    margin-top: 20px;
+}
+
+/* ============================================
+   Welcome Page CSS (from blade file 28)
+   ============================================ */
+/* Note: Welcome page uses inline Tailwind CSS classes, no custom CSS to extract */
+
+/* ============================================
+   Auth Login CSS (from blade file 29)
+   ============================================ */
+.password-toggle-btn {
+    transition: color 0.3s ease;
+}
+
+.password-toggle-btn:hover {
+    color: #495057 !important;
+}
+
+.password-toggle-btn:focus {
+    outline: none;
+}
+
+.password-input-wrapper {
+    position: relative;
+}
+
+.password-input-wrapper .form-control {
+    padding-right: 45px;
+}
+
+.password-input-wrapper .form-control.is-invalid {
+    padding-right: 70px;
+    border-color: #dc3545;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' width='12' height='12' fill='none' stroke='%23dc3545'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath d='m5.8 3.6 .4.4.4-.4m0 4.8h-.8'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right calc(0.375em + 0.1875rem) center;
+    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+}
+
+.password-input-wrapper .form-control.is-invalid ~ .password-toggle-btn {
+    right: 35px;
+}
+
+.password-toggle-btn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: white;
+    border: none;
+    cursor: pointer;
+    color: #6c757d;
+    padding: 5px 8px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+}
+
+/* ============================================
+   Email Templates CSS (from blade files 30-31)
+   ============================================ */
+/* Team Invitation Email */
+.container {
+    background-color: #ffffff;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+.header {
+    background-color: #007bff;
+    color: white;
+    padding: 20px;
+    border-radius: 5px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.content {
+    margin-bottom: 20px;
+}
+
+.button {
+    display: inline-block;
+    padding: 12px 30px;
+    background-color: #007bff;
+    color: white;
+    text-decoration: none;
+    border-radius: 5px;
+    margin: 20px 0;
+}
+
+.button:hover {
+    background-color: #0056b3;
+}
+
+.footer {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #dee2e6;
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+}
+
+/* Contact Form Email */
+.field {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-left: 4px solid #007bff;
+}
+
+.field-label {
+    font-weight: bold;
+    color: #007bff;
+    margin-bottom: 5px;
+}
+
+.message-content {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    border: 1px solid #dee2e6;
+    white-space: pre-wrap;
+}
+
+/* ============================================
+   Mail Layout CSS (from blade file 32)
+   ============================================ */
+@media only screen and (max-width: 600px) {
+    .inner-body {
+        width: 100% !important;
+    }
+
+    .footer {
+        width: 100% !important;
+    }
+}
+
+@media only screen and (max-width: 500px) {
+    .button {
+        width: 100% !important;
+    }
+}
+
+/* ============================================
+   Installer CSS (from blade file 33)
+   ============================================ */
+/* Note: Installer uses external CSS file, no inline CSS to extract */
+
+/* ============================================
+   Enrollments Show CSS (from blade file 34)
+   ============================================ */
+.avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* ============================================
+   Payment Success CSS (from blade file 35)
+   ============================================ */
+.success-container {
+    background: white;
+    padding: 3rem;
+    border-radius: 15px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+    text-align: center;
+    max-width: 500px;
+    width: 90%;
+}
+
+.success-icon {
+    font-size: 4rem;
+    color: #4CAF50;
+    margin-bottom: 1rem;
+}
+
+.success-title {
+    color: #333;
+    font-size: 2rem;
+    margin-bottom: 1rem;
+}
+
+.success-message {
+    color: #666;
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+}
+
+.payment-details {
+    background: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+    text-align: left;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.8rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #eee;
+}
+
+.detail-row:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.detail-label {
+    font-weight: bold;
+    color: #555;
+}
+
+.detail-value {
+    color: #333;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.btn-primary {
+    background: #6777ef;
+    border-color: #6777ef;
+    color: white;
+}
+
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active {
+    background: #5665d5;
+    border-color: #5665d5;
+    color: white;
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #545b62;
+}
+
+/* Pagination alignment and sizing */
+.pagination {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.pagination .page-link {
+    padding: 6px 12px;
+    font-size: 14px;
+    line-height: 1.4;
+    min-width: 38px;
+    text-align: center;
+}
+.pagination .page-link:hover {
+    color: #6777ef;
+}
+.pagination .page-item.disabled .page-link {
+    color: #6c757d;
+    background-color: #f8f9fa;
+    border-color: #dee2e6;
+}
+
+/* ============================================
+   Payment Cancel CSS (from blade file 36)
+   ============================================ */
+.cancel-container {
+    background: white;
+    padding: 3rem;
+    border-radius: 15px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+    text-align: center;
+    max-width: 500px;
+    width: 90%;
+}
+
+.cancel-icon {
+    font-size: 4rem;
+    color: #ff6b6b;
+    margin-bottom: 1rem;
+}
+
+.cancel-title {
+    color: #333;
+    font-size: 2rem;
+    margin-bottom: 1rem;
+}
+
+.cancel-message {
+    color: #666;
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+}
+
+.error-details {
+    background: #fff5f5;
+    padding: 1.5rem;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+    text-align: left;
+    border-left: 4px solid #ff6b6b;
+}
+
+.error-message {
+    color: #d32f2f;
+    font-weight: bold;
+}
+
+/* ============================================
+   Certificate Editor CSS (from blade file 37)
+   ============================================ */
+.element-content {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    cursor: text !important;
+}
+
+.element-content:focus {
+    outline: 2px solid #007bff;
+    outline-offset: 2px;
+}
+
+@media (min-width: 576px) {
+    .btn-sm-md {
+        padding: 0.375rem 0.75rem;
+        font-size: 1rem;
+    }
+    .btn-group-sm-md {
+        flex-direction: row;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .btn-group-sm-md {
+        flex-direction: column;
+    }
+    .btn-group-sm-md .btn {
+        width: 100%;
+        margin-bottom: 0.25rem;
+    }
+    .btn-group-sm-md .btn:last-child {
+        margin-bottom: 0;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .certificate-canvas {
+        height: 500px !important;
+        min-height: 400px !important;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .certificate-canvas {
+        height: 450px !important;
+        min-height: 350px !important;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .certificate-canvas {
+        height: 400px !important;
+        min-height: 300px !important;
+    }
+    
+    .draggable-element {
+        font-size: 0.9em !important;
+        padding: 6px !important;
+        min-width: 150px !important;
+    }
+    
+    .element-content {
+        font-size: 0.85em !important;
+    }
+    
+    #title-element .element-content {
+        font-size: 24px !important;
+    }
+    
+    #subtitle-element .element-content {
+        font-size: 14px !important;
+    }
+    
+    #student-name-element .element-content {
+        font-size: 18px !important;
+    }
+    
+    #course-name-element .element-content {
+        font-size: 16px !important;
+    }
+}
+
+.control-panel {
+    position: sticky;
+    top: 20px;
+}
+
+@media (max-width: 991.98px) {
+    .control-panel {
+        position: relative;
+        top: 0;
+        margin-top: 1rem;
+    }
+}
+
+.draggable-element.selected {
+    border: 2px solid #007bff !important;
+    box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
+}
+
+.draggable-element:hover {
+    border: 1px solid #007bff;
+}
+
+/* ============================================
+   Certificate Preview CSS (from blade file 38)
+   ============================================ */
+.certificate-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background: white;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    position: relative;
+}
+
+.certificate-preview {
+    position: relative;
+    width: 100%;
+    min-height: 800px;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 60px 40px;
+}
+
+.certificate-element {
+    position: absolute;
+    word-wrap: break-word;
+    box-sizing: border-box;
+}
+
+.certificate-content {
+    position: relative;
+    z-index: 2;
+    color: #333;
+    width: 100%;
+}
+
+.certificate-title {
+    font-size: 3rem;
+    font-weight: bold;
+    margin-bottom: 20px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.certificate-subtitle {
+    font-size: 1.5rem;
+    margin-bottom: 40px;
+    font-style: italic;
+}
+
+.certificate-body {
+    font-size: 1.2rem;
+    line-height: 1.6;
+    margin-bottom: 60px;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.certificate-signature {
+    position: absolute;
+    bottom: 80px;
+    right: 100px;
+    text-align: center;
+}
+
+.signature-image {
+    max-width: 200px;
+    max-height: 100px;
+    margin-bottom: 10px;
+}
+
+.signature-text {
+    font-size: 1rem;
+    font-weight: bold;
+}
+
+.certificate-date {
+    position: absolute;
+    bottom: 40px;
+    left: 100px;
+    font-size: 1rem;
+}
+
+.preview-controls {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.btn-text-short {
+    display: none;
+}
+
+.btn-text-full {
+    display: inline;
+}
+
+.placeholder-bg {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+.plr-50 {
+    padding-left: 50px !important;
+    padding-right: 50px !important;
+}
+.main-sidebar .sidebar-menu li ul.dropdown-menu li a, .main-sidebar .sidebar-menu li a span {
+    line-height: 12px;
+}
+.main-sidebar .nav-link .badge {
+    min-width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+    padding-top: 2px;
+}
+.main-sidebar .nav-link .badge-warning {
+    background-color: #ffc107;
+    color: #000;
+}
+.justify-content-end{
+    justify-content: flex-end;
+}
+.section-header h1 .fas, .section-header h3 .fas, .section-header h4 .fas{
+    font-size: 20px;
+}
+.dropdown-item .fas{
+    padding-right:5px;
+}
+.btn .badge{
+    border-radius: 30px !important;
+}
+.progress{
+    --bs-progress-bg: #e0e0e0;
+}
+#userDetailsContent strong{
+    color:#000;
+    padding-top:5px;
+}
+.remove-learning, .remove-requirement{
+    width:40%;
+    height:40px;
+    margin-top:3px;
+}
+button[type="button"] {
+    height: 40px;
+}
+.filter-section .fas{
+    font-size: 16px;
+}
+.plr-20{
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+}
+.flex-end{
+    align-items: flex-end;
+}
+.space-between{
+    justify-content: space-between !important;
+}
+/* ============================================
+   Action Column Buttons - Consistent Styling
+   Clean, modern, square buttons with rounded corners
+   ============================================ */
+
+/* Action column container */
+th[data-field="operate"], td[data-field="operate"] {
+    width: auto !important;
+    min-width: 120px !important;
+    text-align: center !important;
+    white-space: nowrap;
+}
+
+/* Action column menu wrapper - used by actionColumnFormatter */
+.action-column-menu {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+/* Buttons inside .action-column-menu - no margin needed, gap handles spacing */
+.action-column-menu a,
+.action-column-menu .btn,
+.action-column-menu > * {
+    margin: 0 !important;
+}
+
+/* Unified action button styling */
+.btn-action-icon,
+.btn.btn-action-icon,
+a.btn-action-icon,
+td[data-field="operate"] a,
+td[data-field="operate"] .btn,
+td[data-field="operate"] a.btn,
+td[data-field="operate"] button.btn {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    min-height: 30px !important;
+    padding: 0 !important;
+    margin: 0 3px !important;
+    font-size: 12px !important;
+    line-height: 30px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 4px !important;
+    text-decoration: none !important;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Override: No margin for buttons inside action-column-menu (gap handles it) */
+.action-column-menu a,
+.action-column-menu .btn {
+    margin: 0 !important;
+}
+
+/* First and last button margin adjustment for non-wrapped buttons */
+td[data-field="operate"] > a:first-of-type,
+td[data-field="operate"] > .btn:first-of-type {
+    margin-left: 0 !important;
+}
+
+td[data-field="operate"] > a:last-of-type,
+td[data-field="operate"] > .btn:last-of-type {
+    margin-right: 0 !important;
+}
+
+/* Icon sizing inside action buttons */
+.btn-action-icon i,
+td[data-field="operate"] a i,
+td[data-field="operate"] .btn i {
+    font-size: 12px !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+}
+
+/* Text inside action buttons (hidden by default) */
+.btn-action-icon .btn-text {
+    display: none;
+}
+
+/* Hover effects - simple opacity change, no shadows */
+.btn-action-icon:hover,
+td[data-field="operate"] a:hover,
+td[data-field="operate"] .btn:hover {
+    opacity: 0.85;
+    box-shadow: none !important;
+}
+
+/* Focus state for accessibility */
+.btn-action-icon:focus,
+td[data-field="operate"] a:focus,
+td[data-field="operate"] .btn:focus {
+    outline: 2px solid rgba(103, 119, 239, 0.5);
+    outline-offset: 1px;
+    box-shadow: none !important;
+}
+
+/* Button color variants */
+.btn-action-icon.btn-primary,
+td[data-field="operate"] .btn-primary {
+    background-color: #6777ef !important;
+    color: #fff !important;
+}
+
+.btn-action-icon.btn-danger,
+td[data-field="operate"] .btn-danger {
+    background-color: #fc544b !important;
+    color: #fff !important;
+}
+
+.btn-action-icon.btn-info,
+td[data-field="operate"] .btn-info {
+    background-color: #3abaf4 !important;
+    color: #fff !important;
+}
+
+.btn-action-icon.btn-success,
+td[data-field="operate"] .btn-success {
+    background-color: #47c363 !important;
+    color: #fff !important;
+}
+
+.btn-action-icon.btn-warning,
+td[data-field="operate"] .btn-warning {
+    background-color: #ffa426 !important;
+    color: #fff !important;
+}
+
+.btn-action-icon.btn-secondary,
+td[data-field="operate"] .btn-secondary {
+    background-color: #6c757d !important;
+    color: #fff !important;
+}
+
+/* Dropdown button in action column */
+.btn-action-icon.dropdown,
+td[data-field="operate"] .dropdown {
+    display: inline-block !important;
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.btn-action-icon.dropdown .dropdown-toggle,
+td[data-field="operate"] .dropdown .dropdown-toggle {
+    width: 30px !important;
+    height: 30px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+}
+
+/* Mobile responsive - slightly larger for touch */
+@media (max-width: 768px) {
+    th[data-field="operate"], td[data-field="operate"] {
+        min-width: 100px !important;
+    }
+
+    .btn-action-icon,
+    td[data-field="operate"] a,
+    td[data-field="operate"] .btn {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        font-size: 14px !important;
+    }
+
+    .btn-action-icon i,
+    td[data-field="operate"] a i,
+    td[data-field="operate"] .btn i {
+        font-size: 14px !important;
+    }
+
+    .action-column-menu {
+        gap: 8px;
+    }
+}
+@media (max-width: 991.98px) {
+    .certificate-preview {
+        min-height: 600px;
+        padding: 40px 20px;
+    }
+    .certificate-title {
+        font-size: 2.5rem;
+    }
+    .certificate-subtitle {
+        font-size: 1.3rem;
+    }
+    .certificate-body {
+        font-size: 1.1rem;
+    }
+    .certificate-signature {
+        bottom: 60px;
+        right: 50px;
+    }
+    .certificate-date {
+        bottom: 30px;
+        left: 50px;
+    }
+    .signature-image {
+        max-width: 150px;
+        max-height: 80px;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .preview-controls {
+        position: relative;
+        top: 0;
+        right: 0;
+        width: 100%;
+        margin-bottom: 20px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .preview-controls .btn {
+        flex: 1 1 auto;
+        min-width: 120px;
+    }
+    .btn-text-short {
+        display: inline;
+    }
+    .btn-text-full {
+        display: none;
+    }
+    .certificate-preview {
+        min-height: 500px;
+        padding: 30px 15px;
+    }
+    .certificate-title {
+        font-size: 2rem;
+        margin-bottom: 15px;
+    }
+    .certificate-subtitle {
+        font-size: 1.1rem;
+        margin-bottom: 30px;
+    }
+    .certificate-body {
+        font-size: 1rem;
+        margin-bottom: 40px;
+    }
+    .certificate-signature {
+        position: relative;
+        bottom: auto;
+        right: auto;
+        margin-top: 30px;
+        margin-bottom: 20px;
+    }
+    .certificate-date {
+        position: relative;
+        bottom: auto;
+        left: auto;
+        margin-top: 20px;
+    }
+    .signature-image {
+        max-width: 120px;
+        max-height: 60px;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .certificate-preview {
+        min-height: 400px;
+        padding: 20px 10px;
+    }
+    .certificate-title {
+        font-size: 1.5rem;
+        margin-bottom: 10px;
+    }
+    .certificate-subtitle {
+        font-size: 1rem;
+        margin-bottom: 20px;
+    }
+    .certificate-body {
+        font-size: 0.9rem;
+        margin-bottom: 30px;
+    }
+    .certificate-body p {
+        margin: 8px 0;
+    }
+    .preview-controls {
+        padding: 10px;
+    }
+    .preview-controls .btn {
+        padding: 6px 12px;
+        font-size: 0.875rem;
+        min-width: 100px;
+    }
+    .signature-image {
+        max-width: 100px;
+        max-height: 50px;
+    }
+    .signature-text {
+        font-size: 0.875rem;
+    }
+    .certificate-date {
+        font-size: 0.875rem;
+    }
+}
+
+@media print {
+    .preview-controls {
+        display: none;
+    }
+}
+
+/* ============================================
+   Accessibility & Contrast Improvements
+   ============================================ */
+
+/* Table Sort Icons - Improved Contrast (Override SVG icons with darker colors) */
+/* Default/unsorted state - using #6c757d instead of #dcdcdc for better contrast */
+.bootstrap-table .fixed-table-container .table tfoot th .both,
+.bootstrap-table .fixed-table-container .table thead th .both {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512" fill="%236c757d"><path d="m103.05877,41.4c9.37707,-12.5 24.60541,-12.5 33.98248,0l96.02113,128c6.90152,9.2 8.92696,22.9 5.17614,34.9s-12.45274,19.8 -22.20489,19.8l-192.04225,-0.1c-9.67713,0 -18.45406,-7.8 -22.20489,-19.8s-1.65036,-25.7 5.17614,-34.9l96.02113,-128l0.07501,0.1zm0,429.3l-96.02113,-128c-6.90152,-9.2 -8.92696,-22.9 -5.17614,-34.9s12.45274,-19.8 22.20489,-19.8l192.04225,0c9.67713,0 18.45406,7.8 22.20489,19.8s1.65036,25.7 -5.17614,34.9l-96.02113,128c-9.37707,12.5 -24.60541,12.5 -33.98248,0l-0.07501,0z"/></svg>') !important;
+    background-size: 16px 16px !important;
+    background-position: center right 2px !important;
+}
+
+/* Ascending sort icon - using #495057 for active state */
+.bootstrap-table .fixed-table-container .table tfoot th .asc,
+.bootstrap-table .fixed-table-container .table thead th .asc {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512" fill="%23495057"><path d="m136.9496,41.4c-9.3763,-12.5 -24.60342,-12.5 -33.97972,0l-96.01334,128c-6.90096,9.2 -8.92624,22.9 -5.17572,34.9s12.45173,19.8 22.20309,19.8l192.02668,0c9.67634,0 18.45256,-7.8 22.20309,-19.8s1.65023,-25.7 -5.17572,-34.9l-96.01334,-128l-0.07501,0z"/></svg>') !important;
+}
+
+/* Descending sort icon - using #495057 for active state */
+.bootstrap-table .fixed-table-container .table tfoot th .desc,
+.bootstrap-table .fixed-table-container .table thead th .desc {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512" fill="%23495057"><path d="m136.94959,471.6c-9.3763,12.5 -24.60342,12.5 -33.97972,0l-96.01334,-128c-6.90096,-9.2 -8.92624,-22.9 -5.17572,-34.9s12.45173,-19.8 22.20308,-19.8l192.02667,0c9.67634,0 18.45256,7.8 22.20308,19.8s1.65023,25.7 -5.17572,34.9l-96.01334,128l-0.07501,0z"/></svg>') !important;
+}
+
+/* Search Input - Improved Contrast */
+.bootstrap-table .fixed-table-toolbar .search input,
+.bootstrap-table .search input.form-control,
+.card .card-header .form-control,
+.fixed-table-toolbar .search-input {
+    color: #495057 !important;
+    border-color: #adb5bd !important;
+    background-color: #fff !important;
+}
+
+.bootstrap-table .fixed-table-toolbar .search input::placeholder,
+.bootstrap-table .search input.form-control::placeholder,
+.card .card-header .form-control::placeholder,
+.fixed-table-toolbar .search-input::placeholder,
+.form-control::placeholder {
+    color: #6c757d !important;
+    opacity: 1 !important;
+}
+
+/* Focus state for search inputs */
+.bootstrap-table .fixed-table-toolbar .search input:focus,
+.bootstrap-table .search input.form-control:focus,
+.card .card-header .form-control:focus {
+    border-color: #6777ef !important;
+    box-shadow: 0 0 0 0.2rem rgba(103, 119, 239, 0.25) !important;
+}
+
+/* Table Header Text - Better Readability */
+.bootstrap-table .fixed-table-container .table thead th,
+.bootstrap-table .fixed-table-header th,
+.table thead th,
+.table-bordered thead th {
+    color: #343a40 !important;
+    font-weight: 600;
+}
+
+/* Form Controls - Improved Border Contrast */
+.form-control {
+    border-color: #adb5bd;
+    color: #495057;
+}
+
+.form-control:focus {
+    border-color: #6777ef;
+    box-shadow: 0 0 0 0.2rem rgba(103, 119, 239, 0.25);
+}
+
+/* Select2 - Improved Contrast */
+.select2-container--default .select2-selection--single {
+    border-color: #adb5bd !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+    color: #495057 !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__placeholder {
+    color: #6c757d !important;
+}
+
+.select2-container--default .select2-selection--single:focus,
+.select2-container--default.select2-container--focus .select2-selection--single {
+    border-color: #6777ef !important;
+}
+
+/* DataTables Sort Icons - Improved Contrast */
+table.dataTable thead .sorting::before,
+table.dataTable thead .sorting::after,
+table.dataTable thead .sorting_asc::before,
+table.dataTable thead .sorting_asc::after,
+table.dataTable thead .sorting_desc::before,
+table.dataTable thead .sorting_desc::after {
+    opacity: 0.7 !important;
+}
+
+table.dataTable thead .sorting_asc::before,
+table.dataTable thead .sorting_desc::after {
+    opacity: 1 !important;
+}
+
+/* Input Group Text - Better Contrast */
+.input-group-text {
+    background-color: #e9ecef;
+    border-color: #adb5bd;
+    color: #495057;
+}
+
+/* Card Header Search Icons */
+.card .card-header .input-group-text,
+.fixed-table-toolbar .input-group-text {
+    background-color: #e9ecef !important;
+    border-color: #adb5bd !important;
+    color: #495057 !important;
+}
+
+/* Toolbar Buttons - Clean Modern Styling (Refresh, Columns, Export) */
+.bootstrap-table .fixed-table-toolbar .btn,
+.bootstrap-table .fixed-table-toolbar .btn-secondary,
+.bootstrap-table .fixed-table-toolbar .btn-default,
+.bootstrap-table .fixed-table-toolbar .btn-group > .btn {
+    background-color: #fff !important;
+    border: 1px solid #dee2e6 !important;
+    color: #6777ef !important;
+    box-shadow: none !important;
+    transition: all 0.15s ease-in-out !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 6px 12px !important;
+    border-radius: 4px !important;
+}
+
+.bootstrap-table .fixed-table-toolbar .btn:hover,
+.bootstrap-table .fixed-table-toolbar .btn-secondary:hover,
+.bootstrap-table .fixed-table-toolbar .btn-default:hover,
+.bootstrap-table .fixed-table-toolbar .btn-group > .btn:hover {
+    background-color: #6777ef !important;
+    border-color: #6777ef !important;
+    color: #fff !important;
+    box-shadow: none !important;
+}
+
+.bootstrap-table .fixed-table-toolbar .btn:focus,
+.bootstrap-table .fixed-table-toolbar .btn-secondary:focus,
+.bootstrap-table .fixed-table-toolbar .btn-default:focus,
+.bootstrap-table .fixed-table-toolbar .btn-group > .btn:focus {
+    box-shadow: 0 0 0 0.2rem rgba(103, 119, 239, 0.25) !important;
+    outline: none !important;
+}
+
+/* Toolbar Button Icons */
+.bootstrap-table .fixed-table-toolbar .btn i,
+.bootstrap-table .fixed-table-toolbar .btn-group > .btn i {
+    color: inherit !important;
+}
+
+/* Dropdown Caret in Toolbar */
+.bootstrap-table .fixed-table-toolbar .dropdown-toggle::after {
+    border-top-color: currentColor !important;
+    margin-left: 4px !important;
+}
+
+/* Button Group Styling - Separate buttons with gaps */
+.bootstrap-table .fixed-table-toolbar .btn-group {
+    box-shadow: none !important;
+    gap: 6px !important;
+    display: inline-flex !important;
+}
+
+.bootstrap-table .fixed-table-toolbar .btn-group > .btn {
+    border-radius: 4px !important;
+    margin-left: 0 !important;
+}
+
+.bootstrap-table .fixed-table-toolbar .btn-group > .btn:not(:first-child) {
+    margin-left: 0 !important;
+}
+
+.bootstrap-table .fixed-table-toolbar .btn-group > .btn:first-child {
+    border-radius: 4px !important;
+}
+
+.bootstrap-table .fixed-table-toolbar .btn-group > .btn:last-child {
+    border-radius: 4px !important;
+}
+
+/* Search Input - Match toolbar button height and style */
+.bootstrap-table .fixed-table-toolbar .search input,
+.bootstrap-table .fixed-table-toolbar .search input.form-control,
+.bootstrap-table .search input.form-control {
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 6px 12px !important;
+    border-radius: 4px !important;
+    border: 1px solid #dee2e6 !important;
+    font-size: 14px !important;
+}
+
+/* Columns dropdown menu styling */
+.bootstrap-table .fixed-table-toolbar .dropdown-menu {
+    border: 1px solid #dee2e6 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    border-radius: 4px !important;
+}
+
+.bootstrap-table .fixed-table-toolbar .dropdown-menu label {
+    color: #495057 !important;
+    cursor: pointer;
+}
+
+.bootstrap-table .fixed-table-toolbar .dropdown-menu label:hover {
+    background-color: #f8f9fa !important;
+}
+
+/* ============================================
+   Certificate Show CSS (from blade file 39)
+   ============================================ */
+@media (max-width: 767.98px) {
+    .section-header-button .d-flex {
+        flex-direction: column;
+    }
+    .section-header-button .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+    .section-header-button .btn:last-child {
+        margin-bottom: 0;
+    }
+}
+
+.table {
+    width: 100%;
+    table-layout: auto;
+}
+
+.table th {
+    white-space: nowrap;
+    word-wrap: break-word;
+}
+
+.table td {
+    word-wrap: break-word;
+    word-break: break-word;
+}
+
+@media (max-width: 575.98px) {
+    .table th {
+        width: auto;
+        min-width: 100px;
+    }
+    .table th[width="30%"] {
+        width: auto;
+    }
+}
+
+/* ============================================
+   Certificate Edit CSS (from blade file 40)
+   ============================================ */
+@media (min-width: 576px) {
+    .btn-sm-md {
+        padding: 0.375rem 0.75rem;
+        font-size: 1rem;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .section-header-button .btn {
+        width: 100%;
+    }
+}

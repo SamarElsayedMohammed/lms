@@ -1,0 +1,108 @@
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# IDE and Editor Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+.phpactor.json
+.phpstorm.meta.php
+_ide_helper.php
+_ide_helper_models.php
+
+# Laravel Files
+/vendor/
+/node_modules/
+npm-debug.log
+yarn-error.log
+yarn.lock
+
+# Laravel 4 specific
+bootstrap/compiled.php
+app/storage/
+
+# Laravel 5+ & Lumen specific
+/public/storage
+/public/hot
+/storage/*.key
+/storage/pail
+storage/debugbar/
+
+# Environment Files
+.env
+.env.backup
+.env.production
+.env.*.php
+.env.php
+Homestead.yaml
+Homestead.json
+/.vagrant
+
+# Testing
+.phpunit.result.cache
+/coverage
+/tests/coverage
+coverage.txt
+/.phpunit.cache
+
+# Logs
+/storage/logs/*
+!/storage/logs/.gitkeep
+*.log
+
+# Composer
+auth.json
+vendor/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Compiled Files
+*.compiled
+
+# Cache
+/bootstrap/cache/*
+!/bootstrap/cache/.gitkeep
+/storage/framework/cache/*
+!/storage/framework/cache/.gitkeep
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitkeep
+/storage/framework/views/*
+!/storage/framework/views/.gitkeep
+
+# Backups
+*.sql
+*.sqlite
+*.sqlite-journal
+backup/
+backups/
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.md
+
+*.sh
+
+# Public folder
+!/public/*
+/public/hot/*
+/public/storage/*
+/public/build/*
+/public/.DS_Store

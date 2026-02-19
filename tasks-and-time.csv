@@ -1,0 +1,72 @@
+LMS Project - All Tasks by Phase (with Time and Status)
+Generated: 2025-02-15
+
+SUMMARY
+Metric,Value
+Total Tasks,59
+Completed,36
+Not Done Until Now,23
+Total Time (hours),52.5
+Remaining Time (hours),25.25
+
+TASK LIST
+Task ID,Task Name (EN),Task Name (AR),Phase,Est. Time (min),Time (hours),Priority,Status,Not Done?
+T008,Create Subscription Plans Index View,إنشاء صفحة قائمة الباقات,Phase 1 - Plans,120,2,High,To Do,Yes
+T009,Create Plan Edit Modal/Form,إنشاء نموذج تعديل الباقة,Phase 1 - Plans,90,1.5,High,To Do,Yes
+T010,Create Plan Show/Details View,إنشاء صفحة تفاصيل الباقة,Phase 1 - Plans,90,1.5,High,To Do,Yes
+T011,Add Subscriptions Section to Sidebar,إضافة قسم الاشتراكات للقائمة الجانبية,Phase 1 - Plans,30,0.5,High,To Do,Yes
+T012,Create SubscriptionPlanSeeder,إنشاء بذار الباقات الافتراضية,Phase 1 - Plans,60,1,High,To Do,Yes
+T013,Run SubscriptionPlanSeeder,تشغيل بذار الباقات,Phase 1 - Plans,15,0.25,High,To Do,Yes
+T014,Add Renew Method to SubscriptionApiController,إضافة طريقة التجديد لـ API الاشتراك,Phase 1 - Plans,60,1,High,To Do,Yes
+T047,Create Release Affiliate Commissions Command,إنشاء أمر إطلاق عمولات التسويق بالعمولة,Phase 7 - Affiliate,45,0.75,High,Complete,No
+T048,Create Pricing Tables Migration,إنشاء ترحيل جداول التسعير,Phase 8 - Pricing,45,0.75,High,Complete,No
+T049,Create Pricing Models,إنشاء نماذج التسعير,Phase 8 - Pricing,60,1,High,Complete,No
+T050,Create PricingService,إنشاء خدمة التسعير,Phase 8 - Pricing,90,1.5,High,Complete,No
+T051,Modify Subscription API for Localized Prices,تعديل واجهة الباقات للأسعار المحلية,Phase 8 - Pricing,60,1,High,To Do,Yes
+T052,Create SupportedCurrencySeeder,إنشاء بذار العملات المدعومة,Phase 8 - Pricing,45,0.75,High,To Do,Yes
+T053,Add Admin UI for Country Pricing,إضافة واجهة تسعير الدول للباقات,Phase 8 - Pricing,120,2,High,To Do,Yes
+T054,Run Pricing Migrations and Seeder,تشغيل ترحيلات وبذار التسعير,Phase 8 - Pricing,15,0.25,High,To Do,Yes
+T055,Create KashierCheckoutService,إنشاء خدمة دفع Kashier,Phase 9 - Kashier,150,2.5,High,Complete,No
+T056,Register Kashier in PaymentFactory,تسجيل Kashier في مصنع الدفع,Phase 9 - Kashier,30,0.5,High,Complete,No
+T057,Create Kashier Webhook Handler,إنشاء معالج ويب هوك Kashier,Phase 9 - Kashier,120,2,High,Complete,No
+T058,Add Kashier Settings to Admin,إضافة إعدادات Kashier للأدمن,Phase 9 - Kashier,60,1,High,Complete,No
+T059,Modify Subscription Flow for Kashier,تعديل تدفق الاشتراك لاستخدام Kashier,Phase 9 - Kashier,120,2,High,Complete,No
+T060,Register Kashier Webhook Route,تسجيل مسار ويب هوك Kashier,Phase 9 - Kashier,15,0.25,High,Complete,No
+T061,Update Permission Seeder for Supervisor Role,تحديث بذار الصلاحيات لدور المشرف,Phase 10 - Supervisor,60,1,High,Complete,No
+T062,Rename Instructor to Supervisor in UI,إعادة تسمية المدرب إلى المشرف في الواجهة,Phase 10 - Supervisor,45,0.75,High,To Do,Yes
+T063,Create Admin UI for Role Permission Assignment,إنشاء واجهة تعيين الصلاحيات,Phase 10 - Supervisor,90,1.5,High,To Do,Yes
+T064,Add Permission Checks to Admin Controllers,إضافة فحوصات الصلاحيات للمتحكمات,Phase 10 - Supervisor,60,1,High,To Do,Yes
+T065,Run Permissions Seeder,تشغيل بذار الصلاحيات,Phase 10 - Supervisor,15,0.25,High,To Do,Yes
+T066,Create Approval Fields Migration,إنشاء ترحيل حقول الموافقة,Phase 11 - Approval,45,0.75,High,Complete,No
+T067,Update Rating Model for Approval,تحديث نموذج التقييم للموافقة,Phase 11 - Approval,30,0.5,High,Complete,No
+T068,Update CourseDiscussion Model for Approval,تحديث نموذج المناقشة للموافقة,Phase 11 - Approval,30,0.5,High,Complete,No
+T069,Modify Public API to Filter by Approval,تعديل API العام لتصفية حسب الموافقة,Phase 11 - Approval,60,1,High,To Do,Yes
+T070,Create Admin ApprovalController,إنشاء متحكم موافقة الأدمن,Phase 11 - Approval,90,1.5,High,To Do,Yes
+T071,Register Approval Admin Routes,تسجيل مسارات موافقة الأدمن,Phase 11 - Approval,30,0.5,High,To Do,Yes
+T072,Create Admin Approval UI,إنشاء واجهة موافقة الأدمن,Phase 11 - Approval,90,1.5,High,To Do,Yes
+T073,Run Approval Migration,تشغيل ترحيل الموافقة,Phase 11 - Approval,15,0.25,High,To Do,Yes
+T074,Create Marketing Pixels Table Migration,إنشاء ترحيل جدول بكسل التسويق,Phase 12 - Marketing,30,0.5,Medium,Complete,No
+T075,Create MarketingPixel Model,إنشاء نموذج بكسل التسويق,Phase 12 - Marketing,30,0.5,Medium,Complete,No
+T076,Create Admin MarketingPixelController,إنشاء متحكم بكسل التسويق للأدمن,Phase 12 - Marketing,60,1,Medium,Complete,No
+T077,Create Public API for Active Pixels,إنشاء API عام للبكسل النشط,Phase 12 - Marketing,45,0.75,Medium,Complete,No
+T078,Register Marketing Pixel Routes,تسجيل مسارات بكسل التسويق,Phase 12 - Marketing,30,0.5,Medium,Complete,No
+T079,Create Admin Marketing Pixels View,إنشاء واجهة إدارة البكسل,Phase 12 - Marketing,90,1.5,Medium,Complete,No
+T080,Run Marketing Pixels Migration,تشغيل ترحيل بكسل التسويق,Phase 12 - Marketing,15,0.25,Medium,Complete,No
+T081,Extend SubscriptionPlanController for Full CRUD API,توسيع متحكم الباقات لـ CRUD كامل,Phase 13 - Plan API,90,1.5,High,To Do,Yes
+T082,Register Admin Plan Management Routes,تسجيل مسارات إدارة الباقات,Phase 13 - Plan API,30,0.5,High,To Do,Yes
+T083,Create SendSubscriptionExpiryNotifications Command,إنشاء أمر إشعارات انتهاء الاشتراك,Phase 14 - Expiry,90,1.5,High,Complete,No
+T084,Create Expiry Notification Email Templates,إنشاء قوالب بريد انتهاء الاشتراك,Phase 14 - Expiry,60,1,High,Complete,No
+T085,Create Laravel Mailable Classes,إنشاء فئات Mailable للإشعارات,Phase 14 - Expiry,60,1,High,Complete,No
+T086,Create HandleExpiredSubscriptions Command,إنشاء أمر معالجة الاشتراكات المنتهية,Phase 15 - Auto-Renewal,90,1.5,High,Complete,No
+T087,Install QR Code Package,تثبيت حزمة QR Code,Phase 16 - Certificate,15,0.25,Medium,Complete,No
+T088,Modify CertificateService for 100% Gate and QR,تعديل خدمة الشهادة لشرط 100% و QR,Phase 16 - Certificate,90,1.5,Medium,Complete,No
+T089,Create Certificate Verification Endpoint,إنشاء نقطة التحقق من الشهادة,Phase 16 - Certificate,60,1,Medium,Complete,No
+T090,Register Commands in Scheduler,تسجيل الأوامر في المجدول,Phase 17 - Polish,30,0.5,High,Complete,No
+T091,Add referred_by Field to Users Table,إضافة حقل المُحيل لجدول المستخدمين,Phase 17 - Polish,30,0.5,High,Complete,No
+T092,Add User Registration Hook for Affiliate Tracking,إضافة ربط التسجيل بالتسويق بالعمولة,Phase 17 - Polish,60,1,High,Complete,No
+T093,Backfill Existing Ratings and Comments with Approved,تحديث التقييمات والمناقشات القديمة بالموافقة,Phase 17 - Polish,30,0.5,High,Complete,No
+T094,Add commission_rate to Subscription Plan Admin Forms,إضافة نسبة العمولة لنماذج الباقات,Phase 17 - Polish,45,0.75,High,Complete,No
+T095,Wallet Top-up via Kashier,شحن المحفظة عبر Kashier,Phase 17 - Polish,120,2,High,Complete,No
+T096,Admin Currencies Management UI,واجهة إدارة العملات للأدمن,Phase 17 - Polish,120,2,Medium,Complete,No
+T097,Add Marketing Pixels Sidebar Link,إضافة رابط البكسل في القائمة الجانبية,Phase 17 - Polish,15,0.25,Medium,Complete,No
+T098,Final Integration Verification,التحقق النهائي من التكامل,Phase 17 - Polish,120,2,High,To Do,Yes

@@ -1,0 +1,532 @@
+@extends('layouts.app')
+
+@php
+    // Helper function to safely convert any value to string
+    if (!function_exists('safeString')) {
+        function safeString($value) {
+            if (is_array($value)) {
+                return implode(', ', array_filter($value, function($item) {
+                    return !is_array($item) && !is_object($item);
+                }));
+            }
+            if (is_object($value)) {
+                return method_exists($value, '__toString') ? (string)$value : '';
+            }
+            return (string)($value ?? '');
+        }
+    }
+@endphp
+
+@section('title')
+    {{ __('Edit Course') }}
+@endsection
+
+@section('page-title')
+    <h1 class="mb-0">@yield('title')</h1>
+    <div class="section-header-button ml-auto">
+        <a class="btn btn-primary" href="{{ route('courses.index') }}">← {{ __('Back to All Courses') }}</a>
+    </div> @endsection
+
+@section('main')
+    @php
+        // Convert all course fields to strings to prevent htmlspecialchars errors
+        $courseId = safeString($course->id);
+        $courseTitle = safeString($course->title);
+        $courseSlug = safeString($course->slug);
+        $courseShortDescription = safeString($course->short_description);
+        $courseThumbnail = safeString($course->thumbnail);
+        $courseIntroVideo = safeString($course->intro_video);
+        $courseLevel = safeString($course->level);
+        $courseType = safeString($course->course_type);
+        $coursePrice = safeString($course->price);
+        $courseDiscountPrice = safeString($course->discount_price);
+        $courseCertificateFee = safeString($course->certificate_fee);
+        $courseMetaTitle = safeString($course->meta_title);
+        $courseMetaImage = safeString($course->meta_image);
+        $courseMetaDescription = safeString($course->meta_description);
+        $courseMetaKeywords = safeString($course->meta_keywords);
+        $courseLanguageId = safeString($course->language_id);
+        // Handle missing category gracefully - show "Uncategorized" if category is missing
+        $courseCategoryName = 'Uncategorized';
+        if ($course->category_id) {
+            try {
+                $category = \App\Models\Category::withTrashed()->find($course->category_id);
+                if ($category && $category->name) {
+                    $courseCategoryName = safeString($category->name);
+                }
+            } catch (\Exception $e) {
+                // Category doesn't exist, keep as "Uncategorized"
+                $courseCategoryName = 'Uncategorized';
+            }
+        }
+
+        // Convert boolean fields safely
+        $courseSequentialAccess = (bool)($course->sequential_access ?? false);
+        $courseCertificateEnabled = (bool)($course->certificate_enabled ?? false);
+        $courseIsActive = (bool)($course->is_active ?? false);
+    @endphp
+    <div class="content-wrapper">
+        <div class="row">
+            <div class="col-md-12 grid-margin stretch-card search-container">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="card-title mb-4">
+                            {{ __('Edit Course') }}
+                        </h4>
+                        {{-- Start Form --}}
+                        <form class="pt-3 mt-6 create-form" method="POST" action="{{ route('courses.update', $courseId) }}" data-success-function="formSuccessFunction" data-pre-submit-function="validateVideoFileSize" data-parsley-validate enctype="multipart/form-data">
+                            @csrf
+                            @method('PUT')
+                        <input type="hidden"  name="id" value="{{ $courseId }}" required>
+
+                            <div class="row">
+
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <label>{{ __('Title') }} <span class="text-danger"> * </span></label>
+                                    <input type="text" name="title" id="title" placeholder="{{ __('Title') }}" class="form-control" value="{{ $courseTitle }}" required>
+                                </div>
+
+
+                                {{-- Short Description --}}
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <label>{{ __('Short Description') }}</label>
+                                    <textarea name="short_description" id="short_description" class="form-control" placeholder="{{ __('Short Description') }}">{{ $courseShortDescription }}</textarea>
+                                </div>
+
+                                {{-- Thumbnail --}}
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <label>{{ __('Thumbnail') }} <span class="text-danger">*</span></label>
+                                    <input type="file" name="thumbnail" id="thumbnail" class="form-control" accept="image/*" onchange="previewThumbnail(this)"> @if(!empty($courseThumbnail)) <div class="mt-2">
+                                            <small>{{ __('Current Thumbnail') }}</small><br>
+                                            <img id="thumbnail_preview" class="edit-image-preview" src="{{ $courseThumbnail }}" alt="Thumbnail Image">
+                                        </div> @endif </div>
+
+                                {{-- Intro Video --}}
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <label>{{ __('Intro Video') }}</label>
+                                    <input type="file" name="intro_video" id="intro_video" class="form-control" accept="video/*">
+                                    <small class="form-text text-muted">{{ __('Maximum file size:') }} <span id="max-video-size">{{ $maxVideoSizeMB ?? 100 }}</span> MB</small>
+                                    <div id="intro_video_error" class="alert alert-danger mt-2" role="alert" style="display: none; margin-top: 10px !important;">
+                                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                                        <span id="intro_video_error_text"></span>
+                                    </div>
+                                    @if(!empty($courseIntroVideo))
+                                        <div class="mt-2">
+                                            <small>{{ __('Current Intro Video') }}</small><br>
+                                            <a href="{{ $courseIntroVideo }}" target="_blank">{{ __('View Video') }}</a>
+                                        </div>
+                                    @endif
+                                </div>
+
+                                {{-- Level --}}
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <label>{{ __('Level') }} <span class="text-danger"> * </span></label>
+                                    <select name="level" id="level" class="form-control" required>
+                                        <option value="beginner" {{ $courseLevel == 'beginner' ? 'selected' : '' }}>{{ __('Beginner') }}</option>
+                                        <option value="intermediate" {{ $courseLevel == 'intermediate' ? 'selected' : '' }}>{{ __('Intermediate') }}</option>
+                                        <option value="advanced" {{ $courseLevel == 'advanced' ? 'selected' : '' }}>{{ __('Advanced') }}</option>
+                                    </select>
+                                </div>
+
+                                {{-- Course Type --}}
+                                <div class="form-group mandatory col-sm-12 col-md-2">
+                                    <label class="d-block form-label">{{ __('Course Type') }}</label>
+                                    <div class="custom-control custom-radio custom-control-inline">
+                                        <input type="radio" id="course_type_free" name="course_type" value="free" class="custom-control-input" {{ $courseType == 'free' ? 'checked' : '' }} disabled>
+                                        <label class="custom-control-label" for="course_type_free">{{ __('Free') }}</label>
+                                    </div>
+                                    <div class="custom-control custom-radio custom-control-inline">
+                                        <input type="radio" id="course_type_paid" name="course_type" value="paid" class="custom-control-input" {{ $courseType == 'paid' ? 'checked' : '' }} disabled>
+                                        <label class="custom-control-label" for="course_type_paid">{{ __('Paid') }}</label>
+                                    </div>
+                                </div>
+
+                                {{-- Free Course (Subscription Bypass) --}}
+                                @php $courseIsFree = (bool)($course->is_free ?? false); $courseIsFreeUntil = $course->is_free_until ?? null; @endphp
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <div class="control-label">
+                                        {{ __('Free Course (No Subscription Required)') }}
+                                        <i class="fas fa-info-circle text-info ml-1" data-toggle="tooltip" data-placement="top" title="{{ __('If enabled, entire course is accessible without subscription.') }}"></i>
+                                    </div>
+                                    <div class="custom-switches-stacked mt-2">
+                                        <label class="custom-switch">
+                                            <input type="checkbox" class="custom-switch-input" id="is_free" name="is_free" value="1" {{ $courseIsFree ? 'checked' : '' }}>
+                                            <span class="custom-switch-indicator"></span>
+                                            <span class="custom-switch-description">{{ $courseIsFree ? __('Yes') : __('No') }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group col-sm-12 col-md-6 is-free-until-field" style="{{ !$courseIsFree ? 'display: none;' : '' }}">
+                                    <label>{{ __('Free Until (Date)') }}</label>
+                                    <input type="datetime-local" name="is_free_until" id="is_free_until" class="form-control" value="{{ $courseIsFreeUntil ? \Carbon\Carbon::parse($courseIsFreeUntil)->format('Y-m-d\TH:i') : '' }}" placeholder="{{ __('Leave empty for permanently free') }}">
+                                    <small class="form-text text-muted">{{ __('Optional: Set date when free access ends. Leave empty if permanently free.') }}</small>
+                                </div>
+
+                                {{-- Sequential Chapter Access --}}
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <div class="control-label">
+                                        {{ __('Sequential Chapter Access') }}
+                                        <i class="fas fa-info-circle text-info ml-1" data-toggle="tooltip" data-placement="top" title="{{ __('If enabled, students must complete chapters in order. If disabled, they can access any chapter freely.') }}"></i>
+                                    </div>
+                                    <div class="custom-switches-stacked mt-2">
+                                        <label class="custom-switch">
+                                            <input type="checkbox" class="custom-switch-input" id="sequential_access" name="sequential_access" value="1" {{ $courseSequentialAccess ? 'checked' : '' }}>
+                                            <span class="custom-switch-indicator"></span>
+                                            <span class="custom-switch-description sequential-access-text">{{ $courseSequentialAccess ? __('Sequential (Step by step)') : __('Any Order (Free access)') }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {{-- Certificate Toggle (Only for Free Courses) --}}
+                                @if($courseType == 'free')
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <div class="control-label">
+                                        {{ __('Certificate Available') }}
+                                        <i class="fas fa-info-circle text-info ml-1" data-toggle="tooltip" data-placement="top" title="{{ __('Enable certificate generation for this free course. Students can get a certificate by paying the specified fee.') }}"></i>
+                                    </div>
+                                    <div class="custom-switches-stacked mt-2">
+                                        <label class="custom-switch">
+                                            <input type="checkbox" class="custom-switch-input" id="certificate_enabled" name="certificate_enabled" value="1" {{ $courseCertificateEnabled ? 'checked' : '' }}>
+                                            <span class="custom-switch-indicator"></span>
+                                            <span class="custom-switch-description certificate-enabled-text">{{ $courseCertificateEnabled ? __('Yes') : __('No') }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {{-- Certificate Fee (Only if Certificate is Enabled) --}}
+                                <div class="form-group col-sm-12 col-md-6 certificate-fee-field" style="{{ $courseCertificateEnabled ? '' : 'display: none;' }}">
+                                    <label class="form-label">
+                                        {{ __('Certificate Fee') }}
+                                        <i class="fas fa-info-circle text-info ml-1" data-toggle="tooltip" data-placement="top" title="{{ __('This fee will be charged to students who want to get a certificate for completing this free course') }}"></i>
+                                    </label>
+                                    <input type="number" name="certificate_fee" id="certificate_fee" step="0.01" min="0" placeholder="{{ __('Certificate Fee') }}" class="form-control" value="{{ $courseCertificateFee }}">
+                                </div>
+                                @endif
+
+
+                                {{-- Price --}}
+                                <div class="form-group col-sm-12 col-md-6 price-field">
+                                    <label class="form-label">{{ __('Price') }}</label>
+                                    <input type="number" name="price" id="price" step="0.01" min="0" placeholder="{{ __('Price') }}" class="form-control" value="{{ $coursePrice }}" {{ $courseType == 'free' ? 'disabled' : '' }}>
+                                </div>
+
+                                {{-- Discount Price --}}
+                                <div class="form-group col-sm-12 col-md-6 price-field">
+                                    <label class="form-label">{{ __('Discount Price') }}</label>
+                                    <input type="number" name="discount_price" id="discount_price" step="0.01" min="0" placeholder="{{ __('Discount Price') }}" class="form-control" value="{{ $courseDiscountPrice }}" {{ $courseType == 'free' ? 'disabled' : '' }}>
+                                </div>
+
+                                {{-- Category --}}
+                                <div class="col-md-6 form-group mandatory">
+                                    <label for="category_id" class="form-label">{{ __('Category') }}</label>
+                                    <input type="text" class="form-control" value="{{ $courseCategoryName }}" disabled>
+                                </div>
+
+
+                                {{-- Course Tags --}}
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <label for="course_tags" class="form-label">{{ __('Course Tags') }}</label>
+                                    <select name="course_tags[]" id="course_tags" class="form-control select2-tags" multiple="multiple"> @if ($tags->count() > 0) <option value="">{{ __('Select a Tag') }}</option> @foreach ($tags as $tag) <option value="{{ $tag->id }}" {{ $course->tags->contains($tag->id) ? 'selected' : '' }}>{{ is_array($tag->tag) ? implode(', ', $tag->tag) : (string)($tag->tag ?? '') }}</option> @endforeach
+                                        @else <option value="">{{ __('No tags found') }}</option> @endif </select>
+                                    <small class="form-text text-muted">{{ __('Type and hit enter to add new tags or select from the list.') }}</small>
+                                </div>
+                                {{-- Language --}}
+                                <div class="form-group mandatory col-sm-12 col-md-6">
+                                    <label for="language-id" class="form-label">{{ __('Language') }}</label>
+                                    <select name="language_id" id="language-id" class="form-control" required>
+                                        <option value="">{{ __('Select a Language') }}</option> @foreach ($course_languages as $language) <option value="{{ $language->id }}" {{ $courseLanguageId == $language->id ? 'selected' : '' }}>{{ is_array($language->name) ? implode(', ', $language->name) : (string)($language->name ?? '') }}</option> @endforeach </select>
+                                </div>
+                                <div><hr></div>
+
+                                {{-- Course Learnings --}}
+                                <div class="form-group col-12">
+                                    <label class="form-label">{{ __('Course Learnings') }}</label>
+                                    <div class="course-learnings-section">
+                                        <div data-repeater-list="learnings_data">
+                                            <div class="row learning-section d-flex align-items-center mb-2" data-repeater-item>
+                                                <input type="hidden" name="id" class="id">
+                                                {{-- Learning --}}
+                                                <div class="form-group mandatory col-md-11">
+                                                    <label class="form-label">{{ __('Learning') }} - <span class="learning-number"> {{ __('0') }} </span></label>
+                                                    <input type="text" name="learning" class="form-control" placeholder="{{ __('Enter a learning outcome') }}" required data-parsley-required="true">
+                                                </div>
+                                                {{-- Remove Learning --}}
+                                                <div class="form-group col-md-1 mt-4">
+                                                    <button data-repeater-delete type="button" class="btn btn-danger remove-learning" title="{{ __('remove') }}">
+                                                        <i class="fa fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {{-- Add New Learning --}}
+                                        <button type="button" class="btn btn-success mt-1 add-new-learning" data-repeater-create title="{{ __('Add New Learning') }}">
+                                            <i class="fa fa-plus"></i> {{ __('Add New Learning') }}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div><hr></div>
+                                {{-- Course Requirements --}}
+                                <div class="form-group col-12">
+                                    <label class="form-label">{{ __('Course Requirements') }}</label>
+                                    <div class="course-requirements-section">
+                                        <div data-repeater-list="requirements_data">
+                                            <div class="row learning-section d-flex align-items-center mb-2" data-repeater-item>
+                                                <input type="hidden" name="id" class="id">
+                                                {{-- Requirement --}}
+                                                <div class="form-group mandatory col-md-11">
+                                                    <label class="form-label">{{ __('Requirement') }} - <span class="requirement-number"> {{ __('0') }} </span></label>
+                                                    <input type="text" name="requirement" class="form-control" placeholder="{{ __('Enter a requirement') }}" required data-parsley-required="true">
+                                                </div>
+                                                {{-- Remove Requirement --}}
+                                                <div class="form-group col-md-1 mt-4">
+                                                    <button data-repeater-delete type="button" class="btn btn-danger remove-requirement" title="{{ __('remove') }}">
+                                                        <i class="fa fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {{-- Add New Requirement --}}
+                                        <button type="button" class="btn btn-success mt-1 add-new-requirement" data-repeater-create title="{{ __('Add New Requirement') }}">
+                                            <i class="fa fa-plus"></i> {{ __('Add New Requirement') }}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div><hr></div>
+
+                                {{-- SEO Meta Tags Section --}}
+                                <div class="form-group col-12">
+                                    <h5 class="mb-3 text-primary"><i class="fas fa-tags mr-2"></i>{{ __('SEO Meta Tags') }}</h5>
+                                </div>
+
+                                {{-- Meta Title --}}
+                                <div class="form-group col-12">
+                                    <label for="meta_title" class="form-label">{{ __('Meta Title') }}</label>
+                                    <input type="text" name="meta_title" value="{{ $courseMetaTitle }}" id="meta_title" class="form-control" placeholder="{{ __('Enter meta title for SEO') }}" maxlength="60">
+                                    <small class="form-text text-muted"><i class="fas fa-info-circle mr-1"></i>{{ __('SEO title for search engines (recommended: 50-60 characters)') }}</small>
+                                </div>
+
+                                {{-- Meta Description --}}
+                                <div class="form-group col-12">
+                                    <label for="meta_description" class="form-label">{{ __('Meta Description') }}</label>
+                                    <textarea name="meta_description" id="meta_description" class="form-control" placeholder="{{ __('Enter meta description for SEO') }}" rows="3" maxlength="160">{{ $courseMetaDescription }}</textarea>
+                                    <small class="form-text text-muted"><i class="fas fa-info-circle mr-1"></i>{{ __('SEO description for search engines (recommended: 150-160 characters)') }}</small>
+                                </div>
+
+                                {{-- Meta Keywords --}}
+                                <div class="form-group col-12">
+                                    <label for="meta_keywords" class="form-label">{{ __('Meta Keywords') }}</label>
+                                    <textarea name="meta_keywords" id="meta_keywords" class="form-control" placeholder="{{ __('Enter keywords separated by commas (e.g., course, online, learning)') }}" rows="2">{{ $courseMetaKeywords ?? '' }}</textarea>
+                                    <small class="form-text text-muted"><i class="fas fa-info-circle mr-1"></i>{{ __('Keywords for SEO (separate multiple keywords with commas)') }}</small>
+                                </div>
+
+                                <div><hr></div>
+
+                            </div>
+                            <input class="btn btn-primary float-right ml-3" id="create-btn" type="submit" value="{{ __('Update') }}">
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div> @endsection
+
+@section('script')
+    <script>
+        // jQuery for course_type radio buttons
+        $(document).ready(function() {
+            const $freeRadio = $('#course_type_free');
+            const $paidRadio = $('#course_type_paid');
+            const $priceFields = $('.price-field');
+            const $priceInput = $('#price');
+            const $discountPriceInput = $('#discount_price');
+            const $form = $('.create-form');
+
+            // Function to toggle price fields
+            function togglePriceFields() {
+                if ($freeRadio.is(':checked')) {
+                    $priceFields.hide();
+                    $priceInput.prop('disabled', true);
+                    $discountPriceInput.prop('disabled', true);
+                    $priceInput.val('');
+                    $discountPriceInput.val('');
+                    $priceInput.removeAttr('required').removeAttr('data-parsley-required');
+                } else if ($paidRadio.is(':checked')) {
+                    $priceFields.show();
+                    $priceInput.prop('disabled', false);
+                    $discountPriceInput.prop('disabled', false);
+                    $priceInput.attr('required', 'required').attr('data-parsley-required', 'true');
+                }
+            }
+
+            // Initial state
+            togglePriceFields();
+
+            // Handle radio button change
+            $freeRadio.on('change', togglePriceFields);
+            $paidRadio.on('change', togglePriceFields);
+
+            // Sequential Access Toggle
+            const $sequentialAccessToggle = $('#sequential_access');
+            const $sequentialAccessText = $('.sequential-access-text');
+
+            function updateSequentialAccessText() {
+                if ($sequentialAccessToggle.is(':checked')) {
+                    $sequentialAccessText.text('{{ __("Sequential (Step by step)") }}');
+                } else {
+                    $sequentialAccessText.text('{{ __("Any Order (Free access)") }}');
+                }
+            }
+
+            $sequentialAccessToggle.on('change', updateSequentialAccessText);
+
+            // Certificate Toggle
+            const $certificateToggle = $('#certificate_enabled');
+            const $certificateText = $('.certificate-enabled-text');
+            const $certificateFeeField = $('.certificate-fee-field');
+            const $certificateFeeInput = $('#certificate_fee');
+
+            function updateCertificateToggle() {
+                if ($certificateToggle.is(':checked')) {
+                    $certificateText.text('{{ __("Yes") }}');
+                    $certificateFeeField.show();
+                    $certificateFeeInput.attr('required', 'required');
+                } else {
+                    $certificateText.text('{{ __("No") }}');
+                    $certificateFeeField.hide();
+                    $certificateFeeInput.removeAttr('required').val('');
+                }
+            }
+
+            $certificateToggle.on('change', updateCertificateToggle);
+
+            // Initialize tooltips
+            $('[data-toggle="tooltip"]').tooltip();
+
+            // Ensure disabled fields are not sent and Parsley ignores them
+            $form.on('submit', function(event) {
+                if ($freeRadio.is(':checked')) {
+                    $priceInput.prop('disabled', true);
+                    $discountPriceInput.prop('disabled', true);
+                    $priceInput.removeAttr('required').removeAttr('data-parsley-required');
+                }
+            });
+
+            // Video file size validation
+            const $introVideoInput = $('#intro_video');
+            const $introVideoError = $('#intro_video_error');
+            const maxVideoSizeMB = parseFloat('{{ $maxVideoSizeMB ?? 100 }}');
+            const maxVideoSizeBytes = maxVideoSizeMB * 1024 * 1024; // Convert MB to bytes
+
+            // Validate on file selection
+            $introVideoInput.on('change', function() {
+                const file = this.files[0];
+                if (file) {
+                    if (file.size > maxVideoSizeBytes) {
+                        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                        const errorMessage = '{{ __("Please upload a video file smaller than") }} ' + maxVideoSizeMB + ' MB. {{ __("Your file size is") }} ' + fileSizeMB + ' MB.';
+                        $('#intro_video_error_text').text(errorMessage);
+                        $introVideoError.css('display', 'block').show();
+                        $introVideoInput.addClass('is-invalid').css('border-color', '#dc3545');
+                        // Don't clear - let user see what they selected
+                        // $introVideoInput.val('');
+                        return false;
+                    } else {
+                        $introVideoError.hide();
+                        $introVideoInput.removeClass('is-invalid').css('border-color', '');
+                    }
+                }
+            });
+        });
+
+        // Pre-submit validation function (called by common.js before form submission)
+        function validateVideoFileSize() {
+            const $introVideoInput = $('#intro_video');
+            const $introVideoError = $('#intro_video_error');
+            const maxVideoSizeMB = parseFloat('{{ $maxVideoSizeMB ?? 100 }}');
+            const maxVideoSizeBytes = maxVideoSizeMB * 1024 * 1024; // Convert MB to bytes
+
+            // Check if file input exists and has a file
+            if (!$introVideoInput.length) {
+                return true; // No video input, allow submission
+            }
+
+            const file = $introVideoInput[0].files[0];
+
+            // If no file selected, allow submission (video is optional)
+            if (!file) {
+                $introVideoError.hide();
+                $introVideoInput.removeClass('is-invalid').css('border-color', '');
+                return true;
+            }
+
+            // Check file size
+            if (file.size > maxVideoSizeBytes) {
+                const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                const errorMessage = '{{ __("Please upload a video file smaller than") }} ' + maxVideoSizeMB + ' MB. {{ __("Your file size is") }} ' + fileSizeMB + ' MB.';
+
+                // Show error message below intro video field
+                $('#intro_video_error_text').text(errorMessage);
+                $introVideoError.css('display', 'block').show();
+
+                // Add error class to input for visual feedback
+                $introVideoInput.addClass('is-invalid').css('border-color', '#dc3545');
+
+                // Scroll to error
+                setTimeout(function() {
+                    $('html, body').animate({
+                        scrollTop: $introVideoInput.offset().top - 150
+                    }, 500);
+                }, 100);
+
+                // Show toast notification
+                if (typeof showErrorToast === 'function') {
+                    showErrorToast('{{ __("Video file size exceeds maximum limit") }}: ' + fileSizeMB + ' MB / ' + maxVideoSizeMB + ' MB');
+                } else {
+                    alert(errorMessage);
+                }
+
+                // Don't clear the file input - let user see what they selected
+                // $introVideoInput.val('');
+
+                return false; // Prevent form submission
+            }
+
+            // File size is OK, hide any previous errors
+            $introVideoError.hide();
+            $introVideoInput.removeClass('is-invalid').css('border-color', '');
+            return true; // Allow form submission
+        }
+
+        // Course Learnings Repeater
+        @if(collect($course->learnings)->isNotEmpty())
+            courseLearningsRepeater.setList([
+                @foreach($course->learnings as $learning)
+                    {
+                        "id": {{ is_array($learning->id) ? (isset($learning->id[0]) ? $learning->id[0] : 0) : (int)($learning->id ?? 0) }},
+                        "learning": "{{ is_array($learning->title) ? implode(', ', $learning->title) : (string)($learning->title ?? '') }}"
+                    },
+                @endforeach
+            ]);
+        @endif
+
+        // Course Requirements Repeater
+        @if(collect($course->requirements)->isNotEmpty())
+            courseRequirementsRepeater.setList([
+                @foreach($course->requirements as $requirement)
+                    {
+                        "id": {{ is_array($requirement->id) ? (isset($requirement->id[0]) ? $requirement->id[0] : 0) : (int)($requirement->id ?? 0) }},
+                        "requirement": "{{ is_array($requirement->requirement) ? implode(', ', $requirement->requirement) : (string)($requirement->requirement ?? '') }}"
+                    },
+                @endforeach
+            ]);
+        @endif
+
+        function formSuccessFunction(response) {
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+        }
+    </script>
+@endsection

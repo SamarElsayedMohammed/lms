@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Node modules (will be installed in container)
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Vendor (will be installed in container)
+vendor
+
+# Environment files
+.env.local
+.env.*.local
+
+# Build files
+public/hot
+public/storage
+storage/*.key
+
+# Laravel specific
+bootstrap/cache/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/logs/*
+
+# Testing
+.phpunit.result.cache
+coverage
+
+# Documentation
+README.md
+DEMO_MODE_SETUP.md
+Features.txt
+
+# Misc
+*.log
+.cache

@@ -1,0 +1,29 @@
+# lms-v1.0.2 Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2026-02-18
+
+## Active Technologies
+
+- PHP 8.3 / Laravel 12 + Spatie laravel-permission, endroid/qr-code v6, Kashier gateway, Mpdf (main)
+
+## Project Structure
+
+```text
+src/
+tests/
+```
+
+## Commands
+
+# Add commands for PHP 8.3 / Laravel 12
+
+## Code Style
+
+PHP 8.3 / Laravel 12: Follow standard conventions
+
+## Recent Changes
+
+- main: Added PHP 8.3 / Laravel 12 + Spatie laravel-permission, endroid/qr-code v6, Kashier gateway, Mpdf
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->
