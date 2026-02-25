@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @php
     // Helper function to safely convert any value to string
@@ -167,8 +167,8 @@
                                     <span class="badge badge-{{ $courseCertificateEnabled ? 'success' : 'secondary' }}">
                                         {{ $courseCertificateEnabled ? __('Yes') : __('No') }}
                                     </span>
-            </div>
-        </div>
+                                </div>
+                            </div>
 
                             {{-- Certificate Fee --}}
                             @if($courseCertificateEnabled)
@@ -199,12 +199,6 @@
                                 <div class="form-control-plaintext">{!! e($courseCategoryName) !!}</div>
                             </div>
 
-                            {{-- Language --}}
-                            <div class="form-group col-sm-12 col-md-6">
-                                <label class="font-weight-bold">{{ __('Language') }}</label>
-                                <div class="form-control-plaintext">{!! e($courseLanguageName) !!}</div>
-                            </div>
-
                             {{-- Instructors --}}
                             <div class="form-group col-sm-12 col-md-6">
                                 <label class="font-weight-bold">{{ __('Instructors') }}</label>
@@ -215,7 +209,7 @@
                             <div class="form-group col-sm-12 col-md-6">
                                 <label class="font-weight-bold">{{ __('Tags') }}</label>
                                 <div class="form-control-plaintext">{!! e($tagNames) !!}</div>
-                        </div>
+                            </div>
 
                             {{-- Status --}}
                             <div class="form-group col-sm-12 col-md-6">
@@ -288,7 +282,7 @@
                             <div class="form-group col-sm-12 col-md-6">
                                 <label class="font-weight-bold">{{ __('Meta Keywords') }}</label>
                                 <div class="form-control-plaintext">{{ $courseMetaKeywords }}</div>
-                                            </div>
+                            </div>
                             @endif
 
                             {{-- Meta Image --}}
@@ -297,8 +291,8 @@
                                 <label class="font-weight-bold">{{ __('Meta Image') }}</label>
                                 <div class="mt-2">
                                     <img class="img-thumbnail" src="{{ $courseMetaImage }}" alt="Meta Image" style="max-height: 200px;">
-                                                </div>
-                                            </div>
+                                </div>
+                            </div>
                             @endif
 
                             {{-- Created At --}}
@@ -313,23 +307,122 @@
                                 <div class="form-control-plaintext">{{ $course->updated_at ? $course->updated_at->format('Y-m-d H:i:s') : 'N/A' }}</div>
                             </div>
                         </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
+            </div>
+        </div>
 
-        {{-- Course Chapters and Curriculum --}}
-        @if($course->chapters && $course->chapters->count() > 0)
+        {{-- Course Curriculum: حسب الهيكلة إما "دروس فقط" أو "فصول ودروس" --}}
+        @php
+            $contentStructure = $course->content_structure ?? 'chapters';
+            $isDirectLessons = ($contentStructure === 'lessons');
+            $chaptersForDisplay = $course->chapters && $course->chapters->count() > 0 ? $course->chapters : collect();
+            $defaultChapterForLessons = $isDirectLessons && $chaptersForDisplay->isNotEmpty() ? $chaptersForDisplay->first() : null;
+        @endphp
+        @if($chaptersForDisplay->isNotEmpty())
         <div class="row mt-4">
             <div class="col-md-12 grid-margin stretch-card search-container">
-                    <div class="card">
+                <div class="card">
                     <div class="card-body">
                         <h4 class="card-title mb-4">
                             {{ __('Course Curriculum') }}
                         </h4>
-                        
+
+                        @if($isDirectLessons && $defaultChapterForLessons)
+                            {{-- وضع الدروس المباشرة: قائمة مرتبة من الدروس مع روابط فقط (بدون عرض الفصل) --}}
+                            @php
+                                $ch = $defaultChapterForLessons;
+                                $lectures = $ch->lectures ?? collect();
+                                $quizzes = $ch->quizzes ?? collect();
+                                $assignments = $ch->assignments ?? collect();
+                                $resources = $ch->resources ?? collect();
+                                $hasContent = $lectures->count() > 0 || $quizzes->count() > 0 || $assignments->count() > 0 || $resources->count() > 0;
+                            @endphp
+                            @if($hasContent)
+                                <h5 class="mb-3 text-primary"><i class="fas fa-list-ol mr-2"></i>{{ __('Lessons') }} ({{ __('in order') }})</h5>
+                                <ul class="list-group list-group-flush">
+                                    @foreach($lectures as $order => $lecture)
+                                        <li class="list-group-item {{ !$lecture->is_active ? 'bg-light' : '' }}">
+                                            <div class="d-flex justify-content-between align-items-center flex-wrap">
+                                                <div class="mb-1">
+                                                    <span class="badge badge-primary mr-2">{{ $order + 1 }}</span>
+                                                    <i class="fas fa-play-circle text-primary mr-2"></i>
+                                                    <strong>{{ $lecture->title ?? __('Untitled Lecture') }}</strong>
+                                                    @if($lecture->duration)
+                                                        <small class="text-muted ml-2"><i class="fas fa-clock mr-1"></i>{{ \App\Services\HelperService::getFormattedDuration($lecture->duration) }}</small>
+                                                    @endif
+                                                </div>
+                                                <div>
+                                                    @php
+                                                        $lectureRawFile = $lecture->getRawOriginal('file');
+                                                        $lectureRawUrl = $lecture->getRawOriginal('url');
+                                                        $lectureRawYoutubeUrl = $lecture->getRawOriginal('youtube_url');
+                                                    @endphp
+                                                    @if($lecture->type == 'file' && $lectureRawFile)
+                                                        <a href="{{ $lecture->file }}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-external-link-alt mr-1"></i>{{ __('View') }}</a>
+                                                    @elseif($lecture->type == 'url' && $lectureRawUrl)
+                                                        <a href="{{ $lectureRawUrl }}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-link mr-1"></i>{{ __('View') }}</a>
+                                                    @elseif($lecture->type == 'youtube_url' && $lectureRawYoutubeUrl)
+                                                        <a href="{{ $lectureRawYoutubeUrl }}" target="_blank" class="btn btn-sm btn-outline-danger"><i class="fab fa-youtube mr-1"></i>{{ __('Watch') }}</a>
+                                                    @endif
+                                                    @can('course-chapters-list')
+                                                        <a href="{{ route('course-chapters.curriculum.edit', ['id' => $lecture->id, 'type' => 'lecture']) }}" class="btn btn-sm btn-outline-secondary ml-1"><i class="fas fa-cog mr-1"></i>{{ __('Manage') }}</a>
+                                                    @endcan
+                                                </div>
+                                            </div>
+                                        </li>
+                                    @endforeach
+                                    @foreach($quizzes as $order => $quiz)
+                                        <li class="list-group-item {{ !$quiz->is_active ? 'bg-light' : '' }}">
+                                            <span class="badge badge-primary mr-2">{{ $lectures->count() + $order + 1 }}</span>
+                                            <i class="fas fa-question-circle text-warning mr-2"></i>
+                                            <strong>{{ $quiz->title ?? __('Untitled Quiz') }}</strong>
+                                            @can('course-chapters-list')
+                                                <a href="{{ route('course-chapters.curriculum.edit', ['id' => $quiz->id, 'type' => 'quiz']) }}" class="btn btn-sm btn-outline-secondary ml-2"><i class="fas fa-cog mr-1"></i>{{ __('Manage') }}</a>
+                                            @endcan
+                                        </li>
+                                    @endforeach
+                                    @foreach($assignments as $order => $assignment)
+                                        <li class="list-group-item {{ !$assignment->is_active ? 'bg-light' : '' }}">
+                                            <span class="badge badge-primary mr-2">{{ $lectures->count() + $quizzes->count() + $order + 1 }}</span>
+                                            <i class="fas fa-tasks text-info mr-2"></i>
+                                            <strong>{{ $assignment->title ?? __('Untitled Assignment') }}</strong>
+                                            @can('course-chapters-list')
+                                                <a href="{{ route('course-chapters.curriculum.edit', ['id' => $assignment->id, 'type' => 'assignment']) }}" class="btn btn-sm btn-outline-secondary ml-2"><i class="fas fa-cog mr-1"></i>{{ __('Manage') }}</a>
+                                            @endcan
+                                        </li>
+                                    @endforeach
+                                    @foreach($resources as $order => $resource)
+                                        <li class="list-group-item {{ !$resource->is_active ? 'bg-light' : '' }}">
+                                            <span class="badge badge-primary mr-2">{{ $lectures->count() + $quizzes->count() + $assignments->count() + $order + 1 }}</span>
+                                            <i class="fas fa-file text-secondary mr-2"></i>
+                                            <strong>{{ $resource->title ?? __('Untitled Resource') }}</strong>
+                                            @if($resource->type == 'file' && $resource->file)
+                                                <a href="{{ $resource->file }}" target="_blank" class="btn btn-sm btn-outline-primary ml-2"><i class="fas fa-download mr-1"></i>{{ __('Download') }}</a>
+                                            @elseif($resource->type == 'url' && $resource->url)
+                                                <a href="{{ $resource->url }}" target="_blank" class="btn btn-sm btn-outline-primary ml-2"><i class="fas fa-link mr-1"></i>{{ __('View') }}</a>
+                                            @endif
+                                            @can('course-chapters-list')
+                                                <a href="{{ route('course-chapters.curriculum.edit', ['id' => $resource->id, 'type' => 'resource']) }}" class="btn btn-sm btn-outline-secondary ml-1"><i class="fas fa-cog mr-1"></i>{{ __('Manage') }}</a>
+                                            @endcan
+                                        </li>
+                                    @endforeach
+                                </ul>
+                                @can('course-chapters-list')
+                                    <p class="mt-3 mb-0">
+                                        <a href="{{ route('course-chapters.curriculum.index', $ch->id) }}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i>{{ __('Add lesson or content') }}</a>
+                                    </p>
+                                @endcan
+                            @else
+                                <p class="text-muted mb-0"><i class="fas fa-info-circle mr-2"></i>{{ __('No lessons yet.') }}</p>
+                                @can('course-chapters-list')
+                                    <a href="{{ route('course-chapters.curriculum.index', $defaultChapterForLessons->id) }}" class="btn btn-sm btn-primary mt-2"><i class="fas fa-plus mr-1"></i>{{ __('Add lesson or content') }}</a>
+                                @endcan
+                            @endif
+                        @else
+                            {{-- وضع الفصول والدروس: فصل وجوا كل فصل دروس مع روابط --}}
                         <div class="accordion" id="courseChaptersAccordion">
-                            @foreach($course->chapters as $chapterIndex => $chapter)
+                            @foreach($chaptersForDisplay as $chapterIndex => $chapter)
                                 @php
                                     $chapterId = 'chapter-' . $chapter->id;
                                     $isActive = $chapterIndex == 0 ? 'show' : '';
@@ -340,11 +433,14 @@
                                         <h5 class="mb-0">
                                             <button class="btn btn-link w-100 text-left" type="button" data-toggle="collapse" data-target="#{{ $chapterId }}" aria-expanded="{{ $chapterIndex == 0 ? 'true' : 'false' }}" aria-controls="{{ $chapterId }}">
                                                 <i class="fas fa-chevron-{{ $chapterIndex == 0 ? 'down' : 'right' }} mr-2"></i>
-                                                <strong>{{ __('Chapter') }} {{ $chapter->chapter_order ?? ($chapterIndex + 1) }}: {{ $chapter->title ?? 'Untitled Chapter' }}</strong>
+                                                <strong>{{ __('Chapter') }} {{ $chapter->chapter_order ?? ($chapterIndex + 1) }}: {{ $chapter->title ?? __('Untitled Chapter') }}</strong>
                                                 @if($chapter->description)
                                                     <small class="text-muted d-block mt-1">{{ \Illuminate\Support\Str::limit($chapter->description, 100) }}</small>
                                                 @endif
                                             </button>
+                                            @can('course-chapters-list')
+                                                <a href="{{ route('course-chapters.curriculum.index', $chapter->id) }}" class="btn btn-sm btn-outline-primary ml-2" onclick="event.stopPropagation();">{{ __('Manage lessons') }}</a>
+                                            @endcan
                                         </h5>
                         </div>
                                     
@@ -383,7 +479,7 @@
                                                                         <div class="d-flex justify-content-between align-items-start mb-2">
                                                                             <div class="flex-grow-1">
                                                                                 <i class="fas fa-play-circle text-primary mr-2"></i>
-                                                                                <strong>{{ $lecture->title ?? 'Untitled Lecture' }}</strong>
+                                                                                <strong>{{ $lecture->title ?? __('Untitled Lecture') }}</strong>
                                                                                 @if($lecture->description)
                                                                                     <br><small class="text-muted">{!! nl2br(e(\Illuminate\Support\Str::limit($lecture->description, 150))) !!}</small>
                                                                                 @endif
@@ -477,7 +573,7 @@
                                                                         <div class="d-flex justify-content-between align-items-start mb-2">
                                                                             <div class="flex-grow-1">
                                                                                 <i class="fas fa-clipboard-list text-warning mr-2"></i>
-                                                                                <strong>{{ $quiz->title ?? 'Untitled Quiz' }}</strong>
+                                                                                <strong>{{ $quiz->title ?? __('Untitled Quiz') }}</strong>
                                                                                 @if($quiz->description)
                                                                                     <br><small class="text-muted">{!! nl2br(e(\Illuminate\Support\Str::limit($quiz->description, 150))) !!}</small>
                                                                                 @endif
@@ -510,7 +606,7 @@
                                                                                         <div class="mb-3 p-2 border rounded">
                                                                                             <div class="d-flex justify-content-between align-items-start mb-2">
                                                                                                 <div class="flex-grow-1">
-                                                                                                    <strong class="text-primary">Q{{ $questionIndex + 1 }}: {{ $question->question ?? 'Untitled Question' }}</strong>
+                                                                                                    <strong class="text-primary">Q{{ $questionIndex + 1 }}: {{ $question->question ?? __('Untitled Question') }}</strong>
                                                                                                     @if($question->points)
                                                                                                         <br><small class="text-info"><i class="fas fa-star mr-1"></i>{{ __('Points') }}: {{ $question->points }}</small>
                                                                                                     @endif
@@ -531,7 +627,7 @@
                                                                                                                     <span class="badge badge-{{ $option->is_correct ? 'success' : 'secondary' }} mr-1">
                                                                                                                         {{ chr(65 + $optionIndex) }}
                                                                                                                     </span>
-                                                                                                                    {{ $option->option ?? 'Untitled Option' }}
+                                                                                                                    {{ $option->option ?? __('Untitled Option') }}
                                                                                                                     @if($option->is_correct)
                                                                                                                         <i class="fas fa-check-circle text-success ml-1" title="{{ __('Correct Answer') }}"></i>
                                                                                                                     @endif
@@ -661,6 +757,7 @@
                                 </div>
                             @endforeach
                         </div>
+                        @endif
                     </div>
                 </div>
             </div>

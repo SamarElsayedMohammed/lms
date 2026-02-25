@@ -66,6 +66,15 @@ class ViewServiceProvider extends ServiceProvider
                 return;
             }
 
+            // Force Arabic locale and RTL for admin panel (authenticated users, except login page)
+            $isAdminPanel = auth()->check() && !request()->routeIs('login-page');
+            if ($isAdminPanel) {
+                \Illuminate\Support\Facades\App::setLocale('ar');
+            }
+
+            // RTL always true for admin panel (Arabic locale)
+            $isRTL = $isAdminPanel || session('rtl', false);
+
             try {
                 // Get all available languages first
                 $languages = \App\Services\CachingService::getLanguages();
@@ -89,17 +98,19 @@ class ViewServiceProvider extends ServiceProvider
                     }
                 }
 
-                // Get RTL flag from session
-                $isRTL = session('rtl', false);
+                if (app()->getLocale() === 'ar') {
+                    $isRTL = true;
+                    $currentLanguage = $currentLanguage ?? (object) ['code' => 'ar', 'name' => 'العربية'];
+                }
 
                 $view->with('currentLanguage', $currentLanguage);
                 $view->with('languages', $languages);
                 $view->with('isRTL', $isRTL);
             } catch (\Exception) {
                 // If languages table doesn't exist or query fails, provide empty data
-                $view->with('currentLanguage', null);
+                $view->with('currentLanguage', $isAdminPanel ? (object) ['code' => 'ar', 'name' => 'العربية'] : null);
                 $view->with('languages', collect([]));
-                $view->with('isRTL', false);
+                $view->with('isRTL', $isRTL);
             }
         });
     }

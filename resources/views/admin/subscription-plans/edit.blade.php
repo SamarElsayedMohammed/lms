@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
 @section('title')
-    {{ __('Edit Subscription Plan') }}: {{ $plan->name }}
+{{ __('Edit Subscription Plan') }}: {{ $plan->name }}
 @endsection
 
 @section('page-title')
-    <h1 class="mb-0">@yield('title')</h1>
+<h1 class="mb-0">@yield('title')</h1>
 @endsection
 
 @section('main')
@@ -14,14 +14,15 @@
         <div class="col-12">
             <div class="card">
                 <div class="card-body">
-                    <form method="POST" action="{{ route('subscription-plans.update', $plan) }}">
+                    <form method="POST" action="{{ route('subscription-plans.update', $plan) }}" id="plan-form">
                         @csrf
                         @method('PUT')
 
                         <div class="row">
                             <div class="form-group col-md-6">
                                 <label>{{ __('Plan Name') }} <span class="text-danger">*</span></label>
-                                <input type="text" name="name" class="form-control" value="{{ old('name', $plan->name) }}" required>
+                                <input type="text" name="name" class="form-control"
+                                    value="{{ old('name', $plan->name) }}" required>
                                 @error('name')<span class="text-danger">{{ $message }}</span>@enderror
                             </div>
 
@@ -29,7 +30,8 @@
                                 <label>{{ __('Billing Cycle') }} <span class="text-danger">*</span></label>
                                 <select name="billing_cycle" id="billing_cycle" class="form-control" required>
                                     @foreach($billingCycles as $value => $label)
-                                        <option value="{{ $value }}" {{ old('billing_cycle', $plan->billing_cycle) == $value ? 'selected' : '' }}>{{ $label }}</option>
+                                    <option value="{{ $value }}" {{ old('billing_cycle', $plan->billing_cycle) == $value
+                                        ? 'selected' : '' }}>{{ $label }}</option>
                                     @endforeach
                                 </select>
                                 @error('billing_cycle')<span class="text-danger">{{ $message }}</span>@enderror
@@ -37,31 +39,33 @@
 
                             <div class="form-group col-md-6" id="duration_days_group" style="display:none;">
                                 <label>{{ __('Duration (Days)') }} <span class="text-danger">*</span></label>
-                                <input type="number" name="duration_days" class="form-control" value="{{ old('duration_days', $plan->duration_days) }}" min="1">
+                                <input type="number" name="duration_days" class="form-control"
+                                    value="{{ old('duration_days', $plan->duration_days) }}" min="1">
                                 @error('duration_days')<span class="text-danger">{{ $message }}</span>@enderror
                             </div>
 
-                            <div class="form-group col-md-6">
-                                <label>{{ __('Price') }} ({{ \App\Services\CachingService::getSystemSettings('currency_symbol') ?: 'EGP' }}) <span class="text-danger">*</span></label>
-                                <input type="number" name="price" class="form-control" value="{{ old('price', $plan->price) }}" min="0" step="0.01" required>
-                                @error('price')<span class="text-danger">{{ $message }}</span>@enderror
-                            </div>
+
+
 
                             <div class="form-group col-md-6">
                                 <label>{{ __('Commission Rate') }} (%)</label>
-                                <input type="number" name="commission_rate" class="form-control" value="{{ old('commission_rate', $plan->commission_rate) }}" min="0" max="100" step="0.01">
+                                <input type="number" name="commission_rate" class="form-control"
+                                    value="{{ old('commission_rate', $plan->commission_rate) }}" min="0" max="100"
+                                    step="0.01">
                                 @error('commission_rate')<span class="text-danger">{{ $message }}</span>@enderror
                             </div>
 
                             <div class="form-group col-md-6">
                                 <label>{{ __('Sort Order') }}</label>
-                                <input type="number" name="sort_order" class="form-control" value="{{ old('sort_order', $plan->sort_order) }}" min="0">
+                                <input type="number" name="sort_order" class="form-control"
+                                    value="{{ old('sort_order', $plan->sort_order) }}" min="0">
                                 @error('sort_order')<span class="text-danger">{{ $message }}</span>@enderror
                             </div>
 
                             <div class="form-group col-md-12">
                                 <label>{{ __('Description') }}</label>
-                                <textarea name="description" class="form-control" rows="3">{{ old('description', $plan->description) }}</textarea>
+                                <textarea name="description" class="form-control"
+                                    rows="3">{{ old('description', $plan->description) }}</textarea>
                                 @error('description')<span class="text-danger">{{ $message }}</span>@enderror
                             </div>
 
@@ -70,68 +74,110 @@
                                 <div id="features_container">
                                     @php $features = old('features', $plan->features ?? []); @endphp
                                     @if(!empty($features))
-                                        @foreach((array)$features as $f)
-                                            @if($f)
-                                            <div class="input-group mb-2"><input type="text" name="features[]" class="form-control" value="{{ $f }}"><div class="input-group-append"><button type="button" class="btn btn-danger remove-feature">×</button></div></div>
-                                            @endif
-                                        @endforeach
+                                    @foreach((array)$features as $f)
+                                    @if($f)
+                                    <div class="input-group mb-2"><input type="text" name="features[]"
+                                            class="form-control" value="{{ $f }}">
+                                        <div class="input-group-append"><button type="button"
+                                                class="btn btn-danger remove-feature">×</button></div>
+                                    </div>
                                     @endif
-                                    <div class="input-group mb-2"><input type="text" name="features[]" class="form-control" placeholder="{{ __('Feature') }}"><div class="input-group-append"><button type="button" class="btn btn-danger remove-feature">×</button></div></div>
+                                    @endforeach
+                                    @endif
+                                    <div class="input-group mb-2"><input type="text" name="features[]"
+                                            class="form-control" placeholder="{{ __('Feature') }}">
+                                        <div class="input-group-append"><button type="button"
+                                                class="btn btn-danger remove-feature">×</button></div>
+                                    </div>
                                 </div>
-                                <button type="button" class="btn btn-sm btn-outline-primary mt-1" id="add_feature"><i class="fas fa-plus"></i> {{ __('Add Feature') }}</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-1" id="add_feature"><i
+                                        class="fas fa-plus"></i> {{ __('Add Feature') }}</button>
                             </div>
 
                             <div class="form-group col-md-6">
                                 <div class="custom-control custom-switch">
-                                    <input type="checkbox" name="is_active" value="1" class="custom-control-input" id="is_active" {{ old('is_active', $plan->is_active) ? 'checked' : '' }}>
+                                    <input type="checkbox" name="is_active" value="1" class="custom-control-input"
+                                        id="is_active" {{ old('is_active', $plan->is_active) ? 'checked' : '' }}>
                                     <label class="custom-control-label" for="is_active">{{ __('Active') }}</label>
                                 </div>
                             </div>
                         </div>
 
-                        @if(!empty($supportedCurrencies))
+                        {{-- Country Prices Section --}}
                         <hr class="my-4">
-                        <h5 class="mb-3">{{ __('Country Prices') }}</h5>
-                        <p class="text-muted small">{{ __('Set prices per country. Leave empty to use base EGP price.') }}</p>
-                        <div class="table-responsive mb-3">
-                            <table class="table table-bordered" id="country-prices-table">
-                                <thead>
-                                    <tr>
-                                        <th>{{ __('Country') }}</th>
-                                        <th>{{ __('Currency') }}</th>
-                                        <th>{{ __('Price') }}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach($supportedCurrencies as $currency)
-                                        @php
-                                            $existing = $countryPrices[$currency->country_code] ?? null;
-                                            $priceVal = $existing ? (float) $existing->price : '';
-                                        @endphp
-                                        <tr>
-                                            <td>{{ $currency->country_name }} ({{ $currency->country_code }})</td>
-                                            <td>{{ $currency->currency_code }} ({{ $currency->currency_symbol }})</td>
-                                            <td>
-                                                <input type="number" class="form-control form-control-sm country-price-input"
-                                                    data-country="{{ $currency->country_code }}"
-                                                    value="{{ $priceVal }}"
-                                                    min="0" step="0.01" placeholder="{{ __('Base price') }}">
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
+                        <h5 class="mb-3">{{ __('Country Prices') }} <span class="text-danger">*</span></h5>
+                        <p class="text-muted small">{{ __('اختر الدول وحدد السعر الأساسي وسعر العرض لكل دولة. يجب اختيار
+                            دولة واحدة على الأقل.') }}</p>
+                        @error('countries')<div class="alert alert-danger">{{ $message }}</div>@enderror
+
+                        <div id="country-prices-container">
+                            @php
+                            $oldCountries = old('countries');
+                            if ($oldCountries) {
+                            $displayCountries = $oldCountries;
+                            } else {
+                            $displayCountries = [];
+                            foreach ($countryPrices as $cp) {
+                            $displayCountries[] = [
+                            'country_id' => $cp->country_id,
+                            'price' => $cp->price,
+                            'offer_price' => $cp->offer_price,
+                            ];
+                            }
+                            }
+                            @endphp
+                            @foreach($displayCountries as $index => $entry)
+                            <div class="country-row card card-body mb-2 p-3" data-index="{{ $index }}">
+                                <div class="row align-items-end">
+                                    <div class="form-group col-md-4 mb-1">
+                                        <label>{{ __('Country') }} <span class="text-danger">*</span></label>
+                                        <select name="countries[{{ $index }}][country_id]"
+                                            class="form-control country-select" required>
+                                            <option value="">-- {{ __('اختر الدولة') }} --</option>
+                                            @foreach($countries as $country)
+                                            <option value="{{ $country->id }}" {{ ($entry['country_id'] ?? ''
+                                                )==$country->id ? 'selected' : '' }}>
+                                                {{ $country->name_ar }} ({{ $country->name_en }})
+                                            </option>
+                                            @endforeach
+                                        </select>
+                                        @error("countries.{$index}.country_id")<span class="text-danger small">{{
+                                            $message }}</span>@enderror
+                                    </div>
+                                    <div class="form-group col-md-3 mb-1">
+                                        <label>{{ __('Base Price') }} <span class="text-danger">*</span></label>
+                                        <input type="number" name="countries[{{ $index }}][price]" class="form-control"
+                                            value="{{ $entry['price'] ?? '' }}" min="0" step="0.01" required>
+                                        @error("countries.{$index}.price")<span class="text-danger small">{{ $message
+                                            }}</span>@enderror
+                                    </div>
+                                    <div class="form-group col-md-3 mb-1">
+                                        <label>{{ __('Offer Price') }}</label>
+                                        <input type="number" name="countries[{{ $index }}][offer_price]"
+                                            class="form-control" value="{{ $entry['offer_price'] ?? '' }}" min="0"
+                                            step="0.01">
+                                        @error("countries.{$index}.offer_price")<span class="text-danger small">{{
+                                            $message }}</span>@enderror
+                                    </div>
+                                    <div class="form-group col-md-2 mb-1">
+                                        <button type="button" class="btn btn-danger btn-sm remove-country-row"><i
+                                                class="fas fa-trash"></i> {{ __('حذف') }}</button>
+                                    </div>
+                                </div>
+                            </div>
+                            @endforeach
                         </div>
-                        <button type="button" class="btn btn-outline-primary" id="save-country-prices">
-                            <i class="fas fa-save"></i> {{ __('Save Country Prices') }}
+
+                        <button type="button" class="btn btn-outline-success mb-3" id="add-country-row">
+                            <i class="fas fa-plus"></i> {{ __('إضافة دولة') }}
                         </button>
-                        <span id="country-prices-status" class="ml-2 text-muted small"></span>
-                        @endif
 
                         <div class="form-group mt-4">
                             <button type="submit" class="btn btn-primary">{{ __('Update') }}</button>
-                            <a href="{{ route('subscription-plans.index') }}" class="btn btn-secondary">{{ __('Cancel') }}</a>
-                            <a href="{{ route('subscription-plans.show', $plan) }}" class="btn btn-info">{{ __('View') }}</a>
+                            <a href="{{ route('subscription-plans.index') }}" class="btn btn-secondary">{{ __('Cancel')
+                                }}</a>
+                            <a href="{{ route('subscription-plans.show', $plan) }}" class="btn btn-info">{{ __('View')
+                                }}</a>
                         </div>
                     </form>
                 </div>
@@ -142,7 +188,11 @@
 
 @push('scripts')
 <script>
-$(function() {
+    $(function () {
+        var countryIndex = {{ count($displayCountries)
+    }};
+    var countriesJson = @json($countries);
+
     function toggleDurationDays() {
         const cycle = $('#billing_cycle').val();
         $('#duration_days_group').toggle(cycle === 'custom');
@@ -153,45 +203,102 @@ $(function() {
     $('#billing_cycle').on('change', toggleDurationDays);
     toggleDurationDays();
 
-    $('#add_feature').on('click', function() {
+    $('#add_feature').on('click', function () {
         $('#features_container').append(
             '<div class="input-group mb-2"><input type="text" name="features[]" class="form-control" placeholder="{{ __("Feature") }}"><div class="input-group-append"><button type="button" class="btn btn-danger remove-feature">×</button></div></div>'
         );
     });
-    $(document).on('click', '.remove-feature', function() {
+    $(document).on('click', '.remove-feature', function () {
         $(this).closest('.input-group').remove();
     });
 
-    $('#save-country-prices').on('click', function() {
-        const btn = $(this);
-        const status = $('#country-prices-status');
-        const countryPrices = {};
-        $('.country-price-input').each(function() {
-            const country = $(this).data('country');
-            const val = $(this).val();
-            countryPrices[country] = val === '' ? '' : val;
+    // Build country option HTML
+    function buildCountryOptions(selectedId) {
+        var html = '<option value="">-- {{ __("اختر الدولة") }} --</option>';
+        $.each(countriesJson, function (i, c) {
+            var selected = (selectedId && selectedId == c.id) ? 'selected' : '';
+            html += '<option value="' + c.id + '" ' + selected + '>' + c.name_ar + ' (' + c.name_en + ')</option>';
         });
-        btn.prop('disabled', true);
-        status.text('{{ __("Saving...") }}');
-        $.ajax({
-            url: '{{ route("subscription-plans.country-prices", $plan) }}',
-            method: 'PUT',
-            data: {
-                _token: '{{ csrf_token() }}',
-                country_prices: countryPrices
-            },
-            success: function() {
-                status.text('{{ __("Saved successfully.") }}').removeClass('text-danger').addClass('text-success');
-            },
-            error: function(xhr) {
-                status.text(xhr.responseJSON?.message || '{{ __("Error saving.") }}').removeClass('text-success').addClass('text-danger');
-            },
-            complete: function() {
-                btn.prop('disabled', false);
+        return html;
+    }
+
+    function addCountryRow(selectedId, price, offerPrice) {
+        var idx = countryIndex++;
+        var html = '<div class="country-row card card-body mb-2 p-3" data-index="' + idx + '">' +
+            '<div class="row align-items-end">' +
+            '<div class="form-group col-md-4 mb-1">' +
+            '<label>{{ __("Country") }} <span class="text-danger">*</span></label>' +
+            '<select name="countries[' + idx + '][country_id]" class="form-control country-select" required>' +
+            buildCountryOptions(selectedId) +
+            '</select></div>' +
+            '<div class="form-group col-md-3 mb-1">' +
+            '<label>{{ __("Base Price") }} <span class="text-danger">*</span></label>' +
+            '<input type="number" name="countries[' + idx + '][price]" class="form-control" value="' + (price || '') + '" min="0" step="0.01" required></div>' +
+            '<div class="form-group col-md-3 mb-1">' +
+            '<label>{{ __("Offer Price") }}</label>' +
+            '<input type="number" name="countries[' + idx + '][offer_price]" class="form-control" value="' + (offerPrice || '') + '" min="0" step="0.01"></div>' +
+            '<div class="form-group col-md-2 mb-1">' +
+            '<button type="button" class="btn btn-danger btn-sm remove-country-row"><i class="fas fa-trash"></i> {{ __("حذف") }}</button></div>' +
+            '</div></div>';
+        $('#country-prices-container').append(html);
+    }
+
+    $('#add-country-row').on('click', function () {
+        addCountryRow(null, '', '');
+    });
+
+    $(document).on('click', '.remove-country-row', function () {
+        $(this).closest('.country-row').remove();
+    });
+
+    // Prevent duplicate country selection
+    $(document).on('change', '.country-select', function () {
+        var selectedVal = $(this).val();
+        var $current = $(this);
+        if (!selectedVal) return;
+
+        var isDuplicate = false;
+        $('.country-select').each(function () {
+            if (this !== $current[0] && $(this).val() === selectedVal) {
+                isDuplicate = true;
+                return false;
             }
         });
+        if (isDuplicate) {
+            alert('{{ __("لا يجوز تكرار نفس الدولة") }}');
+            $current.val('');
+        }
     });
-});
+
+    // Form validation before submit
+    $('#plan-form').on('submit', function (e) {
+        var rows = $('.country-row');
+        if (rows.length === 0) {
+            e.preventDefault();
+            alert('{{ __("يجب اختيار دولة واحدة على الأقل") }}');
+            return false;
+        }
+
+        var valid = true;
+        rows.each(function () {
+            var price = parseFloat($(this).find('input[name$="[price]"]').val());
+            var offerPrice = $(this).find('input[name$="[offer_price]"]').val();
+            if (offerPrice !== '' && offerPrice !== null && offerPrice !== undefined) {
+                offerPrice = parseFloat(offerPrice);
+                if (!isNaN(offerPrice) && offerPrice >= price) {
+                    alert('{{ __("سعر العرض يجب أن يكون أقل من السعر الأساسي") }}');
+                    valid = false;
+                    return false;
+                }
+            }
+        });
+
+        if (!valid) {
+            e.preventDefault();
+            return false;
+        }
+    });
+    });
 </script>
 @endpush
 @endsection

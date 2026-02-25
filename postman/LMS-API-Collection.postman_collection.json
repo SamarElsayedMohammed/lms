@@ -1,0 +1,1452 @@
+{
+	"info": {
+		"_postman_id": "lms-api-collection-2025",
+		"name": "LMS API Collection",
+		"description": "LMS API - استخدام الدومين: http://toogowgo4ckks8cok84o4c4w.187.77.77.216.sslip.io",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://toogowgo4ckks8cok84o4c4w.187.77.77.216.sslip.io/api"
+		},
+		{
+			"key": "token",
+			"value": ""
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Auth - المستخدم",
+			"item": [
+				{
+					"name": "User Exists",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {"mode": "urlencoded", "urlencoded": [{"key": "email", "value": ""}]},
+						"url": "{{base_url}}/user-exists"
+					}
+				},
+				{
+					"name": "User Signup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"\",\n  \"email\": \"\",\n  \"type\": \"google\",\n  \"firebase_token\": \"\"\n}"
+						},
+						"url": "{{base_url}}/user-signup",
+						"description": "تسجيل مستخدم. Body يجب أن يكون JSON. الحقول الإجبارية: type (google | apple | email), firebase_token (Firebase ID Token صالح). لـ type=email أضف: password, confirm_password (وليس password_confirmation). cURL: curl -X POST '{{base_url}}/user-signup' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{\"name\": \"\", \"email\": \"\", \"type\": \"google\", \"firebase_token\": \"YOUR_FIREBASE_ID_TOKEN\"}'"
+					}
+				},
+				{
+					"name": "User Login",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {"mode": "urlencoded", "urlencoded": [{"key": "email", "value": ""}, {"key": "password", "value": ""}]},
+						"url": "{{base_url}}/user-login"
+					}
+				},
+				{
+					"name": "Mobile Login",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/mobile-login"
+					}
+				},
+				{
+					"name": "Mobile Registration",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/mobile-registration"
+					}
+				},
+				{
+					"name": "Mobile Reset Password",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/mobile-reset-password"
+					}
+				}
+			]
+		},
+		{
+			"name": "General - عام",
+			"item": [
+				{
+					"name": "Get Categories",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/categories"
+					}
+				},
+				{
+					"name": "Get Custom Form Fields",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-custom-form-fields"
+					}
+				},
+				{
+					"name": "Get Sliders",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-sliders"
+					}
+				},
+				{
+					"name": "Get Counts",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-counts"
+					}
+				},
+				{
+					"name": "Get Course Languages",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-course-languages"
+					}
+				},
+				{
+					"name": "Get Tags",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-tags"
+					}
+				},
+				{
+					"name": "App Settings",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/app-settings"
+					}
+				},
+				{
+					"name": "Web Settings",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/web-settings"
+					}
+				},
+				{
+					"name": "FAQs",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/faqs"
+					}
+				},
+				{
+					"name": "Pages",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/pages"
+					}
+				},
+				{
+					"name": "Dashboard Data",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/dashboard-data"
+					}
+				},
+				{
+					"name": "Dashboard Test",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/dashboard-test"
+					}
+				},
+				{
+					"name": "Contact Us",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/contact-us"
+					}
+				},
+				{
+					"name": "Sales Chart Data",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/sales-chart-data"
+					}
+				},
+				{
+					"name": "Get Quiz Attempt Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-quiz-attempt-details"
+					}
+				},
+				{
+					"name": "Marketing Pixels Active",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/marketing-pixels/active"
+					}
+				},
+				{
+					"name": "Get Categories With Course Count",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-categories-with-course-count"
+					}
+				},
+				{
+					"name": "Why Choose Us",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/why-choose-us"
+					}
+				},
+				{
+					"name": "Become Instructor",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/become-instructor"
+					}
+				},
+				{
+					"name": "System Languages",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/system-languages"
+					}
+				},
+				{
+					"name": "SEO Settings",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/seo-settings"
+					}
+				}
+			]
+		},
+		{
+			"name": "Courses - الدورات",
+			"item": [
+				{
+					"name": "Get Courses",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-courses"
+					}
+				},
+				{
+					"name": "Get Course",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-course?course_id=1"
+					}
+				},
+				{
+					"name": "Get Course Chapters",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-course-chapters?course_id=1"
+					}
+				},
+				{
+					"name": "Get Course Reviews",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-course-reviews?course_id=1"
+					}
+				},
+				{
+					"name": "Get Feature Sections",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-feature-sections"
+					}
+				},
+				{
+					"name": "Get Search Suggestions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-search-suggestions?q=test"
+					}
+				},
+				{
+					"name": "Course View",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/course-view"
+					}
+				}
+			]
+		},
+		{
+			"name": "Instructors - المدربين",
+			"item": [
+				{
+					"name": "Get Instructors",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-instructors"
+					}
+				},
+				{
+					"name": "Get Instructor Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-instructor-details?instructor_id=1"
+					}
+				}
+			]
+		},
+		{
+			"name": "Subscription - الاشتراكات",
+			"item": [
+				{
+					"name": "Get Plans (Public)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/subscription/plans"
+					}
+				},
+				{
+					"name": "My Subscription",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}, {"key": "Authorization", "value": "Bearer {{token}}"}],
+						"url": "{{base_url}}/subscription/my-subscription"
+					}
+				},
+				{
+					"name": "Subscribe",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/subscription/subscribe"
+					}
+				},
+				{
+					"name": "Subscription Renew",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/subscription/renew"
+					}
+				},
+				{
+					"name": "Subscription Cancel",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/subscription/cancel"
+					}
+				},
+				{
+					"name": "Subscription History",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/subscription/history"
+					}
+				},
+				{
+					"name": "Subscription Settings",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/subscription/settings"
+					}
+				}
+			]
+		},
+		{
+			"name": "Affiliate - الإحالة",
+			"item": [
+				{
+					"name": "Affiliate Status (Public)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/affiliate/status"
+					}
+				},
+				{
+					"name": "Track Referral ref/{code}",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/ref/CODE"
+					}
+				},
+				{
+					"name": "My Link",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/affiliate/my-link"
+					}
+				},
+				{
+					"name": "Affiliate Stats",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/affiliate/stats"
+					}
+				},
+				{
+					"name": "Affiliate Commissions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/affiliate/commissions"
+					}
+				},
+				{
+					"name": "Request Withdrawal",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/affiliate/withdraw"
+					}
+				},
+				{
+					"name": "Get Withdrawals",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/affiliate/withdrawals"
+					}
+				}
+			]
+		},
+		{
+			"name": "User (Auth Required)",
+			"item": [
+				{
+					"name": "Get User Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-user-details"
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/update-profile"
+					}
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/change-password"
+					}
+				},
+				{
+					"name": "User Enrolled Courses",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/user-enrolled-courses"
+					}
+				},
+				{
+					"name": "My Learning",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/my-learning"
+					}
+				},
+				{
+					"name": "Notifications",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/notifications"
+					}
+				},
+				{
+					"name": "Mark Notification Read",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/notifications/mark-read"
+					}
+				},
+				{
+					"name": "Mark All Notifications Read",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/notifications/mark-all-read"
+					}
+				},
+				{
+					"name": "Get Assignments",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-assignments"
+					}
+				},
+				{
+					"name": "Get Resources",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-resources"
+					}
+				},
+				{
+					"name": "Instructor Update Details",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/instructor/update-details"
+					}
+				},
+				{
+					"name": "Is Email Exist",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/is-email-exist"
+					}
+				},
+				{
+					"name": "Delete Account",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/delete-account"
+					}
+				}
+			]
+		},
+		{
+			"name": "Cart - السلة",
+			"item": [
+				{
+					"name": "Get Cart",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/cart"
+					}
+				},
+				{
+					"name": "Add to Cart",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {"mode": "urlencoded", "urlencoded": [{"key": "course_id", "value": "1"}]},
+						"url": "{{base_url}}/cart/add"
+					}
+				},
+				{
+					"name": "Remove from Cart",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/cart/remove"
+					}
+				},
+				{
+					"name": "Clear Cart",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/cart/clear"
+					}
+				},
+				{
+					"name": "Apply Promo to Cart",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/cart/apply-promo"
+					}
+				},
+				{
+					"name": "Remove Promo from Cart",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/cart/remove-promo"
+					}
+				}
+			]
+		},
+		{
+			"name": "Billing Details",
+			"item": [
+				{
+					"name": "Get Billing Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/billing-details"
+					}
+				},
+				{
+					"name": "Store Billing Details",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/billing-details"
+					}
+				},
+				{
+					"name": "Update Billing Details",
+					"request": {
+						"method": "PATCH",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/billing-details"
+					}
+				}
+			]
+		},
+		{
+			"name": "Track",
+			"item": [
+				{
+					"name": "Track Course",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/track/course"
+					}
+				},
+				{
+					"name": "Track Course Chapter",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/track/course-chapter"
+					}
+				}
+			]
+		},
+		{
+			"name": "Orders - الطلبات",
+			"item": [
+				{
+					"name": "Get Orders",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/orders"
+					}
+				},
+				{
+					"name": "Place Order",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/place_order"
+					}
+				},
+				{
+					"name": "Download Invoice",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/download-invoice"
+					}
+				},
+				{
+					"name": "Purchase Certificate",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/purchase-certificate"
+					}
+				},
+				{
+					"name": "Invoice Data",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/invoice-data"
+					}
+				},
+				{
+					"name": "Test Invoice Download",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/test-invoice"
+					}
+				}
+			]
+		},
+		{
+			"name": "Curriculum & Progress",
+			"item": [
+				{
+					"name": "Get Curriculum Progress",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/curriculum/progress?course_id=1"
+					}
+				},
+				{
+					"name": "Update Lecture Progress",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/lecture/1/progress"
+					}
+				},
+				{
+					"name": "Get Course Progress",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/course/1/progress"
+					}
+				},
+				{
+					"name": "Mark Curriculum Completed",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/curriculum/mark-completed"
+					}
+				},
+				{
+					"name": "Chapter Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/curriculum/chapter-details"
+					}
+				},
+				{
+					"name": "Detailed Tracking",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/curriculum/detailed-tracking"
+					}
+				},
+				{
+					"name": "Current Curriculum",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/curriculum/current"
+					}
+				},
+				{
+					"name": "Course Completion",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/curriculum/course-completion"
+					}
+				}
+			]
+		},
+		{
+			"name": "Quiz",
+			"item": [
+				{
+					"name": "Start Quiz Attempt",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/quiz/start"
+					}
+				},
+				{
+					"name": "Store Quiz Answer",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/quiz/answer"
+					}
+				},
+				{
+					"name": "Finish Quiz Attempt",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/quiz/finish"
+					}
+				},
+				{
+					"name": "Get Quiz Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/quiz/quiz"
+					}
+				},
+				{
+					"name": "Quiz Attempts",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/quiz/quiz/attempts"
+					}
+				},
+				{
+					"name": "Quiz Attempt Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/quiz/quiz/attempt"
+					}
+				},
+				{
+					"name": "Quiz Summary",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/quiz/summary"
+					}
+				}
+			]
+		},
+		{
+			"name": "Discussion",
+			"item": [
+				{
+					"name": "Get Course Discussion",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/discussion/course"
+					}
+				},
+				{
+					"name": "Store Course Discussion",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/discussion/course"
+					}
+				}
+			]
+		},
+		{
+			"name": "Wallet",
+			"item": [
+				{
+					"name": "Wallet Summary",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/summary"
+					}
+				},
+				{
+					"name": "Wallet History",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/history"
+					}
+				},
+				{
+					"name": "Wallet Top Up",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/top-up"
+					}
+				},
+				{
+					"name": "Create Withdrawal Request",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/withdrawal-request"
+					}
+				},
+				{
+					"name": "Get Withdrawal Requests",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/withdrawal-requests"
+					}
+				},
+				{
+					"name": "Withdrawal Request Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/withdrawal-request/details"
+					}
+				}
+			]
+		},
+		{
+			"name": "Rating",
+			"item": [
+				{
+					"name": "Add Rating",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/rating/add"
+					}
+				},
+				{
+					"name": "Update Rating",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/rating/update"
+					}
+				},
+				{
+					"name": "Delete Rating",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/rating/delete"
+					}
+				}
+			]
+		},
+		{
+			"name": "Promo Code",
+			"item": [
+				{
+					"name": "By Course",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/promo-code/by-course"
+					}
+				},
+				{
+					"name": "For Course",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/promo-code/for-course"
+					}
+				},
+				{
+					"name": "Get Valid List",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/promo-code/get-valid-list"
+					}
+				},
+				{
+					"name": "Apply Promo Code",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/promo-code/apply-promo-code"
+					}
+				},
+				{
+					"name": "Get Applied List",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/promo-code/get-applied-list"
+					}
+				}
+			]
+		},
+		{
+			"name": "Wishlist",
+			"item": [
+				{
+					"name": "Get Wishlist",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wishlist"
+					}
+				},
+				{
+					"name": "Add Update Wishlist",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wishlist/add-update-wishlist"
+					}
+				}
+			]
+		},
+		{
+			"name": "Assignments",
+			"item": [
+				{
+					"name": "Submit Assignment",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/assignments/submit"
+					}
+				},
+				{
+					"name": "Get User Submissions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/assignments/submissions"
+					}
+				},
+				{
+					"name": "Get Submission Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/assignments/submission/1"
+					}
+				},
+				{
+					"name": "Get Course Assignments",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/assignments/course/1"
+					}
+				},
+				{
+					"name": "Update Submission",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/assignments/submission/1"
+					}
+				},
+				{
+					"name": "Delete Submission",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/assignments/submission/1"
+					}
+				}
+			]
+		},
+		{
+			"name": "Helpdesk",
+			"item": [
+				{
+					"name": "Helpdesk Groups",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/groups"
+					}
+				},
+				{
+					"name": "Helpdesk Questions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/questions"
+					}
+				},
+				{
+					"name": "Helpdesk Search",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/search"
+					}
+				},
+				{
+					"name": "Group Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/group-details"
+					}
+				},
+				{
+					"name": "Check Group Approval",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/check-group-approval"
+					}
+				},
+				{
+					"name": "Show Question",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/question"
+					}
+				},
+				{
+					"name": "Store Group (Auth)",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/groups"
+					}
+				},
+				{
+					"name": "Request Join Group (Auth)",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/groups/request"
+					}
+				},
+				{
+					"name": "Store Question (Auth)",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/question"
+					}
+				},
+				{
+					"name": "Store Reply (Auth)",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/helpdesk/question/reply"
+					}
+				}
+			]
+		},
+		{
+			"name": "Refund",
+			"item": [
+				{
+					"name": "Check Refund Eligibility",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/refund/check-eligibility"
+					}
+				},
+				{
+					"name": "Request Refund",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/refund/request"
+					}
+				},
+				{
+					"name": "My Refunds",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/refund/my-refunds"
+					}
+				}
+			]
+		},
+		{
+			"name": "Certificate",
+			"item": [
+				{
+					"name": "Certificate Templates (Public)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/certificate-templates"
+					}
+				},
+				{
+					"name": "Get Course Certificate",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/certificate/course/generate"
+					}
+				},
+				{
+					"name": "Download Certificate",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/certificate/course/download"
+					}
+				},
+				{
+					"name": "Generate Quiz Certificate",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/certificate/quiz/generate"
+					}
+				},
+				{
+					"name": "Generate Course Certificate",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/generate-course-certificate"
+					}
+				},
+				{
+					"name": "Generate Exam Certificate",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/generate-exam-certificate"
+					}
+				}
+			]
+		},
+		{
+			"name": "Payment",
+			"item": [
+				{
+					"name": "Get Payment Intent",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/get-payment-intent"
+					}
+				}
+			]
+		},
+		{
+			"name": "Lecture",
+			"item": [
+				{
+					"name": "Get Lecture Attachments",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/lecture/1/attachments"
+					}
+				}
+			]
+		},
+		{
+			"name": "Video Stream",
+			"item": [
+				{
+					"name": "Get Video Stream Token",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/video/1/stream"
+					}
+				}
+			]
+		},
+		{
+			"name": "Finance",
+			"item": [
+				{"name": "Finance Dashboard", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/dashboard"}},
+				{"name": "Finance Commissions", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/commissions"}},
+				{"name": "Instructor Earnings", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/instructor-earnings"}},
+				{"name": "Wallet Transactions", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/wallet-transactions"}},
+				{"name": "Process Commission", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/process-commission"}},
+				{"name": "Finance Reports", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/reports"}},
+				{"name": "Finance Wallet Summary", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/wallet-summary"}},
+				{"name": "Finance Withdrawal Request", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/withdrawal-request"}},
+				{"name": "Finance Withdrawal Requests", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/withdrawal-requests"}},
+				{"name": "Admin Withdrawal Requests", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/admin/withdrawal-requests"}},
+				{"name": "Admin Withdrawal Update Status", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/admin/withdrawal-request/update-status"}},
+				{"name": "Admin Withdrawal Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/finance/admin/withdrawal-request/details"}}
+			]
+		},
+		{
+			"name": "Reports",
+			"item": [
+				{"name": "Report Filters", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/reports/filters"}},
+				{"name": "Sales Report", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/reports/sales"}},
+				{"name": "Commission Report", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/reports/commission"}},
+				{"name": "Course Report", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/reports/course"}},
+				{"name": "Instructor Report", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/reports/instructor"}},
+				{"name": "Enrollment Report", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/reports/enrollment"}},
+				{"name": "Revenue Report", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/reports/revenue"}}
+			]
+		},
+		{
+			"name": "Instructor Panel",
+			"item": [
+				{"name": "Get Added Courses", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-added-courses"}},
+				{"name": "Get Course Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-course-details"}},
+				{"name": "Get Course Enrolled Students", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-course-enrolled-students"}},
+				{"name": "Get Assignments List", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-assignments-list"}},
+				{"name": "Get Assignment Submissions", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-assignment-submissions"}},
+				{"name": "Update Assignment Status", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/update-assignment-status"}},
+				{"name": "Instructor Dashboard", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-instructor-dashboard"}},
+				{"name": "Get Quiz Reports", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-quiz-reports"}},
+				{"name": "Get Quiz Report Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-quiz-report-details"}},
+				{"name": "Get Quiz Result Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-quiz-result-details"}},
+				{"name": "Get Most Selling Courses", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-most-selling-courses"}},
+				{"name": "Get Reviews", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-reviews"}},
+				{"name": "Get Discussion", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-discussion"}},
+				{"name": "Reply Discussion", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/reply-discussion"}},
+				{"name": "Create Course", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/create-course"}},
+				{"name": "Update Course", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/update-course"}},
+				{"name": "Update Course Status", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/update-course-status"}},
+				{"name": "Delete Course", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/delete-course/1"}},
+				{"name": "Permanent Delete Course", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/permanent-delete-course"}},
+				{"name": "Create Course Chapter", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/create-course-chapter"}},
+				{"name": "Update Course Chapter", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/update-course-chapter"}},
+				{"name": "Get Added Course Chapters", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-added-course-chapters"}},
+				{"name": "Delete Course Chapter", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/delete-course-chapter"}},
+				{"name": "Update Curriculum", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/update-curriculum"}},
+				{"name": "Change Status", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/common/change-status"}},
+				{"name": "Instructor Earnings", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/earnings"}},
+				{"name": "Sales Statistics", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/sales-statistics"}},
+				{"name": "Withdrawal Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/withdrawal-details"}},
+				{"name": "Withdrawal History", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/withdrawal-history"}},
+				{"name": "Request Withdrawal", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/request-withdrawal"}},
+				{"name": "Course Analysis", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-analysis"}},
+				{"name": "Add Team Member", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/add-team-member"}},
+				{"name": "Accept Team Invitation", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/accept-team-invitation"}},
+				{"name": "Get Pending Invitations", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-pending-invitations"}},
+				{"name": "Remove Team Member", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/remove-team-member"}},
+				{"name": "Team Members", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/team-members"}},
+				{"name": "Invitors", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/invitors"}},
+				{"name": "Instructor Commissions", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/commissions"}},
+				{"name": "Wallet Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/wallet-details"}},
+				{"name": "Instructor Wallet History", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/wallet-history"}},
+				{"name": "Instructor Get Categories", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-categories"}},
+				{"name": "Add Promo Code", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/add-promo-code"}},
+				{"name": "Promo Codes List", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/promo-codes"}},
+				{"name": "Get Promo Code", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/promo-code"}},
+				{"name": "Update Promo Code", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/promo-code"}},
+				{"name": "Delete Promo Code", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/promo-code"}},
+				{"name": "Get Courses For Coupon", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/get-courses-for-coupon"}},
+				{"name": "Assignment Submissions (Instructor)", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/assignment-submissions"}},
+				{"name": "Assignment Submission Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/assignment-submission/1"}},
+				{"name": "Edit Assignment Submission", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/edit-assignment-submission"}}
+			]
+		},
+		{
+			"name": "Instructor Course Chapters (Curriculum)",
+			"item": [
+				{"name": "Curriculum Store", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum"}},
+				{"name": "Curriculum List", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/list"}},
+				{"name": "Update Curriculum Order", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/update-order"}},
+				{"name": "Particular Curriculum Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/particular-curriculum/details"}},
+				{"name": "Curriculum Destroy", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/destroy"}},
+				{"name": "Curriculum Trashed", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/trashed"}},
+				{"name": "Curriculum Restore", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/restore"}},
+				{"name": "Quiz Add Question", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/quiz/add-question"}},
+				{"name": "Quiz Get Question", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/quiz/get-question"}},
+				{"name": "Quiz Update Question", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/quiz/update-question"}},
+				{"name": "Quiz Delete Question", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/quiz/delete-question"}},
+				{"name": "Quiz Delete Questions Bulk", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/quiz/delete-questions"}},
+				{"name": "Curriculum Lecture Update", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/lecture/update"}},
+				{"name": "Curriculum Resource Update", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/resource/update"}},
+				{"name": "Curriculum Quiz Update", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/quiz/update"}},
+				{"name": "Curriculum Assignment Update", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/curriculum/assignment/update"}},
+				{"name": "Quiz Questions List", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/course-chapters/quiz/questions/list"}}
+			]
+		},
+		{
+			"name": "Admin",
+			"item": [
+				{"name": "Admin Assignment Submissions", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/assignment-submissions"}},
+				{"name": "Admin Assignment Submission Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/assignment-submission/1"}},
+				{"name": "Admin Update Assignment Submission", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/assignment-submission"}},
+				{"name": "Admin Bulk Update Submissions", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/assignment-submissions/bulk-update"}},
+				{"name": "Admin Assignment Statistics", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/assignment-statistics"}},
+				{"name": "Admin Lecture Attachments Store", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/lecture/1/attachments"}},
+				{"name": "Admin Lecture Attachment Delete", "request": {"method": "DELETE", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/lecture/1/attachments/1"}},
+				{"name": "Admin Subscription Plan Toggle", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/subscription-plans/1/toggle"}},
+				{"name": "Admin Subscription Plans Sort", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/subscription-plans/sort"}},
+				{"name": "Admin Subscription Country Prices", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/subscription-plans/1/country-prices"}},
+				{"name": "Admin Reviews Pending", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/reviews/pending"}},
+				{"name": "Admin Approve Rating", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/reviews/1/approve"}},
+				{"name": "Admin Reject Rating", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/reviews/1/reject"}},
+				{"name": "Admin Comments Pending", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/comments/pending"}},
+				{"name": "Admin Approve Comment", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/comments/1/approve"}},
+				{"name": "Admin Reject Comment", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/comments/1/reject"}},
+				{"name": "Admin Affiliate Settings", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/affiliate/settings"}},
+				{"name": "Admin Affiliate Update Settings", "request": {"method": "PUT", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/affiliate/settings"}},
+				{"name": "Admin Affiliate Pending Withdrawals", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/affiliate/withdrawals/pending"}},
+				{"name": "Admin Affiliate Approve Withdrawal", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/affiliate/withdrawals/1/approve"}},
+				{"name": "Admin Affiliate Reject Withdrawal", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/affiliate/withdrawals/1/reject"}},
+				{"name": "Admin Affiliate Commissions", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/affiliate/commissions"}},
+				{"name": "Admin Affiliate Stats", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/admin/affiliate/stats"}}
+			]
+		},
+		{
+			"name": "Instructor Earnings (Standalone)",
+			"item": [
+				{"name": "Instructor Earnings", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/instructor/earnings"}},
+				{"name": "Instructor Sales Statistics", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/instructor/sales-statistics"}},
+				{"name": "Instructor Withdrawal Details", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/instructor/withdrawal-details"}},
+				{"name": "Instructor Withdrawal History", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/instructor/withdrawal-history"}},
+				{"name": "Instructor Request Withdrawal", "request": {"method": "POST", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/instructor/request-withdrawal"}},
+				{"name": "Instructor Course Analysis", "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{base_url}}/instructor/course-analysis"}}
+			]
+		},
+		{
+			"name": "Dev",
+			"item": [
+				{
+					"name": "Remove User",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/remove-user"
+					}
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,37 @@
+---
+name: main-agent
+description: Main Agent - Orchestrates Backend, Frontend, and Review subagents
+alwaysApply: true
+---
+
+# Main Agent — Subagent Orchestration
+
+You are the **Main Agent** managing this LMS project. You coordinate three specialized subagents and ensure strict separation of responsibilities.
+
+## Subagent Roles
+
+| Subagent | Expertise | Scope | Must NOT Touch |
+|----------|-----------|-------|----------------|
+| **Backend** | Laravel | database/, models, migrations, APIs | Frontend files |
+| **Frontend** | Blade/Vue | admin UI, components, views | Backend logic |
+| **Review** | QA | Code review vs plan | Implementation |
+
+## Rules
+
+1. **Always declare which subagent is acting** — Start responses with: `[Backend Subagent]`, `[Frontend Subagent]`, or `[Review Subagent]` when performing work.
+2. **Never mix responsibilities** — Backend does not edit Blade/views; Frontend does not edit models/migrations/API logic.
+3. **Follow the project plan strictly** — Reference `specs/main/plan.md`, `specs/main/spec.md`, and `specs/main/tasks.md` for requirements.
+4. **Delegate appropriately** — When a task spans both backend and frontend, perform or delegate each part to the correct subagent sequentially.
+
+## Task Routing
+
+- **Database, migrations, seeders, models, API controllers, routes/api.php** → Backend Subagent
+- **Blade views, components, resources/views, admin UI, sidebar** → Frontend Subagent
+- **Code review, missing features, bugs, requirement mismatches** → Review Subagent
+
+## Project Plan Reference
+
+- Plan: `specs/main/plan.md`
+- Spec: `specs/main/spec.md`
+- Tasks: `specs/main/tasks.md`
+- Contracts: `specs/main/contracts/`

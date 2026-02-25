@@ -90,3 +90,100 @@ active (true) ↔ inactive (false)  [admin toggle]
 | SubscriptionPlanPrice | country_code | required, exists:supported_currencies,country_code |
 | SubscriptionPlanPrice | price | required, numeric, min:0 |
 | SupportedCurrency | exchange_rate_to_egp | required, numeric, gt:0 |
+
+---
+
+## Remaining Phases (Plan v2 Phase 2, 3, 6) — To Implement
+
+### Phase 2: Content Access & Video Progress
+
+#### LectureProgress (or user_curriculum_tracking extension)
+| Field | Type | Notes |
+|-------|------|-------|
+| user_id | foreignId → users | |
+| lecture_id | foreignId → course_chapter_lectures | |
+| watched_seconds | integer | Server-validated |
+| total_seconds | integer | Video duration |
+| last_position | integer | Resume position |
+| watch_percentage | decimal(5,2) | watched_seconds/total_seconds * 100 |
+| is_completed | boolean | true when watch_percentage >= 85 |
+| completed_at | timestamp nullable | When 85% reached |
+
+#### Course (modify)
+| Field | Type | Notes |
+|-------|------|-------|
+| is_free | boolean | default false |
+| is_free_until | timestamp nullable | Temporary free |
+
+#### CourseChapterLecture (modify)
+| Field | Type | Notes |
+|-------|------|-------|
+| is_free | boolean | default false |
+
+#### LectureAttachment (new)
+| Field | Type | Notes |
+|-------|------|-------|
+| lecture_id | foreignId | |
+| file_name | string | |
+| file_path | string | |
+| file_size | integer | |
+| file_type | string | MIME |
+| sort_order | integer | |
+
+#### FeatureFlag (or settings)
+| Field | Type | Notes |
+|-------|------|-------|
+| key | string unique | e.g. lecture_attachments, affiliate_system |
+| name | string | Display name |
+| description | text nullable | |
+| is_enabled | boolean | |
+| metadata | json nullable | |
+
+### Phase 3: Affiliate System
+
+#### AffiliateLink
+| Field | Type | Notes |
+|-------|------|-------|
+| user_id | foreignId → users | |
+| code | string unique | Referral code |
+| total_clicks | integer default 0 | |
+| total_conversions | integer default 0 | |
+| is_active | boolean | |
+
+#### AffiliateCommission
+| Field | Type | Notes |
+|-------|------|-------|
+| affiliate_id | foreignId → users | |
+| referred_user_id | foreignId → users | |
+| subscription_id | foreignId | |
+| plan_id | foreignId | |
+| amount | decimal(10,2) | |
+| commission_rate | decimal(5,2) | Snapshot from plan |
+| status | enum | pending, available, withdrawn, cancelled |
+| earned_date | date | |
+| available_date | date | When unlock (bi-monthly rule) |
+| settlement_period_start | date | |
+| settlement_period_end | date | |
+| withdrawn_at | timestamp nullable | |
+
+#### AffiliateWithdrawal
+| Field | Type | Notes |
+|-------|------|-------|
+| affiliate_id | foreignId → users | |
+| amount | decimal(10,2) | |
+| commission_ids | json | IDs included |
+| status | enum | pending, processing, completed, failed, rejected |
+| requested_at | timestamp | |
+| processed_at | timestamp nullable | |
+| processed_by | foreignId nullable → users | |
+| rejection_reason | text nullable | |
+
+#### AffiliateSetting (or settings table)
+| Field | Type | Notes |
+|-------|------|-------|
+| min_withdrawal_amount | decimal(10,2) | default 500 |
+| is_enabled | boolean | default false |
+
+### Phase 6: Certificates (no new tables)
+
+Certificate generation uses existing certificate/order data. Add: 100% course progress check (all lessons ≥ 85%); QR code with `certificate/verify/{number}`; public verification endpoint returns course name, student name, completion date.

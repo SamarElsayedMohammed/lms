@@ -1,4 +1,4 @@
-﻿<!-- Favicon -->
+<!-- Favicon -->
 @if (!empty($settingLogos['favicon']))
 <link rel="icon" type="image/x-icon" href="{{ $settingLogos['favicon'] }}" />
 @else
@@ -44,7 +44,9 @@
 <link rel="stylesheet" href="{{ asset('css/pages/otherpages.css') }}" />
 <link rel="stylesheet" href="{{ asset('css/custom.css') }}">
 
-<!-- RTL Support --> @if($isRTL) <link rel="stylesheet" href="{{ asset('css/rtl.css') }}">
+<!-- RTL Support (load when admin RTL so layout never breaks) -->
+@if($isRTL ?? (auth()->check() && app()->getLocale() === 'ar'))
+<link rel="stylesheet" href="{{ asset('css/rtl.css') }}">
 @endif
 
 

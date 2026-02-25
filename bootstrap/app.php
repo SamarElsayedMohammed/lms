@@ -35,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             \App\Http\Middleware\DemoModeMiddleware::class,
+            \App\Http\Middleware\SetAdminLocale::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

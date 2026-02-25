@@ -1,0 +1,40 @@
+---
+name: backend-subagent
+description: Backend Subagent - Laravel expert for database, models, migrations, APIs
+globs: app/Models/**/*.php,app/Http/Controllers/API/**/*.php,app/Http/Controllers/Admin/**/*.php,database/**/*.php,routes/api.php,routes/web.php,app/Services/**/*.php
+alwaysApply: false
+---
+
+# Backend Subagent
+
+**Role**: Laravel expert. Responsible ONLY for backend logic.
+
+## Scope (ONLY touch these)
+
+- `database/` — migrations, seeders, factories
+- `app/Models/` — Eloquent models, relationships
+- `app/Http/Controllers/API/` — API controllers
+- `app/Http/Controllers/Admin/` — Admin controller logic (not view rendering)
+- `app/Services/` — Business logic services
+- `routes/api.php` — API route definitions
+- `routes/web.php` — Route definitions (backend only)
+
+## Must NOT Touch
+
+- `resources/views/**` — Blade templates
+- `resources/js/**` — Vue/JS components
+- `public/**` — Static assets
+- Any frontend markup, CSS, or UI structure
+
+## Conventions
+
+- Use `declare(strict_types=1);` and type hints
+- Eloquent ORM over raw SQL
+- `firstOrCreate` for idempotent seeders
+- `ResponseService::noAnyPermissionThenRedirect()` / `noPermissionThenSendJson()` for permission checks
+- API responses: `{success: bool, message: string}` or structured data
+- Follow `specs/main/contracts/` for API contracts
+
+## When Acting
+
+Always prefix responses with: **[Backend Subagent]**

@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Category;
 use App\Models\Course\Course;
 use App\Models\Course\CourseLanguage;
+use App\Models\Course\CourseChapter\CourseChapter;
+use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\Course\CourseLearning;
 use App\Models\Course\CourseRequirement;
 use App\Models\Tag;
@@ -50,7 +52,11 @@ class CoursesController extends Controller
             ? User::role('Instructor')->get()
             : collect();
 
-        return view('courses.index', compact('categories', 'tags', 'course_languages', 'instructors'), [
+        $maxVideoSizeMB = !empty(HelperService::systemSettings('max_video_upload_size'))
+            ? (float) HelperService::systemSettings('max_video_upload_size')
+            : 100;
+
+        return view('courses.index', compact('categories', 'tags', 'course_languages', 'instructors', 'maxVideoSizeMB'), [
             'type_menu' => 'courses',
         ]);
     }
@@ -92,34 +98,75 @@ class CoursesController extends Controller
         $maxSizeMB = !empty($maxVideoSize) ? (float) $maxVideoSize : 100;
         $maxSizeKB = $maxSizeMB * 1024;
 
+        // When using country_prices (no single price/discount_price), derive base price from first country for validation/model
+        $countryPrices = $request->input('country_prices', []);
+        if ($request->course_type === 'paid' && (empty($request->price) && $request->price !== '0') && !empty($countryPrices)) {
+            foreach ($countryPrices as $countryCode => $prices) {
+                $p = isset($prices['price']) ? trim((string) $prices['price']) : '';
+                if ($p !== '' && is_numeric($p)) {
+                    $request->merge([
+                        'price' => $p,
+                        'discount_price' => isset($prices['discount_price']) && trim((string) $prices['discount_price']) !== '' ? $prices['discount_price'] : null,
+                    ]);
+                    break;
+                }
+            }
+        }
+
+        // اللغة: إذا لم يُرسل language_id (تم إخفاء الحقل من الواجهة) نستخدم أول لغة نشطة
+        if (! $request->filled('language_id')) {
+            $defaultLanguageId = CourseLanguage::where('is_active', 1)->value('id');
+            if ($defaultLanguageId) {
+                $request->merge(['language_id' => $defaultLanguageId]);
+            }
+        }
+
+        // Determine intro video type for conditional validation (exactly one: file OR url when type chosen)
+        $introVideoType = $request->input('intro_video_type');
+
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|min:2|max:255',
             'short_description' => 'nullable|string',
             'thumbnail' => 'required|file|mimes:jpeg,png,jpg,gif,webp,svg|max:2048',
+            'intro_video_type' => 'nullable|in:file,url',
             'intro_video' => [
-                'nullable',
+                $introVideoType === 'file' ? 'required' : 'nullable',
                 'file',
-                'mimetypes:video/mp4,video/x-msvideo,video/avi,video/quicktime,video/webm',
                 'max:' . $maxSizeKB,
-                static function ($attribute, $value, $fail): void {
+                static function ($attribute, $value, $fail) use ($request, $introVideoType): void {
+                    if ($introVideoType === 'url' && $request->hasFile('intro_video')) {
+                        $fail(__('Please choose either Upload File or Video URL, not both.'));
+                        return;
+                    }
                     if ($value) {
                         $extension = strtolower((string) $value->getClientOriginalExtension());
-                        $allowedExtensions = ['mp4', 'avi', 'mov', 'webm'];
+                        $allowedExtensions = ['mp4', 'avi', 'mov', 'webm', 'mkv', 'wmv', 'm4v'];
                         if (!in_array($extension, $allowedExtensions)) {
-                            $fail('The '
-                            . $attribute
-                            . ' must be a file of type: '
-                            . implode(', ', $allowedExtensions)
-                            . '.');
+                            $fail(__('The intro video must be a video file (e.g. MP4, AVI, MOV, WebM, MKV).'));
                         }
                     }
                 },
             ],
+            'intro_video_url' => [
+                $introVideoType === 'url' ? 'required' : 'nullable',
+                'url',
+                static function ($attribute, $value, $fail) use ($request, $introVideoType): void {
+                    // When type is file, do not allow URL (exactly one source)
+                    if ($introVideoType === 'file' && $request->filled('intro_video_url')) {
+                        $fail(__('Please choose either Upload File or Video URL, not both.'));
+                    }
+                },
+            ],
+            'content_structure' => 'required|in:lessons,chapters',
             'level' => 'required|in:beginner,intermediate,advanced',
             'course_type' => 'required|in:free,paid',
             'status' => 'nullable|in:draft,pending,publish',
-            'price' => 'required_if:course_type,paid|nullable|numeric|min:1',
+            'price' => 'nullable|numeric|min:0',
             'discount_price' => 'nullable|numeric|min:0|lte:price',
+            'country_prices' => 'nullable|array',
+            'country_prices.*' => 'nullable|array',
+            'country_prices.*.price' => 'nullable|numeric|min:0',
+            'country_prices.*.discount_price' => 'nullable|numeric|min:0',
             'category_id' => 'required|exists:categories,id',
             'is_active' => 'boolean',
             'sequential_access' => 'boolean',
@@ -131,7 +178,7 @@ class CoursesController extends Controller
             'meta_description' => 'nullable|string',
             'meta_keywords' => 'nullable|string',
             'course_tags' => 'nullable|array',
-            'language_id' => 'required|exists:course_languages,id',
+            'language_id' => 'nullable|exists:course_languages,id',
             'learnings_data' => 'required|array',
             'learnings_data.*.id' => 'nullable|exists:course_learnings,id',
             'learnings_data.*.learning' => 'required|string',
@@ -160,6 +207,11 @@ class CoursesController extends Controller
 
             $data = $validator->validated(); // Get Validated Data
 
+            // اللغة اختيارية: إذا وُجدت لغة نشطة نستخدمها افتراضياً، وإلا نتركها null (لغة الموقع الافتراضية)
+            if (empty($data['language_id'])) {
+                $data['language_id'] = CourseLanguage::where('is_active', 1)->value('id') ?: null;
+            }
+
             // Get User ID
             $staffUser = Auth::user()->hasRole('Staff');
             if ($staffUser) {
@@ -173,9 +225,25 @@ class CoursesController extends Controller
                 $userId = Auth::user()?->id;
             }
 
-            // Round Price and Discount Price to 2 decimal places
-            $price = $request->has('price') ? round((float) $request->price, 2) : null;
-            $discountPrice = $request->has('discount_price') ? round((float) $request->discount_price, 2) : null;
+            // Round Price and Discount Price to 2 decimal places (from request or from first country in country_prices)
+            $price = $request->has('price') && $request->price !== '' && $request->price !== null
+                ? round((float) $request->price, 2)
+                : null;
+            $discountPrice = $request->has('discount_price') && $request->discount_price !== '' && $request->discount_price !== null
+                ? round((float) $request->discount_price, 2)
+                : null;
+            if ($request->course_type === 'paid' && $price === null && !empty($countryPrices)) {
+                foreach ($countryPrices as $countryCode => $prices) {
+                    $p = isset($prices['price']) ? trim((string) $prices['price']) : '';
+                    if ($p !== '' && is_numeric($p)) {
+                        $price = round((float) $p, 2);
+                        $discountPrice = isset($prices['discount_price']) && trim((string) $prices['discount_price']) !== '' && is_numeric($prices['discount_price'])
+                            ? round((float) $prices['discount_price'], 2)
+                            : null;
+                        break;
+                    }
+                }
+            }
             $data['price'] = $request->course_type === 'free' ? null : $price;
             $data['discount_price'] = $request->course_type === 'free' ? null : $discountPrice;
             $data['user_id'] = $userId; // Set User ID
@@ -218,13 +286,22 @@ class CoursesController extends Controller
                 $data['thumbnail'] = FileService::compressAndUpload($request->file('thumbnail'), $this->uploadFolder);
             }
 
-            // Upload Intro Video
-            if ($request->hasFile('intro_video')) {
+            // Handle Intro Video (file upload or URL)
+            $data['intro_video_type'] = $introVideoType;
+            if ($introVideoType === 'file' && $request->hasFile('intro_video')) {
                 $data['intro_video'] = FileService::compressAndUpload(
                     $request->file('intro_video'),
                     $this->videoUploadFolder,
                 );
+            } elseif ($introVideoType === 'url' && $request->filled('intro_video_url')) {
+                $data['intro_video'] = $request->input('intro_video_url');
+            } else {
+                $data['intro_video'] = null;
+                $data['intro_video_type'] = null;
             }
+
+            // Store content structure
+            $data['content_structure'] = $request->input('content_structure', 'chapters');
 
             // Upload Meta Image
             if ($request->hasFile('meta_image')) {
@@ -241,6 +318,88 @@ class CoursesController extends Controller
 
             // Create Course
             $course = Course::create($data);
+
+            // If content_structure is 'lessons', auto-create a hidden default chapter and optionally lectures from lesson_links
+            $defaultChapter = null;
+            if ($data['content_structure'] === 'lessons') {
+                $defaultChapter = CourseChapter::create([
+                    'course_id' => $course->id,
+                    'user_id' => $data['user_id'],
+                    'title' => 'default',
+                    'description' => null,
+                    'is_active' => true,
+                    'chapter_order' => 1,
+                    'type' => 'default',
+                ]);
+                $lessonLinks = $request->input('lesson_links', []);
+                $lessonLinks = is_array($lessonLinks) ? array_filter(array_map('trim', $lessonLinks)) : [];
+                foreach ($lessonLinks as $order => $url) {
+                    if ($url === '') {
+                        continue;
+                    }
+                    $title = __('Lesson') . ' ' . ($order + 1);
+                    CourseChapterLecture::create([
+                        'course_chapter_id' => $defaultChapter->id,
+                        'user_id' => $data['user_id'],
+                        'title' => $title,
+                        'slug' => HelperService::generateUniqueSlug(CourseChapterLecture::class, $title),
+                        'type' => 'youtube_url',
+                        'youtube_url' => $url,
+                        'file' => null,
+                        'file_extension' => null,
+                        'hours' => 0,
+                        'minutes' => 0,
+                        'seconds' => 0,
+                        'chapter_order' => $order + 1,
+                        'is_active' => true,
+                        'free_preview' => false,
+                    ]);
+                }
+            }
+
+            // If content_structure is 'chapters', create chapters and lectures from chapters[][title] and chapters[][lesson_links][]
+            if ($data['content_structure'] === 'chapters' && $request->has('chapters') && is_array($request->chapters)) {
+                $chaptersInput = array_values($request->chapters);
+                foreach ($chaptersInput as $chapterOrder => $chapterData) {
+                    $chapterTitle = trim((string) ($chapterData['title'] ?? ''));
+                    if ($chapterTitle === '') {
+                        $chapterTitle = __('Chapter') . ' ' . ($chapterOrder + 1);
+                    }
+                    $chapter = CourseChapter::create([
+                        'course_id' => $course->id,
+                        'user_id' => $data['user_id'],
+                        'title' => $chapterTitle,
+                        'description' => null,
+                        'is_active' => true,
+                        'chapter_order' => $chapterOrder + 1,
+                        'type' => 'default',
+                    ]);
+                    $links = $chapterData['lesson_links'] ?? [];
+                    $links = is_array($links) ? array_filter(array_map('trim', $links)) : [];
+                    foreach ($links as $linkOrder => $url) {
+                        if ($url === '') {
+                            continue;
+                        }
+                        $title = __('Lesson') . ' ' . ($linkOrder + 1);
+                        CourseChapterLecture::create([
+                            'course_chapter_id' => $chapter->id,
+                            'user_id' => $data['user_id'],
+                            'title' => $title,
+                            'slug' => HelperService::generateUniqueSlug(CourseChapterLecture::class, $title),
+                            'type' => 'youtube_url',
+                            'youtube_url' => $url,
+                            'file' => null,
+                            'file_extension' => null,
+                            'hours' => 0,
+                            'minutes' => 0,
+                            'seconds' => 0,
+                            'chapter_order' => $linkOrder + 1,
+                            'is_active' => true,
+                            'free_preview' => false,
+                        ]);
+                    }
+                }
+            }
 
             // Create Course Learnings
             if ($request->has('learnings_data') && !empty($request->learnings_data)) {
@@ -320,7 +479,7 @@ class CoursesController extends Controller
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Course Controller -> Store Method');
-            ResponseService::errorResponse();
+            ResponseService::errorResponse(__('Failed to create course') . ': ' . $th->getMessage());
         }
     }
 
@@ -667,6 +826,16 @@ class CoursesController extends Controller
         $maxVideoSize = HelperService::systemSettings('max_video_upload_size');
         $maxVideoSizeMB = !empty($maxVideoSize) ? (float) $maxVideoSize : 100;
 
+        // Infer intro_video_type for old courses (null) from stored intro_video value
+        $currentIntroType = $course->getRawOriginal('intro_video_type');
+        if ($currentIntroType === null && $course->getRawOriginal('intro_video')) {
+            $raw = (string) $course->getRawOriginal('intro_video');
+            $currentIntroType = (str_starts_with($raw, 'http://') || str_starts_with($raw, 'https://')) ? 'url' : 'file';
+        }
+        $contentStructureForView = $course->content_structure ?? 'chapters';
+        $chapters = $course->chapters()->orderBy('chapter_order')->orderBy('id')->get();
+        $isDirectLessonsMode = ($contentStructureForView === 'lessons');
+
         return view(
             'courses.edit',
             compact(
@@ -679,6 +848,10 @@ class CoursesController extends Controller
                 'instructors',
                 'shouldShowInstructorFilters',
                 'maxVideoSizeMB',
+                'currentIntroType',
+                'contentStructureForView',
+                'chapters',
+                'isDirectLessonsMode',
             ),
             ['type_menu' => 'courses'],
         );
@@ -720,32 +893,54 @@ class CoursesController extends Controller
         $maxSizeMB = !empty($maxVideoSize) ? (float) $maxVideoSize : 100;
         $maxSizeKB = $maxSizeMB * 1024;
 
+        // اللغة: إذا لم يُرسل language_id (تم إخفاء الحقل من الواجهة) نستخدم لغة الدورة الحالية أو أول لغة نشطة
+        if (! $request->filled('language_id')) {
+            $request->merge([
+                'language_id' => $course->language_id ?: CourseLanguage::where('is_active', 1)->value('id'),
+            ]);
+        }
+
+        $introVideoTypeUpdate = $request->input('intro_video_type');
+        $existingIntroType = $course->getRawOriginal('intro_video_type');
+        $existingIntroValue = $course->getRawOriginal('intro_video');
+        $hasExistingFile = $existingIntroType === 'file' && $existingIntroValue;
+
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|min:2|max:255',
             'short_description' => 'nullable|string',
             'thumbnail' => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:2048',
+            'intro_video_type' => 'nullable|in:file,url',
             'intro_video' => [
-                'nullable',
+                ($introVideoTypeUpdate === 'file' && !$hasExistingFile) ? 'required' : 'nullable',
                 'file',
-                'mimetypes:video/mp4,video/x-msvideo,video/avi,video/quicktime,video/webm',
                 'max:' . $maxSizeKB,
-                static function ($attribute, $value, $fail): void {
+                static function ($attribute, $value, $fail) use ($request, $introVideoTypeUpdate): void {
+                    if ($introVideoTypeUpdate === 'url' && $request->hasFile('intro_video')) {
+                        $fail(__('Please choose either Upload File or Video URL, not both.'));
+                        return;
+                    }
                     if ($value) {
                         $extension = strtolower((string) $value->getClientOriginalExtension());
-                        $allowedExtensions = ['mp4', 'avi', 'mov', 'webm'];
+                        $allowedExtensions = ['mp4', 'avi', 'mov', 'webm', 'mkv', 'wmv', 'm4v'];
                         if (!in_array($extension, $allowedExtensions)) {
-                            $fail('The '
-                            . $attribute
-                            . ' must be a file of type: '
-                            . implode(', ', $allowedExtensions)
-                            . '.');
+                            $fail(__('The intro video must be a video file (e.g. MP4, AVI, MOV, WebM, MKV).'));
                         }
                     }
                 },
             ],
+            'intro_video_url' => [
+                $introVideoTypeUpdate === 'url' ? 'required' : 'nullable',
+                'url',
+                static function ($attribute, $value, $fail) use ($request, $introVideoTypeUpdate): void {
+                    if ($introVideoTypeUpdate === 'file' && $request->filled('intro_video_url')) {
+                        $fail(__('Please choose either Upload File or Video URL, not both.'));
+                    }
+                },
+            ],
+            'content_structure' => 'required|in:lessons,chapters',
             'level' => 'required|in:beginner,intermediate,advanced',
             'status' => 'nullable|in:draft,pending,publish',
-            'price' => 'required_if:course_type,paid|nullable|numeric|min:1',
+            'price' => 'nullable|numeric|min:0',
             'discount_price' => 'nullable|numeric|min:0|lte:price',
             'is_active' => 'boolean',
             'sequential_access' => 'boolean',
@@ -758,7 +953,7 @@ class CoursesController extends Controller
             'meta_image' => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:2048',
             'meta_description' => 'nullable|string',
             'meta_keywords' => 'nullable|string',
-            'language_id' => 'required|exists:course_languages,id',
+            'language_id' => 'nullable|exists:course_languages,id',
             'learnings_data' => 'required|array',
             'learnings_data.*.id' => 'nullable|exists:course_learnings,id',
             'learnings_data.*.learning' => 'required|string',
@@ -784,11 +979,13 @@ class CoursesController extends Controller
 
             $data = $validator->validated(); // Get Validated Data
 
-            // Round Price and Discount Price to 2 decimal places
-            $price = $request->has('price') ? round((float) $request->price, 2) : null;
-            $discountPrice = $request->has('discount_price') ? round((float) $request->discount_price, 2) : null;
-            $data['price'] = $courseType === 'free' ? null : $price;
-            $data['discount_price'] = $courseType === 'free' ? null : $discountPrice;
+            // Price / discount_price: only set when sent (form no longer has these fields; preserve existing when not sent)
+            if ($request->has('price') || $request->has('discount_price')) {
+                $price = $request->has('price') ? round((float) $request->price, 2) : $course->price;
+                $discountPrice = $request->has('discount_price') ? round((float) $request->discount_price, 2) : $course->discount_price;
+                $data['price'] = $courseType === 'free' ? null : $price;
+                $data['discount_price'] = $courseType === 'free' ? null : $discountPrice;
+            }
 
             // Handle sequential_access - if checkbox is unchecked, it won't be sent, so use existing value or default to 0
             $data['sequential_access'] = $request->has('sequential_access')
@@ -809,14 +1006,35 @@ class CoursesController extends Controller
                 );
             }
 
-            // Delete old intro video and upload new one
-            if ($request->hasFile('intro_video')) {
+            // Handle Intro Video (file upload or URL) — same contract as store(); on edit allow keeping existing file when type=file and no new upload (use $existingIntroType / $existingIntroValue from above)
+            if ($introVideoTypeUpdate === 'file' && $request->hasFile('intro_video')) {
+                $data['intro_video_type'] = 'file';
                 $data['intro_video'] = FileService::compressAndReplace(
                     $request->file('intro_video'),
                     $this->videoUploadFolder,
-                    $course->intro_video,
+                    $existingIntroType === 'file' ? $existingIntroValue : null,
                 );
+            } elseif ($introVideoTypeUpdate === 'file' && $existingIntroType === 'file' && $existingIntroValue) {
+                // Keep existing file when type=file and no new file uploaded
+                $data['intro_video_type'] = 'file';
+                $data['intro_video'] = $existingIntroValue;
+            } elseif ($introVideoTypeUpdate === 'url' && $request->filled('intro_video_url')) {
+                $data['intro_video_type'] = 'url';
+                $data['intro_video'] = $request->input('intro_video_url');
+                if ($existingIntroType === 'file' && $existingIntroValue) {
+                    FileService::delete($existingIntroValue);
+                }
+            } else {
+                $data['intro_video'] = null;
+                $data['intro_video_type'] = null;
+                if ($existingIntroType === 'file' && $existingIntroValue) {
+                    FileService::delete($existingIntroValue);
+                }
             }
+
+            // Content structure: persist without removing existing chapters/lessons.
+            // Product note: changing from "chapters" to "lessons" (or vice versa) is allowed; existing chapters/lessons are not auto-merged or deleted. Restrict in UI if needed (e.g. disallow when multiple chapters exist).
+            $data['content_structure'] = $request->input('content_structure', $course->content_structure ?? 'chapters');
 
             // Delete old meta image and upload new one
             if ($request->hasFile('meta_image')) {

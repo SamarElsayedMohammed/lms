@@ -298,6 +298,136 @@
                             "raw": "{\"name\": \"\", \"email\": \"\", \"message\": \"\"}"
                         }
                     }
+                },
+                {
+                    "name": "Get Marketing Pixels (Active)",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/marketing-pixels/active"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Subscription",
+            "item": [
+                {
+                    "name": "Get Plans (Public)",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/subscription/plans",
+                        "description": "Optional query: per_page (default 15, max 50)"
+                    }
+                },
+                {
+                    "name": "Get My Subscription",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/subscription/my-subscription",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Subscribe",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/subscription/subscribe",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"plan_id\": 1, \"payment_method\": \"\", \"use_wallet\": false}"
+                        }
+                    }
+                },
+                {
+                    "name": "Renew",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/subscription/renew",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"subscription_id\": null, \"payment_method\": \"wallet\", \"use_wallet\": true}"
+                        }
+                    }
+                },
+                {
+                    "name": "Cancel",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/subscription/cancel",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"reason\": \"\"}"
+                        }
+                    }
+                },
+                {
+                    "name": "Get History",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/subscription/history",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Update Settings",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/subscription/settings",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"auto_renew\": true}"
+                        }
+                    }
                 }
             ]
         },
@@ -416,7 +546,7 @@
                     "name": "Get Assignments",
                     "request": {
                         "method": "GET",
-                        "url": "{{base_url}}/get-assignments",
+                        "url": "{{base_url}}/get-assignments?course_id=1",
                         "header": [
                             {
                                 "key": "Authorization",
@@ -755,7 +885,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{}"
+                            "raw": "{\"first_name\": \"\", \"last_name\": \"\", \"country_code\": \"EG\", \"address\": \"\", \"city\": \"\", \"state\": \"\", \"postal_code\": \"\", \"tax_id\": \"\"}"
                         }
                     }
                 },
@@ -776,7 +906,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{}"
+                            "raw": "{\"first_name\": \"\", \"last_name\": \"\", \"country_code\": \"\", \"address\": \"\", \"city\": \"\", \"state\": \"\", \"postal_code\": \"\", \"tax_id\": \"\"}"
                         }
                     }
                 }
@@ -1112,7 +1242,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{}"
+                            "raw": "{\"payment_method\": \"stripe\", \"buy_now\": false, \"course_id\": null, \"promo_code\": \"\"}"
                         }
                     }
                 },
@@ -1627,7 +1757,7 @@
                     "name": "Get Course Details",
                     "request": {
                         "method": "GET",
-                        "url": "{{base_url}}/get-course-details?course_id=1",
+                        "url": "{{base_url}}/get-course-details?id=1",
                         "header": [
                             {
                                 "key": "Authorization",
@@ -1692,7 +1822,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{}"
+                            "raw": "{\"submission_id\": 1, \"status\": \"accepted\", \"points\": null, \"feedback\": \"\", \"comment\": \"\"}"
                         }
                     }
                 },
@@ -1723,6 +1853,34 @@
                     }
                 },
                 {
+                    "name": "Get Quiz Report Details",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/get-quiz-report-details?quiz_id=1",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "description": "Optional: quiz_slug, per_page, page, date_filter, start_date, end_date, search, status_filter"
+                    }
+                },
+                {
+                    "name": "Get Quiz Result Details",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/get-quiz-result-details?attempt_id=1",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "description": "Required: attempt_id OR attempt_slug. Optional: team_user_slug"
+                    }
+                },
+                {
                     "name": "Get Most Selling Courses",
                     "request": {
                         "method": "GET",
@@ -1739,13 +1897,14 @@
                     "name": "Get Reviews",
                     "request": {
                         "method": "GET",
-                        "url": "{{base_url}}/get-reviews",
+                        "url": "{{base_url}}/get-reviews?id=1",
                         "header": [
                             {
                                 "key": "Authorization",
                                 "value": "Bearer {{token}}"
                             }
-                        ]
+                        ],
+                        "description": "Optional: id (course), slug, team_user_slug, per_page, page, sort_by (newest|oldest|highest_rating|lowest_rating)"
                     }
                 },
                 {
@@ -1778,7 +1937,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{}"
+                            "raw": "{\"discussion_id\": 1, \"message\": \"\"}"
                         }
                     }
                 },
@@ -1859,6 +2018,28 @@
                     }
                 },
                 {
+                    "name": "Permanent Delete Course",
+                    "request": {
+                        "method": "DELETE",
+                        "url": "{{base_url}}/permanent-delete-course",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"id\": 1}"
+                        },
+                        "description": "Course must be soft-deleted first. Permanently removes from DB."
+                    }
+                },
+                {
                     "name": "Create Course Chapter",
                     "request": {
                         "method": "POST",
@@ -1917,7 +2098,7 @@
                     "name": "Delete Course Chapter",
                     "request": {
                         "method": "DELETE",
-                        "url": "{{base_url}}/delete-course-chapter?chapter_id=1",
+                        "url": "{{base_url}}/delete-course-chapter?id=1",
                         "header": [
                             {
                                 "key": "Authorization",
@@ -2726,6 +2907,71 @@
                     "request": {
                         "method": "GET",
                         "url": "{{base_url}}/reports/revenue",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Lecture & Course Progress",
+            "item": [
+                {
+                    "name": "Get Lecture Progress",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/lecture/1/progress",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Update Lecture Progress",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/lecture/1/progress",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"watched_seconds\": 0, \"last_position\": 0, \"total_seconds\": 1}"
+                        }
+                    }
+                },
+                {
+                    "name": "Get Course Progress",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/course/1/progress",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Get Lecture Attachments",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/lecture/1/attachments",
                         "header": [
                             {
                                 "key": "Authorization",

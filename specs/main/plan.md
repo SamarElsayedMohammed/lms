@@ -41,12 +41,15 @@ Complete all 23 remaining tasks across 6 phases of the LMS project: admin UI for
 specs/main/
 ├── plan.md              # This file
 ├── spec.md              # Feature specification (23 remaining tasks)
-├── research.md          # Phase 0: research findings
-├── data-model.md        # Phase 1: entity model
-├── quickstart.md        # Phase 1: implementation guide
+├── research.md          # Phase 0: research (+ R7–R11 remaining plan v2 phases)
+├── data-model.md        # Phase 1: entity model (+ Phase 2, 3, 6 entities)
+├── quickstart.md        # Phase 1: implementation guide (+ Steps 8–12 plan v2)
 ├── contracts/
 │   ├── admin-plans-api.md   # Plan CRUD + extensions
-│   └── approval-api.md      # Content approval workflow
+│   ├── approval-api.md     # Content approval workflow
+│   ├── content-access-api.md # Video progress, attachments (plan v2 Phase 2)
+│   ├── affiliate-api.md    # Affiliate system (plan v2 Phase 3)
+│   └── certificate-api.md  # Certificate verification (plan v2 Phase 6)
 └── tasks.md             # Phase 2 output (via /speckit.tasks)
 ```
 
@@ -105,15 +108,32 @@ Approval workflow UI and API. Independent.
 ### Batch F: Verify (T098) — 2h
 End-to-end verification. Depends on all above.
 
+## Remaining Plan v2 Phases (Design Complete)
+
+Design artifacts for **all rest phases** of implementation plan v2 (Phases 2–6) have been added:
+
+| Phase | Description | Artifacts |
+|-------|-------------|-----------|
+| Phase 2 | Content Access, Video Progress 85%, Free courses/lessons, Lecture attachments, Feature flags | research.md R7–R8, data-model.md (LectureProgress, LectureAttachment, FeatureFlag), content-access-api.md, quickstart Step 8 |
+| Phase 3 | Affiliate system (one-time commission, bi-monthly release, withdrawals) | research.md R9, data-model.md (AffiliateLink, AffiliateCommission, AffiliateWithdrawal), affiliate-api.md, quickstart Step 9 |
+| Phase 4 | Wallet & Kashier | research.md R10, quickstart Step 10 |
+| Phase 5 | Admin, roles, marketing pixels | Covered by existing tasks + quickstart Step 11 |
+| Phase 6 | Notifications (7d, 3d, 24h), Certificates (100% + QR, verify) | research.md R11, certificate-api.md, quickstart Step 12 |
+
+Tasks for these phases can be broken down via `/speckit.tasks` or from `.agent/memory-bank/clickup-import-tasks.csv`.
+
 ## Generated Artifacts
 
 | Artifact | Path | Phase |
 |----------|------|-------|
 | Feature Spec | `specs/main/spec.md` | Input |
 | Constitution | `.specify/memory/constitution.md` | Input |
-| Research | `specs/main/research.md` | Phase 0 |
-| Data Model | `specs/main/data-model.md` | Phase 1 |
+| Research | `specs/main/research.md` | Phase 0 (+ R7–R11 remaining phases) |
+| Data Model | `specs/main/data-model.md` | Phase 1 (+ Phase 2, 3, 6 entities) |
 | Plan API Contract | `specs/main/contracts/admin-plans-api.md` | Phase 1 |
 | Approval API Contract | `specs/main/contracts/approval-api.md` | Phase 1 |
-| Quickstart | `specs/main/quickstart.md` | Phase 1 |
+| Content Access API Contract | `specs/main/contracts/content-access-api.md` | Phase 1 (plan v2 Phase 2) |
+| Affiliate API Contract | `specs/main/contracts/affiliate-api.md` | Phase 1 (plan v2 Phase 3) |
+| Certificate API Contract | `specs/main/contracts/certificate-api.md` | Phase 1 (plan v2 Phase 6) |
+| Quickstart | `specs/main/quickstart.md` | Phase 1 (+ Steps 8–12) |
 | Implementation Plan | `specs/main/plan.md` | Phase 1 |

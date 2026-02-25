@@ -3,6 +3,13 @@
 Auto-generated from all feature plans. Last updated: 2026-02-18
 
 ## Active Technologies
+- MySQL 8.x via Eloquent ORM (main)
+- PHP 8.3 / Laravel 12 + Laravel localization (`lang/`, `__()`, `App::setLocale`), existing Blade admin views (002-admin-arabic)
+- N/A (translation files on disk only) (002-admin-arabic)
+- PHP 8.3, Laravel 12 + Eloquent ORM, Blade, jQuery (admin), FileService, ResponseService, Spatie laravel-permission (001-course-create-intro-structure)
+- MySQL; `courses.intro_video`, `intro_video_type` (enum file|url), `content_structure` (enum lessons|chapters); `course_chapters`, `course_chapter_lectures` (001-course-create-intro-structure)
+- PHP 8.3, Laravel 12 + Blade, Bootstrap (existing admin CSS), JavaScript (vanilla or existing admin JS) (002-dashboard-darkmode-logos)
+- لا تغيير في DB للميزة الأساسية؛ تفضيل الثيم في localStorage. (اختياري لاحقاً: user preference في جدول users أو settings.) (002-dashboard-darkmode-logos)
 
 - PHP 8.3 / Laravel 12 + Spatie laravel-permission, endroid/qr-code v6, Kashier gateway, Mpdf (main)
 
@@ -22,8 +29,10 @@ tests/
 PHP 8.3 / Laravel 12: Follow standard conventions
 
 ## Recent Changes
+- 002-dashboard-darkmode-logos: Added PHP 8.3, Laravel 12 + Blade, Bootstrap (existing admin CSS), JavaScript (vanilla or existing admin JS)
+- 001-course-create-intro-structure: Added PHP 8.3, Laravel 12 + Eloquent ORM, Blade, jQuery (admin), FileService, ResponseService, Spatie laravel-permission
+- 002-admin-arabic: Added PHP 8.3 / Laravel 12 + Laravel localization (`lang/`, `__()`, `App::setLocale`), existing Blade admin views
 
-- main: Added PHP 8.3 / Laravel 12 + Spatie laravel-permission, endroid/qr-code v6, Kashier gateway, Mpdf
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
