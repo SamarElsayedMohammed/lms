@@ -3,17 +3,27 @@
 **Input**: Design documents from `/specs/main/`
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
 
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Can run in parallel (different files, no dependencies)
+- **[Story]**: Which user story this task belongs to (US1–US8). Setup/Foundation/Polish have no story label.
+- Include exact file paths in descriptions.
+
+## Path Conventions
+
+- **Laravel monolith**: `app/`, `database/`, `resources/views/`, `routes/` at repository root (per plan.md).
+
 ---
 
 ## Phase 1: Foundation (Seeders & Migrations)
 
 **Purpose**: Seed reference data and verify migrations — BLOCKS all subsequent phases
 
-- [X] T001 [P] [FND] Create `database/seeders/SupportedCurrencySeeder.php` — seed EG (EGP, 1.0), SA (SAR, 0.19), AE (AED, 0.18), US (USD, 0.03). Use `firstOrCreate` for idempotency.
-- [ ] T002 [FND] Run `php artisan migrate --force` — verify all pricing and approval migrations applied cleanly *(requires DB access)*
-- [ ] T003 [FND] Run `php artisan db:seed --class=SupportedCurrencySeeder` — populate supported_currencies table *(requires DB access)*
-- [ ] T004 [FND] Run `php artisan db:seed --class=RolePermissionSeeder` — ensure supervisor permissions + feature-flags permissions are seeded *(requires DB access)*
-- [ ] T005 [FND] Verify migration status with `php artisan migrate:status` — confirm approval fields, pricing tables, affiliate tables all present *(requires DB access)*
+- [X] T001 [P] Create `database/seeders/SupportedCurrencySeeder.php` — seed EG (EGP, 1.0), SA (SAR, 0.19), AE (AED, 0.18), US (USD, 0.03). Use `firstOrCreate` for idempotency.
+- [ ] T002 Run `php artisan migrate --force` — verify all pricing and approval migrations applied cleanly *(requires DB access)*
+- [ ] T003 Run `php artisan db:seed --class=SupportedCurrencySeeder` — populate supported_currencies table *(requires DB access)*
+- [ ] T004 Run `php artisan db:seed --class=RolePermissionSeeder` — ensure supervisor permissions + feature-flags permissions are seeded *(requires DB access)*
+- [ ] T005 Verify migration status with `php artisan migrate:status` — confirm approval fields, pricing tables, affiliate tables all present *(requires DB access)*
 
 **Checkpoint**: All reference data seeded, all migrations applied. User story work can begin.
 
@@ -110,9 +120,72 @@
 
 ---
 
-## Phase 7: Polish & Verification
+## Phase 8: US6 — Content Access & Video Progress (Plan v2 Phase 2, Priority: P2)
 
-**Purpose**: Final integration testing across all features
+**Goal**: 85% watch rule per lesson; free courses/lessons; lecture attachments (feature-flag gated); feature flags for content access.
+
+**Independent Test**: POST/GET `/api/lecture/{id}/progress`, GET `/api/course/{id}/progress`; access next lesson only after current ≥ 85%. GET `/api/lecture/{id}/attachments` when feature enabled.
+
+### Implementation
+
+- [X] T039 [P] [US6] Create migration for video progress table (or add columns to `user_curriculum_tracking`) — user_id, lecture_id, watched_seconds, total_seconds, last_position, watch_percentage, is_completed, completed_at in `database/migrations/`
+- [X] T040 [P] [US6] Create migration add `is_free`, `is_free_until` to `courses` and `is_free` to `course_chapter_lectures` in `database/migrations/`
+- [X] T041 [P] [US6] Create migration `create_lecture_attachments_table` — lecture_id, file_name, file_path, file_size, file_type, sort_order in `database/migrations/`
+- [X] T042 [P] [US6] Create or extend feature flags (table or settings) for lecture_attachments, video_progress_enforcement per `specs/main/data-model.md`
+- [X] T043 [US6] Create `app/Services/VideoProgressService.php` (or extend ContentAccessService) — updateProgress, getProgress, canAccessNextLesson, getCourseProgress per `specs/main/contracts/content-access-api.md`
+- [X] T044 [US6] Add POST/GET `app/Http/Controllers/API/LectureProgressApiController.php` or extend existing — `/api/lecture/{id}/progress`; GET `/api/course/{id}/progress` in `routes/api.php`
+- [X] T045 [US6] Enforce subscription + previous-lesson 85% in middleware or `app/Services/ContentAccessService.php` before serving next lesson
+- [X] T046 [US6] Add GET `app/Http/Controllers/API/LectureAttachmentApiController.php` — `/api/lecture/{id}/attachments` (feature-flag gated); Admin POST/DELETE in `app/Http/Controllers/Admin/LectureAttachmentController.php` and register routes in `routes/api.php` and `routes/web.php`
+- [X] T047 [US6] Seed or settings: feature flags lecture_attachments (false), video_progress_enforcement (true) per plan v2
+
+**Checkpoint**: Video progress and course progress APIs work; next-lesson access gated by 85%; attachments listed when flag enabled.
+
+---
+
+## Phase 9: US7 — Affiliate System (Plan v2 Phase 3, Priority: P2)
+
+**Goal**: Referral links, one-time commission on first subscription, bi-monthly release, withdrawals (min 500 EGP). Feature disabled by default; when disabled routes return 404.
+
+**Independent Test**: GET `/api/affiliate/status`, GET `/api/affiliate/my-link` (auth); POST `/api/affiliate/withdraw`; admin approve/reject withdrawal.
+
+### Implementation
+
+- [X] T048 [P] [US7] Create migrations for `affiliate_links`, `affiliate_commissions`, `affiliate_withdrawals`, affiliate settings (or settings table) in `database/migrations/` per `specs/main/data-model.md`
+- [X] T049 [P] [US7] Create models `app/Models/AffiliateLink.php`, `app/Models/AffiliateCommission.php`, `app/Models/AffiliateWithdrawal.php` with relationships
+- [X] T050 [US7] Create `app/Services/AffiliateService.php` — generateLink, trackClick, processReferral, getCommissions, requestWithdrawal, releaseCommissions, calculateCommissionAvailableDate (bi-monthly) per `specs/main/contracts/affiliate-api.md`
+- [X] T051 [US7] Add GET/POST affiliate API in `app/Http/Controllers/API/AffiliateApiController.php` — status, my-link, stats, commissions, withdrawals, withdraw; register in `routes/api.php`; when affiliate disabled return 404
+- [X] T052 [US7] Add GET `api/ref/{code}` route and controller method to track referral click in `routes/api.php`
+- [X] T053 [US7] Add admin affiliate endpoints — settings, withdrawals/pending, approve, reject, commissions, stats in `app/Http/Controllers/Admin/` and `routes/api.php` or `routes/web.php`
+- [X] T054 [US7] Hook first subscription payment for referred user → call AffiliateService::processReferral in subscription flow (e.g. `app/Services/SubscriptionService.php`)
+- [X] T055 [US7] Create Artisan command `affiliate:release-commissions` in `app/Console/Commands/` — set pending→available by available_date; schedule daily in `app/Console/Kernel.php`
+- [X] T056 [US7] Feature toggle: when affiliate_system disabled, affiliate routes return 404 and UI hidden per `specs/main/contracts/affiliate-api.md`
+
+**Checkpoint**: Affiliate status, my-link, stats, withdraw work; admin can approve/reject; commissions release on available_date.
+
+---
+
+## Phase 10: US8 — Notifications & Certificates (Plan v2 Phase 6, Priority: P2)
+
+**Goal**: Expiry notifications (7d, 3d, 24h) push + email; handle-expired command; certificate 100% gate + QR + public verification.
+
+**Independent Test**: Run `subscriptions:send-expiry-notifications`, `subscriptions:handle-expired`; generate certificate only when course progress 100%; GET `/certificate/verify/{number}` returns verification page.
+
+### Implementation
+
+- [X] T057 [P] [US8] Create Artisan command `subscriptions:send-expiry-notifications` in `app/Console/Commands/` — 7d, 3d, 24h thresholds; set notified_7_days, notified_3_days, notified_1_day; send push (FCM) + email per `specs/main/contracts/certificate-api.md`
+- [X] T058 [US8] Create Blade templates and Mailable classes for subscription-expiry-7days, 3days, 24hours in `resources/views/emails/` and `app/Mail/`
+- [X] T059 [US8] Create Artisan command `subscriptions:handle-expired` in `app/Console/Commands/` — mark expired; attempt auto-renew where applicable
+- [X] T060 [US8] Modify certificate generation in `app/Services/CertificateService.php` (or equivalent) — require getCourseProgress === 100%; add QR code (simplesoftwareio/simple-qrcode or endroid/qr-code) with URL `certificate/verify/{number}`; embed in PDF
+- [X] T061 [US8] Add public route GET `/certificate/verify/{number}` and controller/view in `routes/web.php` — return page with course name, student name, completion date per `specs/main/contracts/certificate-api.md`
+- [X] T062 [US8] Register commands in `app/Console/Kernel.php` — subscriptions:send-expiry-notifications, subscriptions:handle-expired, affiliate:release-commissions (all daily)
+
+**Checkpoint**: Expiry notifications and handle-expired run; certificate only on 100% completion with QR; verification page works.
+
+---
+
+## Phase 11: Polish & Verification
+
+**Purpose**: Final integration testing across all features. Depends on Phases 1–10.
 
 - [X] T032 Verify feature flags toggle on/off via admin UI — confirm `content_approval` flag controls rating/comment visibility *(code verified: FeatureFlagService gating in RatingApiController and CourseDiscussionApiController)*
 - [ ] T033 Verify subscription flow end-to-end — create plan → subscribe → commission generated → withdrawal available after 15 days *(requires running application)*
@@ -131,26 +204,33 @@
 ### Phase Dependencies
 
 - **Phase 1 (Foundation)**: No dependencies — start immediately
-- **Phase 2 (Plan UI)**: Depends on Phase 1 (seeder data needed)
-- **Phase 3 (Plan API)**: Depends on Phase 1
-- **Phase 4 (Pricing)**: Depends on Phase 1 + Phase 3 (needs routes)
-- **Phase 5 (Supervisor)**: Independent — can run in parallel with Phases 2-4
-- **Phase 6 (Approval)**: Independent — can run in parallel with Phases 2-5
-- **Phase 7 (Verify)**: Depends on ALL above phases
+- **Phase 2 (US1 Plan UI)**: Depends on Phase 1
+- **Phase 3 (US2 Plan API)**: Depends on Phase 1
+- **Phase 4 (US3 Pricing)**: Depends on Phase 1 + Phase 3
+- **Phase 5 (US4 Supervisor)**: Independent — can run in parallel with 2–4
+- **Phase 6 (US5 Approval)**: Independent — can run in parallel with 2–5
+- **Phase 8 (US6 Content Access)**: Depends on Phase 1 (migrations); can run after Foundation
+- **Phase 9 (US7 Affiliate)**: Depends on Phase 1 + subscription flow; can run after Phase 3
+- **Phase 10 (US8 Notifications & Certificates)**: Depends on subscription + progress (Phase 8 for 100% gate)
+- **Phase 11 (Polish/Verify)**: Depends on ALL above phases
 
 ### Parallel Opportunities
 
 ```
 Phase 1 (Foundation)
   ↓
-  ├── Phase 2 (Plan UI)     ──┐
-  ├── Phase 3 (Plan API)    ──┤
-  ├── Phase 5 (Supervisor)  ──┤── All can run in parallel
-  └── Phase 6 (Approval)    ──┘
+  ├── Phase 2 (US1 Plan UI)    ──┐
+  ├── Phase 3 (US2 Plan API)   ──┤
+  ├── Phase 5 (US4 Supervisor) ──┤── Can run in parallel
+  ├── Phase 6 (US5 Approval)   ──┘
+  ├── Phase 8 (US6 Content Access) — after Phase 1
+  └── Phase 9 (US7 Affiliate) — after Phase 1 / Phase 3
        ↓
-  Phase 4 (Pricing) — after Phase 3
+  Phase 4 (US3 Pricing) — after Phase 3
        ↓
-  Phase 7 (Verify) — after all
+  Phase 10 (US8 Notifications & Certs) — after Phase 8
+       ↓
+  Phase 11 (Verify) — after all
 ```
 
 ### Within Each Phase
@@ -164,13 +244,31 @@ Phase 1 (Foundation)
 
 ## Task Summary
 
-| Phase | Tasks | Est. Time | Depends On |
-|-------|-------|-----------|------------|
-| 1 Foundation | T001–T005 | 1.5h | — |
-| 2 Plan UI | T006–T011 | 6.75h | Phase 1 |
-| 3 Plan API | T012–T018 | 3h | Phase 1 |
-| 4 Pricing | T019–T020 | 3h | Phase 1, 3 |
-| 5 Supervisor | T021–T024 | 3.25h | Independent |
-| 6 Approval | T025–T031 | 4.5h | Independent |
-| 7 Verify | T032–T038 | 2h | All |
-| **Total** | **38 subtasks** | **24h** | |
+| Phase | Story | Tasks | Est. Time | Depends On |
+|-------|-------|-------|-----------|------------|
+| 1 Foundation | — | T001–T005 | 1.5h | — |
+| 2 Plan UI | US1 | T006–T011 | 6.75h | Phase 1 |
+| 3 Plan API | US2 | T012–T018 | 3h | Phase 1 |
+| 4 Pricing | US3 | T019–T020 | 3h | Phase 1, 3 |
+| 5 Supervisor | US4 | T021–T024 | 3.25h | Independent |
+| 6 Approval | US5 | T025–T031 | 4.5h | Independent |
+| 8 Content Access | US6 | T039–T047 | ~6h | Phase 1 |
+| 9 Affiliate | US7 | T048–T056 | ~8h | Phase 1, 3 |
+| 10 Notifications & Certs | US8 | T057–T062 | ~5h | Phase 8 |
+| 11 Polish & Verify | — | T032–T038 | 2h | All |
+| **Total** | | **62 tasks** | **~45h** | |
+
+## Implementation Strategy
+
+### MVP First (User Stories 1–3)
+1. Complete Phase 1: Foundation
+2. Complete Phases 2, 3, 4 (US1 Plan UI, US2 Plan API, US3 Pricing)
+3. **STOP and VALIDATE**: Admin plan CRUD, renew API, localized pricing
+4. Deploy/demo if ready
+
+### Incremental Delivery
+- Add Phase 5 (US4 Supervisor) and Phase 6 (US5 Approval) for full admin workflows
+- Add Phase 8 (US6 Content Access) for 85% rule and attachments
+- Add Phase 9 (US7 Affiliate) for referral and commissions
+- Add Phase 10 (US8 Notifications & Certificates) for expiry alerts and certificate QR
+- Phase 11 (Polish) last for full integration verification

@@ -88,3 +88,63 @@ php artisan migrate:status
 | `resources/views/admin/approvals/index.blade.php` | Create | T072 |
 | `routes/web.php` | Modify | T071, T082 |
 | `routes/api.php` | Modify | T014, T082 |
+
+---
+
+## Remaining Plan v2 Phases (Not Yet in tasks.md)
+
+Execution order for **Plan v2 Phase 2, 3, 4, 5, 6** (see `.agent/memory-bank/implementation_plan_v2.md` and `specs/main/contracts/`).
+
+### Step 8: Phase 2 — Content Access & Video Progress
+```
+1. Migration: video progress table (or extend user_curriculum_tracking)
+2. Migration: is_free, is_free_until on courses; is_free on course_chapter_lectures
+3. Migration: lecture_attachments table
+4. Migration: feature_flags table (or use settings)
+5. VideoProgressService / ContentAccessService: updateProgress, getProgress, canAccessNextLesson, getCourseProgress
+6. API: POST/GET /api/lecture/{id}/progress, GET /api/course/{id}/progress
+7. Middleware: enforce subscription + previous-lesson 85% before next lesson
+8. API: GET /api/lecture/{id}/attachments (gated); Admin: POST/DELETE attachments
+9. Seed or settings: feature flags (lecture_attachments, video_progress_enforcement, etc.)
+```
+**Contracts**: `specs/main/contracts/content-access-api.md`
+
+### Step 9: Phase 3 — Affiliate System
+```
+1. Migrations: affiliate_links, affiliate_commissions, affiliate_withdrawals, affiliate_settings (or settings)
+2. AffiliateService: generateLink, trackClick, processReferral, getCommissions, requestWithdrawal, releaseCommissions (bi-monthly)
+3. API: GET /api/affiliate/status, my-link, stats, commissions, withdrawals; POST withdraw
+4. API: GET /api/ref/{code} (track click)
+5. Admin API: settings, withdrawals/pending, approve, reject, commissions, stats
+6. Hook: on first subscription payment of referred user → create AffiliateCommission
+7. Artisan: affiliate:release-commissions (daily) — set pending→available by available_date
+8. Feature toggle: when disabled, affiliate routes 404 / hidden
+```
+**Contracts**: `specs/main/contracts/affiliate-api.md`
+
+### Step 10: Phase 4 — Wallet & Kashier (if not complete)
+```
+1. KashierCheckoutService: createCheckoutSession, verifyPayment, webhook
+2. POST /webhooks/kashier (exclude CSRF)
+3. Subscribe flow: wallet first, then Kashier for remainder
+4. Wallet top-up via Kashier
+5. Admin settings: kashier_merchant_id, kashier_api_key, kashier_webhook_secret
+```
+
+### Step 11: Phase 5 — Admin, Roles, Marketing Pixels (if not complete)
+```
+1. Supervisor permissions (already in tasks T021–T024)
+2. Marketing pixels: table, model, admin CRUD, GET /api/marketing-pixels/active
+3. Subscription plan admin CRUD + country prices (already in tasks)
+```
+
+### Step 12: Phase 6 — Notifications & Certificates
+```
+1. Commands: subscriptions:send-expiry-notifications (7d, 3d, 24h — push + email)
+2. Commands: subscriptions:handle-expired (expire / auto-renew)
+3. Mailable + Blade templates for expiry emails
+4. Certificate: 100% progress gate; QR code (verification URL); embed in PDF
+5. GET /certificate/verify/{number} — public verification page
+6. Schedule: daily run of expiry notifications, handle-expired, affiliate:release-commissions
+```
+**Contracts**: `specs/main/contracts/certificate-api.md`

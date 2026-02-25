@@ -11,17 +11,23 @@ class SubscriptionPlanPrice extends Model
 {
     protected $fillable = [
         'plan_id',
-        'country_code',
-        'currency_code',
+        'country_id',
         'price',
+        'offer_price',
     ];
 
     protected $casts = [
         'price' => 'float',
+        'offer_price' => 'float',
     ];
 
     public function plan(): BelongsTo
     {
-        return $this->belongsTo(SubscriptionPlan::class, 'plan_id');
+        return $this->belongsTo(SubscriptionPlan::class , 'plan_id');
+    }
+
+    public function country(): BelongsTo
+    {
+        return $this->belongsTo(Country::class , 'country_id');
     }
 }

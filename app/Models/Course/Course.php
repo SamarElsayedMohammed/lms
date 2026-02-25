@@ -26,6 +26,7 @@ class Course extends Model
         'short_description',
         'thumbnail',
         'intro_video',
+        'intro_video_type',
         'user_id',
         'level',
         'course_type',
@@ -35,6 +36,7 @@ class Course extends Model
         'category_id',
         'is_active',
         'sequential_access',
+        'content_structure',
         'certificate_enabled',
         'certificate_fee',
         'approval_status',
@@ -212,7 +214,14 @@ class Course extends Model
 
     public function getIntroVideoAttribute($value)
     {
-        return $value ? FileService::getFileUrl($value) : null;
+        if (!$value) {
+            return null;
+        }
+        // If type is 'url', return the raw URL directly
+        if ($this->attributes['intro_video_type'] === 'url') {
+            return $value;
+        }
+        return FileService::getFileUrl($value);
     }
 
     public function taxes()

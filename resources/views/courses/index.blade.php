@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('manage') . ' ' . __('courses') }}
@@ -76,7 +76,7 @@
                         </h4>
 
                         {{-- Form start --}}
-                        <form class="pt-3 mt-6 create-form" method="POST" action="{{ route('courses.store') }}" data-success-function="formSuccessFunction" data-parsley-validate enctype="multipart/form-data"> @csrf <div class="row">
+                        <form class="pt-3 mt-6 create-form" method="POST" action="{{ route('courses.store') }}" data-success-function="formSuccessFunction" data-pre-submit-function="validateVideoFileSize" data-parsley-validate enctype="multipart/form-data"> @csrf <div class="row">
 
                                 {{-- Title --}}
                                 <div class="form-group mandatory col-sm-12 col-md-6">
@@ -96,10 +96,100 @@
                                     <input type="file" name="thumbnail" id="thumbnail" class="form-control" accept="image/*">
                                 </div>
 
-                                {{-- Intro Video --}}
+                                {{-- Intro Video (None / Upload File / Video URL) --}}
                                 <div class="form-group col-sm-12 col-md-6">
-                                    <label for="intro_video" class="form-label">{{ __('Intro Video') }}</label>
-                                    <input type="file" name="intro_video" id="intro_video" class="form-control" accept="video/*">
+                                    <label class="form-label">{{ __('Intro Video') }}</label>
+                                    <div class="mb-2">
+                                        <div class="custom-control custom-radio custom-control-inline">
+                                            <input type="radio" id="intro_type_none" name="intro_video_type" value="" class="custom-control-input" checked>
+                                            <label class="custom-control-label" for="intro_type_none">{{ __('None') }}</label>
+                                        </div>
+                                        <div class="custom-control custom-radio custom-control-inline">
+                                            <input type="radio" id="intro_type_file" name="intro_video_type" value="file" class="custom-control-input">
+                                            <label class="custom-control-label" for="intro_type_file">{{ __('Upload File') }}</label>
+                                        </div>
+                                        <div class="custom-control custom-radio custom-control-inline">
+                                            <input type="radio" id="intro_type_url" name="intro_video_type" value="url" class="custom-control-input">
+                                            <label class="custom-control-label" for="intro_type_url">{{ __('Video URL') }}</label>
+                                        </div>
+                                    </div>
+                                    <div id="intro_video_file_wrapper" style="display:none;">
+                                        <input type="file" name="intro_video" id="intro_video" class="form-control" accept="video/*">
+                                        <small class="form-text text-muted">{{ __('Maximum file size:') }} <span id="max-video-size">{{ $maxVideoSizeMB ?? 100 }}</span> MB</small>
+                                    </div>
+                                    <div id="intro_video_url_wrapper" style="display:none;">
+                                        <input type="url" name="intro_video_url" id="intro_video_url" class="form-control" placeholder="{{ __('Enter video URL (YouTube, Vimeo, etc.)') }}">
+                                        <small class="form-text text-muted">{{ __('Paste a valid video link') }}</small>
+                                    </div>
+                                    <div id="intro_video_error" class="alert alert-danger mt-2" role="alert" style="display:none;">
+                                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                                        <span id="intro_video_error_text"></span>
+                                    </div>
+                                </div>
+
+                                {{-- Content Structure --}}
+                                <div class="form-group col-sm-12 col-md-6">
+                                    <label class="form-label">{{ __('Content Structure') }} <span class="text-danger">*</span>
+                                        <i class="fas fa-info-circle text-info ml-1" data-toggle="tooltip" title="{{ __('Choose how to organize your course content') }}"></i>
+                                    </label>
+                                    <div class="mt-1">
+                                        <div class="custom-control custom-radio mb-2">
+                                            <input type="radio" id="structure_chapters" name="content_structure" value="chapters" class="custom-control-input" checked>
+                                            <label class="custom-control-label" for="structure_chapters">
+                                                <i class="fas fa-layer-group mr-1 text-primary"></i> <strong>{{ __('Chapters & Lessons') }}</strong>
+                                                <br><small class="text-muted">{{ __('Group lessons inside chapters') }}</small>
+                                            </label>
+                                        </div>
+                                        <div class="custom-control custom-radio">
+                                            <input type="radio" id="structure_lessons" name="content_structure" value="lessons" class="custom-control-input">
+                                            <label class="custom-control-label" for="structure_lessons">
+                                                <i class="fas fa-list mr-1 text-success"></i> <strong>{{ __('Direct Lessons') }}</strong>
+                                                <br><small class="text-muted">{{ __('Add lessons directly without chapters') }}</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {{-- روابط الدروس فقط (عند اختيار دروس بدون فصول) --}}
+                                <div id="lesson-links-wrapper" class="form-group col-12" style="display: none;">
+                                    <label class="form-label">{{ __('Lesson links') }}</label>
+                                    <p class="text-muted small mb-2">{{ __('Enter one link per lesson. Use + to add more.') }}</p>
+                                    <div id="lesson-links-list">
+                                        <div class="input-group mb-2">
+                                            <input type="url" name="lesson_links[]" class="form-control" placeholder="{{ __('Lesson link') }} 1">
+                                            <div class="input-group-append">
+                                                <button type="button" class="btn btn-outline-secondary btn-remove-lesson-link" title="{{ __('remove') }}"><i class="fa fa-times"></i></button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-success mt-1" id="add-lesson-link"><i class="fa fa-plus mr-1"></i>{{ __('Add lesson link') }}</button>
+                                </div>
+
+                                {{-- الفصول + روابط الدروس (عند اختيار فصول ودروس) --}}
+                                <div id="chapters-wrapper" class="col-12 mt-3">
+                                    <label class="form-label d-block">{{ __('Chapters and lesson links') }}</label>
+                                    <p class="text-muted small mb-2">{{ __('Add chapter name, then use + to add lesson links under each chapter.') }}</p>
+                                    <div id="chapters-container">
+                                        <div class="card mb-3 chapter-card" data-chapter-index="0">
+                                            <div class="card-body">
+                                                <div class="form-group mb-3">
+                                                    <label class="form-label">{{ __('Chapter name') }}</label>
+                                                    <input type="text" name="chapters[0][title]" class="form-control chapter-title" placeholder="{{ __('Chapter name') }}">
+                                                </div>
+                                                <label class="form-label small">{{ __('Lesson links') }}</label>
+                                                <div class="chapter-lesson-links" data-chapter-index="0">
+                                                    <div class="input-group mb-2">
+                                                        <input type="url" name="chapters[0][lesson_links][]" class="form-control" placeholder="{{ __('Lesson link') }}">
+                                                        <div class="input-group-append">
+                                                            <button type="button" class="btn btn-outline-danger btn-remove-chapter-lesson" title="{{ __('remove') }}"><i class="fa fa-times"></i></button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <button type="button" class="btn btn-sm btn-success add-chapter-lesson" data-chapter-index="0"><i class="fa fa-plus mr-1"></i>{{ __('Add lesson link') }}</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-primary" id="add-chapter-btn"><i class="fa fa-plus mr-1"></i>{{ __('Add chapter') }}</button>
                                 </div>
 
                                 {{-- Level --}}
@@ -154,18 +244,6 @@
                                 </div>
 
 
-                                {{-- Price --}}
-                                <div class="form-group col-sm-12 col-md-6 price-field">
-                                    <label for="price" class="form-label">{{ __('Price') }} </label>
-                                    <input type="number" name="price" id="price" step="0.01" min="0" placeholder="{{ __('Price') }}" class="form-control" required>
-                                </div>
-
-                                {{-- Discount Price --}}
-                                <div class="form-group col-sm-12 col-md-6 discount-price-field">
-                                    <label>{{ __('Discount Price') }}</label>
-                                    <input type="number" name="discount_price" id="discount-price" step="0.01" min="0" placeholder="{{ __('Discount Price') }}" class="form-control">
-                                </div>
-
                                 {{-- Category --}}
                                 <div class="form-group mandatory col-sm-12 col-md-6">
                                     <label for="category" class="form-label">{{ __('Category') }} </label>
@@ -183,12 +261,7 @@
                                     <small class="form-text text-muted">{{ __('Type and hit enter to add new tags or select from the list.') }}</small>
                                 </div>
 
-                                {{-- Language --}}
-                                <div class="form-group mandatory col-sm-12 col-md-6">
-                                    <label for="language-id" class="form-label">{{ __('Language') }}</label>
-                                    <select name="language_id" id="language-id" class="form-control" required>
-                                        <option value="">{{ __('Select a Language') }}</option> @foreach ($course_languages as $language) <option value="{{ $language->id }}">{{ $language->name }}</option> @endforeach </select>
-                                </div>
+                                <input type="hidden" name="language_id" value="{{ $course_languages->first()->id ?? '' }}">
                                 <div><hr></div>
 
                                 {{-- Course Learnings --}}
@@ -329,12 +402,9 @@
                                     <th scope="col" data-field="user.name" data-sortable="true" data-formatter="capitalizeNameFormatter" data-escape="false">{{ __('Added By') }}</th>
                                     <th scope="col" data-field="level" data-sortable="true" data-formatter="capitalizeNameFormatter" data-escape="false">{{ __('Level') }}</th>
                                     <th scope="col" data-field="course_type" data-sortable="true" data-visible="true" data-formatter="capitalizeNameFormatter" data-escape="false">{{ __('Course Type') }}</th>
-                                    <th scope="col" data-field="price" data-sortable="true" data-escape="true">{{ __('Price') }}</th>
-                                    <th scope="col" data-field="discount_price" data-sortable="true" data-escape="true"> {{ __('Discount Price') }}</th>
                                     <th scope="col" data-field="category" data-sortable="false" data-visible="false" data-escape="true"> {{ __('Category') }} </th>
                                     <th scope="col" data-field="is_active" data-formatter="statusFormatter" data-export="false" data-escape="false"> {{ __('Is Active') }}</th>
                                     <th scope="col" data-field="is_active_export" data-visible="true" data-export="true" class="d-none">{{ __('Status (Export)') }}</th>
-                                    <th scope="col" data-field="language.name" data-escape="true"> {{ __('Language') }}</th>
                                     <th scope="col" data-field="operate" data-sortable="false" data-formatter="actionColumnFormatter" data-events="" data-escape="false">{{ __('Action') }}</th>
                                 </tr>
                             </thead>
@@ -385,28 +455,6 @@
     <script src="{{ asset('library/select2/dist/js/select2.full.min.js') }}"></script>
     <script>
         $(document).ready(function() {
-            const $priceFields = $('.price-field');
-            const $discountPriceFields = $('.discount-price-field');
-            const $priceInput = $('#price');
-            const $discountPriceInput = $('#discount-price');
-            const $form = $('.create-form');
-
-            function togglePriceFields() {
-                if ($('#course-type-free').is(':checked')) {
-                    $priceFields.hide();
-                    $priceInput.removeAttr('required');
-                    $discountPriceFields.hide();
-                } else if ($('#course-type-paid').is(':checked')) {
-                    $priceFields.show().addClass('mandatory');
-                    $priceInput.attr('required', true);
-                    $discountPriceFields.show();
-                }
-            }
-            // Initial state
-            togglePriceFields();
-            // On change
-            $('input[name="course_type"]').change(togglePriceFields);
-
             // Sequential Access Toggle
             const $sequentialAccessToggle = $('#sequential_access');
             const $sequentialAccessText = $('.sequential-access-text');
@@ -454,6 +502,81 @@
             $certificateToggle.on('change', updateCertificateToggle);
             $('input[name="course_type"]').change(toggleCertificateFields);
 
+            // Content Structure: إظهار روابط الدروس فقط أو كروت الفصول
+            function toggleContentStructureSections() {
+                const isLessons = $('#structure_lessons').is(':checked');
+                $('#lesson-links-wrapper').toggle(isLessons);
+                $('#chapters-wrapper').toggle(!isLessons);
+            }
+            $('input[name="content_structure"]').on('change', toggleContentStructureSections);
+            toggleContentStructureSections();
+
+            // إضافة رابط درس (وضع الدروس فقط)
+            let lessonLinkCount = 1;
+            $('#add-lesson-link').on('click', function() {
+                lessonLinkCount++;
+                const html = '<div class="input-group mb-2">' +
+                    '<input type="url" name="lesson_links[]" class="form-control" placeholder="{{ __("Lesson link") }} ' + lessonLinkCount + '">' +
+                    '<div class="input-group-append"><button type="button" class="btn btn-outline-secondary btn-remove-lesson-link" title="{{ __("remove") }}"><i class="fa fa-times"></i></button></div></div>';
+                $('#lesson-links-list').append(html);
+            });
+            $(document).on('click', '.btn-remove-lesson-link', function() {
+                $(this).closest('.input-group').remove();
+            });
+
+            // إضافة فصل جديد
+            let chapterIndex = 0;
+            $('#add-chapter-btn').on('click', function() {
+                chapterIndex++;
+                const card = $('.chapter-card').first().clone();
+                card.attr('data-chapter-index', chapterIndex).find('.chapter-title').attr('name', 'chapters[' + chapterIndex + '][title]').val('');
+                card.find('.chapter-lesson-links').attr('data-chapter-index', chapterIndex).empty().append(
+                    '<div class="input-group mb-2">' +
+                    '<input type="url" name="chapters[' + chapterIndex + '][lesson_links][]" class="form-control" placeholder="{{ __("Lesson link") }}">' +
+                    '<div class="input-group-append"><button type="button" class="btn btn-outline-danger btn-remove-chapter-lesson" title="{{ __("remove") }}"><i class="fa fa-times"></i></button></div></div>'
+                );
+                card.find('.add-chapter-lesson').attr('data-chapter-index', chapterIndex);
+                $('#chapters-container').append(card);
+            });
+
+            // إضافة رابط درس داخل فصل
+            $(document).on('click', '.add-chapter-lesson', function() {
+                const idx = $(this).data('chapter-index');
+                const html = '<div class="input-group mb-2">' +
+                    '<input type="url" name="chapters[' + idx + '][lesson_links][]" class="form-control" placeholder="{{ __("Lesson link") }}">' +
+                    '<div class="input-group-append"><button type="button" class="btn btn-outline-danger btn-remove-chapter-lesson" title="{{ __("remove") }}"><i class="fa fa-times"></i></button></div></div>';
+                $(this).siblings('.chapter-lesson-links').append(html);
+            });
+            $(document).on('click', '.btn-remove-chapter-lesson', function() {
+                $(this).closest('.input-group').remove();
+            });
+
+            // Intro Video Type Toggle (None / Upload File / Video URL)
+            $('input[name="intro_video_type"]').on('change', function () {
+                const type = $(this).val();
+                $('#intro_video_file_wrapper').toggle(type === 'file');
+                $('#intro_video_url_wrapper').toggle(type === 'url');
+                $('#intro_video_error').hide();
+                if (type !== 'file') $('#intro_video').val('');
+                if (type !== 'url') $('#intro_video_url').val('');
+            });
+
+            // Validate intro video file size on selection
+            $('#intro_video').on('change', function () {
+                const maxVideoSizeMB = parseFloat('{{ $maxVideoSizeMB ?? 100 }}');
+                const maxVideoSizeBytes = maxVideoSizeMB * 1024 * 1024;
+                const file = this.files[0];
+                if (file && file.size > maxVideoSizeBytes) {
+                    const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                    $('#intro_video_error_text').text('{{ __("File too large:") }} ' + sizeMB + ' MB. {{ __("Max:") }} ' + maxVideoSizeMB + ' MB');
+                    $('#intro_video_error').show();
+                    $(this).addClass('is-invalid');
+                } else {
+                    $('#intro_video_error').hide();
+                    $(this).removeClass('is-invalid');
+                }
+            });
+
             // Initialize tooltips
             $('[data-toggle="tooltip"]').tooltip();
 
@@ -500,6 +623,39 @@
             setTimeout(() => {
                 window.location.reload();
             }, 1500);
+        }
+
+        // Pre-submit validation: intro video (exactly one of file or URL when type chosen)
+        function validateVideoFileSize() {
+            const selectedType = $('input[name="intro_video_type"]:checked').val();
+            const maxVideoSizeMB = parseFloat('{{ $maxVideoSizeMB ?? 100 }}');
+            const maxVideoSizeBytes = maxVideoSizeMB * 1024 * 1024;
+            if (selectedType === 'file') {
+                const file = $('#intro_video').length && $('#intro_video')[0].files[0];
+                if (!file) {
+                    $('#intro_video_error_text').text('{{ __("Please select a video file to upload.") }}');
+                    $('#intro_video_error').show();
+                    $('html, body').animate({ scrollTop: $('#intro_video').offset().top - 150 }, 500);
+                    return false;
+                }
+                if (file.size > maxVideoSizeBytes) {
+                    const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                    $('#intro_video_error_text').text('{{ __("File too large:") }} ' + sizeMB + ' MB. {{ __("Max:") }} ' + maxVideoSizeMB + ' MB');
+                    $('#intro_video_error').show();
+                    $('html, body').animate({ scrollTop: $('#intro_video').offset().top - 150 }, 500);
+                    return false;
+                }
+            } else if (selectedType === 'url') {
+                const url = $('#intro_video_url').val().trim();
+                if (!url) {
+                    $('#intro_video_error_text').text('{{ __("Please enter a video URL.") }}');
+                    $('#intro_video_error').show();
+                    $('html, body').animate({ scrollTop: $('#intro_video_url').offset().top - 150 }, 500);
+                    return false;
+                }
+            }
+            $('#intro_video_error').hide();
+            return true;
         }
 
         // Handle All/Trashed tab switching

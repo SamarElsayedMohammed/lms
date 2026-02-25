@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Manage Course Chapter Curriculum') }}
@@ -23,18 +23,24 @@
                         <form class="pt-3 mt-6 create-form" method="POST" action="{{ route('course-chapters.curriculum.store', $chapter->id) }}" data-parsley-validate enctype="multipart/form-data" data-success-function="formSuccessFunction">
                             <div class="row">
 
-                                {{-- Courses --}}
+                                {{-- Course --}}
                                 <div class="form-group mandatory col-sm-12 col-md-6 col-xl-4 ">
                                     <label for="course_id" class="form-label">{{ __('Course') }}</label>
                                     <input type="text" id="course_id" class="form-control" value="{{ $chapter->course->title }}" disabled>
-
                                 </div>
 
-                                {{-- Chapters --}}
+                                {{-- Chapter (hidden in "Direct Lessons" mode to avoid exposing default chapter) --}}
+                                @if(!($isDirectLessonsMode ?? false))
                                 <div class="form-group mandatory col-sm-12 col-md-6 col-xl-4 ">
                                     <label for="chapter_id" class="form-label">{{ __('Chapter') }}</label>
                                     <input type="text" id="chapter_id" class="form-control" value="{{ $chapter->title }}" disabled>
                                 </div>
+                                @else
+                                <div class="form-group mandatory col-sm-12 col-md-6 col-xl-4 ">
+                                    <label class="form-label">{{ __('Content') }}</label>
+                                    <input type="text" class="form-control" value="{{ __('Lessons') }}" disabled>
+                                </div>
+                                @endif
 
                                 {{-- Status is always active by default --}}
                                 <input type="hidden" name="is_active" value="1">

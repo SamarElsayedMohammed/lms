@@ -179,6 +179,10 @@ class CategoryController extends Controller
             ResponseService::successResponse('Category Created Successfully');
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th);
+            // طلب AJAX يجب أن يرجع JSON حتى تظهر رسالة الخطأ في الصفحة
+            if ($request->wantsJson() || $request->ajax()) {
+                ResponseService::errorResponse(__('Failed to create category') . ': ' . $th->getMessage());
+            }
             ResponseService::errorRedirectResponse('Failed to create category: ' . $th->getMessage());
         }
     }

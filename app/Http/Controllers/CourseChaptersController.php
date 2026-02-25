@@ -367,10 +367,15 @@ class CourseChaptersController extends Controller
     {
         /**** Check if User has any of the permissions ****/
         ResponseService::noPermissionThenSendJson('course-chapters-list');
-        $chapter = CourseChapter::where('id', $id)->with('course:id,title')->first();
+        $chapter = CourseChapter::where('id', $id)->with('course:id,title,content_structure')->first();
+        if (!$chapter || !$chapter->course) {
+            return ResponseService::errorRedirectResponse(__('Chapter or course not found.'));
+        }
         $allowedFileTypes = HelperService::getAllowedFileTypes();
+        $contentStructure = $chapter->course->content_structure ?? 'chapters';
+        $isDirectLessonsMode = $contentStructure === 'lessons';
 
-        return view('courses.chapters.curriculums.index', compact('chapter', 'allowedFileTypes'), [
+        return view('courses.chapters.curriculums.index', compact('chapter', 'allowedFileTypes', 'contentStructure', 'isDirectLessonsMode'), [
             'type_menu' => 'course-chapters',
         ]);
     }

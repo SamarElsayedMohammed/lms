@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Create Categories') }}
@@ -14,7 +14,7 @@
 @section('main')
     <section class="section">
 
-        <form class="create-form" action="{{ route('categories.store') }}" method="POST" data-parsley-validate data-success-function="formSuccessFunction" 
+        <form class="create-form" action="{{ route('categories.store') }}" method="POST" data-parsley-validate data-success-function="formSuccessFunction" data-pre-submit-function="validateCategoryImage"
             enctype="multipart/form-data">
             @method('POST')
             @csrf

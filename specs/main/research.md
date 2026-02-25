@@ -63,6 +63,36 @@
 **Rationale**: Sidebar is in `resources/views/components/sidebar.blade.php`. Uses `@can` / `@canany` for permission gating. Each item checks `$type_menu` for active state.
 **Alternatives considered**: None — sidebar is the only navigation mechanism.
 
+## R7: Video Progress & Content Access (Plan v2 Phase 2)
+
+**Decision**: New table for per-lecture progress (e.g. `lecture_progress` or extend `user_curriculum_tracking`) with `watched_seconds`, `total_seconds`, `last_position`, `watch_percentage`, `is_completed`. `VideoProgressService` (or `ContentAccessService`) provides `updateProgress`, `getProgress`, `canAccessNextLesson`, `getCourseProgress`. Access rule: login required; then course/lecture free OR active subscription; then previous lesson ≥ 85% OR first lesson.
+**Rationale**: Implementation plan v2 mandates 85% watch before next lesson unlock. Hybrid anti-cheat: client sends progress periodically; server can issue random challenges (optional later).
+**Alternatives considered**: Client-only progress — rejected (no server validation). Full server-side playback verification — deferred (complexity).
+
+## R8: Free Courses/Lessons & Feature Flags (Plan v2 Phase 2)
+
+**Decision**: Add `is_free`, `is_free_until` to courses; `is_free` to course_chapter_lectures. Feature flags table (or settings) for `lecture_attachments`, `affiliate_system`, `video_progress_enforcement`, `comments_require_approval`, `ratings_require_approval`. Lecture attachments behind `feature_lecture_attachments_enabled` (admin toggle, default false).
+**Rationale**: Matches plan v2. Existing codebase has feature-flag / settings patterns; reuse them.
+**Alternatives considered**: Separate “free tier” product — rejected (spec says free courses/lessons only).
+
+## R9: Affiliate System (Plan v2 Phase 3)
+
+**Decision**: Tables `affiliate_links`, `affiliate_commissions`, `affiliate_withdrawals`, and settings for `min_withdrawal_amount`, `is_enabled`. One-time commission on first subscription payment only; bi-monthly release (1–15 → available 28th; 16–end → available 15th next month). When disabled, affiliate routes return 404 or equivalent; no commission calculation.
+**Rationale**: Plan v2 specifies one-time commission, 500 EGP minimum, 15-day settlement. Feature toggle required.
+**Alternatives considered**: Recurring commission — rejected (spec: one-time only).
+
+## R10: Kashier & Wallet (Plan v2 Phase 4)
+
+**Decision**: `KashierCheckoutService` for createCheckoutSession, verifyPayment, webhook handler. Subscribe flow: deduct wallet first, then Kashier for remainder. Wallet top-up via Kashier. Credentials from settings (kashier_merchant_id, kashier_api_key, kashier_webhook_secret).
+**Rationale**: Constitution mandates Kashier; EGP base. Existing WalletService; extend subscribe flow.
+**Alternatives considered**: Wallet-only or Kashier-only — rejected (spec: wallet + gateway).
+
+## R11: Notifications & Certificates (Plan v2 Phase 6)
+
+**Decision**: Artisan commands: `subscriptions:send-expiry-notifications` (7d, 3d, 24h; push + email; set `notified_*_days`), `subscriptions:handle-expired` (mark expired / attempt auto-renew). Certificate: require 100% course progress (all lessons ≥ 85%); QR code (e.g. simplesoftwareio/simple-qrcode) with verification URL; public `GET /certificate/verify/{number}`.
+**Rationale**: Plan v2: 3-tier expiry notifications; no grace period; certificate only on 100% completion with QR.
+**Alternatives considered**: Grace period — rejected (spec: no grace). Certificate without 100% gate — rejected (spec: 100% required).
+
 ## All NEEDS CLARIFICATION Resolved
 
 No unresolved unknowns remain. All technical decisions are based on existing codebase patterns and the implementation plan v2.

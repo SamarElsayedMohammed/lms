@@ -543,8 +543,8 @@ class DashboardController extends Controller
                     'type' => 'user_registration',
                     'icon' => 'fas fa-user-plus',
                     'color' => 'success',
-                    'title' => 'New User Registration',
-                    'description' => $user->name . ' joined the platform',
+                    'title' => __('New User Registration'),
+                    'description' => $user->name . ' ' . __('joined the platform'),
                     'time' => $this->getTimeAgo($user->created_at),
                     'link' => '/users/' . $user->id,
                 ];
@@ -560,8 +560,8 @@ class DashboardController extends Controller
                     'type' => 'course_creation',
                     'icon' => 'fas fa-graduation-cap',
                     'color' => 'primary',
-                    'title' => 'New Course Created',
-                    'description' => '"' . $course->title . '" was created',
+                    'title' => __('New Course Created'),
+                    'description' => '"' . $course->title . '" ' . __('was created'),
                     'time' => $this->getTimeAgo($course->created_at),
                     'link' => '/courses/' . $course->id,
                 ];
@@ -578,8 +578,8 @@ class DashboardController extends Controller
                     'type' => 'new_order',
                     'icon' => 'fas fa-shopping-cart',
                     'color' => 'warning',
-                    'title' => 'New Order Placed',
-                    'description' => $order->user->name . ' placed order #' . $order->order_number,
+                    'title' => __('New Order Placed'),
+                    'description' => $order->user->name . ' ' . __('placed order #') . $order->order_number,
                     'time' => $this->getTimeAgo($order->created_at),
                     'link' => '/orders/' . $order->id,
                 ];

@@ -7,12 +7,13 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\SubscriptionPlan;
 use App\Models\SubscriptionPlanPrice;
-use App\Models\SupportedCurrency;
+use App\Models\Country;
 use App\Services\BootstrapTableService;
 use App\Services\ResponseService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 final class SubscriptionPlanController extends Controller
@@ -35,8 +36,8 @@ final class SubscriptionPlanController extends Controller
     {
         ResponseService::noPermissionThenSendJson('subscription-plans-list');
 
-        $offset = (int) $request->input('offset', 0);
-        $limit = (int) $request->input('limit', 10);
+        $offset = (int)$request->input('offset', 0);
+        $limit = (int)$request->input('limit', 10);
         $sort = $request->input('sort', 'sort_order');
         $order = $request->input('order', 'ASC');
         $search = $request->input('search');
@@ -44,12 +45,13 @@ final class SubscriptionPlanController extends Controller
 
         $query = SubscriptionPlan::query()
             ->withCount(['subscriptions', 'activeSubscriptions'])
-            ->when($showDeleted == 1 || $showDeleted === '1', fn ($q) => $q->onlyTrashed())
-            ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('slug', 'like', "%{$search}%")
-                    ->orWhere('description', 'like', "%{$search}%");
-            }));
+            ->when($showDeleted == 1 || $showDeleted === '1', fn($q) => $q->onlyTrashed())
+            ->when($search, fn($q) => $q->where(function ($q) use ($search) {
+            $q->where('name', 'like', "%{$search}%")
+                ->orWhere('slug', 'like', "%{$search}%")
+                ->orWhere('description', 'like', "%{$search}%");
+        }
+        ));
 
         $query->orderBy($sort, strtoupper($order));
         $total = $query->count();
@@ -67,13 +69,14 @@ final class SubscriptionPlanController extends Controller
                 if (auth()->user()->can('subscription-plans-trash')) {
                     $operate .= BootstrapTableService::trashButton(route('subscription-plans.trash', $row->id));
                 }
-            } else {
+            }
+            else {
                 if (auth()->user()->can('subscription-plans-list')) {
                     $operate .= BootstrapTableService::button(
                         'fa fa-eye',
                         route('subscription-plans.show', $row->id),
-                        ['btn-info'],
-                        ['title' => __('View')]
+                    ['btn-info'],
+                    ['title' => __('View')]
                     );
                 }
                 if (auth()->user()->can('subscription-plans-edit')) {
@@ -90,12 +93,12 @@ final class SubscriptionPlanController extends Controller
                     $operate .= BootstrapTableService::button(
                         $row->is_active ? 'fa fa-toggle-on' : 'fa fa-toggle-off',
                         route('subscription-plans.toggle', $row->id),
-                        ['btn-secondary', 'toggle-status'],
-                        [
-                            'title' => $row->is_active ? __('Deactivate') : __('Activate'),
-                            'data-id' => $row->id,
-                            'data-active' => $row->is_active ? '1' : '0',
-                        ]
+                    ['btn-secondary', 'toggle-status'],
+                    [
+                        'title' => $row->is_active ? __('Deactivate') : __('Activate'),
+                        'data-id' => $row->id,
+                        'data-active' => $row->is_active ? '1' : '0',
+                    ]
                     );
                 }
                 if (auth()->user()->can('subscription-plans-delete')) {
@@ -108,14 +111,14 @@ final class SubscriptionPlanController extends Controller
                 'no' => $no++,
                 'name' => $row->name,
                 'slug' => $row->slug,
-                'price' => (float) $row->price,
+                'price' => (float)$row->price,
                 'price_formatted' => $row->formatted_price,
                 'billing_cycle' => $row->billing_cycle,
                 'billing_cycle_label' => $row->billing_cycle_label,
-                'commission_rate' => (float) $row->commission_rate,
+                'commission_rate' => (float)$row->commission_rate,
                 'subscribers_count' => $row->subscriptions_count ?? 0,
                 'active_subscribers_count' => $row->active_subscriptions_count ?? 0,
-                'is_active' => (int) $row->is_active,
+                'is_active' => (int)$row->is_active,
                 'is_active_display' => $row->is_active ? __('Active') : __('Inactive'),
                 'sort_order' => $row->sort_order,
                 'operate' => $operate,
@@ -129,9 +132,12 @@ final class SubscriptionPlanController extends Controller
     {
         ResponseService::noAnyPermissionThenRedirect(['subscription-plans-create', 'manage_plans']);
 
+        $countries = Country::active()->orderBy('name_ar')->get();
+
         return view('admin.subscription-plans.create', [
             'type_menu' => 'subscription-plans',
             'billingCycles' => SubscriptionPlan::BILLING_CYCLES,
+            'countries' => $countries,
         ]);
     }
 
@@ -144,15 +150,51 @@ final class SubscriptionPlanController extends Controller
             'description' => 'nullable|string',
             'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,yearly,lifetime,custom',
             'duration_days' => 'required_if:billing_cycle,custom|nullable|integer|min:1',
-            'price' => 'required|numeric|min:0',
+            'price' => 'nullable|numeric|min:0',
             'commission_rate' => 'nullable|numeric|min:0|max:100',
             'features' => 'nullable|array',
             'features.*' => 'nullable|string|max:500',
             'sort_order' => 'nullable|integer|min:0',
             'is_active' => 'nullable|boolean',
+            // Country prices validation
+            'countries' => 'required|array|min:1',
+            'countries.*.country_id' => 'required|exists:countries,id,status,1',
+            'countries.*.price' => 'required|numeric|min:0',
+            'countries.*.offer_price' => 'nullable|numeric|min:0',
         ];
 
-        $validator = Validator::make($request->all(), $rules);
+        $messages = [
+            'countries.required' => __('يجب اختيار دولة واحدة على الأقل'),
+            'countries.min' => __('يجب اختيار دولة واحدة على الأقل'),
+            'countries.*.country_id.required' => __('يجب اختيار الدولة'),
+            'countries.*.country_id.exists' => __('الدولة المختارة غير صالحة أو غير مفعلة'),
+            'countries.*.price.required' => __('السعر الأساسي مطلوب لكل دولة'),
+            'countries.*.price.min' => __('السعر الأساسي يجب أن يكون 0 أو أكثر'),
+            'countries.*.offer_price.min' => __('سعر العرض يجب أن يكون 0 أو أكثر'),
+        ];
+
+        $validator = Validator::make($request->all(), $rules, $messages);
+
+        // Custom validation: offer_price must be less than price per country
+        $validator->after(function ($validator) use ($request) {
+            $countries = $request->input('countries', []);
+            $seenCountryIds = [];
+            foreach ($countries as $index => $entry) {
+                $countryId = $entry['country_id'] ?? null;
+                // duplicate country check
+                if ($countryId && in_array($countryId, $seenCountryIds)) {
+                    $validator->errors()->add("countries.{$index}.country_id", __('لا يجوز تكرار نفس الدولة'));
+                }
+                $seenCountryIds[] = $countryId;
+                // offer_price < price check
+                $price = isset($entry['price']) ? (float)$entry['price'] : 0;
+                $offerPrice = isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null
+                    ? (float)$entry['offer_price'] : null;
+                if ($offerPrice !== null && $offerPrice >= $price) {
+                    $validator->errors()->add("countries.{$index}.offer_price", __('سعر العرض يجب أن يكون أقل من السعر الأساسي'));
+                }
+            }
+        });
 
         if ($validator->fails()) {
             if ($request->ajax() || $request->wantsJson()) {
@@ -162,6 +204,8 @@ final class SubscriptionPlanController extends Controller
         }
 
         try {
+            DB::beginTransaction();
+
             $data = $validator->validated();
             $data['slug'] = Str::slug($data['name']);
             $data['duration_days'] = $this->resolveDurationDays($data);
@@ -169,14 +213,33 @@ final class SubscriptionPlanController extends Controller
             $data['sort_order'] = $data['sort_order'] ?? 0;
             $data['is_active'] = $request->boolean('is_active', true);
 
-            SubscriptionPlan::create($data);
+            // Remove countries from plan data before create
+            $countriesData = $data['countries'];
+            unset($data['countries']);
+
+            $plan = SubscriptionPlan::create($data);
+
+            // Save country prices
+            foreach ($countriesData as $entry) {
+                SubscriptionPlanPrice::create([
+                    'plan_id' => $plan->id,
+                    'country_id' => $entry['country_id'],
+                    'price' => $entry['price'],
+                    'offer_price' => (isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null)
+                    ? (float)$entry['offer_price'] : null,
+                ]);
+            }
+
+            DB::commit();
 
             if ($request->ajax() || $request->wantsJson()) {
                 return ResponseService::successResponse(__('Subscription plan created successfully'));
             }
             return redirect()->route('subscription-plans.index')
                 ->with('success', __('Subscription plan created successfully'));
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
+            DB::rollBack();
             if ($request->ajax() || $request->wantsJson()) {
                 return ResponseService::errorResponse($e->getMessage());
             }
@@ -205,55 +268,16 @@ final class SubscriptionPlanController extends Controller
     {
         ResponseService::noAnyPermissionThenRedirect(['subscription-plans-edit', 'manage_plans']);
 
-        $countryPrices = $subscriptionPlan->countryPrices()->get()->keyBy('country_code');
-        $supportedCurrencies = SupportedCurrency::active()->orderBy('country_name')->get();
+        $countryPrices = $subscriptionPlan->countryPrices()->get()->keyBy('country_id');
+        $countries = Country::active()->orderBy('name_ar')->get();
 
         return view('admin.subscription-plans.edit', [
             'plan' => $subscriptionPlan,
             'type_menu' => 'subscription-plans',
             'billingCycles' => SubscriptionPlan::BILLING_CYCLES,
-            'supportedCurrencies' => $supportedCurrencies,
+            'countries' => $countries,
             'countryPrices' => $countryPrices,
         ]);
-    }
-
-    public function updateCountryPrices(Request $request, SubscriptionPlan $subscriptionPlan)
-    {
-        ResponseService::noPermissionThenSendJson('subscription-plans-edit');
-
-        $prices = $request->input('country_prices', []);
-        if (!is_array($prices)) {
-            $prices = [];
-        }
-
-        $supportedCurrencies = SupportedCurrency::active()->pluck('currency_code', 'country_code');
-
-        foreach ($supportedCurrencies as $countryCode => $currencyCode) {
-            $priceVal = $prices[$countryCode] ?? null;
-            if ($priceVal === null || $priceVal === '') {
-                SubscriptionPlanPrice::where('plan_id', $subscriptionPlan->id)
-                    ->where('country_code', $countryCode)
-                    ->delete();
-                continue;
-            }
-            $priceVal = (float) $priceVal;
-            if ($priceVal < 0) {
-                continue;
-            }
-
-            SubscriptionPlanPrice::updateOrCreate(
-                [
-                    'plan_id' => $subscriptionPlan->id,
-                    'country_code' => $countryCode,
-                ],
-                [
-                    'currency_code' => $currencyCode,
-                    'price' => $priceVal,
-                ]
-            );
-        }
-
-        return ResponseService::successResponse(__('Country prices updated successfully'));
     }
 
     public function update(Request $request, SubscriptionPlan $subscriptionPlan)
@@ -265,15 +289,49 @@ final class SubscriptionPlanController extends Controller
             'description' => 'nullable|string',
             'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,yearly,lifetime,custom',
             'duration_days' => 'required_if:billing_cycle,custom|nullable|integer|min:1',
-            'price' => 'required|numeric|min:0',
+            'price' => 'nullable|numeric|min:0',
             'commission_rate' => 'nullable|numeric|min:0|max:100',
             'features' => 'nullable|array',
             'features.*' => 'nullable|string|max:500',
             'sort_order' => 'nullable|integer|min:0',
             'is_active' => 'nullable|boolean',
+            // Country prices validation
+            'countries' => 'required|array|min:1',
+            'countries.*.country_id' => 'required|exists:countries,id,status,1',
+            'countries.*.price' => 'required|numeric|min:0',
+            'countries.*.offer_price' => 'nullable|numeric|min:0',
         ];
 
-        $validator = Validator::make($request->all(), $rules);
+        $messages = [
+            'countries.required' => __('يجب اختيار دولة واحدة على الأقل'),
+            'countries.min' => __('يجب اختيار دولة واحدة على الأقل'),
+            'countries.*.country_id.required' => __('يجب اختيار الدولة'),
+            'countries.*.country_id.exists' => __('الدولة المختارة غير صالحة أو غير مفعلة'),
+            'countries.*.price.required' => __('السعر الأساسي مطلوب لكل دولة'),
+            'countries.*.price.min' => __('السعر الأساسي يجب أن يكون 0 أو أكثر'),
+            'countries.*.offer_price.min' => __('سعر العرض يجب أن يكون 0 أو أكثر'),
+        ];
+
+        $validator = Validator::make($request->all(), $rules, $messages);
+
+        // Custom validation: offer_price must be less than price, no duplicate countries
+        $validator->after(function ($validator) use ($request) {
+            $countries = $request->input('countries', []);
+            $seenCountryIds = [];
+            foreach ($countries as $index => $entry) {
+                $countryId = $entry['country_id'] ?? null;
+                if ($countryId && in_array($countryId, $seenCountryIds)) {
+                    $validator->errors()->add("countries.{$index}.country_id", __('لا يجوز تكرار نفس الدولة'));
+                }
+                $seenCountryIds[] = $countryId;
+                $price = isset($entry['price']) ? (float)$entry['price'] : 0;
+                $offerPrice = isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null
+                    ? (float)$entry['offer_price'] : null;
+                if ($offerPrice !== null && $offerPrice >= $price) {
+                    $validator->errors()->add("countries.{$index}.offer_price", __('سعر العرض يجب أن يكون أقل من السعر الأساسي'));
+                }
+            }
+        });
 
         if ($validator->fails()) {
             if ($request->ajax() || $request->wantsJson()) {
@@ -283,6 +341,8 @@ final class SubscriptionPlanController extends Controller
         }
 
         try {
+            DB::beginTransaction();
+
             $data = $validator->validated();
             $data['slug'] = Str::slug($data['name']);
             $data['duration_days'] = $this->resolveDurationDays($data);
@@ -290,14 +350,44 @@ final class SubscriptionPlanController extends Controller
             $data['sort_order'] = $data['sort_order'] ?? 0;
             $data['is_active'] = $request->boolean('is_active', true);
 
+            $countriesData = $data['countries'];
+            unset($data['countries']);
+
             $subscriptionPlan->update($data);
+
+            // Sync country prices: collect submitted country_ids
+            $submittedCountryIds = collect($countriesData)->pluck('country_id')->toArray();
+
+            // Delete removed countries
+            SubscriptionPlanPrice::where('plan_id', $subscriptionPlan->id)
+                ->whereNotIn('country_id', $submittedCountryIds)
+                ->delete();
+
+            // Update or create country prices
+            foreach ($countriesData as $entry) {
+                SubscriptionPlanPrice::updateOrCreate(
+                [
+                    'plan_id' => $subscriptionPlan->id,
+                    'country_id' => $entry['country_id'],
+                ],
+                [
+                    'price' => $entry['price'],
+                    'offer_price' => (isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null)
+                    ? (float)$entry['offer_price'] : null,
+                ]
+                );
+            }
+
+            DB::commit();
 
             if ($request->ajax() || $request->wantsJson()) {
                 return ResponseService::successResponse(__('Subscription plan updated successfully'));
             }
             return redirect()->route('subscription-plans.index')
                 ->with('success', __('Subscription plan updated successfully'));
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
+            DB::rollBack();
             if ($request->ajax() || $request->wantsJson()) {
                 return ResponseService::errorResponse($e->getMessage());
             }
@@ -312,7 +402,8 @@ final class SubscriptionPlanController extends Controller
         try {
             $subscriptionPlan->delete();
             return ResponseService::successResponse(__('Subscription plan deleted successfully'));
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -325,7 +416,8 @@ final class SubscriptionPlanController extends Controller
             $plan = SubscriptionPlan::onlyTrashed()->findOrFail($id);
             $plan->restore();
             return ResponseService::successResponse(__('Subscription plan restored successfully'));
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -338,7 +430,8 @@ final class SubscriptionPlanController extends Controller
             $plan = SubscriptionPlan::onlyTrashed()->findOrFail($id);
             $plan->forceDelete();
             return ResponseService::successResponse(__('Subscription plan permanently deleted'));
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -353,10 +446,11 @@ final class SubscriptionPlanController extends Controller
         }
         try {
             $plan = SubscriptionPlan::findOrFail($id);
-            $plan->sort_order = (int) $request->sort_order;
+            $plan->sort_order = (int)$request->sort_order;
             $plan->save();
             return ResponseService::successResponse(__('Sort order updated'));
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -371,9 +465,10 @@ final class SubscriptionPlanController extends Controller
             $subscriptionPlan->save();
             return ResponseService::successResponse(
                 $subscriptionPlan->is_active ? __('Plan activated') : __('Plan deactivated'),
-                ['is_active' => $subscriptionPlan->is_active]
+            ['is_active' => $subscriptionPlan->is_active]
             );
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -381,7 +476,7 @@ final class SubscriptionPlanController extends Controller
     private function resolveDurationDays(array $data): ?int
     {
         if (($data['billing_cycle'] ?? '') === 'custom') {
-            return isset($data['duration_days']) ? (int) $data['duration_days'] : null;
+            return isset($data['duration_days']) ? (int)$data['duration_days'] : null;
         }
         if (($data['billing_cycle'] ?? '') === 'lifetime') {
             return null;

@@ -1,14 +1,31 @@
 /* RTL Support for Admin Panel */
 
+/* Force RTL when body has dir or class (redundant for reliability) */
+body.rtl-layout,
+body[dir="rtl"] {
+    direction: rtl !important;
+    text-align: right;
+    overflow-x: hidden;
+    /* Prevent horizontal scrolling */
+}
+
+html[dir="rtl"],
+html:has(body.rtl-layout) {
+    direction: rtl;
+    overflow-x: hidden;
+}
+
 /* Main Layout */
 body[dir="rtl"] {
     direction: rtl;
     text-align: right;
-    overflow-x: hidden; /* Prevent horizontal scrolling */
+    overflow-x: hidden;
+    /* Prevent horizontal scrolling */
 }
 
 html[dir="rtl"] {
-    overflow-x: hidden; /* Prevent horizontal scrolling */
+    overflow-x: hidden;
+    /* Prevent horizontal scrolling */
 }
 
 /* Prevent horizontal overflow */
@@ -57,10 +74,21 @@ body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item {
     text-align: right;
 }
 
-body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link {
+body[dir="rtl"] .main-sidebar,
+body.rtl-layout .main-sidebar {
+    width: 250px !important;
+    min-width: 250px !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link,
+body.rtl-layout .main-sidebar .sidebar-menu .menu-item .menu-link {
     text-align: right;
     padding-right: 20px;
     padding-left: 15px;
+    white-space: normal !important;
+    word-wrap: break-word !important;
 }
 
 body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-icon {
@@ -89,49 +117,307 @@ body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-dropdown .menu-item
     padding-left: 15px;
 }
 
-/* Main Content */
-body[dir="rtl"] .main-content {
-    margin-right: 260px !important;
+/* Main Content RTL mirror:
+   LTR base: padding-left:280px; padding-right:30px; width:100%
+   RTL flip: padding-right:280px; padding-left:30px; width:100% */
+body[dir="rtl"] .main-content,
+body.rtl-layout .main-content {
+    padding-right: 280px !important;
+    /* sidebar is 250px + 30px gap */
+    padding-left: 30px !important;
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/* Footer RTL mirror:
+   LTR base: padding: 20px 30px 20px 280px
+   RTL flip: padding: 20px 280px 20px 30px */
+body[dir="rtl"] .main-footer,
+body.rtl-layout .main-footer {
+    margin-right: 0 !important;
+    padding-right: 280px !important;
+    padding-left: 30px !important;
+}
+
+/* Keep text RTL but do NOT reverse layout order of sidebar/content */
+body[dir="rtl"] .main-wrapper,
+body.rtl-layout .main-wrapper {
+    direction: rtl;
+    display: block !important;
+}
+
+/* ====================================================
+   CORE RTL LAYOUT — Exact horizontal mirror of LTR
+   ====================================================
+   LTR base (style.css):
+     .main-sidebar  { position: fixed; left: 0; width: 250px; }
+     .main-content  { padding-left: 280px; padding-right: 30px; width: 100%; }
+     .main-footer   { padding: 20px 30px 20px 280px; }
+     .navbar        { left: 250px; right: 5px; position: absolute; }
+
+   RTL flip (this file):
+     .main-sidebar  → right: 0  (left: auto)
+     .main-content  → padding-right: 280px; padding-left: 30px;
+                      (MUST clear base padding-left with !important)
+     .main-footer   → padding: 20px 280px 20px 30px;
+     .navbar        → right: 250px; left: 0;
+   ==================================================== */
+
+/* Sidebar: move from left to right */
+body[dir="rtl"] .main-sidebar,
+body.rtl-layout .main-sidebar {
+    right: 0 !important;
+    left: auto !important;
+    position: fixed !important;
+    top: 0 !important;
+    width: 250px !important;
+    height: 100vh !important;
+    z-index: 1000 !important;
+}
+
+/* Sidebar RTL hide/show toggle */
+body[dir="rtl"] .main-sidebar.sidebar-gone,
+body[dir="rtl"].sidebar-gone .main-sidebar {
+    right: -250px !important;
+    left: auto !important;
+}
+
+/* Main Content: clear base padding-left:280px, add padding-right:280px */
+body[dir="rtl"] .main-content,
+body.rtl-layout .main-content {
+    padding-right: 280px !important;
+    /* offset for right sidebar */
+    padding-left: 30px !important;
+    /* clears base padding-left:280px */
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/* Footer: mirror padding */
+body[dir="rtl"] .main-footer,
+body.rtl-layout .main-footer {
+    padding-right: 280px !important;
+    /* offset for right sidebar */
+    padding-left: 30px !important;
+    /* clears base padding-left */
+    margin-right: 0 !important;
     margin-left: 0 !important;
 }
 
-/* Sidebar positioning for RTL */
-body[dir="rtl"] .main-wrapper {
-  direction: rtl;
-}
-
-body[dir="rtl"] .main-sidebar {
-    position: fixed !important;
-    top: 0 !important;
-    right: 0 !important;
-    left: auto !important;
-    width: 260px !important;
-    height: 100vh !important;
-    z-index: 1000 !important;
-    transform: translateX(0) !important;
-}
-
-/* Sidebar toggle for RTL */
-body[dir="rtl"] .main-sidebar.show {
-    right: 0 !important;
-    left: auto !important;
-    transform: translateX(0) !important;
-}
-
-body[dir="rtl"] .main-sidebar.hide {
-    right: -260px !important;
-    left: auto !important;
-    transform: translateX(0) !important;
-}
-
-body[dir="rtl"] .main-content .main-content-header {
+/* Navbar: mirror left:250px/right:5px → right:250px/left:0 */
+body[dir="rtl"] .navbar {
+    right: 250px !important;
+    left: 0 !important;
     text-align: right;
 }
 
-/* Navbar */
+/* navbar-bg: covers the area left of the sidebar */
+body[dir="rtl"] .navbar-bg {
+    right: 250px !important;
+    left: 0 !important;
+    width: auto !important;
+}
+
+/* -------------------------------------------------------
+   Sidebar Mini Mode RTL
+   LTR: body.sidebar-mini .navbar { left: 65px }
+        body.sidebar-mini .main-content { padding-left: 90px }
+   RTL: flip to right/padding-right
+------------------------------------------------------- */
+
+body[dir="rtl"].sidebar-mini .main-sidebar,
+body.rtl-layout.sidebar-mini .main-sidebar {
+    width: 65px !important;
+    right: 0 !important;
+    left: auto !important;
+}
+
+body[dir="rtl"].sidebar-mini .navbar {
+    right: 65px !important;
+    left: 0 !important;
+}
+
+body[dir="rtl"].sidebar-mini .navbar-bg {
+    right: 65px !important;
+    left: 0 !important;
+    width: auto !important;
+}
+
+body[dir="rtl"].sidebar-mini .main-content,
+body[dir="rtl"].sidebar-mini .main-footer {
+    padding-right: 90px !important;
+    padding-left: 30px !important;
+}
+
+/* Mini sidebar dropdown appears to the LEFT of the icon in RTL */
+body[dir="rtl"].sidebar-mini .main-sidebar .sidebar-menu>li ul.dropdown-menu {
+    right: 65px !important;
+    left: auto !important;
+}
+
+/* -------------------------------------------------------
+   Section Header RTL Fixes
+
+   (Bootstrap 4 flexbox – direction:rtl puts items right→left,
+   so h1 must flex:1 to fill the space and eliminate the
+   empty white gap on the left.)
+------------------------------------------------------- */
+
+/* Make h1 grow to fill space so button stays on the left edge */
+body[dir="rtl"] .section .section-header h1 {
+    flex: 1;
+    text-align: right;
+    margin-bottom: 0;
+}
+
+/* Flip button margin: was margin-left (gap from h1), now margin-right */
+body[dir="rtl"] .section .section-header .section-header-button {
+    margin-left: 0;
+    margin-right: auto;
+    /* push button to the far left */
+}
+
+/* Flip back button margin */
+body[dir="rtl"] .section .section-header .section-header-back {
+    margin-right: 0;
+    margin-left: 15px;
+}
+
+/* Card header action / chart tabs: prevent clipping of Arabic labels */
+body[dir="rtl"] .card .card-header {
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+body[dir="rtl"] .card .card-header .card-header-action .btn-group {
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+body[dir="rtl"] .card .card-header .card-header-action .btn-group .btn {
+    white-space: nowrap;
+}
+
+/* Stat cards: mirror LTR – icon on right, content right-aligned (like LTR icon left, content left) */
+body[dir="rtl"] .stat-card__inner {
+    flex-direction: row-reverse !important;
+}
+
+body[dir="rtl"] .stat-card__content,
+body[dir="rtl"] .stat-card__title,
+body[dir="rtl"] .stat-card__value,
+body[dir="rtl"] .stat-card__growth {
+    text-align: right !important;
+}
+
+/* Card header: mirror LTR – title on right, action (e.g. tabs/buttons) on left */
+body[dir="rtl"] .card .card-header h4+.card-header-action,
+body[dir="rtl"] .card .card-header h4+.card-header-form {
+    margin-left: 0 !important;
+    margin-right: auto !important;
+}
+
+/* First section: reduce top gap below navbar */
+body[dir="rtl"] .main-content>.section:first-child .section-header {
+    margin-top: 15px;
+}
+
+/* Breadcrumb: in LTR it sits at far right via margin-left:auto.
+   In RTL flex (right→left), margin-right:auto pushes it to the far left. */
+body[dir="rtl"] .section .section-header .section-header-breadcrumb {
+    margin-right: 0;
+    margin-left: 0;
+    flex-shrink: 0;
+}
+
+/* Section title RTL: base uses float:left for the bar decoration */
+body[dir="rtl"] .section .section-title:before {
+    float: right;
+    margin-right: 0;
+    margin-left: 15px;
+}
+
+/* Section lead: base has margin-left:45px offset for title bar */
+body[dir="rtl"] .section .section-lead {
+    margin-right: 45px;
+    margin-left: 0;
+}
+
+/* -------------------------------------------------------
+   Footer RTL Fixes
+------------------------------------------------------- */
+
+body[dir="rtl"] .main-footer .footer-left {
+    float: right;
+}
+
+body[dir="rtl"] .main-footer .footer-right {
+    float: left;
+}
+
+/* -------------------------------------------------------
+   Bootstrap Utility Class Flips for RTL
+------------------------------------------------------- */
+
+/* ml-2 / ml-3 used on dropdowns in navbar */
+body[dir="rtl"] .navbar .ml-2 {
+    margin-left: 0 !important;
+    margin-right: 0.5rem !important;
+}
+
+/* Bootstrap mr-auto / ml-auto flips */
+body[dir="rtl"] .ml-auto {
+    margin-left: 0 !important;
+    margin-right: auto !important;
+}
+
+body[dir="rtl"] .mr-auto {
+    margin-right: 0 !important;
+    margin-left: auto !important;
+}
+
+/* Bootstrap float utilities */
+body[dir="rtl"] .float-left {
+    float: right !important;
+}
+
+body[dir="rtl"] .float-right {
+    float: left !important;
+}
+
+/* Section header button in dashboard (section-header-button has children buttons) */
+body[dir="rtl"] .section-header-button .btn {
+    margin-left: 0;
+    margin-right: 5px;
+}
+
+body[dir="rtl"] .section-header-button .btn:first-child {
+    margin-right: 0;
+}
+
+/* Navbar - base CSS sets left: 250px; right: 5px. Flip for RTL. */
 body[dir="rtl"] .navbar {
     text-align: right;
+    right: 250px !important;
+    left: 0 !important;
 }
+
+/* Mirror navbar content: hamburger on right (next to sidebar), user on left – like LTR but flipped */
+body[dir="rtl"] .main-navbar {
+    flex-direction: row-reverse !important;
+}
+
+body[dir="rtl"] .main-navbar .form-inline.mr-auto {
+    margin-right: 0 !important;
+    margin-left: auto !important;
+}
+
 
 body[dir="rtl"] .navbar .navbar-nav {
     text-align: right;
@@ -143,6 +429,25 @@ body[dir="rtl"] .navbar .navbar-nav .nav-item {
 
 body[dir="rtl"] .navbar .navbar-nav .nav-item .nav-link {
     text-align: right;
+}
+
+
+/* User dropdown in navbar: open to the left so it stays on screen (user is on left in RTL) */
+body[dir="rtl"] .navbar .dropdown-menu.dropdown-menu-right {
+    right: auto !important;
+    left: 0 !important;
+}
+
+/* User nav link: mirror order so avatar is on the right of text (like LTR icon left of text) */
+body[dir="rtl"] .navbar .nav-link.nav-link-user {
+    display: inline-flex !important;
+    flex-direction: row-reverse;
+    align-items: center;
+}
+
+body[dir="rtl"] .navbar .nav-link.nav-link-user .rounded-circle {
+    margin-right: 0 !important;
+    margin-left: 0.25rem !important;
 }
 
 /* Forms */
@@ -214,7 +519,8 @@ body[dir="rtl"] .table {
     text-align: right;
     width: 100%;
     max-width: 100%;
-    table-layout: fixed; /* Prevent table from expanding beyond container */
+    table-layout: fixed;
+    /* Prevent table from expanding beyond container */
 }
 
 body[dir="rtl"] .table th {
@@ -224,7 +530,7 @@ body[dir="rtl"] .table th {
 }
 
 body[dir="rtl"] .table td {
-  text-align: right;
+    text-align: right;
     word-wrap: break-word;
     overflow-wrap: break-word;
 }
@@ -251,7 +557,7 @@ body[dir="rtl"] .bootstrap-table .table {
 
 /* Buttons */
 body[dir="rtl"] .btn {
-  text-align: center;
+    text-align: center;
 }
 
 /* Cards */
@@ -314,7 +620,7 @@ body[dir="rtl"] .pagination {
 
 /* Badges */
 body[dir="rtl"] .badge {
-  text-align: center;
+    text-align: center;
 }
 
 /* Progress bars */
@@ -426,7 +732,7 @@ body[dir="rtl"] .language-switcher .dropdown-item {
     color: #007bff;
     font-weight: bold;
     margin-left: 5px;
-  font-size: 12px;
+    font-size: 12px;
 }
 
 /* Bootstrap Table RTL */
@@ -479,29 +785,30 @@ body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link .menu-icon {
 
 body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link .menu-arrow {
     margin-left: 0;
-  margin-right: auto;
+    margin-right: auto;
 }
 
-/* Responsive adjustments for RTL */
+/* Tablet: sidebar becomes an overlay so content fills full width */
 @media (max-width: 1024px) {
+
     html[dir="rtl"] .main-content,
     body[dir="rtl"] .main-content {
+        padding-right: 30px !important;
+        padding-left: 30px !important;
         margin-right: 0 !important;
         margin-left: 0 !important;
-        padding-right: 0 !important;
-        padding-left: 0 !important;
-        max-width: 100vw !important;
-        overflow-x: hidden !important;
+        max-width: 100% !important;
+        width: 100% !important;
     }
-    
+
     html[dir="rtl"] .main-sidebar,
     body[dir="rtl"] .main-sidebar {
-        right: -260px !important;
+        right: -250px !important;
         left: auto !important;
         transform: translateX(0) !important;
         transition: right 0.3s ease !important;
     }
-    
+
     html[dir="rtl"] .main-sidebar.show,
     body[dir="rtl"] .main-sidebar.show {
         right: 0 !important;
@@ -511,31 +818,30 @@ body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link .menu-arrow {
 }
 
 @media (max-width: 768px) {
+
     html[dir="rtl"] .main-content,
     body[dir="rtl"] .main-content {
-        margin-right: 0 !important;
-        margin-left: 0 !important;
         padding-right: 15px !important;
         padding-left: 15px !important;
     }
-    
+
     html[dir="rtl"] .main-sidebar,
     body[dir="rtl"] .main-sidebar {
-        right: -260px !important;
+        right: -250px !important;
         left: auto !important;
         transform: translateX(0) !important;
-        width: 260px !important;
+        width: 250px !important;
         transition: right 0.3s ease !important;
         z-index: 9999 !important;
     }
-    
+
     html[dir="rtl"] .main-sidebar.show,
     body[dir="rtl"] .main-sidebar.show {
         right: 0 !important;
         left: auto !important;
         transform: translateX(0) !important;
     }
-    
+
     /* Mobile sidebar overlay */
     html[dir="rtl"] .main-sidebar.show::before,
     body[dir="rtl"] .main-sidebar.show::before {
@@ -551,6 +857,7 @@ body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link .menu-arrow {
 }
 
 @media (max-width: 480px) {
+
     html[dir="rtl"] .main-sidebar,
     body[dir="rtl"] .main-sidebar {
         width: 100% !important;
@@ -558,19 +865,19 @@ body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link .menu-arrow {
         left: auto !important;
         transition: right 0.3s ease !important;
     }
-    
+
     html[dir="rtl"] .main-sidebar.show,
     body[dir="rtl"] .main-sidebar.show {
         right: 0 !important;
         left: auto !important;
     }
-    
+
     /* Mobile sidebar menu adjustments */
     html[dir="rtl"] .main-sidebar .sidebar-menu,
     body[dir="rtl"] .main-sidebar .sidebar-menu {
         padding: 10px 0 !important;
     }
-    
+
     html[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link,
     body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link {
         padding: 15px 20px !important;
@@ -578,24 +885,26 @@ body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link .menu-arrow {
     }
 }
 
-/* Additional responsive RTL adjustments */
+/* Desktop (up to 1200px): keep same padding */
 @media (max-width: 1200px) {
+
     html[dir="rtl"] .main-content,
     body[dir="rtl"] .main-content {
-        margin-right: 260px !important;
-        margin-left: 0 !important;
+        padding-right: 280px !important;
+        padding-left: 30px !important;
     }
 }
 
 /* Tablet landscape */
 @media (min-width: 769px) and (max-width: 1024px) {
+
     html[dir="rtl"] .main-sidebar,
     body[dir="rtl"] .main-sidebar {
         width: 240px !important;
         right: -240px !important;
         left: auto !important;
     }
-    
+
     html[dir="rtl"] .main-sidebar.show,
     body[dir="rtl"] .main-sidebar.show {
         right: 0 !important;
@@ -605,6 +914,7 @@ body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link .menu-arrow {
 
 /* Touch device optimizations */
 @media (hover: none) and (pointer: coarse) {
+
     html[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link,
     body[dir="rtl"] .main-sidebar .sidebar-menu .menu-item .menu-link {
         padding: 18px 20px !important;
@@ -629,37 +939,53 @@ body[dir="rtl"] .row {
     overflow-x: hidden;
 }
 
-/* Card responsive fixes */
+/* Card responsive fixes - allow text to wrap, avoid truncation */
 html[dir="rtl"] .card,
-body[dir="rtl"] .card {
+body[dir="rtl"] .card,
+body.rtl-layout .card {
     max-width: 100%;
-    overflow-x: hidden;
+    overflow-x: visible;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 html[dir="rtl"] .card-body,
-body[dir="rtl"] .card-body {
+body[dir="rtl"] .card-body,
+body.rtl-layout .card-body {
     max-width: 100%;
-    overflow-x: hidden;
+    overflow-x: visible;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Fix Stat Card Layout in RTL */
+body[dir="rtl"] .stat-card__inner {
+    flex-direction: row-reverse;
+}
+
+body[dir="rtl"] .stat-card__content {
+    text-align: right;
+}
+
+body[dir="rtl"] .stat-card__title,
+body[dir="rtl"] .stat-card__value,
+body[dir="rtl"] .stat-card__growth {
+    white-space: normal !important;
+    text-overflow: clip !important;
     word-wrap: break-word;
     overflow-wrap: break-word;
 }
 
 /* Section responsive fixes */
 html[dir="rtl"] .section,
-body[dir="rtl"] .section {
+body[dir="rtl"] .section,
+body.rtl-layout .section {
     max-width: 100%;
-    overflow-x: hidden;
+    overflow-x: visible;
     padding-right: 15px;
     padding-left: 15px;
-}
-
-/* Main content responsive */
-html[dir="rtl"] .main-content,
-body[dir="rtl"] .main-content {
-    max-width: 100%;
-    overflow-x: hidden;
-    padding-right: 15px;
-    padding-left: 15px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Responsive text wrapping */
@@ -676,18 +1002,19 @@ body[dir="rtl"] span {
 
 /* Mobile specific RTL fixes */
 @media (max-width: 768px) {
+
     html[dir="rtl"] .main-content,
     body[dir="rtl"] .main-content {
         padding-right: 10px;
         padding-left: 10px;
     }
-    
+
     html[dir="rtl"] .section,
     body[dir="rtl"] .section {
         padding-right: 10px;
         padding-left: 10px;
     }
-    
+
     /* Force all tables to be responsive on mobile */
     html[dir="rtl"] .table,
     body[dir="rtl"] .table {
@@ -695,7 +1022,7 @@ body[dir="rtl"] span {
         width: 100%;
         max-width: 100%;
     }
-    
+
     html[dir="rtl"] .table th,
     body[dir="rtl"] .table th,
     html[dir="rtl"] .table td,
@@ -709,18 +1036,19 @@ body[dir="rtl"] span {
 
 /* Small mobile fixes */
 @media (max-width: 480px) {
+
     html[dir="rtl"] .main-content,
     body[dir="rtl"] .main-content {
         padding-right: 5px;
         padding-left: 5px;
     }
-    
+
     html[dir="rtl"] .section,
     body[dir="rtl"] .section {
         padding-right: 5px;
         padding-left: 5px;
     }
-    
+
     /* Hide less important columns on very small screens */
     html[dir="rtl"] .table .d-none-mobile,
     body[dir="rtl"] .table .d-none-mobile {
@@ -749,7 +1077,7 @@ body[dir="rtl"] .sidebar-menu .menu-item .menu-link {
 body[dir="rtl"] .sidebar-menu .menu-item .menu-link .menu-icon {
     order: 2;
     margin-left: 10px;
-  margin-right: 0;
+    margin-right: 0;
 }
 
 body[dir="rtl"] .sidebar-menu .menu-item .menu-link .menu-arrow {
@@ -772,11 +1100,11 @@ body[dir="rtl"] .main-sidebar,
     top: 0 !important;
     right: 0 !important;
     left: auto !important;
-    width: 260px !important;
+    width: 250px !important;
     height: 100vh !important;
     z-index: 1000 !important;
     background: #fff !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1) !important;
+    box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1) !important;
     transform: translateX(0) !important;
 }
 
@@ -787,32 +1115,34 @@ body[dir="rtl"] .main-sidebar.sidebar-style-2 {
     top: 0 !important;
     right: 0 !important;
     left: auto !important;
-    width: 260px !important;
+    width: 250px !important;
     height: 100vh !important;
     z-index: 1000 !important;
     background: #fff !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1) !important;
+    box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1) !important;
     transform: translateX(0) !important;
 }
 
-/* Ensure main content has proper margin for RTL sidebar */
+/* Ensure main content has proper margin for RTL sidebar (padding for content spacing) */
 html[dir="rtl"] .main-content,
-body[dir="rtl"] .main-content {
-    margin-right: 260px !important;
+body[dir="rtl"] .main-content,
+body.rtl-layout .main-content {
+    margin-right: 250px !important;
     margin-left: 0 !important;
-    padding-right: 0 !important;
-    padding-left: 0 !important;
-    max-width: calc(100vw - 260px) !important;
-    overflow-x: hidden !important;
+    padding-right: 30px !important;
+    padding-left: 30px !important;
+    max-width: calc(100vw - 250px) !important;
+    overflow-x: visible !important;
+    box-sizing: border-box !important;
 }
 
 /* Override any existing main content positioning */
 html[dir="rtl"] .main-wrapper .main-content,
 body[dir="rtl"] .main-wrapper .main-content {
-    margin-right: 260px !important;
+    margin-right: 250px !important;
     margin-left: 0 !important;
-    padding-right: 0 !important;
-    padding-left: 0 !important;
+    padding-right: 30px !important;
+    padding-left: 30px !important;
 }
 
 /* Sidebar brand positioning */
@@ -865,23 +1195,23 @@ body[dir="rtl"] .main-sidebar.sidebar-style-2 {
     top: 0 !important;
     right: 0 !important;
     left: auto !important;
-    width: 260px !important;
+    width: 250px !important;
     height: 100vh !important;
     z-index: 9999 !important;
     background: #fff !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1) !important;
+    box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1) !important;
     transform: translateX(0) !important;
 }
 
-/* Override main content for RTL */
+/* Override main content for RTL - keep padding for readable content */
 html[dir="rtl"] .main-content,
 body[dir="rtl"] .main-content,
 html[dir="rtl"] .main-wrapper .main-content,
 body[dir="rtl"] .main-wrapper .main-content {
-    margin-right: 260px !important;
+    margin-right: 250px !important;
     margin-left: 0 !important;
-    padding-right: 0 !important;
-    padding-left: 0 !important;
+    padding-right: 30px !important;
+    padding-left: 30px !important;
 }
 
 /* MAXIMUM SPECIFICITY OVERRIDE - This will override ANY existing sidebar styles */
@@ -893,11 +1223,11 @@ body[dir="rtl"] .main-sidebar.sidebar-style-2 {
     top: 0 !important;
     right: 0 !important;
     left: auto !important;
-    width: 260px !important;
+    width: 250px !important;
     height: 100vh !important;
     z-index: 9999 !important;
     background: #fff !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1) !important;
+    box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1) !important;
     transform: translateX(0) !important;
 }
 
@@ -908,10 +1238,50 @@ body[dir="rtl"] body.layout-2 .main-sidebar {
     top: 0 !important;
     right: 0 !important;
     left: auto !important;
-    width: 260px !important;
+    width: 250px !important;
     height: 100vh !important;
     z-index: 9999 !important;
     background: #fff !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1) !important;
+    box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1) !important;
     transform: translateX(0) !important;
+}
+
+/* Sidebar mini (minimize): override 250px margin so no extra gap — أعلى خصوصية */
+html[dir="rtl"] body.sidebar-mini .main-wrapper .main-content,
+body[dir="rtl"].sidebar-mini .main-wrapper .main-content {
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+    padding-right: 90px !important;
+    padding-left: 30px !important;
+}
+html[dir="rtl"] body.sidebar-mini .main-wrapper .main-footer,
+body[dir="rtl"].sidebar-mini .main-wrapper .main-footer {
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+    padding-right: 90px !important;
+    padding-left: 30px !important;
+}
+html[dir="rtl"] body.sidebar-mini #app,
+body[dir="rtl"].sidebar-mini #app,
+html[dir="rtl"] body.sidebar-mini .main-wrapper,
+body[dir="rtl"].sidebar-mini .main-wrapper {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* إزالة المسافة الشمالية: style.css يضع .navbar { left: 65px } لـ sidebar-mini (LTR) — نلغيها في RTL */
+html[dir="rtl"] body.sidebar-mini .navbar,
+body[dir="rtl"].sidebar-mini .navbar {
+    left: 0 !important;
+    right: 65px !important;
+}
+html[dir="rtl"] body.sidebar-mini .navbar-bg,
+body[dir="rtl"].sidebar-mini .navbar-bg {
+    left: 0 !important;
+    right: 65px !important;
+    width: auto !important;
 }

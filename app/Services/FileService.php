@@ -12,6 +12,9 @@ use RuntimeException;
 class FileService
 {
     /**
+     * Upload file with optional image compression when GD/Imagick is available.
+     * Falls back to plain upload when GD is not installed.
+     *
      * @param $requestFile
      * @param $folder
      * @return string
@@ -19,16 +22,28 @@ class FileService
     public static function compressAndUpload($requestFile, $folder)
     {
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
-        if (in_array($requestFile->getClientOriginalExtension(), ['jpg', 'jpeg', 'png'])) {
-            // Check the Extension should be jpg or png and do compression
-            $image = Image::make($requestFile)->encode(null, 60);
-            Storage::disk('public')->put($folder . '/' . $file_name, $image);
-        } else {
-            // Else assign file as it is
-            $file = $requestFile;
-            $file->storeAs($folder, $file_name, 'public');
+        $ext = strtolower($requestFile->getClientOriginalExtension() ?? '');
+
+        if (in_array($ext, ['jpg', 'jpeg', 'png']) && self::imageExtensionAvailable()) {
+            try {
+                $image = Image::make($requestFile)->encode(null, 60);
+                Storage::disk('public')->put($folder . '/' . $file_name, $image);
+                return $folder . '/' . $file_name;
+            } catch (Exception $e) {
+                // Fallback to plain upload if Image fails (e.g. GD not available)
+            }
         }
+
+        $requestFile->storeAs($folder, $file_name, 'public');
         return $folder . '/' . $file_name;
+    }
+
+    /**
+     * Check if PHP has GD or Imagick extension for image processing.
+     */
+    public static function imageExtensionAvailable(): bool
+    {
+        return extension_loaded('gd') || extension_loaded('imagick');
     }
 
     /**
