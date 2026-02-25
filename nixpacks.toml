@@ -7,6 +7,8 @@ nixPkgs = ["...", "python311Packages.supervisor"]
 [phases.install]
 cmds = [
     "mkdir -p /var/log/nginx && mkdir -p /var/cache/nginx",
+    "mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs",
+    "chmod -R ugo+rw bootstrap/cache storage",
     "composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs"
 ]
 
