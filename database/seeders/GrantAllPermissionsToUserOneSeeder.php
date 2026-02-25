@@ -7,6 +7,7 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
+use Illuminate\Support\Facades\Log;
 
 class GrantAllPermissionsToUserOneSeeder extends Seeder
 {
@@ -32,6 +33,9 @@ class GrantAllPermissionsToUserOneSeeder extends Seeder
             return;
         }
 
+
+
+        Log::info('Permission names: ' . json_encode($permissionNames));
         $user->syncPermissions($permissionNames);
 
         $this->command->info(sprintf(
