@@ -1,12 +1,13 @@
 <div class="main-sidebar sidebar-style-2">
     <aside id="sidebar-wrapper">
-        <div class="sidebar-brand">
-            <a href="{{ route('dashboard') }}">
+        <div class="sidebar-brand" style="height: auto; padding: 15px 0 0 0; margin-bottom: -10px; display: flex; justify-content: center; align-items: center;">
+            <a href="{{ route('dashboard') }}" style="display: block; width: 100%; text-align: center;">
                 @if (!empty($settingLogos['horizontal_logo']))
                 <img src="{{ $settingLogos['horizontal_logo'] }}" alt="{{ __('Logo') }}" class="img-fluid rounded"
                     style="max-height: auto; width: 150px;">
                 @else
-                <img src="{{ asset('images/logo.jpeg') }}" alt="{{ __('Logo') }}" class="img-fluid" style="max-height: 40px; width: auto;">
+                <img src="{{ asset('images/logo-3.png') }}" alt="{{ __('Logo') }}" class="img-fluid logo-light" style="width: 75%; max-height: 65px; height: auto; object-fit: contain; display: inline-block;">
+                <img src="{{ asset('images/logo-4.png') }}" alt="{{ __('Logo') }}" class="img-fluid logo-dark" style="width: 75%; max-height: 65px; height: auto; object-fit: contain; display: none;">
                 @endif
             </a>
         </div>
@@ -15,7 +16,8 @@
                 @if (!empty($settingLogos['horizontal_logo']))
                 {{ config('app.name') }}
                 @else
-                <img src="{{ asset('images/logo.jpeg') }}" alt="{{ __('Logo') }}" style="max-height: 32px; width: auto;">
+                <img src="{{ asset('images/logo-3.png') }}" alt="{{ __('Logo') }}" class="logo-light" style="max-height: 45px; width: auto;">
+                <img src="{{ asset('images/logo-4.png') }}" alt="{{ __('Logo') }}" class="logo-dark" style="max-height: 45px; width: auto; display: none;">
                 @endif
             </a>
         </div>
