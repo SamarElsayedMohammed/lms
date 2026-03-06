@@ -30,8 +30,9 @@ class UserController extends Controller
         $sort = $request->sort ?? 'id';
         $order = $request->order ?? 'DESC';
         $search = $request->search ?? '';
+        $subscriptionType = $request->subscription_type ?? '';
 
-        $query = User::with('instructor_details')->orderBy($sort, $order);
+        $query = User::with(['instructor_details', 'activeSubscription'])->orderBy($sort, $order);
 
         // Apply search filter
         if (!empty($search)) {
@@ -41,6 +42,13 @@ class UserController extends Controller
                     ->orWhere('email', 'like', '%' . $search . '%')
                     ->orWhere('mobile', 'like', '%' . $search . '%')
                     ->orWhere('slug', 'like', '%' . $search . '%');
+            });
+        }
+
+        // Apply subscription filter
+        if (!empty($subscriptionType)) {
+            $query->whereHas('subscriptions', static function ($q) use ($subscriptionType): void {
+                $q->where('status', 'active')->where('plan_type', $subscriptionType);
             });
         }
 
@@ -76,6 +84,7 @@ class UserController extends Controller
                     ? 'Active'
                     : 'Deactive';
             $tempRow['type'] = $row->type ?? 'N/A';
+            $tempRow['active_subscription'] = $row->activeSubscription ? ucfirst($row->activeSubscription->plan_type) : 'None';
             $tempRow['is_instructor'] = !empty($row->instructor_details) ? 1 : 0;
             $tempRow['instructor_status'] = $row->instructor_details->status ?? null;
             $tempRow['operate'] = $operate;

@@ -16,7 +16,14 @@
                     <h4 class="card-title">
                         {{ __('List Users') }}
                     </h4>
-                    <div id="toolbar"></div>
+                    <div id="toolbar" class="d-flex align-items-center">
+                        <select id="subscription_filter" class="form-control" style="min-width: 200px;">
+                            <option value="">{{ __('All Subscriptions') }}</option>
+                            <option value="monthly">{{ __('Monthly') }}</option>
+                            <option value="quarterly">{{ __('Quarterly') }}</option>
+                            <option value="annual">{{ __('Annual') }}</option>
+                        </select>
+                    </div>
 
                     <table class="table table-bordered" id="table_list"
                         data-toggle="table"
@@ -45,6 +52,7 @@
                                 <th data-field="email" data-sortable="true" data-escape="true">{{ __('Email') }}</th>
                                 <th data-field="mobile" data-sortable="true" data-escape="true">{{ __('Mobile') }}</th>
                                 <th data-field="type" data-sortable="true" data-escape="true">{{ __('Type') }}</th>
+                                <th data-field="active_subscription" data-sortable="false" data-escape="true">{{ __('Subscription') }}</th>
                                 <th data-field="is_active" data-sortable="true" data-formatter="statusFormatter" data-export="false" data-escape="false">{{ __('Status') }}</th>
                                 <th data-field="is_active_export" data-visible="true" data-export="true" class="d-none">{{ __('Status (Export)') }}</th>
                                 <th data-field="created_at" data-sortable="true" data-formatter="dateFormatter" data-escape="true">{{ __('Created At') }}</th>
@@ -102,6 +110,7 @@
     };
 
     function queryParams(params) {
+        params.subscription_type = $('#subscription_filter').val();
         return params;
     }
 
@@ -238,8 +247,12 @@
         }
     });
 
-    // Add row number
+    // Add row number and handle filter change
     $(document).ready(function() {
+        $('#subscription_filter').change(function() {
+            $('#table_list').bootstrapTable('refresh');
+        });
+
         $('#table_list').on('load-success.bs.table', function() {
             var rows = $(this).find('tbody tr');
             rows.each(function(index) {

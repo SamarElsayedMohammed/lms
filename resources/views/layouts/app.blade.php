@@ -28,6 +28,46 @@ $isRTL = $layoutDir === 'rtl';
         }
         .main-wrapper { display: block; }
         .main-content { min-height: 100vh; }
+        
+        /* Global Light Mode Overrides for Sidebar */
+        body:not([data-theme="dark"]) {
+            background-color: #f4f6f9;
+        }
+        
+        body:not([data-theme="dark"]) .main-sidebar,
+        body:not([data-theme="dark"]) .main-sidebar .sidebar-wrapper,
+        body:not([data-theme="dark"]) .main-sidebar .sidebar-brand,
+        body:not([data-theme="dark"]) .main-sidebar .sidebar-brand a {
+            background-color: #ffffff !important;
+            border-right: 1px solid #e5e7eb;
+        }
+
+        body:not([data-theme="dark"]) .main-sidebar .sidebar-menu li a {
+            color: #6c757d;
+        }
+        body:not([data-theme="dark"]) .main-sidebar .sidebar-menu li.active a {
+            /* allow theme colors to apply */
+        }
+        body:not([data-theme="dark"]) .main-sidebar .sidebar-menu li a:hover {
+            background-color: #f8f9fa;
+        }
+        body:not([data-theme="dark"]) .main-sidebar .sidebar-menu li.menu-header {
+            color: #aeb2b7 !important;
+            padding-top: 15px !important;
+        }
+
+        /* Fix the blue left border on active menu items to match the red theme, or hide it if it clashes */
+        .main-sidebar .sidebar-menu li.active a::before {
+            display: none !important;
+        }
+
+        /* Logo switcher for dark/light mode */
+        body[data-theme="dark"] .logo-light {
+            display: none !important;
+        }
+        body[data-theme="dark"] .logo-dark {
+            display: inline-block !important;
+        }
     </style>
 </head>
 

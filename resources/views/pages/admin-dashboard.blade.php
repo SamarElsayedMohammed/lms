@@ -9,6 +9,36 @@
 <link rel="stylesheet" href="{{ asset('library/chocolat/dist/css/chocolat.css') }}">
 
 <style>
+    /* Light Mode Stat Card Styling */
+    body:not([data-theme="dark"]) .card.card-statistic-1,
+    body:not([data-theme="dark"]) .card.card-statistic-2,
+    body:not([data-theme="dark"]) .card-stat {
+        background-color: #ffffff !important;
+        transition: all 0.3s ease;
+    }
+    
+    body:not([data-theme="dark"]) .card.card-statistic-1 .card-header h4,
+    body:not([data-theme="dark"]) .card.card-statistic-2 .card-header h4,
+    body:not([data-theme="dark"]) .card-stat .title,
+    body:not([data-theme="dark"]) .card.card-statistic-1 .card-body,
+    body:not([data-theme="dark"]) .card.card-statistic-2 .card-body,
+    body:not([data-theme="dark"]) .card-stat .value {
+        color: #000000 !important;
+        transition: color 0.3s ease;
+    }
+
+    body:not([data-theme="dark"]) .card.card-statistic-1:hover .card-header h4,
+    body:not([data-theme="dark"]) .card.card-statistic-1:hover .card-body,
+    body:not([data-theme="dark"]) .card.card-statistic-1:hover .card-icon i,
+    body:not([data-theme="dark"]) .card.card-statistic-2:hover .card-header h4,
+    body:not([data-theme="dark"]) .card.card-statistic-2:hover .card-body,
+    body:not([data-theme="dark"]) .card.card-statistic-2:hover .card-icon i,
+    body:not([data-theme="dark"]) .card-stat:hover .title,
+    body:not([data-theme="dark"]) .card-stat:hover .value,
+    body:not([data-theme="dark"]) .card-stat:hover .icon i {
+        color: #ff0000 !important;
+    }
+    
     .chart-container {
         position: relative;
         min-height: 250px;
@@ -63,6 +93,22 @@
                 <x-stat-card icon="fas fa-user-graduate" color="info" :title="__('Total Enrollments')"
                     title-id="total-enrollments-label" value-id="total-enrollments-count"
                     growth-id="total-enrollments-growth" :growth-label="__('from last month')" />
+            </div>
+        </div>
+
+        <!-- Subscription Statistics Cards -->
+        <div class="row">
+            <div class="col-lg-4 col-md-4 col-sm-12 col-12 mb-4">
+                <x-stat-card icon="fas fa-calendar-alt" color="primary" :title="__('Monthly Subscriptions')"
+                    title-id="monthly-subs-label" value-id="monthly-subs-count" />
+            </div>
+            <div class="col-lg-4 col-md-4 col-sm-12 col-12 mb-4">
+                <x-stat-card icon="fas fa-calendar-check" color="success" :title="__('Quarterly Subscriptions')"
+                    title-id="quarterly-subs-label" value-id="quarterly-subs-count" />
+            </div>
+            <div class="col-lg-4 col-md-4 col-sm-12 col-12 mb-4">
+                <x-stat-card icon="fas fa-calendar-plus" color="info" :title="__('Annual Subscriptions')"
+                    title-id="annual-subs-label" value-id="annual-subs-count" />
             </div>
         </div>
 
@@ -507,6 +553,7 @@
     // Function to update the entire dashboard UI with dynamic data
     function updateDashboardUI() {
         updateOverviewStats();
+        updateSubscriptionStats();
         updateAdditionalStats();
         updateCourseStats();
         updateRatingsStats();
@@ -527,6 +574,17 @@
             updateStatCard('total-courses', stats.total_courses);
             updateStatCard('total-earnings', stats.total_earnings);
             updateStatCard('total-enrollments', stats.total_enrollments);
+        }
+    }
+
+    // Update subscription statistics cards
+    function updateSubscriptionStats() {
+        if (dashboardData.subscription_stats) {
+            const stats = dashboardData.subscription_stats;
+            
+            document.getElementById('monthly-subs-count').textContent = stats.monthly || 0;
+            document.getElementById('quarterly-subs-count').textContent = stats.quarterly || 0;
+            document.getElementById('annual-subs-count').textContent = stats.annual || 0;
         }
     }
 

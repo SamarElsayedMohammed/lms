@@ -76,6 +76,7 @@ class DashboardController extends Controller
                 'recent_activities' => $this->getRecentActivities(),
                 'top_performers' => $this->getTopPerformers(),
                 'system_health' => $this->getSystemHealth(),
+                'subscription_stats' => $this->getSubscriptionStats(),
                 'currency_symbol' => $currencySymbol,
             ];
 
@@ -1316,5 +1317,25 @@ class DashboardController extends Controller
             'database_stats' => [],
             'storage_stats' => [],
         ];
+    }
+
+    /**
+     * Get subscription statistics
+     */
+    private function getSubscriptionStats()
+    {
+        try {
+            return [
+                'monthly' => \App\Models\Subscription::where('status', 'active')->where('plan_type', 'monthly')->count(),
+                'quarterly' => \App\Models\Subscription::where('status', 'active')->where('plan_type', 'quarterly')->count(),
+                'annual' => \App\Models\Subscription::where('status', 'active')->where('plan_type', 'annual')->count(),
+            ];
+        } catch (\Exception) {
+            return [
+                'monthly' => 0,
+                'quarterly' => 0,
+                'annual' => 0,
+            ];
+        }
     }
 }

@@ -7,20 +7,20 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
-use Illuminate\Support\Facades\Log;
 
 class GrantAllPermissionsToUserOneSeeder extends Seeder
 {
     /**
      * Run the database seeds.
-     * Assigns all existing permissions to user id 1.
+     * Assigns all existing permissions (including countries) to user id 2.
      */
     public function run(): void
     {
-        $user = User::find(1);
+        $userId = 2;
+        $user = User::find($userId);
 
         if (!$user) {
-            $this->command->warn('User with id 1 not found. Skipping.');
+            $this->command->warn("User with id {$userId} not found. Skipping.");
 
             return;
         }
@@ -33,14 +33,12 @@ class GrantAllPermissionsToUserOneSeeder extends Seeder
             return;
         }
 
-
-
-        Log::info('Permission names: ' . json_encode($permissionNames));
         $user->syncPermissions($permissionNames);
 
         $this->command->info(sprintf(
-            'Granted %d permission(s) to user id 1 (%s).',
+            'Granted %d permission(s) to user id %d (%s).',
             count($permissionNames),
+            $userId,
             $user->email
         ));
     }

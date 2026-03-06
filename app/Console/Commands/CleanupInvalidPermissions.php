@@ -35,6 +35,8 @@ final class CleanupInvalidPermissions extends Command
             'pages' => $basePermissions,
             'taxes' => $basePermissions,
             'promo-codes' => $basePermissions,
+            'subscription-plans' => [...$basePermissions, 'restore', 'trash', 'toggle'],
+            'countries' => [...$basePermissions, 'toggle'],
             'certificates' => $basePermissions,
             'instructors' => [...$basePermissions, 'show-form', 'status-update'],
             'users' => $basePermissions,
