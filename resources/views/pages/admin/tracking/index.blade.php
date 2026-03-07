@@ -400,7 +400,7 @@
                 </div>
                 <div class="d-flex justify-content-center mt-2">
                     <p class="text-muted small">
-                        Showing {{ $trackings->firstItem() }} to {{ $trackings->lastItem() }} of {{ $trackings->total() }} results
+                        {{ __('Showing') }} {{ $trackings->firstItem() }} {{ __('to') }} {{ $trackings->lastItem() }} {{ __('of') }} {{ $trackings->total() }} {{ __('results') }}
                     </p>
                 </div>
                 @endif
@@ -415,7 +415,7 @@
     <script>
         $(document).ready(function() {
             $('.select2').select2({
-                placeholder: 'Select an option',
+                placeholder: @json(__('Select an option')),
                 allowClear: true
             });
 
@@ -423,7 +423,8 @@
                 "paging": false,
                 "searching": false,
                 "ordering": true,
-                "info": false
+                "info": false,
+                "language": { "emptyTable": @json(__('No data available in table')) }
             });
         });
 

@@ -285,7 +285,7 @@
     <script>
         $(document).ready(function() {
             $('.select2').select2({
-                placeholder: 'Select an option',
+                placeholder: @json(__('Select an option')),
                 allowClear: true
             });
 
@@ -293,7 +293,8 @@
                 "paging": false,
                 "searching": false,
                 "ordering": true,
-                "info": false
+                "info": false,
+                "language": { "emptyTable": @json(__('No data available in table')) }
             });
         });
 

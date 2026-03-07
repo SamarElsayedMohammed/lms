@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Sales Reports') }}
@@ -250,6 +250,30 @@
 @endsection
 
 @push('scripts')
+@php
+    $salesReportI18n = [
+        'Select an option' => __('Select an option'),
+        'No sales data available' => __('No sales data available'),
+        'Failed to load sales data' => __('Failed to load sales data'),
+        'orders' => __('orders'),
+        'No course data available' => __('No course data available'),
+        'Multiple Courses' => __('Multiple Courses'),
+        'Showing :from to :to of :total entries' => __('Showing :from to :to of :total entries'),
+        'Previous' => __('Previous'),
+        'Next' => __('Next'),
+        'Request is taking too long. Please try refreshing the page.' => __('Request is taking too long. Please try refreshing the page.'),
+        'Today' => __('Today'),
+        'Yesterday' => __('Yesterday'),
+        'Last 7 Days' => __('Last 7 Days'),
+        'Last 30 Days' => __('Last 30 Days'),
+        'This Month' => __('This Month'),
+        'Last Month' => __('Last Month'),
+    ];
+@endphp
+<script>
+    window.salesReportI18n = @json($salesReportI18n);
+    function _t(key) { return (window.salesReportI18n && window.salesReportI18n[key]) || key; }
+</script>
 <!-- JS Libraries -->
     <script src="{{ asset('library/moment/min/moment.min.js') }}"></script>
     <script src="{{ asset('library/bootstrap-daterangepicker/daterangepicker.js') }}"></script>
@@ -278,18 +302,18 @@
                     format: 'DD/MM/YYYY'
                 },
                 ranges: {
-                    'Today': [moment(), moment()],
-                    'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
-                    'Last 7 Days': [moment().subtract(6, 'days'), moment()],
-                    'Last 30 Days': [moment().subtract(29, 'days'), moment()],
-                    'This Month': [moment().startOf('month'), moment().endOf('month')],
-                    'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+                    [_t('Today')]: [moment(), moment()],
+                    [_t('Yesterday')]: [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+                    [_t('Last 7 Days')]: [moment().subtract(6, 'days'), moment()],
+                    [_t('Last 30 Days')]: [moment().subtract(29, 'days'), moment()],
+                    [_t('This Month')]: [moment().startOf('month'), moment().endOf('month')],
+                    [_t('Last Month')]: [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
                 }
             });
 
             // Initialize Select2
             $('.select2').select2({
-                placeholder: 'Select an option',
+                placeholder: _t('Select an option'),
                 allowClear: true
             });
 
@@ -431,12 +455,12 @@
                     updateSalesTable(response.data);
                 } else {
                     console.error('Table data error:', response.message);
-                    $('#salesTableBody').html('<tr><td colspan="8" class="text-center">No sales data available</td></tr>');
+                    $('#salesTableBody').html('<tr><td colspan="8" class="text-center">' + _t('No sales data available') + '</td></tr>');
                 }
                 showLoading(false);
             }).fail(function(xhr, status, error) {
                 console.error('Failed to load table data:', {xhr: xhr.responseText, status: status, error: error});
-                $('#salesTableBody').html('<tr><td colspan="8" class="text-center">Failed to load sales data</td></tr>');
+                $('#salesTableBody').html('<tr><td colspan="8" class="text-center">' + _t('Failed to load sales data') + '</td></tr>');
                 showError('Failed to load table data');
                 showLoading(false);
             });
@@ -458,13 +482,13 @@
                             </div>
                             <div class="text-right">
                                 <div>${currencySymbol}${totalSales.toLocaleString()}</div>
-                                <small class="text-muted">${totalOrders} orders</small>
+                                <small class="text-muted">${totalOrders} ${_t('orders')}</small>
                             </div>
                         </div>
                     `;
                 });
             } else {
-                html = '<div class="text-center text-muted"> {{ __('No course data available') }} </div>';
+                html = '<div class="text-center text-muted">' + _t('No course data available') + '</div>';
             }
             $('#topCoursesList').html(html);
         }
@@ -512,14 +536,14 @@
             const orders = Array.isArray(tableData) ? tableData : (tableData.data || []);
 
             if (orders.length === 0) {
-                html = '<tr><td colspan="8" class="text-center"> {{ __('No sales data available') }} </td></tr>';
+                html = '<tr><td colspan="8" class="text-center">' + _t('No sales data available') + '</td></tr>';
             } else {
                 orders.forEach(order => {
                     const statusBadge = getStatusBadge(order.status);
                     const orderNumber = order.order_number || order.id || 'N/A';
                     const createdAt = order.created_at ? moment(order.created_at, moment.ISO_8601).format('DD MMM YYYY') : 'N/A';
                     const userName = order.user?.name || 'N/A';
-                    const courseTitle = order.order_courses?.[0]?.course?.title || (order.order_courses?.length > 1 ? 'Multiple Courses' : 'N/A');
+                    const courseTitle = order.order_courses?.[0]?.course?.title || (order.order_courses?.length > 1 ? _t('Multiple Courses') : 'N/A');
                     const finalPrice = order.final_price || 0;
                     const paymentMethod = order.payment_method || 'N/A';
 
@@ -561,7 +585,10 @@
         }
 
         function updatePagination(data) {
-            const paginationInfo = `Showing ${data.from || 1} to ${data.to || data.data.length} of ${data.total || data.data.length} entries`;
+            const from = data.from || 1;
+            const to = data.to || (data.data ? data.data.length : 0);
+            const total = data.total || (data.data ? data.data.length : 0);
+            const paginationInfo = _t('Showing :from to :to of :total entries').replace(':from', from).replace(':to', to).replace(':total', total);
             $('#pagination-info').html(paginationInfo);
 
             if (data.last_page > 1) {
@@ -571,9 +598,9 @@
 
                 // Previous button
                 if (currentPage > 1) {
-                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">&laquo; Previous</a></li>`;
+                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">&laquo; ` + _t('Previous') + `</a></li>`;
                 } else {
-                    paginationHtml += `<li class="page-item disabled"><span class="page-link">&laquo; Previous</span></li>`;
+                    paginationHtml += `<li class="page-item disabled"><span class="page-link">&laquo; ` + _t('Previous') + `</span></li>`;
                 }
 
                 // Calculate page range (show 5 pages around current)
@@ -604,9 +631,9 @@
 
                 // Next button
                 if (currentPage < lastPage) {
-                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">Next &raquo;</a></li>`;
+                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">` + _t('Next') + ` &raquo;</a></li>`;
                 } else {
-                    paginationHtml += `<li class="page-item disabled"><span class="page-link">Next &raquo;</span></li>`;
+                    paginationHtml += `<li class="page-item disabled"><span class="page-link">` + _t('Next') + ` &raquo;</span></li>`;
                 }
 
                 $('#pagination').html(paginationHtml);
@@ -671,7 +698,7 @@
                     if ($('#loading-state').is(':visible')) {
                         console.warn('Loading timeout - forcing hide');
                         showLoading(false);
-                        showError('Request is taking too long. Please try refreshing the page.');
+                        showError(_t('Request is taking too long. Please try refreshing the page.'));
                     }
                 }, 15000);
             } else {

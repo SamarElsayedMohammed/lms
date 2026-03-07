@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Course Reports') }}
@@ -253,6 +253,33 @@
 @endsection
 
 @push('scripts')
+@php
+    $courseReportI18n = [
+        'Select an option' => __('Select an option'),
+        'No courses found' => __('No courses found'),
+        'Created' => __('Created'),
+        'free' => __('Free'),
+        'paid' => __('Paid'),
+        'beginner' => __('Beginner'),
+        'intermediate' => __('Intermediate'),
+        'advanced' => __('Advanced'),
+        'Active' => __('Active'),
+        'Inactive' => __('Inactive'),
+        'Showing :from to :to of :total entries' => __('Showing :from to :to of :total entries'),
+        'Previous' => __('Previous'),
+        'Next' => __('Next'),
+        'Today' => __('Today'),
+        'Yesterday' => __('Yesterday'),
+        'Last 7 Days' => __('Last 7 Days'),
+        'Last 30 Days' => __('Last 30 Days'),
+        'This Month' => __('This Month'),
+        'Last Month' => __('Last Month'),
+    ];
+@endphp
+<script>
+    window.courseReportI18n = @json($courseReportI18n);
+    function _t(key) { return (window.courseReportI18n && window.courseReportI18n[key]) || key; }
+</script>
 <!-- JS Libraries -->
     <script src="{{ asset('library/moment/min/moment.min.js') }}"></script>
     <script src="{{ asset('library/bootstrap-daterangepicker/daterangepicker.js') }}"></script>
@@ -281,12 +308,12 @@
                     customRangeLabel: 'Custom Range'
                 },
                 ranges: {
-                    'Today': [moment(), moment()],
-                    'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
-                    'Last 7 Days': [moment().subtract(6, 'days'), moment()],
-                    'Last 30 Days': [moment().subtract(29, 'days'), moment()],
-                    'This Month': [moment().startOf('month'), moment().endOf('month')],
-                    'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+                    [_t('Today')]: [moment(), moment()],
+                    [_t('Yesterday')]: [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+                    [_t('Last 7 Days')]: [moment().subtract(6, 'days'), moment()],
+                    [_t('Last 30 Days')]: [moment().subtract(29, 'days'), moment()],
+                    [_t('This Month')]: [moment().startOf('month'), moment().endOf('month')],
+                    [_t('Last Month')]: [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
                 },
                 opens: 'left',
                 showDropdowns: true,
@@ -312,7 +339,7 @@
 
             // Initialize Select2
             $('.select2').select2({
-                placeholder: 'Select an option',
+                placeholder: _t('Select an option'),
                 allowClear: true
             });
 
@@ -463,12 +490,12 @@
                     <tr>
                         <td>
                             <strong>${course.title}</strong><br>
-                            <small class="text-muted">Created: ${course.created_at ? moment(course.created_at, moment.ISO_8601).format('DD MMM YYYY') : 'N/A'}</small>
+                            <small class="text-muted">${_t('Created')}: ${course.created_at ? moment(course.created_at, moment.ISO_8601).format('DD MMM YYYY') : 'N/A'}</small>
                         </td>
                         <td>${course.user?.name || 'N/A'}</td>
                         <td>${course.category?.name || 'N/A'}</td>
-                        <td><span class="badge badge-${course.course_type === 'free' ? 'success' : 'primary'}">${course.course_type}</span></td>
-                        <td><span class="badge badge-info">${course.level}</span></td>
+                        <td><span class="badge badge-${course.course_type === 'free' ? 'success' : 'primary'}">${course.course_type ? _t(course.course_type) : 'N/A'}</span></td>
+                        <td><span class="badge badge-info">${course.level ? _t(course.level) : 'N/A'}</span></td>
                         <td>${metrics.enrollments.toLocaleString()}</td>
                         <td>${currencySymbol}${metrics.revenue?.toLocaleString() || '0'}</td>
                         <td>
@@ -480,7 +507,7 @@
                         </td>
                         <td>
                             <span class="badge badge-${course.is_active ? 'success' : 'danger'}">
-                                ${course.is_active ? 'Active' : 'Inactive'}
+                                ${course.is_active ? _t('Active') : _t('Inactive')}
                             </span>
                         </td>
                     </tr>
@@ -498,19 +525,19 @@
             }
 
             if (courses.length === 0) {
-                html = '<tr><td colspan="9" class="text-center"> {{ __('No courses found') }} </td></tr>';
+                html = '<tr><td colspan="9" class="text-center">' + _t('No courses found') + '</td></tr>';
             } else {
                 courses.forEach(course => {
                 html += `
                     <tr>
                         <td>
                             <strong>${course.title}</strong><br>
-                            <small class="text-muted">Created: ${course.created_at ? moment(course.created_at, moment.ISO_8601).format('DD MMM YYYY') : 'N/A'}</small>
+                            <small class="text-muted">${_t('Created')}: ${course.created_at ? moment(course.created_at, moment.ISO_8601).format('DD MMM YYYY') : 'N/A'}</small>
                         </td>
                         <td>${course.user?.name || 'N/A'}</td>
                         <td>${course.category?.name || 'N/A'}</td>
-                        <td><span class="badge badge-${course.course_type === 'free' ? 'success' : 'primary'}">${course.course_type}</span></td>
-                        <td><span class="badge badge-info">${course.level}</span></td>
+                        <td><span class="badge badge-${course.course_type === 'free' ? 'success' : 'primary'}">${course.course_type ? _t(course.course_type) : 'N/A'}</span></td>
+                        <td><span class="badge badge-info">${course.level ? _t(course.level) : 'N/A'}</span></td>
                         <td>${course.order_courses_count || 0}</td>
                         <td>${currencySymbol}${course.price?.toLocaleString() || '0'}</td>
                         <td>
@@ -522,7 +549,7 @@
                         </td>
                         <td>
                             <span class="badge badge-${course.is_active ? 'success' : 'danger'}">
-                                ${course.is_active ? 'Active' : 'Inactive'}
+                                ${course.is_active ? _t('Active') : _t('Inactive')}
                             </span>
                         </td>
                     </tr>
@@ -604,12 +631,12 @@
             if (Array.isArray(levelsData)) {
                 labels = levelsData.map(item => {
                     const level = item.level || item.name || 'Unknown';
-                    return level.charAt(0).toUpperCase() + level.slice(1);
+                    return _t(level.charAt(0).toLowerCase() + level.slice(1)) || level.charAt(0).toUpperCase() + level.slice(1);
                 });
                 data = levelsData.map(item => item.count || 0);
             } else if (typeof levelsData === 'object' && levelsData !== null) {
                 // Handle object format: {level: count, ...}
-                labels = Object.keys(levelsData).map(label => label.charAt(0).toUpperCase() + label.slice(1));
+                labels = Object.keys(levelsData).map(label => _t(label.charAt(0).toLowerCase() + label.slice(1)) || label.charAt(0).toUpperCase() + label.slice(1));
                 data = Object.values(levelsData);
             }
 
@@ -637,7 +664,10 @@
         }
 
         function updatePagination(data) {
-            const paginationInfo = `Showing ${data.from || 1} to ${data.to || data.data.length} of ${data.total || data.data.length} entries`;
+            const from = data.from || 1;
+            const to = data.to || (data.data ? data.data.length : 0);
+            const total = data.total || (data.data ? data.data.length : 0);
+            const paginationInfo = _t('Showing :from to :to of :total entries').replace(':from', from).replace(':to', to).replace(':total', total);
             $('#pagination-info').html(paginationInfo);
 
             if (data.last_page > 1) {
@@ -647,9 +677,9 @@
 
                 // Previous button
                 if (currentPage > 1) {
-                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">&laquo; Previous</a></li>`;
+                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">&laquo; ` + _t('Previous') + `</a></li>`;
                 } else {
-                    paginationHtml += `<li class="page-item disabled"><span class="page-link">&laquo; Previous</span></li>`;
+                    paginationHtml += `<li class="page-item disabled"><span class="page-link">&laquo; ` + _t('Previous') + `</span></li>`;
                 }
 
                 // Calculate page range (show 5 pages around current)
@@ -680,9 +710,9 @@
 
                 // Next button
                 if (currentPage < lastPage) {
-                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">Next &raquo;</a></li>`;
+                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">` + _t('Next') + ` &raquo;</a></li>`;
                 } else {
-                    paginationHtml += `<li class="page-item disabled"><span class="page-link">Next &raquo;</span></li>`;
+                    paginationHtml += `<li class="page-item disabled"><span class="page-link">` + _t('Next') + ` &raquo;</span></li>`;
                 }
 
                 $('#pagination').html(paginationHtml);

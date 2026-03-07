@@ -27,7 +27,7 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="name">Certificate Name <span class="text-danger">*</span></label>
+                                    <label for="name">{{ __('Certificate Name') }} <span class="text-danger">*</span></label>
                                     <input type="text" class="form-control @error('name') is-invalid @enderror" 
                                            id="name" name="name" value="{{ old('name') }}" required>
                                     @error('name')
@@ -37,11 +37,11 @@
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="type">Certificate Type <span class="text-danger">*</span></label>
+                                    <label for="type">{{ __('Certificate Type') }} <span class="text-danger">*</span></label>
                                     <select class="form-control @error('type') is-invalid @enderror" 
                                             id="type" name="type" required>
                                         <option value="course_completion" {{ old('type', 'course_completion') == 'course_completion' ? 'selected' : '' }}>
-                                            Course Completion
+                                            {{ __('Course Completion') }}
                                         </option>
                                     </select>
                                     @error('type')
@@ -52,7 +52,7 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="description">Description</label>
+                            <label for="description">{{ __('Description') }}</label>
                             <textarea class="form-control @error('description') is-invalid @enderror" 
                                       id="description" name="description" rows="3">{{ old('description') }}</textarea>
                             @error('description')
@@ -63,10 +63,10 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="title">Certificate Title</label>
+                                    <label for="title">{{ __('Certificate Title') }}</label>
                                     <input type="text" class="form-control @error('title') is-invalid @enderror" 
                                            id="title" name="title" value="{{ old('title') }}" 
-                                           placeholder="e.g., Certificate of Completion">
+                                           placeholder="{{ __('Placeholder certificate title') }}">
                                     @error('title')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -74,10 +74,10 @@
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="subtitle">Subtitle</label>
+                                    <label for="subtitle">{{ __('Subtitle') }}</label>
                                     <input type="text" class="form-control @error('subtitle') is-invalid @enderror" 
                                            id="subtitle" name="subtitle" value="{{ old('subtitle') }}" 
-                                           placeholder="e.g., This is to certify that">
+                                           placeholder="{{ __('Placeholder certificate subtitle') }}">
                                     @error('subtitle')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -88,10 +88,10 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="background_image">Background Image</label>
+                                    <label for="background_image">{{ __('Background Image') }}</label>
                                     <input type="file" class="form-control-file @error('background_image') is-invalid @enderror" 
                                            id="background_image" name="background_image" accept="image/*">
-                                    <small class="form-text text-muted">Recommended size: 1200x800px or similar aspect ratio</small>
+                                    <small class="form-text text-muted">{{ __('Recommended size: 1200x800px or similar aspect ratio') }}</small>
                                     @error('background_image')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -99,10 +99,10 @@
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="signature_image">Signature Image</label>
+                                    <label for="signature_image">{{ __('Signature Image') }}</label>
                                     <input type="file" class="form-control-file @error('signature_image') is-invalid @enderror" 
                                            id="signature_image" name="signature_image" accept="image/*">
-                                    <small class="form-text text-muted">Recommended size: 200x100px</small>
+                                    <small class="form-text text-muted">{{ __('Recommended size: 200x100px') }}</small>
                                     @error('signature_image')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -111,10 +111,10 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="signature_text">Signature Text</label>
+                            <label for="signature_text">{{ __('Signature Text') }}</label>
                             <input type="text" class="form-control @error('signature_text') is-invalid @enderror" 
                                    id="signature_text" name="signature_text" value="{{ old('signature_text') }}" 
-                                   placeholder="e.g., Director of Education">
+                                   placeholder="{{ __('Placeholder signature text') }}">
                             @error('signature_text')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
@@ -125,17 +125,17 @@
                                 <input type="checkbox" class="form-check-input" id="is_active" name="is_active" 
                                        value="1" {{ old('is_active', true) ? 'checked' : '' }}>
                                 <label class="form-check-label" for="is_active">
-                                    Active
+                                    {{ __('Active') }}
                                 </label>
                             </div>
                         </div>
 
                         <div class="form-group">
                             <button type="submit" class="btn btn-primary">
-                                <i class="fas fa-save"></i> Create Certificate
+                                <i class="fas fa-save"></i> {{ __('Create Certificate') }}
                             </button>
                             <a href="{{ route('admin.certificates.index') }}" class="btn btn-secondary">
-                                <i class="fas fa-times"></i> Cancel
+                                <i class="fas fa-times"></i> {{ __('Cancel') }}
                             </a>
                         </div>
                     </form>

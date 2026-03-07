@@ -3,21 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Certificate Preview - {{ $certificate->name }}</title>
+    <title>{{ __('Preview') }} - {{ $certificate->name }}</title>
 </head>
 <body>
     <div class="preview-controls">
         <a href="{{ route('admin.certificates.index') }}" class="btn btn-secondary">
-            <span class="btn-text-full">Back to List</span>
-            <span class="btn-text-short">Back</span>
+            <span class="btn-text-full">{{ __('Back to List') }}</span>
+            <span class="btn-text-short">{{ __('Back') }}</span>
         </a>
         <a href="{{ route('admin.certificates.edit', $certificate) }}" class="btn btn-primary">
-            <span class="btn-text-full">Edit Certificate</span>
-            <span class="btn-text-short">Edit</span>
+            <span class="btn-text-full">{{ __('Edit Certificate') }}</span>
+            <span class="btn-text-short">{{ __('Edit') }}</span>
         </a>
         <button onclick="window.print()" class="btn btn-primary">
-            <span class="btn-text-full">Print Preview</span>
-            <span class="btn-text-short">Print</span>
+            <span class="btn-text-full">{{ __('Print Preview') }}</span>
+            <span class="btn-text-short">{{ __('Print') }}</span>
         </button>
     </div>
 

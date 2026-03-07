@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Enrollment Reports') }}
@@ -241,6 +241,32 @@
 @endsection
 
 @push('scripts')
+@php
+    $enrollmentReportI18n = [
+        'Select an option' => __('Select an option'),
+        'Failed to load enrollment data' => __('Failed to load enrollment data'),
+        'Failed to load table data' => __('Failed to load table data'),
+        'enrollments' => __('enrollments'),
+        'completed' => __('Completed'),
+        'Started' => __('Started'),
+        'In Progress' => __('In Progress'),
+        'Completed' => __('Completed'),
+        'No enrollment data available' => __('No enrollment data available'),
+        'Showing :from to :to of :total entries' => __('Showing :from to :to of :total entries'),
+        'Previous' => __('Previous'),
+        'Next' => __('Next'),
+        'Today' => __('Today'),
+        'Yesterday' => __('Yesterday'),
+        'Last 7 Days' => __('Last 7 Days'),
+        'Last 30 Days' => __('Last 30 Days'),
+        'This Month' => __('This Month'),
+        'Last Month' => __('Last Month'),
+    ];
+@endphp
+<script>
+    window.enrollmentReportI18n = @json($enrollmentReportI18n);
+    function _t(key) { return (window.enrollmentReportI18n && window.enrollmentReportI18n[key]) || key; }
+</script>
     <script src="{{ asset('library/moment/min/moment.min.js') }}"></script>
     <script src="{{ asset('library/bootstrap-daterangepicker/daterangepicker.js') }}"></script>
     <script src="{{ asset('library/select2/dist/js/select2.full.min.js') }}"></script>
@@ -263,17 +289,17 @@
                 startDate: moment().subtract(29, 'days'),
                 endDate: moment(),
                 ranges: {
-                    'Today': [moment(), moment()],
-                    'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
-                    'Last 7 Days': [moment().subtract(6, 'days'), moment()],
-                    'Last 30 Days': [moment().subtract(29, 'days'), moment()],
-                    'This Month': [moment().startOf('month'), moment().endOf('month')],
-                    'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+                    [_t('Today')]: [moment(), moment()],
+                    [_t('Yesterday')]: [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+                    [_t('Last 7 Days')]: [moment().subtract(6, 'days'), moment()],
+                    [_t('Last 30 Days')]: [moment().subtract(29, 'days'), moment()],
+                    [_t('This Month')]: [moment().startOf('month'), moment().endOf('month')],
+                    [_t('Last Month')]: [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
                 }
             });
 
             $('.select2').select2({
-                placeholder: 'Select an option',
+                placeholder: _t('Select an option'),
                 allowClear: true
             });
 
@@ -348,16 +374,16 @@
 
                     // Load status chart
                     loadStatusChart({
-                        'Started': data.started_enrollments || 0,
-                        'In Progress': data.in_progress_enrollments || 0,
-                        'Completed': data.completed_enrollments || 0
+                        [_t('Started')]: data.started_enrollments || 0,
+                        [_t('In Progress')]: data.in_progress_enrollments || 0,
+                        [_t('Completed')]: data.completed_enrollments || 0
                     });
 
                     loadTableData();
                 }
                 showLoading(false);
             }).fail(function() {
-                showError('Failed to load enrollment data');
+                showError(_t('Failed to load enrollment data'));
                 showLoading(false);
             });
         }
@@ -375,7 +401,7 @@
                 }
                 showLoading(false);
             }).fail(function() {
-                showError('Failed to load table data');
+                showError(_t('Failed to load table data'));
                 showLoading(false);
             });
         }
@@ -391,8 +417,8 @@
                             <strong class="ml-2">${course.course.title}</strong>
                         </div>
                         <div class="text-right">
-                            <div>${course.enrollment_count} enrollments</div>
-                            <small class="text-muted">${course.completed_count} completed</small>
+                            <div>${course.enrollment_count} ${_t('enrollments')}</div>
+                            <small class="text-muted">${course.completed_count} ${_t('completed')}</small>
                         </div>
                     </div>
                 `;
@@ -410,7 +436,7 @@
                             <strong>${moment(month + '-01', 'YYYY-MM-DD').format('MMMM YYYY')}</strong>
                         </div>
                         <div>
-                            <span class="badge badge-info">${count} enrollments</span>
+                            <span class="badge badge-info">${count} ${_t('enrollments')}</span>
                         </div>
                     </div>
                 `;
@@ -450,8 +476,11 @@
 
         function updateEnrollmentTable(tableData) {
             let html = '';
-            if (Array.isArray(tableData.data)) {
-                tableData.data.forEach(enrollment => {
+            const enrollments = Array.isArray(tableData?.data) ? tableData.data : [];
+            if (enrollments.length === 0) {
+                html = '<tr><td colspan="7" class="text-center">' + _t('No enrollment data available') + '</td></tr>';
+            } else {
+                enrollments.forEach(enrollment => {
                 const statusBadge = getStatusBadge(enrollment.status);
 
                 html += `
@@ -483,7 +512,9 @@
             }
             $('#enrollmentTableBody').html(html);
 
-            updatePagination(tableData);
+            if (tableData) {
+                updatePagination(tableData);
+            }
         }
 
         function getStatusBadge(status) {
@@ -496,7 +527,10 @@
         }
 
         function updatePagination(data) {
-            const paginationInfo = `Showing ${data.from || 1} to ${data.to || data.data.length} of ${data.total || data.data.length} entries`;
+            const from = data.from || 1;
+            const to = data.to || (data.data ? data.data.length : 0);
+            const total = data.total || (data.data ? data.data.length : 0);
+            const paginationInfo = _t('Showing :from to :to of :total entries').replace(':from', from).replace(':to', to).replace(':total', total);
             $('#pagination-info').html(paginationInfo);
 
             if (data.last_page > 1) {
@@ -506,9 +540,9 @@
 
                 // Previous button
                 if (currentPage > 1) {
-                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">&laquo; Previous</a></li>`;
+                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">&laquo; ` + _t('Previous') + `</a></li>`;
                 } else {
-                    paginationHtml += `<li class="page-item disabled"><span class="page-link">&laquo; Previous</span></li>`;
+                    paginationHtml += `<li class="page-item disabled"><span class="page-link">&laquo; ` + _t('Previous') + `</span></li>`;
                 }
 
                 // Calculate page range (show 5 pages around current)
@@ -539,9 +573,9 @@
 
                 // Next button
                 if (currentPage < lastPage) {
-                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">Next &raquo;</a></li>`;
+                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">` + _t('Next') + ` &raquo;</a></li>`;
                 } else {
-                    paginationHtml += `<li class="page-item disabled"><span class="page-link">Next &raquo;</span></li>`;
+                    paginationHtml += `<li class="page-item disabled"><span class="page-link">` + _t('Next') + ` &raquo;</span></li>`;
                 }
 
                 $('#pagination').html(paginationHtml);

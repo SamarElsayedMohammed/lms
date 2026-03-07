@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Commission Reports') }}
@@ -243,6 +243,31 @@
 @endsection
 
 @push('scripts')
+@php
+    $commissionI18n = [
+        'Select an option' => __('Select an option'),
+        'No commission data available' => __('No commission data available'),
+        'commissions' => __('commissions'),
+        'No top instructors data available' => __('No top instructors data available'),
+        'No commission by course data available' => __('No commission by course data available'),
+        'Unknown Instructor' => __('Unknown Instructor'),
+        'Unknown Course' => __('Unknown Course'),
+        'Showing :from to :to of :total entries' => __('Showing :from to :to of :total entries'),
+        'Previous' => __('Previous'),
+        'Next' => __('Next'),
+        'Request is taking too long. Please try refreshing the page.' => __('Request is taking too long. Please try refreshing the page.'),
+        'Today' => __('Today'),
+        'Yesterday' => __('Yesterday'),
+        'Last 7 Days' => __('Last 7 Days'),
+        'Last 30 Days' => __('Last 30 Days'),
+        'This Month' => __('This Month'),
+        'Last Month' => __('Last Month'),
+    ];
+@endphp
+<script>
+    window.commissionReportI18n = @json($commissionI18n);
+    function _t(key) { return (window.commissionReportI18n && window.commissionReportI18n[key]) || key; }
+</script>
 <!-- JS Libraries -->
     <script src="{{ asset('library/moment/min/moment.min.js') }}"></script>
     <script src="{{ asset('library/bootstrap-daterangepicker/daterangepicker.js') }}"></script>
@@ -269,18 +294,18 @@
                     format: 'DD/MM/YYYY'
                 },
                 ranges: {
-                    'Today': [moment(), moment()],
-                    'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
-                    'Last 7 Days': [moment().subtract(6, 'days'), moment()],
-                    'Last 30 Days': [moment().subtract(29, 'days'), moment()],
-                    'This Month': [moment().startOf('month'), moment().endOf('month')],
-                    'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+                    [_t('Today')]: [moment(), moment()],
+                    [_t('Yesterday')]: [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+                    [_t('Last 7 Days')]: [moment().subtract(6, 'days'), moment()],
+                    [_t('Last 30 Days')]: [moment().subtract(29, 'days'), moment()],
+                    [_t('This Month')]: [moment().startOf('month'), moment().endOf('month')],
+                    [_t('Last Month')]: [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
                 }
             });
 
             // Initialize Select2
             $('.select2').select2({
-                placeholder: 'Select an option',
+                placeholder: _t('Select an option'),
                 allowClear: true
             });
 
@@ -426,7 +451,7 @@
             let html = '';
             if (Array.isArray(topInstructors) && topInstructors.length > 0) {
                 topInstructors.forEach((instructor, index) => {
-                    const instructorName = instructor.instructor?.name || 'Unknown Instructor';
+                    const instructorName = instructor.instructor?.name || _t('Unknown Instructor');
                     const totalCommission = instructor.total_commission || 0;
                     const commissionCount = instructor.commission_count || 0;
 
@@ -438,13 +463,13 @@
                             </div>
                             <div class="text-right">
                                 <div>${currencySymbol}${totalCommission.toLocaleString()}</div>
-                                <small class="text-muted">${commissionCount} commissions</small>
+                                <small class="text-muted">${commissionCount} ${_t('commissions')}</small>
                             </div>
                         </div>
                     `;
                 });
             } else {
-                html = '<div class="text-center text-muted"> {{ __('No top instructors data available') }} </div>';
+                html = '<div class="text-center text-muted">' + _t('No top instructors data available') + '</div>';
             }
             $('#topInstructorsList').html(html);
         }
@@ -453,7 +478,7 @@
             let html = '';
             if (Array.isArray(commissionByCourse) && commissionByCourse.length > 0) {
                 commissionByCourse.slice(0, 5).forEach((course, index) => {
-                    const courseTitle = course.course?.title || 'Unknown Course';
+                    const courseTitle = course.course?.title || _t('Unknown Course');
                     const totalCommission = course.total_commission || 0;
                     const commissionCount = course.commission_count || 0;
 
@@ -465,13 +490,13 @@
                             </div>
                             <div class="text-right">
                                 <div>${currencySymbol}${totalCommission.toLocaleString()}</div>
-                                <small class="text-muted">${commissionCount} commissions</small>
+                                <small class="text-muted">${commissionCount} ${_t('commissions')}</small>
                             </div>
                         </div>
                     `;
                 });
             } else {
-                html = '<div class="text-center text-muted"> {{ __('No commission by course data available') }} </div>';
+                html = '<div class="text-center text-muted">' + _t('No commission by course data available') + '</div>';
             }
             $('#commissionByCourseList').html(html);
         }
@@ -484,7 +509,7 @@
             const commissions = Array.isArray(tableData) ? tableData : (tableData.data || []);
 
             if (commissions.length === 0) {
-                html = '<tr><td colspan="9" class="text-center"> {{ __('No commission data available') }} </td></tr>';
+                html = '<tr><td colspan="9" class="text-center">' + _t('No commission data available') + '</td></tr>';
             } else {
                 commissions.forEach(commission => {
                     const statusBadge = getStatusBadge(commission.status);
@@ -536,7 +561,10 @@
         }
 
         function updatePagination(data) {
-            const paginationInfo = `Showing ${data.from || 1} to ${data.to || data.data.length} of ${data.total || data.data.length} entries`;
+            const from = data.from || 1;
+            const to = data.to || (data.data ? data.data.length : 0);
+            const total = data.total || (data.data ? data.data.length : 0);
+            const paginationInfo = _t('Showing :from to :to of :total entries').replace(':from', from).replace(':to', to).replace(':total', total);
             $('#pagination-info').html(paginationInfo);
 
             if (data.last_page > 1) {
@@ -546,9 +574,9 @@
 
                 // Previous button
                 if (currentPage > 1) {
-                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">&laquo; Previous</a></li>`;
+                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">&laquo; ` + _t('Previous') + `</a></li>`;
                 } else {
-                    paginationHtml += `<li class="page-item disabled"><span class="page-link">&laquo; Previous</span></li>`;
+                    paginationHtml += `<li class="page-item disabled"><span class="page-link">&laquo; ` + _t('Previous') + `</span></li>`;
                 }
 
                 // Calculate page range (show 5 pages around current)
@@ -579,9 +607,9 @@
 
                 // Next button
                 if (currentPage < lastPage) {
-                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">Next &raquo;</a></li>`;
+                    paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">` + _t('Next') + ` &raquo;</a></li>`;
                 } else {
-                    paginationHtml += `<li class="page-item disabled"><span class="page-link">Next &raquo;</span></li>`;
+                    paginationHtml += `<li class="page-item disabled"><span class="page-link">` + _t('Next') + ` &raquo;</span></li>`;
                 }
 
                 $('#pagination').html(paginationHtml);
@@ -684,7 +712,7 @@
                     if ($('#loading-state').is(':visible')) {
                         console.warn('Loading timeout - forcing hide');
                         showLoading(false);
-                        showError('Request is taking too long. Please try refreshing the page.');
+                        showError(_t('Request is taking too long. Please try refreshing the page.'));
                     }
                 }, 15000);
             } else {

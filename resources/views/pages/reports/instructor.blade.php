@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Instructor Reports') }}
@@ -189,6 +189,28 @@
 @endsection
 
 @push('scripts')
+@php
+    $instructorReportI18n = [
+        'Select an option' => __('Select an option'),
+        'No instructors found' => __('No instructors found'),
+        'Failed to load instructor data' => __('Failed to load instructor data'),
+        'individual' => __('Individual'),
+        'team' => __('Team'),
+        'pending' => __('Pending'),
+        'approved' => __('Approved'),
+        'rejected' => __('Rejected'),
+        'Today' => __('Today'),
+        'Yesterday' => __('Yesterday'),
+        'Last 7 Days' => __('Last 7 Days'),
+        'Last 30 Days' => __('Last 30 Days'),
+        'This Month' => __('This Month'),
+        'Last Month' => __('Last Month'),
+    ];
+@endphp
+<script>
+    window.instructorReportI18n = @json($instructorReportI18n);
+    function _t(key) { return (window.instructorReportI18n && window.instructorReportI18n[key]) || key; }
+</script>
     <script src="{{ asset('library/moment/min/moment.min.js') }}"></script>
     <script src="{{ asset('library/bootstrap-daterangepicker/daterangepicker.js') }}"></script>
     <script src="{{ asset('library/select2/dist/js/select2.full.min.js') }}"></script>
@@ -221,7 +243,7 @@
             });
 
             $('.select2').select2({
-                placeholder: 'Select an option',
+                placeholder: _t('Select an option'),
                 allowClear: true
             });
 
@@ -275,7 +297,7 @@
                 }
                 showLoading(false);
             }).fail(function() {
-                showError('Failed to load instructor data');
+                showError(_t('Failed to load instructor data'));
                 showLoading(false);
             });
         }
@@ -302,7 +324,7 @@
             }
 
             if (instructors.length === 0) {
-                html = '<tr><td colspan="8" class="text-center"> {{ __('No instructors found') }} </td></tr>';
+                html = '<tr><td colspan="8" class="text-center">' + _t('No instructors found') + '</td></tr>';
             } else {
                 instructors.forEach(instructor => {
                 html += `
@@ -316,8 +338,8 @@
                                 </div>
                             </div>
                         </td>
-                        <td><span class="badge badge-${instructor.instructor_details?.type === 'individual' ? 'info' : 'primary'}">${capitalizeFirst(instructor.instructor_details?.type) || 'N/A'}</span></td>
-                        <td><span class="badge badge-${getStatusColor(instructor.instructor_details?.status)}">${capitalizeFirst(instructor.instructor_details?.status) || 'N/A'}</span></td>
+                        <td><span class="badge badge-${instructor.instructor_details?.type === 'individual' ? 'info' : 'primary'}">${instructor.instructor_details?.type ? _t(instructor.instructor_details.type) : 'N/A'}</span></td>
+                        <td><span class="badge badge-${getStatusColor(instructor.instructor_details?.status)}">${instructor.instructor_details?.status ? _t(instructor.instructor_details.status) : 'N/A'}</span></td>
                         <td>${instructor.total_courses || instructor.courses?.length || 0}</td>
                         <td>${instructor.total_enrollments?.toLocaleString() || '0'}</td>
                         <td>${currencySymbol}${instructor.total_revenue?.toLocaleString() || '0'}</td>

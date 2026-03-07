@@ -35,12 +35,10 @@ $canEdit = auth()->user()->can('countries-edit');
                         <thead>
                             <tr>
                                 <th data-field="id" data-align="center" data-sortable="true">{{ __('ID') }}</th>
-                                <th data-field="name_en" data-sortable="true">{{ __('Country Name (EN)') }}</th>
-                                <th data-field="name_ar" data-sortable="true">{{ __('Country Name (AR)') }}</th>
-                                <th data-field="status_display" data-align="center" data-sortable="false">{{
-                                    __('Active') }}</th>
-                                <th data-field="operate" data-align="center" data-escape="false" data-export="false">{{
-                                    __('Action') }}</th>
+                                <th data-field="name_ar" data-sortable="true">{{ __('Country Name') }}</th>
+                                <th data-field="currency_name" data-sortable="true">{{ __('Currency Name') }}</th>
+                                <th data-field="status_display" data-align="center" data-sortable="false">{{ __('Active') }}</th>
+                                <th data-field="operate" data-align="center" data-escape="false" data-export="false">{{ __('Action') }}</th>
                             </tr>
                         </thead>
                     </table>
@@ -65,12 +63,12 @@ $canEdit = auth()->user()->can('countries-edit');
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label>{{ __('Country Name (EN)') }} <span class="text-danger">*</span></label>
-                        <input type="text" name="name_en" class="form-control" required>
+                        <label>{{ __('Country Name') }} <span class="text-danger">*</span></label>
+                        <input type="text" name="name_ar" class="form-control" required>
                     </div>
                     <div class="form-group">
-                        <label>{{ __('Country Name (AR)') }} <span class="text-danger">*</span></label>
-                        <input type="text" name="name_ar" class="form-control" required>
+                        <label>{{ __('Currency Name') }}</label>
+                        <input type="text" name="currency_name" class="form-control" placeholder="{{ __('e.g. Egyptian Pound') }}">
                     </div>
                     <div class="form-group">
                         <label>{{ __('Status') }}</label>
@@ -106,12 +104,12 @@ $canEdit = auth()->user()->can('countries-edit');
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label>{{ __('Country Name (EN)') }} <span class="text-danger">*</span></label>
-                        <input type="text" name="name_en" id="edit_name_en" class="form-control" required>
+                        <label>{{ __('Country Name') }} <span class="text-danger">*</span></label>
+                        <input type="text" name="name_ar" id="edit_name_ar" class="form-control" required>
                     </div>
                     <div class="form-group">
-                        <label>{{ __('Country Name (AR)') }} <span class="text-danger">*</span></label>
-                        <input type="text" name="name_ar" id="edit_name_ar" class="form-control" required>
+                        <label>{{ __('Currency Name') }}</label>
+                        <input type="text" name="currency_name" id="edit_currency_name" class="form-control">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -131,11 +129,11 @@ $canEdit = auth()->user()->can('countries-edit');
         // Handle Edit Click
         $(document).on('click', '.edit-country-btn', function () {
             var id = $(this).data('id');
-            var name_en = $(this).data('name-en');
             var name_ar = $(this).data('name-ar');
+            var currency_name = $(this).data('currency-name') || '';
 
-            $('#edit_name_en').val(name_en);
             $('#edit_name_ar').val(name_ar);
+            $('#edit_currency_name').val(currency_name);
 
             var updateUrl = "{{ route('countries.update', ':id') }}";
             updateUrl = updateUrl.replace(':id', id);

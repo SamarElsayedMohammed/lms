@@ -1,4 +1,4 @@
-﻿    @extends('layouts.app')
+    @extends('layouts.app')
 
     @section('title')
         {{ __('Manage Feature Sections') }}
@@ -54,7 +54,7 @@
                                     <!-- Limit (shown conditionally) -->
                                     <div class="form-group col-sm-12 col-md-6 limit-field d-none">
                                         <label>{{ __('Limit') }} <span class="text-danger">* </span></label>
-                                        <input type="number" step="1" name="limit" placeholder="e.g. 2" class="form-control" data-parsley-excluded="true">
+                                        <input type="number" step="1" name="limit" placeholder="{{ __('e.g. 2') }}" class="form-control" data-parsley-excluded="true">
                                     </div>
 
                                     <!-- Offer Image (shown conditionally) -->
