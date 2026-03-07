@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Revenue Reports') }}
@@ -248,6 +248,27 @@
 @endsection
 
 @push('scripts')
+@php
+    $revenueReportI18n = [
+        'Select an option' => __('Select an option'),
+        'Failed to load revenue data' => __('Failed to load revenue data'),
+        'orders' => __('orders'),
+        'stripe' => __('Stripe'),
+        'razorpay' => __('Razorpay'),
+        'flutterwave' => __('Flutterwave'),
+        'wallet' => __('Wallet'),
+        'Today' => __('Today'),
+        'Yesterday' => __('Yesterday'),
+        'Last 7 Days' => __('Last 7 Days'),
+        'Last 30 Days' => __('Last 30 Days'),
+        'This Month' => __('This Month'),
+        'Last Month' => __('Last Month'),
+    ];
+@endphp
+<script>
+    window.revenueReportI18n = @json($revenueReportI18n);
+    function _t(key) { return (window.revenueReportI18n && window.revenueReportI18n[key]) || key; }
+</script>
     <script src="{{ asset('library/moment/min/moment.min.js') }}"></script>
     <script src="{{ asset('library/bootstrap-daterangepicker/daterangepicker.js') }}"></script>
     <script src="{{ asset('library/select2/dist/js/select2.full.min.js') }}"></script>
@@ -269,17 +290,17 @@
                 startDate: moment().subtract(6, 'months'),
                 endDate: moment(),
                 ranges: {
-                    'Today': [moment(), moment()],
-                    'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
-                    'Last 7 Days': [moment().subtract(6, 'days'), moment()],
-                    'Last 30 Days': [moment().subtract(29, 'days'), moment()],
-                    'This Month': [moment().startOf('month'), moment().endOf('month')],
-                    'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+                    [_t('Today')]: [moment(), moment()],
+                    [_t('Yesterday')]: [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+                    [_t('Last 7 Days')]: [moment().subtract(6, 'days'), moment()],
+                    [_t('Last 30 Days')]: [moment().subtract(29, 'days'), moment()],
+                    [_t('This Month')]: [moment().startOf('month'), moment().endOf('month')],
+                    [_t('Last Month')]: [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
                 }
             });
 
             $('.select2').select2({
-                placeholder: 'Select an option',
+                placeholder: _t('Select an option'),
                 allowClear: true
             });
 
@@ -357,7 +378,7 @@
                 }
                 showLoading(false);
             }).fail(function() {
-                showError('Failed to load revenue data');
+                showError(_t('Failed to load revenue data'));
                 showLoading(false);
             });
         }
@@ -405,7 +426,7 @@
                         </div>
                         <div class="text-right">
                             <div>${currencySymbol}${(course.revenue || 0).toLocaleString()}</div>
-                            <small class="text-muted">${course.orders_count || 0} orders</small>
+                            <small class="text-muted">${course.orders_count || 0} ${_t('orders')}</small>
                         </div>
                     </div>
                 `;
@@ -447,7 +468,11 @@
             paymentMethodChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
-                    labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
+                    labels: labels.map(label => {
+                        const lower = (label || '').toLowerCase();
+                        const translated = _t(lower);
+                        return (translated && translated !== lower) ? translated : (label.charAt(0).toUpperCase() + label.slice(1));
+                    }),
                     datasets: [{
                         data: data,
                         backgroundColor: ['#6777ef', '#fc544b', '#ffa426']

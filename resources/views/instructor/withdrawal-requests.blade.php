@@ -226,6 +226,31 @@
 
 @push('scripts')
 <script>
+window.withdrawalI18n = {
+    noWithdrawalRequests: @json(__('No withdrawal requests found')),
+    failedLoadRequests: @json(__('Failed to load withdrawal requests')),
+    failedLoadDetails: @json(__('Failed to load withdrawal request details')),
+    statusUpdated: @json(__('Status updated successfully')),
+    errorTitle: @json(__('Error!')),
+    ok: @json(__('OK')),
+    failedUpdateStatus: @json(__('Failed to update status')),
+    requestId: @json(__('Request ID:')),
+    statusLabel: @json(__('Status:')),
+    supervisorLabel: @json(__('Supervisor:')),
+    amountLabel: @json(__('Amount:')),
+    paymentMethodLabel: @json(__('Payment Method:')),
+    paymentDetailsLabel: @json(__('Payment Details:')),
+    notesLabel: @json(__('Notes:')),
+    adminNotesLabel: @json(__('Admin Notes:')),
+    noNotesProvided: @json(__('No notes provided')),
+    noAdminNotes: @json(__('No admin notes')),
+    processedAt: @json(__('Processed At:')),
+    processedBy: @json(__('Processed By:')),
+    noPaymentDetails: @json(__('No payment details available')),
+    previous: @json(__('Previous')),
+    next: @json(__('Next')),
+    showingEntriesTemplate: @json(__('Showing %s to %s of %s entries'))
+};
 $(document).ready(function() {
     let currentPage = 1;
     let currentLimit = 10;
@@ -302,7 +327,7 @@ $(document).ready(function() {
                 
                 Toast.fire({
                     icon: 'error',
-                    title: 'Failed to load withdrawal requests'
+                    title: (window.withdrawalI18n && window.withdrawalI18n.failedLoadRequests) || 'Failed to load withdrawal requests'
                 });
             }
         });
@@ -314,7 +339,7 @@ $(document).ready(function() {
         tbody.empty();
 
         if (rows.length === 0) {
-            tbody.append('<tr><td colspan="8" class="text-center">No withdrawal requests found</td></tr>');
+            tbody.append('<tr><td colspan="8" class="text-center">' + (window.withdrawalI18n && window.withdrawalI18n.noWithdrawalRequests || 'No withdrawal requests found') + '</td></tr>');
             return;
         }
 
@@ -338,13 +363,14 @@ $(document).ready(function() {
         const start = (currentPage - 1) * currentLimit + 1;
         const end = Math.min(currentPage * currentLimit, total);
 
-        $('#table-info').text(`Showing ${start} to ${end} of ${total} entries`);
+        var t = (window.withdrawalI18n && window.withdrawalI18n.showingEntriesTemplate) || 'Showing %s to %s of %s entries';
+        $('#table-info').text(t.replace('%s', start).replace('%s', end).replace('%s', total));
 
         let paginationHtml = '<ul class="pagination">';
         
         // Previous button
         if (currentPage > 1) {
-            paginationHtml += '<li class="page-item"><a class="page-link" href="#" data-page="' + (currentPage - 1) + '">Previous</a></li>';
+            paginationHtml += '<li class="page-item"><a class="page-link" href="#" data-page="' + (currentPage - 1) + '">' + (window.withdrawalI18n && window.withdrawalI18n.previous || 'Previous') + '</a></li>';
         }
 
         // Page numbers
@@ -355,7 +381,7 @@ $(document).ready(function() {
 
         // Next button
         if (currentPage < totalPages) {
-            paginationHtml += '<li class="page-item"><a class="page-link" href="#" data-page="' + (currentPage + 1) + '">Next</a></li>';
+            paginationHtml += '<li class="page-item"><a class="page-link" href="#" data-page="' + (currentPage + 1) + '">' + (window.withdrawalI18n && window.withdrawalI18n.next || 'Next') + '</a></li>';
         }
 
         paginationHtml += '</ul>';
@@ -437,7 +463,7 @@ $(document).ready(function() {
                     
                     Toast.fire({
                         icon: 'error',
-                        title: 'Failed to load withdrawal request details'
+                        title: (window.withdrawalI18n && window.withdrawalI18n.failedLoadDetails) || 'Failed to load withdrawal request details'
                     });
                 }
             },
@@ -457,7 +483,7 @@ $(document).ready(function() {
                 
                 Toast.fire({
                     icon: 'error',
-                    title: 'Failed to load withdrawal request details'
+                    title: (window.withdrawalI18n && window.withdrawalI18n.failedLoadDetails) || 'Failed to load withdrawal request details'
                 });
             }
         });
@@ -466,30 +492,31 @@ $(document).ready(function() {
     // Display withdrawal request details in modal
     function displayWithdrawalRequestDetails(data) {
         const modalBody = $('#modal-body');
+        var i18n = window.withdrawalI18n || {};
         modalBody.html(`
             <div class="row">
                 <div class="col-md-6">
-                    <h6><strong>Request ID:</strong></h6>
+                    <h6><strong>${i18n.requestId || 'Request ID:'}</strong></h6>
                     <p>#${data.id}</p>
                 </div>
                 <div class="col-md-6">
-                    <h6><strong>Status:</strong></h6>
+                    <h6><strong>${i18n.statusLabel || 'Status:'}</strong></h6>
                     <p>${data.status_badge || data.status}</p>
                 </div>
             </div>
             <div class="row">
                 <div class="col-md-6">
-                    <h6><strong>Supervisor:</strong></h6>
+                    <h6><strong>${i18n.supervisorLabel || 'Supervisor:'}</strong></h6>
                     <p>${data.instructor_name} (${data.instructor_email})</p>
                 </div>
                 <div class="col-md-6">
-                    <h6><strong>Amount:</strong></h6>
+                    <h6><strong>${i18n.amountLabel || 'Amount:'}</strong></h6>
                     <p>₹${data.amount}</p>
                 </div>
             </div>
             <div class="row">
                 <div class="col-md-6">
-                    <h6><strong>Payment Method:</strong></h6>
+                    <h6><strong>${i18n.paymentMethodLabel || 'Payment Method:'}</strong></h6>
                     <p>${data.payment_method_label}</p>
                 </div>
                 <div class="col-md-6">
@@ -499,7 +526,7 @@ $(document).ready(function() {
             </div>
             <div class="row">
                 <div class="col-md-12">
-                    <h6><strong>Payment Details:</strong></h6>
+                    <h6><strong>${i18n.paymentDetailsLabel || 'Payment Details:'}</strong></h6>
                     <div class="card">
                         <div class="card-body">
                             ${formatPaymentDetails(data.payment_details)}
@@ -509,22 +536,22 @@ $(document).ready(function() {
             </div>
             <div class="row">
                 <div class="col-md-6">
-                    <h6><strong>Notes:</strong></h6>
-                    <p>${data.notes || 'No notes provided'}</p>
+                    <h6><strong>${i18n.notesLabel || 'Notes:'}</strong></h6>
+                    <p>${data.notes || (i18n.noNotesProvided || 'No notes provided')}</p>
                 </div>
                 <div class="col-md-6">
-                    <h6><strong>Admin Notes:</strong></h6>
-                    <p>${data.admin_notes || 'No admin notes'}</p>
+                    <h6><strong>${i18n.adminNotesLabel || 'Admin Notes:'}</strong></h6>
+                    <p>${data.admin_notes || (i18n.noAdminNotes || 'No admin notes')}</p>
                 </div>
             </div>
             ${data.processed_at ? `
             <div class="row">
                 <div class="col-md-6">
-                    <h6><strong>Processed At:</strong></h6>
+                    <h6><strong>${i18n.processedAt || 'Processed At:'}</strong></h6>
                     <p>${data.processed_at}</p>
                 </div>
                 <div class="col-md-6">
-                    <h6><strong>Processed By:</strong></h6>
+                    <h6><strong>${i18n.processedBy || 'Processed By:'}</strong></h6>
                     <p>${data.processed_by || 'N/A'}</p>
                 </div>
             </div>
@@ -534,7 +561,8 @@ $(document).ready(function() {
 
     // Format payment details
     function formatPaymentDetails(paymentDetails) {
-        if (!paymentDetails) return '<p>No payment details available</p>';
+        var msg = (window.withdrawalI18n && window.withdrawalI18n.noPaymentDetails) || 'No payment details available';
+        if (!paymentDetails) return '<p>' + msg + '</p>';
         
         let html = '<ul class="list-unstyled">';
         for (const [key, value] of Object.entries(paymentDetails)) {
@@ -593,26 +621,26 @@ $(document).ready(function() {
                 
                 Toast.fire({
                     icon: 'success',
-                    title: response.message || 'Status updated successfully'
+                    title: response.message || (window.withdrawalI18n && window.withdrawalI18n.statusUpdated) || 'Status updated successfully'
                 });
                 } else {
                     Swal.fire({
                         icon: 'error',
-                        title: 'Error!',
+                        title: (window.withdrawalI18n && window.withdrawalI18n.errorTitle) || 'Error!',
                         text: response.message,
-                        confirmButtonText: 'OK'
+                        confirmButtonText: (window.withdrawalI18n && window.withdrawalI18n.ok) || 'OK'
                     });
                 }
             },
             error: function(xhr) {
                 const response = xhr.responseJSON;
-                let errorMessage = response.message || 'Failed to update status';
+                let errorMessage = response.message || (window.withdrawalI18n && window.withdrawalI18n.failedUpdateStatus) || 'Failed to update status';
                 
                 Swal.fire({
                     icon: 'error',
-                    title: 'Error!',
+                    title: (window.withdrawalI18n && window.withdrawalI18n.errorTitle) || 'Error!',
                     text: errorMessage,
-                    confirmButtonText: 'OK'
+                    confirmButtonText: (window.withdrawalI18n && window.withdrawalI18n.ok) || 'OK'
                 });
             }
         });

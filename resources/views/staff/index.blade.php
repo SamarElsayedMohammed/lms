@@ -124,13 +124,13 @@
                         <div class="modal-body">
                             <div class="form-group">
                                 <label for="new_password">{{ __('New Password') }}</label>
-                                <input type="password" name="new_password" id="new_password" class="form-control" data-parsley-required-message="Password is required"
+                                <input type="password" name="new_password" id="new_password" class="form-control" data-parsley-required-message="{{ __('Password is required') }}"
                                     data-parsley-required="true" required>
                             </div>
 
                             <div class="form-group mt-2">
                                 <label for="confirm_password">{{ __('Confirm Password') }}</label>
-                                <input type="password" name="confirm_password" id="confirm_password" class="form-control" data-parsley-required-message="Confirm Password is required"
+                                <input type="password" name="confirm_password" id="confirm_password" class="form-control" data-parsley-required-message="{{ __('Confirm Password is required') }}"
                                     data-parsley-equalto="#new_password" required>
                             </div>
                         </div>

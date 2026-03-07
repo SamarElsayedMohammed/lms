@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Manage Notifications') }}
@@ -52,9 +52,9 @@
                                     <input type="file" name="image" class="form-control-file" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,image/svg+xml">
                                 </div>
                                 <div class="form-group col-sm-12 col-md-8">
-                                    <label>{{ __('Message') }} <span class="text-danger"> * </span> <small class="text-muted">(Max 250 characters)</small></label>
+                                    <label>{{ __('Message') }} <span class="text-danger"> * </span> <small class="text-muted">{{ __('Max 250 characters') }}</small></label>
                                     <textarea name="message" id="message" placeholder="{{ __('Notification message') }}" class="form-control" style="height:140px" required rows="4" maxlength="250"></textarea>
-                                    <small class="text-muted"><span id="message-char-count">0</span>/250 characters</small>
+                                    <small class="text-muted"><span id="message-char-count">0</span>{{ __('/250 characters') }}</small>
                                 </div>
                             </div>
                             <input class="btn btn-primary float-right ml-3" type="submit" value="{{ __('Submit') }}">
@@ -176,8 +176,8 @@ $(document).ready(function () {
                 <span class="title-short">${shortText}...</span>
                 <span class="title-full d-none">${fullText}</span>
                 <a href="javascript:void(0)" class="view-more-link text-primary" onclick="toggleTitle('${titleId}')" style="cursor: pointer; text-decoration: underline;">
-                    <span class="view-more-text">View More</span>
-                    <span class="view-less-text d-none">View Less</span>
+                    <span class="view-more-text">{{ __("View More") }}</span>
+                    <span class="view-less-text d-none">{{ __("View Less") }}</span>
                 </a>
             </div>
         `;
@@ -229,8 +229,8 @@ $(document).ready(function () {
                 <span class="message-short">${shortText}...</span>
                 <span class="message-full d-none">${fullText}</span>
                 <a href="javascript:void(0)" class="view-more-link text-primary" onclick="toggleMessage('${messageId}')" style="cursor: pointer; text-decoration: underline;">
-                    <span class="view-more-text">View More</span>
-                    <span class="view-less-text d-none">View Less</span>
+                    <span class="view-more-text">{{ __("View More") }}</span>
+                    <span class="view-less-text d-none">{{ __("View Less") }}</span>
                 </a>
             </div>
         `;

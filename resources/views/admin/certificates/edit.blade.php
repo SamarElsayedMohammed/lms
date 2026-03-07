@@ -28,7 +28,7 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="name">Certificate Name <span class="text-danger">*</span></label>
+                                    <label for="name">{{ __('Certificate Name') }} <span class="text-danger">*</span></label>
                                     <input type="text" class="form-control @error('name') is-invalid @enderror" 
                                            id="name" name="name" value="{{ old('name', $certificate->name) }}" required>
                                     @error('name')
@@ -38,11 +38,11 @@
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="type">Certificate Type <span class="text-danger">*</span></label>
+                                    <label for="type">{{ __('Certificate Type') }} <span class="text-danger">*</span></label>
                                     <select class="form-control @error('type') is-invalid @enderror" 
                                             id="type" name="type" required>
                                         <option value="course_completion" {{ old('type', $certificate->type) == 'course_completion' ? 'selected' : '' }}>
-                                            Course Completion
+                                            {{ __('Course Completion') }}
                                         </option>
                                     </select>
                                     @error('type')
@@ -53,7 +53,7 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="description">Description</label>
+                            <label for="description">{{ __('Description') }}</label>
                             <textarea class="form-control @error('description') is-invalid @enderror" 
                                       id="description" name="description" rows="3">{{ old('description', $certificate->description) }}</textarea>
                             @error('description')
@@ -64,10 +64,10 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="title">Certificate Title</label>
+                                    <label for="title">{{ __('Certificate Title') }}</label>
                                     <input type="text" class="form-control @error('title') is-invalid @enderror" 
                                            id="title" name="title" value="{{ old('title', $certificate->title) }}" 
-                                           placeholder="e.g., Certificate of Completion">
+                                           placeholder="{{ __('Placeholder certificate title') }}">
                                     @error('title')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -75,10 +75,10 @@
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="subtitle">Subtitle</label>
+                                    <label for="subtitle">{{ __('Subtitle') }}</label>
                                     <input type="text" class="form-control @error('subtitle') is-invalid @enderror" 
                                            id="subtitle" name="subtitle" value="{{ old('subtitle', $certificate->subtitle) }}" 
-                                           placeholder="e.g., This is to certify that">
+                                           placeholder="{{ __('Placeholder certificate subtitle') }}">
                                     @error('subtitle')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -89,17 +89,17 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="background_image">Background Image</label>
+                                    <label for="background_image">{{ __('Background Image') }}</label>
                                     @if($certificate->background_image)
                                     <div class="mb-2">
-                                        <img src="{{ $certificate->background_image_url }}" alt="Current Background" 
+                                        <img src="{{ $certificate->background_image_url }}" alt="{{ __('Current background image') }}" 
                                              class="img-thumbnail" style="max-width: 200px; max-height: 150px;">
-                                        <p class="text-muted small">Current background image</p>
+                                        <p class="text-muted small">{{ __('Current background image') }}</p>
                                     </div>
                                     @endif
                                     <input type="file" class="form-control-file @error('background_image') is-invalid @enderror" 
                                            id="background_image" name="background_image" accept="image/*">
-                                    <small class="form-text text-muted">Recommended size: 1200x800px or similar aspect ratio</small>
+                                    <small class="form-text text-muted">{{ __('Recommended size: 1200x800px or similar aspect ratio') }}</small>
                                     @error('background_image')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -107,17 +107,17 @@
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="signature_image">Signature Image</label>
+                                    <label for="signature_image">{{ __('Signature Image') }}</label>
                                     @if($certificate->signature_image)
                                     <div class="mb-2">
-                                        <img src="{{ $certificate->signature_image_url }}" alt="Current Signature" 
+                                        <img src="{{ $certificate->signature_image_url }}" alt="{{ __('Current signature image') }}" 
                                              class="img-thumbnail" style="max-width: 200px; max-height: 100px;">
-                                        <p class="text-muted small">Current signature image</p>
+                                        <p class="text-muted small">{{ __('Current signature image') }}</p>
                                     </div>
                                     @endif
                                     <input type="file" class="form-control-file @error('signature_image') is-invalid @enderror" 
                                            id="signature_image" name="signature_image" accept="image/*">
-                                    <small class="form-text text-muted">Recommended size: 200x100px</small>
+                                    <small class="form-text text-muted">{{ __('Recommended size: 200x100px') }}</small>
                                     @error('signature_image')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -126,10 +126,10 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="signature_text">Signature Text</label>
+                            <label for="signature_text">{{ __('Signature Text') }}</label>
                             <input type="text" class="form-control @error('signature_text') is-invalid @enderror" 
                                    id="signature_text" name="signature_text" value="{{ old('signature_text', $certificate->signature_text) }}" 
-                                   placeholder="e.g., Director of Education">
+                                   placeholder="{{ __('Placeholder signature text') }}">
                             @error('signature_text')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
@@ -140,15 +140,15 @@
                                 <input type="checkbox" class="form-check-input" id="is_active" name="is_active" 
                                        value="1" {{ old('is_active', $certificate->is_active) ? 'checked' : '' }}>
                                 <label class="form-check-label" for="is_active">
-                                    Active
+                                    {{ __('Active') }}
                                 </label>
                             </div>
                         </div>
 
                         <div class="form-group">
                             <button type="submit" class="btn btn-primary">
-                                <i class="fas fa-save"></i> <span class="d-none d-sm-inline">Update Certificate</span>
-                                <span class="d-sm-none">Update</span>
+                                <i class="fas fa-save"></i> <span class="d-none d-sm-inline">{{ __('Update Certificate') }}</span>
+                                <span class="d-sm-none">{{ __('Update') }}</span>
                             </button>
                         </div>
                     </form>

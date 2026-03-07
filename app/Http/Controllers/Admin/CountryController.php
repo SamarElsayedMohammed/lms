@@ -38,9 +38,9 @@ class CountryController extends Controller
 
         $query = Country::query()
             ->when($search, function ($q) use ($search) {
-            $q->where('name_en', 'like', "%{$search}%")
-                ->orWhere('name_ar', 'like', "%{$search}%");
-        });
+                $q->where('name_ar', 'like', "%{$search}%")
+                    ->orWhere('currency_name', 'like', "%{$search}%");
+            });
 
         $query->orderBy($sort, strtoupper($order));
         $total = $query->count();
@@ -54,7 +54,7 @@ class CountryController extends Controller
 
             if (auth()->user()->can('countries-edit')) {
                 // Return data-attributes to open edit modal
-                $operate .= '<a href="javascript:void(0)" class="btn btn-icon btn-primary btn-sm mx-1 edit-country-btn" data-id="' . $row->id . '" data-name-en="' . htmlspecialchars($row->name_en) . '" data-name-ar="' . htmlspecialchars($row->name_ar) . '" title="' . __('Edit') . '"><i class="fa fa-edit"></i></a>';
+                $operate .= '<a href="javascript:void(0)" class="btn btn-icon btn-primary btn-sm mx-1 edit-country-btn" data-id="' . $row->id . '" data-name-ar="' . htmlspecialchars($row->name_ar) . '" data-currency-name="' . htmlspecialchars((string) ($row->currency_name ?? '')) . '" title="' . __('Edit') . '"><i class="fa fa-edit"></i></a>';
             }
             if (auth()->user()->can('countries-toggle')) {
                 $operate .= BootstrapTableService::button(
@@ -77,6 +77,7 @@ class CountryController extends Controller
                 'no' => $no++,
                 'name_en' => htmlspecialchars($row->name_en),
                 'name_ar' => htmlspecialchars($row->name_ar),
+                'currency_name' => htmlspecialchars((string) ($row->currency_name ?? '')),
                 'status' => (int)$row->status,
                 'status_display' => $row->status ? __('Active') : __('Inactive'),
                 'operate' => $operate,
@@ -91,8 +92,8 @@ class CountryController extends Controller
         ResponseService::noPermissionThenSendJson('countries-create');
 
         $rules = [
-            'name_en' => 'required|string|max:255',
             'name_ar' => 'required|string|max:255',
+            'currency_name' => 'nullable|string|max:255',
             'status' => 'nullable|boolean',
         ];
 
@@ -105,6 +106,7 @@ class CountryController extends Controller
         try {
             $data = $validator->validated();
             $data['status'] = $request->boolean('status', true);
+            $data['name_en'] = $data['name_ar']; // keep name_en in sync for backward compatibility
 
             Country::create($data);
 
@@ -120,8 +122,8 @@ class CountryController extends Controller
         ResponseService::noPermissionThenSendJson('countries-edit');
 
         $rules = [
-            'name_en' => 'required|string|max:255',
             'name_ar' => 'required|string|max:255',
+            'currency_name' => 'nullable|string|max:255',
             'status' => 'nullable|boolean',
         ];
 
@@ -133,6 +135,7 @@ class CountryController extends Controller
 
         try {
             $data = $validator->validated();
+            $data['name_en'] = $data['name_ar']; // keep name_en in sync for backward compatibility
 
             // If status is passed, update it, otherwise keep old
             if ($request->has('status')) {

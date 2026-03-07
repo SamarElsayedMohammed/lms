@@ -1,4 +1,4 @@
-﻿<!-- General JS Scripts -->
+<!-- General JS Scripts -->
 <script src="{{ asset('js/jquery.min.js') }}"></script>
 <script src="{{ asset('js/popper.min.js') }}"></script>
 <script src="{{ asset('js/bootstrap.min.js') }}"></script>
@@ -57,6 +57,18 @@
 
 <!-- Language Script -->
 <script src="{{ route('common.language.read') }}"></script>
+<script>
+(function() {
+    if (typeof window.languageLabels !== 'undefined' && typeof $ !== 'undefined' && $.fn.bootstrapTable) {
+        $.fn.bootstrapTable.defaults.formatSearch = function() { return window.languageLabels['Search'] || 'Search'; };
+        $.fn.bootstrapTable.defaults.formatNoMatches = function() { return window.languageLabels['No matching records found'] || 'No matching records found'; };
+        $.fn.bootstrapTable.defaults.formatShowingRows = function(from, to, total) {
+            var t = (window.languageLabels && window.languageLabels['Showing %s to %s of %s rows']) || ('Showing ' + from + ' to ' + to + ' of ' + total + ' rows');
+            return t.replace('%s', from).replace('%s', to).replace('%s', total);
+        };
+    }
+})();
+</script>
 
 {{-- Filepond --}}
 <script type="text/javascript" src="{{ asset('extensions/filepond/filepond.min.js') }}"></script>

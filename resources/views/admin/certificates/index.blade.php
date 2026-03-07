@@ -62,14 +62,24 @@
 
 @push('scripts')
 <script>
+window.certificateMessages = {
+    failedStatus: @json(__('Failed to update certificate status')),
+    errorStatus: @json(__('An error occurred while updating certificate status'))
+};
+window.certificateTypeLabels = {
+    'Course Completion': @json(__('Course Completion')),
+    'Exam Completion': @json(__('Exam Completion')),
+    'Custom': @json(__('Custom'))
+};
 function typeFormatter(value, row, index) {
+    let label = window.certificateTypeLabels && window.certificateTypeLabels[value] ? window.certificateTypeLabels[value] : value;
     let badgeClass = 'badge-success';
     if (row.type === 'exam_completion') {
         badgeClass = 'badge-info';
     } else if (row.type === 'custom') {
         badgeClass = 'badge-warning';
     }
-    return '<span class="badge ' + badgeClass + '">' + value + '</span>';
+    return '<span class="badge ' + badgeClass + '">' + label + '</span>';
 }
 
 function certificateStatusFormatter(value, row, index) {
@@ -135,7 +145,7 @@ $(document).on('change', '.update-certificate-status', function() {
             }
         },
         error: function(xhr) {
-            let errorMessage = 'An error occurred while updating certificate status';
+            let errorMessage = window.certificateMessages.errorStatus;
             if (xhr.responseJSON && xhr.responseJSON.message) {
                 errorMessage = xhr.responseJSON.message;
             } else if (xhr.responseText) {

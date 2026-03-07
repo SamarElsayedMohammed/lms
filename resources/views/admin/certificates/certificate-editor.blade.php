@@ -39,7 +39,7 @@
                                     <div class="draggable-element" id="title-element" 
                                          style="position: absolute; top: 100px; left: 50%; transform: translateX(-50%); cursor: move; user-select: none; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 5px; min-width: 200px; text-align: center;">
                                         <div class="element-content" contenteditable="true" style="font-size: 32px; font-weight: bold; color: #333;">
-                                            {{ $certificate->title ?? 'Certificate of Completion' }}
+                                            {{ $certificate->title ?? __('Placeholder certificate title') }}
                                         </div>
                                         <div class="element-controls" style="position: absolute; top: -25px; right: 0; display: none;">
                                             <button type="button" class="btn btn-sm btn-danger" onclick="removeElement('title-element')">
@@ -52,7 +52,7 @@
                                     <div class="draggable-element" id="subtitle-element" 
                                          style="position: absolute; top: 180px; left: 50%; transform: translateX(-50%); cursor: move; user-select: none; background: rgba(255,255,255,0.8); padding: 8px; border-radius: 5px; min-width: 300px; text-align: center;">
                                         <div class="element-content" contenteditable="true" style="font-size: 18px; color: #666;">
-                                            {{ $certificate->subtitle ?? 'This is to certify that' }}
+                                            {{ $certificate->subtitle ?? __('Placeholder certificate subtitle') }}
                                         </div>
                                         <div class="element-controls" style="position: absolute; top: -25px; right: 0; display: none;">
                                             <button type="button" class="btn btn-sm btn-danger" onclick="removeElement('subtitle-element')">
@@ -407,7 +407,7 @@ function createTitleElement() {
     element.id = 'title-element';
     element.style.cssText = 'position: absolute; top: 100px; left: 50%; transform: translateX(-50%); cursor: move; user-select: none; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 5px; min-width: 200px; text-align: center;';
     element.innerHTML = `
-        <div class="element-content" contenteditable="true" style="font-size: 32px; font-weight: bold; color: #333;">{{ $certificate->title ?? 'Certificate of Completion' }}</div>
+        <div class="element-content" contenteditable="true" style="font-size: 32px; font-weight: bold; color: #333;">{{ $certificate->title ?? __('Placeholder certificate title') }}</div>
         <div class="element-controls" style="position: absolute; top: -25px; right: 0; display: none;">
             <button type="button" class="btn btn-sm btn-danger" onclick="removeElement('title-element')">
                 <i class="fas fa-times"></i>
@@ -423,7 +423,7 @@ function createSubtitleElement() {
     element.id = 'subtitle-element';
     element.style.cssText = 'position: absolute; top: 180px; left: 50%; transform: translateX(-50%); cursor: move; user-select: none; background: rgba(255,255,255,0.8); padding: 8px; border-radius: 5px; min-width: 300px; text-align: center;';
     element.innerHTML = `
-        <div class="element-content" contenteditable="true" style="font-size: 18px; color: #666;">{{ $certificate->subtitle ?? 'This is to certify that' }}</div>
+        <div class="element-content" contenteditable="true" style="font-size: 18px; color: #666;">{{ $certificate->subtitle ?? __('Placeholder certificate subtitle') }}</div>
         <div class="element-controls" style="position: absolute; top: -25px; right: 0; display: none;">
             <button type="button" class="btn btn-sm btn-danger" onclick="removeElement('subtitle-element')">
                 <i class="fas fa-times"></i>
@@ -829,8 +829,8 @@ async function resetDesign() {
         };
         
         const defaultContent = {
-            'title-element': '{{ $certificate->title ?? "Certificate of Completion" }}',
-            'subtitle-element': '{{ $certificate->subtitle ?? "This is to certify that" }}',
+            'title-element': '{{ addslashes($certificate->title ?? __("Placeholder certificate title")) }}',
+            'subtitle-element': '{{ addslashes($certificate->subtitle ?? __("Placeholder certificate subtitle")) }}',
             'student-name-element': '[Student Name]',
             'course-name-element': '[Course Name]',
             'date-element': 'Date: [Completion Date]',

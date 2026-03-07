@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Manage Promo Codes') }}
@@ -24,12 +24,12 @@
                         <form class="pt-3 mt-6 create-form" method="POST" action="{{ route('promo-codes.store') }}" data-parsley-validate> @csrf <div class="row">
                                 <div class="form-group col-sm-12 col-md-2">
                                     <label>{{ __('Promo Code') }} <span class="text-danger"> * </span></label>
-                                    <input type="text" name="promo_code" placeholder="PROMO10" class="form-control" required>
+                                    <input type="text" name="promo_code" placeholder="{{ __('Placeholder promo code') }}" class="form-control" required>
                                 </div>
 
                                 <div class="form-group col-sm-12 col-md-4">
                                     <label>{{ __('Message') }} <span class="text-danger"> * </span></label>
-                                    <input type="text" name="message" placeholder="10% off on your next order" class="form-control" required>
+                                    <input type="text" name="message" placeholder="{{ __('Placeholder discount message') }}" class="form-control" required>
                                 </div>
 
                                 <div class="form-group col-sm-12 col-md-2">
@@ -44,7 +44,7 @@
 
                                 <div class="form-group col-sm-12 col-md-2">
                                     <label>{{ __('No of Users') }} <span class="text-danger"> * </span></label>
-                                    <input type="number" name="no_of_users" placeholder="e.g. 10" class="form-control" required>
+                                    <input type="number" name="no_of_users" placeholder="{{ __('Placeholder number') }}" class="form-control" required>
                                 </div>
 
                                 <div class="form-group col-sm-12 col-md-2">
@@ -57,7 +57,7 @@
 
                                 <div class="form-group col-sm-12 col-md-2">
                                     <label>{{ __('Discount') }} <span class="text-danger"> * </span></label>
-                                    <input type="number" name="discount" placeholder="e.g. 10" class="form-control" min="1" max="999999999" step="1" required>
+                                    <input type="number" name="discount" placeholder="{{ __('Placeholder number') }}" class="form-control" min="1" max="999999999" step="1" required>
                                 </div>
                             </div>
 
@@ -276,7 +276,7 @@
                 <input type="checkbox" class="custom-control-input update-status" id="${rowId}" ${checked} ${disabledAttr}>
                 <label class="custom-control-label" for="${rowId}">&nbsp;</label>
             </div>
-            ${isExpired ? '<small class="text-danger d-block mt-1">Expired</small>' : ''}
+            ${isExpired ? '<small class="text-danger d-block mt-1">{{ __("Expired") }}</small>' : ''}
         `;
     }
 

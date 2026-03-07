@@ -216,13 +216,13 @@
                                 @if ($ratings->onFirstPage())
                                     <li class="page-item disabled">
                                         <span class="page-link" aria-label="Previous">
-                                            <span aria-hidden="true">&laquo; Previous</span>
+                                            <span aria-hidden="true">&laquo; {{ __('Previous') }}</span>
                                         </span>
                                     </li>
                                 @else
                                     <li class="page-item">
                                         <a class="page-link" href="{{ $ratings->appends(request()->query())->previousPageUrl() }}" aria-label="Previous">
-                                            <span aria-hidden="true">&laquo; Previous</span>
+                                            <span aria-hidden="true">&laquo; {{ __('Previous') }}</span>
                                         </a>
                                     </li>
                                 @endif
@@ -290,13 +290,13 @@
                                 @if ($ratings->hasMorePages())
                                     <li class="page-item">
                                         <a class="page-link" href="{{ $ratings->appends(request()->query())->nextPageUrl() }}" aria-label="Next">
-                                            <span aria-hidden="true">Next &raquo;</span>
+                                            <span aria-hidden="true">{{ __('Next') }} &raquo;</span>
                                         </a>
                                     </li>
                                 @else
                                     <li class="page-item disabled">
                                         <span class="page-link" aria-label="Next">
-                                            <span aria-hidden="true">Next &raquo;</span>
+                                            <span aria-hidden="true">{{ __('Next') }} &raquo;</span>
                                         </span>
                                     </li>
                                 @endif

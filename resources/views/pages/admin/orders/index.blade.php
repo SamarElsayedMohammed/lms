@@ -120,13 +120,13 @@
                         <div class="col-md-3">
                             <div class="form-group">
                                 <label>{{ __('Date From') }}</label>
-                                <input type="date" name="date_from" class="form-control" value="{{ request('date_from') }}">
+                                <input type="date" name="date_from" class="form-control" value="{{ request('date_from') }}" title="{{ __('Date format placeholder') }}">
                             </div>
                         </div>
                         <div class="col-md-3">
                             <div class="form-group">
                                 <label>{{ __('Date To') }}</label>
-                                <input type="date" name="date_to" class="form-control" value="{{ request('date_to') }}">
+                                <input type="date" name="date_to" class="form-control" value="{{ request('date_to') }}" title="{{ __('Date format placeholder') }}">
                             </div>
                         </div>
                     </div>
@@ -340,7 +340,7 @@
                 </div>
                 <div class="d-flex justify-content-center mt-2">
                     <p class="text-muted small">
-                        Showing {{ $orders->firstItem() }} to {{ $orders->lastItem() }} of {{ $orders->total() }} results
+                        {{ __('Showing') }} {{ $orders->firstItem() }} {{ __('to') }} {{ $orders->lastItem() }} {{ __('of') }} {{ $orders->total() }} {{ __('results') }}
                     </p>
                 </div>
                 @endif
@@ -357,7 +357,8 @@
                 "paging": false,
                 "searching": false,
                 "ordering": true,
-                "info": false
+                "info": false,
+                "language": { "emptyTable": @json(__('No data available in table')) }
             });
         });
 
