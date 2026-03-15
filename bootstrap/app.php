@@ -12,6 +12,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Trust proxies (Traefik/Caddy/Coolify) so Laravel detects correct scheme (HTTPS) and host
+        $middleware->trustProxies(at: '*');
+
         $middleware->validateCsrfTokens(except: [
             'webhook/razorpay',
             'webhooks/kashier',
@@ -21,6 +24,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // Add CORS middleware globally (handles preflight and actual requests)
         $middleware->prepend([
             \Illuminate\Http\Middleware\HandleCors::class,
+        ]);
+
+        // Force HTTPS when behind proxy - must run early to fix asset URLs (Mixed Content)
+        $middleware->web(prepend: [
+            \App\Http\Middleware\ForceHttps::class,
         ]);
 
         // Add instructor mode middleware to web group
