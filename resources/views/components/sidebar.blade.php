@@ -1,6 +1,6 @@
 <div class="main-sidebar sidebar-style-2">
     <aside id="sidebar-wrapper">
-        <div class="sidebar-brand" style="height: auto; padding: 15px 0 0 0; margin-bottom: -10px; display: flex; justify-content: center; align-items: center;">
+        <div class="sidebar-brand" style="height: auto; padding: 15px 0 0 0; margin-bottom: -10px;">
             <a href="{{ route('dashboard') }}" style="display: block; width: 100%; text-align: center;">
                 @if (!empty($settingLogos['horizontal_logo']))
                 <img src="{{ $settingLogos['horizontal_logo'] }}" alt="{{ __('Logo') }}" class="img-fluid rounded"
