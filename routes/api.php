@@ -54,6 +54,7 @@ Route::post('user-login', [ApiController::class, 'userLogin']);
 Route::post('mobile-login', [ApiController::class, 'mobileLogin']);
 Route::post('mobile-registration', [ApiController::class, 'mobileRegistration']);
 Route::post('mobile-reset-password', [ApiController::class, 'mobileResetPassword']);
+Route::post('admin-login', [ApiController::class, 'adminLogin']);
 
 /********************************************************************************************* */
 
@@ -75,7 +76,6 @@ Route::get('get-course-languages', [CourseApiController::class, 'getCourseLangua
 Route::get('get-tags', [CourseApiController::class, 'getCourseTags']); // Get Course Tags
 Route::get('get-counts', [HomeApiController::class, 'getCounts']);
 Route::get('marketing-pixels/active', [App\Http\Controllers\API\MarketingPixelApiController::class, 'getActivePixels']);
-Route::get('dashboard-data', [\App\Http\Controllers\API\DashboardController::class, 'getDashboardData']); // Get Dashboard Data
 Route::get('dashboard-test', fn() => response()->json([
     'status' => true,
     'message' => 'Dashboard API is working!',
@@ -172,6 +172,8 @@ Route::get('/hls/{uuid}/{path?}', [VideoStreamController::class, 'serve'])
     ->name('api.hls.serve')
     ->where('path', '.*')
     ->middleware('throttle:300,1');
+
+Route::get('dashboard-data', [\App\Http\Controllers\API\DashboardController::class, 'getDashboardData']);
 
 Route::middleware('auth:sanctum')->group(function (): void {
     /**
@@ -540,6 +542,102 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('withdrawals/{id}/reject', [AffiliateController::class, 'rejectWithdrawal']);
         Route::get('commissions', [AffiliateController::class, 'allCommissions']);
         Route::get('stats', [AffiliateController::class, 'stats']);
+    });
+
+    /**
+     * Admin Dashboard CRUD APIs
+     */
+    Route::prefix('admin')->group(function (): void {
+        // Categories
+        Route::get('categories', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'index']);
+        Route::post('categories', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'store']);
+        Route::post('categories/reorder', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'reorder']);
+        Route::get('categories/{id}', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'show']);
+        Route::put('categories/{id}', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'update']);
+        Route::delete('categories/{id}', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'destroy']);
+        Route::put('categories/{id}/restore', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'restore']);
+
+        // Users
+        Route::get('users', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'index']);
+        Route::get('users/{id}', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'show']);
+        Route::put('users/{id}', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'update']);
+        Route::post('users/{id}/toggle-status', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'toggleStatus']);
+
+        // Orders
+        Route::get('orders', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'index']);
+        Route::get('orders/{id}', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'show']);
+        Route::put('orders/{id}/status', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'updateStatus']);
+
+        // FAQs
+        Route::get('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'index']);
+        Route::get('faqs/{id}', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'show']);
+        Route::post('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'store']);
+        Route::put('faqs/{id}', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'update']);
+        Route::delete('faqs/{id}', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'destroy']);
+        Route::put('faqs/{id}/restore', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'restore']);
+
+        // Promo Codes
+        Route::get('promo-codes', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'index']);
+        Route::get('promo-codes/{id}', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'show']);
+        Route::post('promo-codes', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'store']);
+        Route::put('promo-codes/{id}', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'update']);
+        Route::delete('promo-codes/{id}', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'destroy']);
+        Route::put('promo-codes/{id}/restore', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'restore']);
+
+        // Countries
+        Route::get('countries', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'index']);
+        Route::get('countries/{id}', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'show']);
+        Route::post('countries', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'store']);
+        Route::put('countries/{id}', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'update']);
+        Route::delete('countries/{id}', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'destroy']);
+        Route::post('countries/{id}/toggle-status', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'toggleStatus']);
+
+        // Currencies (SupportedCurrency)
+        Route::get('currencies', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'index']);
+        Route::get('currencies/{id}', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'show']);
+        Route::post('currencies', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'store']);
+        Route::put('currencies/{id}', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'update']);
+        Route::delete('currencies/{id}', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'destroy']);
+
+        // Contact Messages
+        Route::get('contact-messages', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'index']);
+        Route::get('contact-messages/{id}', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'show']);
+        Route::put('contact-messages/{id}/read', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'markRead']);
+        Route::put('contact-messages/{id}/status', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'updateStatus']);
+
+        // Enrollments
+        Route::get('enrollments', [\App\Http\Controllers\API\Admin\EnrollmentAdminApiController::class, 'index']);
+        Route::get('enrollments/{id}', [\App\Http\Controllers\API\Admin\EnrollmentAdminApiController::class, 'show']);
+
+        // Courses
+        Route::get('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'index']);
+        Route::post('courses/{id}/approve', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'approve']);
+        Route::post('courses/{id}/reject', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'reject']);
+        Route::put('courses/{id}/restore', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'restore']);
+        Route::get('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'show']);
+        Route::delete('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'destroy']);
+
+        // Instructors
+        Route::get('instructors', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'index']);
+        Route::get('instructors/{id}', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'show']);
+        Route::post('instructors/{id}/approve', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'approve']);
+        Route::post('instructors/{id}/reject', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'reject']);
+
+        // Tags
+        Route::get('tags', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'index']);
+        Route::get('tags/{id}', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'show']);
+        Route::post('tags', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'store']);
+        Route::put('tags/{id}', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'update']);
+        Route::delete('tags/{id}', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'destroy']);
+        Route::put('tags/{id}/restore', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'restore']);
+
+        // Feature Sections
+        Route::get('feature-sections', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'index']);
+        Route::get('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'show']);
+        Route::post('feature-sections', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'store']);
+        Route::put('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'update']);
+        Route::delete('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'destroy']);
+        Route::put('feature-sections/{id}/restore', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'restore']);
     });
 
     /********************************************************************************** */
