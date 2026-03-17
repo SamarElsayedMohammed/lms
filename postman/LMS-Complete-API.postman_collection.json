@@ -1,0 +1,1009 @@
+{
+	"info": {
+		"_postman_id": "lms-complete-api-2026",
+		"name": "LMS Complete API - Dashboard & Website",
+		"description": "مجموعة Postman كاملة لجميع APIs: الداشبورد، الموقع، الأدمن. استخدم {{base_url}} و {{admin_token}} أو {{token}}",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{"key": "base_url", "value": "http://127.0.0.1:8000/api"},
+		{"key": "admin_token", "value": ""},
+		{"key": "token", "value": ""}
+	],
+	"item": [
+		{
+			"name": "1. Auth - المصادقة",
+			"item": [
+				{
+					"name": "Admin Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.data && json.data.token) {",
+									"    pm.collectionVariables.set('admin_token', json.data.token);",
+									"    console.log('admin_token saved');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"your-password\"\n}"
+						},
+						"url": "{{base_url}}/admin-login",
+						"description": "تسجيل دخول الأدمن. يرجع token في data.token — يُحفظ تلقائياً في admin_token\n\ncURL:\ncurl -X POST '{{base_url}}/admin-login' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"email\":\"admin@example.com\",\"password\":\"your-password\"}'"
+					}
+				},
+				{
+					"name": "User Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.data && json.data.token) {",
+									"    pm.collectionVariables.set('token', json.data.token);",
+									"    console.log('token saved');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {"mode": "raw", "raw": "{\"email\":\"\",\"password\":\"\",\"type\":\"email\",\"firebase_token\":\"\"}"},
+						"url": "{{base_url}}/user-login",
+						"description": "تسجيل دخول المستخدم. يرجع token في data.token — يُحفظ تلقائياً في token\n\ncURL: curl -X POST '{{base_url}}/user-login' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"email\":\"user@example.com\",\"password\":\"xxx\",\"type\":\"email\",\"firebase_token\":\"FIREBASE_ID_TOKEN\"}'"
+					}
+				},
+				{
+					"name": "Mobile Login",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"mobile\":\"\",\"country_calling_code\":\"+20\",\"password\":\"\"}"},
+						"url": "{{base_url}}/mobile-login",
+						"description": "cURL: curl -X POST '{{base_url}}/mobile-login' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"mobile\":\"1234567890\",\"country_calling_code\":\"+20\",\"password\":\"xxx\"}'"
+					}
+				},
+				{
+					"name": "User Signup",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"name\":\"\",\"email\":\"\",\"type\":\"email\",\"firebase_token\":\"\",\"password\":\"\",\"confirm_password\":\"\"}"},
+						"url": "{{base_url}}/user-signup",
+						"description": "cURL: curl -X POST '{{base_url}}/user-signup' -H 'Content-Type: application/json' -d '{\"name\":\"User\",\"email\":\"user@example.com\",\"type\":\"email\",\"firebase_token\":\"TOKEN\",\"password\":\"xxx\",\"confirm_password\":\"xxx\"}'"
+					}
+				},
+				{
+					"name": "User Exists",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"email\":\"user@example.com\"}"},
+						"url": "{{base_url}}/user-exists",
+						"description": "cURL: curl -X POST '{{base_url}}/user-exists' -H 'Content-Type: application/json' -d '{\"email\":\"user@example.com\"}'"
+					}
+				},
+				{
+					"name": "Mobile Registration",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"mobile\":\"1234567890\",\"country_calling_code\":\"+20\",\"name\":\"User\",\"password\":\"xxx\",\"confirm_password\":\"xxx\"}"},
+						"url": "{{base_url}}/mobile-registration",
+						"description": "cURL: curl -X POST '{{base_url}}/mobile-registration' -H 'Content-Type: application/json' -d '{\"mobile\":\"1234567890\",\"country_calling_code\":\"+20\",\"name\":\"User\",\"password\":\"xxx\",\"confirm_password\":\"xxx\"}'"
+					}
+				},
+				{
+					"name": "Mobile Reset Password",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"mobile\":\"1234567890\",\"country_calling_code\":\"+20\",\"password\":\"xxx\",\"confirm_password\":\"xxx\"}"},
+						"url": "{{base_url}}/mobile-reset-password",
+						"description": "cURL: curl -X POST '{{base_url}}/mobile-reset-password' -H 'Content-Type: application/json' -d '{\"mobile\":\"1234567890\",\"country_calling_code\":\"+20\",\"password\":\"xxx\",\"confirm_password\":\"xxx\"}'"
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Dashboard - الداشبورد",
+			"item": [
+				{
+					"name": "Dashboard Data",
+					"request": {
+						"method": "GET",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Authorization", "value": "Bearer {{admin_token}}", "disabled": true}
+						],
+						"url": "{{base_url}}/dashboard-data",
+						"description": "بيانات الداشبورد الكاملة (إحصائيات، رسوم بيانية، أنشطة، إلخ). حالياً بدون auth.\n\ncURL: curl -X GET '{{base_url}}/dashboard-data' -H 'Accept: application/json'"
+					}
+				},
+				{
+					"name": "Dashboard Test",
+					"request": {
+						"method": "GET",
+						"url": "{{base_url}}/dashboard-test",
+						"description": "cURL: curl -X GET '{{base_url}}/dashboard-test'"
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Website - الموقع (Public)",
+			"item": [
+				{
+					"name": "Get Categories",
+					"request": {"method": "GET", "url": "{{base_url}}/categories", "description": "cURL: curl -X GET '{{base_url}}/categories'"},
+					"response": []
+				},
+				{
+					"name": "Get Categories With Course Count",
+					"request": {"method": "GET", "url": "{{base_url}}/get-categories-with-course-count"},
+					"response": []
+				},
+				{
+					"name": "Get Courses",
+					"request": {"method": "GET", "url": "{{base_url}}/get-courses?per_page=15&page=1"},
+					"response": []
+				},
+				{
+					"name": "Get Course",
+					"request": {"method": "GET", "url": "{{base_url}}/get-course?id=1"},
+					"response": []
+				},
+				{
+					"name": "Get Instructors",
+					"request": {"method": "GET", "url": "{{base_url}}/get-instructors"},
+					"response": []
+				},
+				{
+					"name": "Get Instructor Details",
+					"request": {"method": "GET", "url": "{{base_url}}/get-instructor-details?id=1"},
+					"response": []
+				},
+				{
+					"name": "Get Feature Sections",
+					"request": {"method": "GET", "url": "{{base_url}}/get-feature-sections"},
+					"response": []
+				},
+				{
+					"name": "Get Sliders",
+					"request": {"method": "GET", "url": "{{base_url}}/get-sliders"},
+					"response": []
+				},
+				{
+					"name": "Get FAQs",
+					"request": {"method": "GET", "url": "{{base_url}}/faqs"},
+					"response": []
+				},
+				{
+					"name": "Get Pages",
+					"request": {"method": "GET", "url": "{{base_url}}/pages"},
+					"response": []
+				},
+				{
+					"name": "App Settings",
+					"request": {"method": "GET", "url": "{{base_url}}/app-settings"},
+					"response": []
+				},
+				{
+					"name": "Web Settings",
+					"request": {"method": "GET", "url": "{{base_url}}/web-settings"},
+					"response": []
+				},
+				{
+					"name": "Why Choose Us",
+					"request": {"method": "GET", "url": "{{base_url}}/why-choose-us"},
+					"response": []
+				},
+				{
+					"name": "Become Instructor",
+					"request": {"method": "GET", "url": "{{base_url}}/become-instructor"},
+					"response": []
+				},
+				{
+					"name": "SEO Settings",
+					"request": {"method": "GET", "url": "{{base_url}}/seo-settings"},
+					"response": []
+				},
+				{
+					"name": "System Languages",
+					"request": {"method": "GET", "url": "{{base_url}}/system-languages"},
+					"response": []
+				},
+				{
+					"name": "Get Tags",
+					"request": {"method": "GET", "url": "{{base_url}}/get-tags"},
+					"response": []
+				},
+				{
+					"name": "Get Counts",
+					"request": {"method": "GET", "url": "{{base_url}}/get-counts"},
+					"response": []
+				},
+				{
+					"name": "Subscription Plans",
+					"request": {"method": "GET", "url": "{{base_url}}/subscription/plans"},
+					"response": []
+				},
+				{
+					"name": "Contact Us",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"first_name\":\"\",\"email\":\"\",\"message\":\"\"}"},
+						"url": "{{base_url}}/contact-us",
+						"description": "cURL: curl -X POST '{{base_url}}/contact-us' -H 'Content-Type: application/json' -d '{\"first_name\":\"John\",\"email\":\"john@example.com\",\"message\":\"Hello\"}'"
+					},
+					"response": []
+				},
+				{"name": "Course View", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"course_id\":1}"}, "url": "{{base_url}}/course-view"}, "response": []},
+				{"name": "Get Search Suggestions", "request": {"method": "GET", "url": "{{base_url}}/get-search-suggestions?q=laravel"}, "response": []},
+				{"name": "Get Quiz Attempt Details", "request": {"method": "GET", "url": "{{base_url}}/get-quiz-attempt-details?attempt_id=1"}, "response": []},
+				{"name": "Sales Chart Data", "request": {"method": "GET", "url": "{{base_url}}/sales-chart-data"}, "response": []},
+				{"name": "Get Course Languages", "request": {"method": "GET", "url": "{{base_url}}/get-course-languages"}, "response": []},
+				{"name": "Get Custom Form Fields", "request": {"method": "GET", "url": "{{base_url}}/get-custom-form-fields"}, "response": []},
+				{"name": "Marketing Pixels Active", "request": {"method": "GET", "url": "{{base_url}}/marketing-pixels/active"}, "response": []}
+			]
+		},
+		{
+			"name": "3b. Helpdesk - Public",
+			"item": [
+				{"name": "Groups", "request": {"method": "GET", "url": "{{base_url}}/helpdesk/groups"}, "response": []},
+				{"name": "Group Details", "request": {"method": "GET", "url": "{{base_url}}/helpdesk/group-details?id=1"}, "response": []},
+				{"name": "Check Group Approval", "request": {"method": "GET", "url": "{{base_url}}/helpdesk/check-group-approval?group_id=1"}, "response": []},
+				{"name": "Questions", "request": {"method": "GET", "url": "{{base_url}}/helpdesk/questions?group_id=1"}, "response": []},
+				{"name": "Question", "request": {"method": "GET", "url": "{{base_url}}/helpdesk/question?id=1"}, "response": []},
+				{"name": "Search", "request": {"method": "GET", "url": "{{base_url}}/helpdesk/search?q=keyword"}, "response": []}
+			]
+		},
+		{
+			"name": "4. Admin - Categories",
+			"item": [
+				{
+					"name": "List Categories",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/categories?per_page=15&parent_id=0",
+						"description": "cURL: curl -X GET '{{base_url}}/admin/categories?per_page=15' -H 'Authorization: Bearer TOKEN' -H 'Accept: application/json'"
+					}
+				},
+				{
+					"name": "Show Category",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}],
+						"url": "{{base_url}}/admin/categories/1",
+						"description": "cURL: curl -X GET '{{base_url}}/admin/categories/1' -H 'Authorization: Bearer TOKEN'"
+					}
+				},
+				{
+					"name": "Create Category",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"name\":\"New Category\",\"slug\":\"new-category\",\"description\":\"\",\"parent_category_id\":null,\"status\":true}"},
+						"url": "{{base_url}}/admin/categories",
+						"description": "cURL: curl -X POST '{{base_url}}/admin/categories' -H 'Authorization: Bearer TOKEN' -H 'Content-Type: application/json' -d '{\"name\":\"New Category\",\"slug\":\"new-category\",\"status\":true}'"
+					}
+				},
+				{
+					"name": "Update Category",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"name\":\"Updated Name\",\"slug\":\"updated-slug\",\"description\":\"\"}"},
+						"url": "{{base_url}}/admin/categories/1",
+						"description": "cURL: curl -X PUT '{{base_url}}/admin/categories/1' -H 'Authorization: Bearer TOKEN' -H 'Content-Type: application/json' -d '{\"name\":\"Updated\",\"slug\":\"updated\"}'"
+					}
+				},
+				{
+					"name": "Delete Category",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}],
+						"url": "{{base_url}}/admin/categories/1",
+						"description": "cURL: curl -X DELETE '{{base_url}}/admin/categories/1' -H 'Authorization: Bearer TOKEN'"
+					}
+				},
+				{
+					"name": "Restore Category",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}],
+						"url": "{{base_url}}/admin/categories/1/restore",
+						"description": "cURL: curl -X PUT '{{base_url}}/admin/categories/1/restore' -H 'Authorization: Bearer TOKEN'"
+					}
+				},
+				{
+					"name": "Reorder Categories",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"order\":[3,1,2]}"},
+						"url": "{{base_url}}/admin/categories/reorder",
+						"description": "cURL: curl -X POST '{{base_url}}/admin/categories/reorder' -H 'Authorization: Bearer TOKEN' -H 'Content-Type: application/json' -d '{\"order\":[3,1,2]}'"
+					}
+				}
+			]
+		},
+		{
+			"name": "5. Admin - Users",
+			"item": [
+				{
+					"name": "List Users",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}],
+						"url": "{{base_url}}/admin/users?per_page=15&search=",
+						"description": "cURL: curl -X GET '{{base_url}}/admin/users?per_page=15' -H 'Authorization: Bearer TOKEN'"
+					}
+				},
+				{
+					"name": "Show User",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}],
+						"url": "{{base_url}}/admin/users/1",
+						"description": "cURL: curl -X GET '{{base_url}}/admin/users/1' -H 'Authorization: Bearer TOKEN'"
+					}
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"name\":\"\",\"email\":\"\",\"is_active\":true}"},
+						"url": "{{base_url}}/admin/users/1",
+						"description": "cURL: curl -X PUT '{{base_url}}/admin/users/1' -H 'Authorization: Bearer TOKEN' -H 'Content-Type: application/json' -d '{\"name\":\"New Name\",\"is_active\":true}'"
+					}
+				},
+				{
+					"name": "Toggle User Status",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}],
+						"url": "{{base_url}}/admin/users/1/toggle-status",
+						"description": "cURL: curl -X POST '{{base_url}}/admin/users/1/toggle-status' -H 'Authorization: Bearer TOKEN'"
+					}
+				}
+			]
+		},
+		{
+			"name": "6. Admin - Orders",
+			"item": [
+				{
+					"name": "List Orders",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}],
+						"url": "{{base_url}}/admin/orders?per_page=15&status=&search=",
+						"description": "cURL: curl -X GET '{{base_url}}/admin/orders?per_page=15' -H 'Authorization: Bearer TOKEN'"
+					}
+				},
+				{
+					"name": "Show Order",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}],
+						"url": "{{base_url}}/admin/orders/1",
+						"description": "cURL: curl -X GET '{{base_url}}/admin/orders/1' -H 'Authorization: Bearer TOKEN'"
+					}
+				},
+				{
+					"name": "Update Order Status",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"status\":\"completed\"}"},
+						"url": "{{base_url}}/admin/orders/1/status",
+						"description": "status: pending|completed|cancelled|failed\ncURL: curl -X PUT '{{base_url}}/admin/orders/1/status' -H 'Authorization: Bearer TOKEN' -H 'Content-Type: application/json' -d '{\"status\":\"completed\"}'"
+					}
+				}
+			]
+		},
+		{
+			"name": "7. Admin - FAQs",
+			"item": [
+				{"name": "List FAQs", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/faqs?per_page=15"}, "response": []},
+				{"name": "Show FAQ", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/faqs/1"}, "response": []},
+				{
+					"name": "Create FAQ",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"question\":\"What is this?\",\"answer\":\"This is the answer.\",\"is_active\":true}"},
+						"url": "{{base_url}}/admin/faqs"
+					},
+					"response": []
+				},
+				{
+					"name": "Update FAQ",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"question\":\"Updated?\",\"answer\":\"Updated answer.\",\"is_active\":true}"},
+						"url": "{{base_url}}/admin/faqs/1"
+					},
+					"response": []
+				},
+				{"name": "Delete FAQ", "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/faqs/1"}, "response": []},
+				{"name": "Restore FAQ", "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/faqs/1/restore"}, "response": []}
+			]
+		},
+		{
+			"name": "8. Admin - Promo Codes",
+			"item": [
+				{"name": "List Promo Codes", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/promo-codes"}, "response": []},
+				{"name": "Show Promo Code", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/promo-codes/1"}, "response": []},
+				{
+					"name": "Create Promo Code",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"promo_code\":\"SAVE20\",\"message\":\"20% off\",\"start_date\":\"2026-01-01\",\"end_date\":\"2026-12-31\",\"discount\":20,\"discount_type\":\"percentage\",\"course_ids\":[]}"},
+						"url": "{{base_url}}/admin/promo-codes"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Promo Code",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"promo_code\":\"SAVE20\",\"message\":\"Updated\",\"start_date\":\"2026-01-01\",\"end_date\":\"2026-12-31\",\"discount\":25,\"discount_type\":\"percentage\"}"},
+						"url": "{{base_url}}/admin/promo-codes/1"
+					},
+					"response": []
+				},
+				{"name": "Delete Promo Code", "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/promo-codes/1"}, "response": []},
+				{"name": "Restore Promo Code", "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/promo-codes/1/restore"}, "response": []}
+			]
+		},
+		{
+			"name": "9. Admin - Countries",
+			"item": [
+				{"name": "List Countries", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/countries"}, "response": []},
+				{"name": "Show Country", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/countries/1"}, "response": []},
+				{
+					"name": "Create Country",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"name_en\":\"Egypt\",\"name_ar\":\"مصر\",\"currency_name\":\"EGP\",\"status\":true}"},
+						"url": "{{base_url}}/admin/countries"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Country",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"name_en\":\"Egypt\",\"name_ar\":\"مصر\",\"currency_name\":\"EGP\",\"status\":true}"},
+						"url": "{{base_url}}/admin/countries/1"
+					},
+					"response": []
+				},
+				{"name": "Delete Country", "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/countries/1"}, "response": []},
+				{"name": "Toggle Country Status", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/countries/1/toggle-status"}, "response": []}
+			]
+		},
+		{
+			"name": "10. Admin - Currencies",
+			"item": [
+				{"name": "List Currencies", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/currencies"}, "response": []},
+				{"name": "Show Currency", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/currencies/1"}, "response": []},
+				{
+					"name": "Create Currency",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"country_code\":\"EG\",\"country_name\":\"Egypt\",\"currency_code\":\"EGP\",\"currency_symbol\":\"ج.م\",\"exchange_rate_to_egp\":1,\"is_active\":true}"},
+						"url": "{{base_url}}/admin/currencies"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Currency",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"exchange_rate_to_egp\":1.5,\"is_active\":true}"},
+						"url": "{{base_url}}/admin/currencies/1"
+					},
+					"response": []
+				},
+				{"name": "Delete Currency", "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/currencies/1"}, "response": []}
+			]
+		},
+		{
+			"name": "11. Admin - Courses",
+			"item": [
+				{"name": "List Courses", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/courses?per_page=15"}, "response": []},
+				{"name": "Show Course", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/courses/1"}, "response": []},
+				{"name": "Approve Course", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/courses/1/approve"}, "response": []},
+				{"name": "Reject Course", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/courses/1/reject"}, "response": []},
+				{"name": "Restore Course", "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/courses/1/restore"}, "response": []},
+				{"name": "Delete Course", "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/courses/1"}, "response": []}
+			]
+		},
+		{
+			"name": "12. Admin - Instructors",
+			"item": [
+				{"name": "List Instructors", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/instructors?per_page=15"}, "response": []},
+				{"name": "Show Instructor", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/instructors/1"}, "response": []},
+				{"name": "Approve Instructor", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/instructors/1/approve"}, "response": []},
+				{"name": "Reject Instructor", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/instructors/1/reject"}, "response": []}
+			]
+		},
+		{
+			"name": "13. Admin - Enrollments",
+			"item": [
+				{"name": "List Enrollments", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/enrollments?per_page=15"}, "response": []},
+				{"name": "Show Enrollment", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/enrollments/1"}, "response": []}
+			]
+		},
+		{
+			"name": "14. Admin - Tags",
+			"item": [
+				{"name": "List Tags", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/tags"}, "response": []},
+				{"name": "Show Tag", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/tags/1"}, "response": []},
+				{
+					"name": "Create Tag",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"tag\":\"Programming\",\"is_active\":true}"},
+						"url": "{{base_url}}/admin/tags"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Tag",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"tag\":\"Programming\",\"is_active\":true}"},
+						"url": "{{base_url}}/admin/tags/1"
+					},
+					"response": []
+				},
+				{"name": "Delete Tag", "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/tags/1"}, "response": []},
+				{"name": "Restore Tag", "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/tags/1/restore"}, "response": []}
+			]
+		},
+		{
+			"name": "15. Admin - Feature Sections",
+			"item": [
+				{"name": "List Feature Sections", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/feature-sections"}, "response": []},
+				{"name": "Show Feature Section", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/feature-sections/1"}, "response": []},
+				{
+					"name": "Create Feature Section",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"type\":\"courses\",\"title\":\"Featured Courses\",\"limit\":10,\"is_active\":true}"},
+						"url": "{{base_url}}/admin/feature-sections"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Feature Section",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"title\":\"Updated\",\"limit\":5,\"is_active\":true}"},
+						"url": "{{base_url}}/admin/feature-sections/1"
+					},
+					"response": []
+				},
+				{"name": "Delete Feature Section", "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/feature-sections/1"}, "response": []},
+				{"name": "Restore Feature Section", "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/feature-sections/1/restore"}, "response": []}
+			]
+		},
+		{
+			"name": "16. Admin - Contact Messages",
+			"item": [
+				{"name": "List Contact Messages", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/contact-messages"}, "response": []},
+				{"name": "Show Contact Message", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/contact-messages/1"}, "response": []},
+				{"name": "Mark as Read", "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/admin/contact-messages/1/read"}, "response": []},
+				{
+					"name": "Update Status",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"status\":\"read\"}"},
+						"url": "{{base_url}}/admin/contact-messages/1/status",
+						"description": "status: new|read|replied|closed"
+					}
+				}
+			]
+		},
+		{
+			"name": "17. Admin - Reports",
+			"item": [
+				{"name": "Report Filters", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/reports/filters"}, "response": []},
+				{"name": "Sales Report", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/reports/sales"}, "response": []},
+				{"name": "Commission Report", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/reports/commission"}, "response": []},
+				{"name": "Course Report", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/reports/course"}, "response": []},
+				{"name": "Instructor Report", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/reports/instructor"}, "response": []},
+				{"name": "Enrollment Report", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/reports/enrollment"}, "response": []},
+				{"name": "Revenue Report", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/reports/revenue"}, "response": []}
+			]
+		},
+		{
+			"name": "18. Admin - Finance",
+			"item": [
+				{"name": "Finance Dashboard", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/finance/dashboard"}, "response": []},
+				{"name": "Commissions", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/finance/commissions"}, "response": []},
+				{"name": "Instructor Earnings", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/finance/instructor-earnings"}, "response": []},
+				{"name": "Withdrawal Requests", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}], "url": "{{base_url}}/finance/admin/withdrawal-requests"}, "response": []},
+				{
+					"name": "Update Withdrawal Status",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{admin_token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"withdrawal_request_id\":1,\"status\":\"approved\"}"},
+						"url": "{{base_url}}/finance/admin/withdrawal-request/update-status",
+						"description": "cURL: curl -X POST '{{base_url}}/finance/admin/withdrawal-request/update-status' -H 'Authorization: Bearer TOKEN' -H 'Content-Type: application/json' -d '{\"withdrawal_request_id\":1,\"status\":\"approved\"}'"
+					}
+				}
+			]
+		},
+		{
+			"name": "19. User - Cart (Auth)",
+			"item": [
+				{"name": "Get Cart", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/cart"}, "response": []},
+				{
+					"name": "Add to Cart",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"course_id\":1}"},
+						"url": "{{base_url}}/cart/add"
+					},
+					"response": []
+				},
+				{
+					"name": "Remove from Cart",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"course_id\":1}"},
+						"url": "{{base_url}}/cart/remove"
+					},
+					"response": []
+				},
+				{"name": "Clear Cart", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/cart/clear"}, "response": []},
+				{
+					"name": "Apply Promo to Cart",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"promo_code\":\"SAVE20\"}"},
+						"url": "{{base_url}}/cart/apply-promo"
+					},
+					"response": []
+				},
+				{"name": "Remove Promo from Cart", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/cart/remove-promo"}, "response": []}
+			]
+		},
+		{
+			"name": "20. User - Profile (Auth)",
+			"item": [
+				{"name": "Get User Details", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/get-user-details"}, "response": []},
+				{"name": "My Learning", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/my-learning"}, "response": []},
+				{"name": "User Enrolled Courses", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/user-enrolled-courses"}, "response": []},
+				{"name": "Update Profile", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"name\":\"\",\"email\":\"\"}"}, "url": "{{base_url}}/update-profile"}, "response": []},
+				{"name": "Change Password", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"current_password\":\"\",\"password\":\"\",\"password_confirmation\":\"\"}"}, "url": "{{base_url}}/change-password"}, "response": []},
+				{"name": "Notifications", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/notifications"}, "response": []},
+				{"name": "Mark Notification Read", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"notification_id\":1}"}, "url": "{{base_url}}/notifications/mark-read"}, "response": []},
+				{"name": "Mark All Notifications Read", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/notifications/mark-all-read"}, "response": []}
+			]
+		},
+		{
+			"name": "21. User - Orders (Auth)",
+			"item": [
+				{"name": "Get Orders", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/orders"}, "response": []},
+				{
+					"name": "Place Order",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"payment_method\":\"kashier\",\"billing_details\":{}}"},
+						"url": "{{base_url}}/place_order"
+					},
+					"response": []
+				},
+				{"name": "Invoice Data", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/invoice-data?order_id=1"}, "response": []},
+				{"name": "Download Invoice", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"order_id\":1}"}, "url": "{{base_url}}/download-invoice"}, "response": []}
+			]
+		},
+		{
+			"name": "22. User - Subscription (Auth)",
+			"item": [
+				{"name": "My Subscription", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/subscription/my-subscription"}, "response": []},
+				{
+					"name": "Subscribe",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"plan_id\":1,\"payment_method\":\"kashier\"}"},
+						"url": "{{base_url}}/subscription/subscribe"
+					},
+					"response": []
+				},
+				{"name": "Renew", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}"}, "url": "{{base_url}}/subscription/renew"}, "response": []},
+				{"name": "Cancel", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/subscription/cancel"}, "response": []},
+				{"name": "Subscription History", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/subscription/history"}, "response": []}
+			]
+		},
+		{
+			"name": "23. User - Billing Details (Auth)",
+			"item": [
+				{"name": "Get Billing Details", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/billing-details"}, "response": []},
+				{
+					"name": "Store Billing Details",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"first_name\":\"\",\"last_name\":\"\",\"email\":\"\",\"phone\":\"\",\"address\":\"\",\"city\":\"\",\"country\":\"\"}"},
+						"url": "{{base_url}}/billing-details"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Billing Details",
+					"request": {
+						"method": "PATCH",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"first_name\":\"\",\"last_name\":\"\"}"},
+						"url": "{{base_url}}/billing-details"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "24. User - Curriculum (Auth)",
+			"item": [
+				{"name": "Progress", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/curriculum/progress?course_id=1"}, "response": []},
+				{"name": "Chapter Details", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/curriculum/chapter-details?chapter_id=1"}, "response": []},
+				{
+					"name": "Mark Completed",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"curriculum_item_id\":1,\"course_id\":1}"},
+						"url": "{{base_url}}/curriculum/mark-completed"
+					},
+					"response": []
+				},
+				{"name": "Detailed Tracking", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/curriculum/detailed-tracking?course_id=1"}, "response": []},
+				{"name": "Current Curriculum", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/curriculum/current?course_id=1"}, "response": []},
+				{"name": "Course Completion", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/curriculum/course-completion?course_id=1"}, "response": []}
+			]
+		},
+		{
+			"name": "25. User - Quiz (Auth)",
+			"item": [
+				{
+					"name": "Start Attempt",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"quiz_id\":1}"},
+						"url": "{{base_url}}/quiz/start"
+					},
+					"response": []
+				},
+				{
+					"name": "Store Answer",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"attempt_id\":1,\"question_id\":1,\"answer\":\"\"}"},
+						"url": "{{base_url}}/quiz/answer"
+					},
+					"response": []
+				},
+				{
+					"name": "Finish Attempt",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"attempt_id\":1}"},
+						"url": "{{base_url}}/quiz/finish"
+					},
+					"response": []
+				},
+				{"name": "Quiz Details", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/quiz/quiz?quiz_id=1"}, "response": []},
+				{"name": "User Attempts", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/quiz/quiz/attempts?quiz_id=1"}, "response": []},
+				{"name": "Attempt Details", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/quiz/quiz/attempt?attempt_id=1"}, "response": []},
+				{"name": "Quiz Summary", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/quiz/summary?quiz_id=1"}, "response": []}
+			]
+		},
+		{
+			"name": "26. User - Discussion (Auth)",
+			"item": [
+				{"name": "Get Course Discussion", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/discussion/course?course_id=1"}, "response": []},
+				{
+					"name": "Store Discussion",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"course_id\":1,\"message\":\"\"}"},
+						"url": "{{base_url}}/discussion/course"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "27. User - Assignments (Auth)",
+			"item": [
+				{
+					"name": "Submit Assignment",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
+						"body": {"mode": "formdata", "formdata": [{"key": "assignment_id", "value": "1"}, {"key": "file", "type": "file", "src": ""}]},
+						"url": "{{base_url}}/assignments/submit"
+					},
+					"response": []
+				},
+				{"name": "My Submissions", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/assignments/submissions"}, "response": []},
+				{"name": "Submission Details", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/assignments/submission/1"}, "response": []},
+				{"name": "Course Assignments", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/assignments/course/1"}, "response": []}
+			]
+		},
+		{
+			"name": "28. User - Wallet (Auth)",
+			"item": [
+				{"name": "Wallet Summary", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/wallet/summary"}, "response": []},
+				{"name": "Wallet History", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/wallet/history"}, "response": []},
+				{
+					"name": "Top Up",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"amount\":100}"},
+						"url": "{{base_url}}/wallet/top-up"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Withdrawal Request",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"amount\":50}"},
+						"url": "{{base_url}}/wallet/withdrawal-request"
+					},
+					"response": []
+				},
+				{"name": "Withdrawal Requests", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/wallet/withdrawal-requests"}, "response": []}
+			]
+		},
+		{
+			"name": "29. User - Rating (Auth)",
+			"item": [
+				{
+					"name": "Add Rating",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"course_id\":1,\"rating\":5,\"review\":\"Great course\"}"},
+						"url": "{{base_url}}/rating/add"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Rating",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"rating_id\":1,\"rating\":4,\"review\":\"Updated\"}"},
+						"url": "{{base_url}}/rating/update"
+					},
+					"response": []
+				},
+				{"name": "Delete Rating", "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/rating/delete?rating_id=1"}, "response": []}
+			]
+		},
+		{
+			"name": "30. User - Wishlist (Auth)",
+			"item": [
+				{"name": "Get Wishlist", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/wishlist"}, "response": []},
+				{
+					"name": "Add/Update Wishlist",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"course_id\":1}"},
+						"url": "{{base_url}}/wishlist/add-update-wishlist"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "31. User - Refund (Auth)",
+			"item": [
+				{
+					"name": "Request Refund",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"order_id\":1,\"reason\":\"\"}"},
+						"url": "{{base_url}}/refund/request"
+					},
+					"response": []
+				},
+				{"name": "My Refunds", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/refund/my-refunds"}, "response": []},
+				{
+					"name": "Check Eligibility",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\"order_id\":1}"},
+						"url": "{{base_url}}/refund/check-eligibility"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "32. User - Certificate (Auth)",
+			"item": [
+				{"name": "Course Certificate", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/certificate/course/generate?course_id=1"}, "response": []},
+				{"name": "Download Certificate", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"course_id\":1}"}, "url": "{{base_url}}/certificate/course/download"}, "response": []},
+				{"name": "Generate Quiz Certificate", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"quiz_id\":1,\"attempt_id\":1}"}, "url": "{{base_url}}/certificate/quiz/generate"}, "response": []}
+			]
+		},
+		{
+			"name": "33. Affiliate (Auth)",
+			"item": [
+				{"name": "Status", "request": {"method": "GET", "url": "{{base_url}}/affiliate/status"}, "response": []},
+				{"name": "My Link", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/affiliate/my-link"}, "response": []},
+				{"name": "Stats", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/affiliate/stats"}, "response": []},
+				{"name": "Commissions", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/affiliate/commissions"}, "response": []},
+				{"name": "Request Withdrawal", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"amount\":50}"}, "url": "{{base_url}}/affiliate/withdraw"}, "response": []},
+				{"name": "Withdrawals", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}], "url": "{{base_url}}/affiliate/withdrawals"}, "response": []}
+			]
+		},
+		{
+			"name": "34. Helpdesk (Auth)",
+			"item": [
+				{"name": "Create Group", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"name\":\"\",\"description\":\"\"}"}, "url": "{{base_url}}/helpdesk/groups"}, "response": []},
+				{"name": "Request Join", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"group_id\":1}"}, "url": "{{base_url}}/helpdesk/groups/request"}, "response": []},
+				{"name": "Store Question", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"group_id\":1,\"title\":\"\",\"content\":\"\"}"}, "url": "{{base_url}}/helpdesk/question"}, "response": []},
+				{"name": "Store Reply", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"question_id\":1,\"content\":\"\"}"}, "url": "{{base_url}}/helpdesk/question/reply"}, "response": []}
+			]
+		}
+	]
+}

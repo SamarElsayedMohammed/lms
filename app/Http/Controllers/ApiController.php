@@ -440,6 +440,49 @@ class ApiController extends Controller
         }
     }
 
+    /**
+     * Admin login - email + password, returns Sanctum token.
+     * Only users with admin/staff roles (Super Admin, Admin, Staff, Supervisor) can login.
+     */
+    public function adminLogin(Request $request)
+    {
+        try {
+            ApiService::validateRequest($request, [
+                'email' => 'required|email',
+                'password' => 'required|string',
+            ]);
+
+            $user = User::where('email', $request->email)->first();
+
+            if (!$user) {
+                ApiResponseService::validationError(__('Invalid credentials'));
+            }
+
+            if (!empty($user->deleted_at)) {
+                ApiResponseService::validationError(__('Account is deactivated. Please contact the administrator'));
+            }
+
+            if (!Hash::check($request->password, $user->password)) {
+                ApiResponseService::validationError(__('Invalid credentials'));
+            }
+
+            // Only admin/staff roles: Super Admin, Admin, Staff, Supervisor (not General User)
+            $adminRoles = ['Super Admin', config('constants.SYSTEM_ROLES.ADMIN'), config('constants.SYSTEM_ROLES.STAFF'), config('constants.SYSTEM_ROLES.SUPERVISOR')];
+            if (!$user->hasAnyRole($adminRoles)) {
+                ApiResponseService::validationError(__('Access denied. Admin credentials required.'));
+            }
+
+            $token = $user->createToken('admin-dashboard')->plainTextToken;
+            $userData = $user->toArray();
+            $userData['token'] = $token;
+            $userData['token_type'] = 'Bearer';
+
+            ApiResponseService::successResponse(__('Login successful'), $userData);
+        } catch (Throwable $th) {
+            ApiResponseService::errorResponse(exception: $th);
+        }
+    }
+
     public function getUserDetails(Request $request)
     {
         try {
