@@ -6,6 +6,9 @@ $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
 
 try {
+    // Ensure the role exists before assigning it, especially on a fresh production database
+    \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+
     $user = \App\Models\User::updateOrCreate(
         ['email' => 'superadmin@elms.com'],
         [
