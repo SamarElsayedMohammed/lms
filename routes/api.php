@@ -611,6 +611,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Courses
         Route::get('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'index']);
+        Route::post('courses/import-excel', [\App\Http\Controllers\API\Admin\CourseExcelImportApiController::class, 'store']);
         Route::post('courses/{id}/approve', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'approve']);
         Route::post('courses/{id}/reject', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'reject']);
         Route::put('courses/{id}/restore', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'restore']);
