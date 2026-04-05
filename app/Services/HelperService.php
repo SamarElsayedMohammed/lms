@@ -236,7 +236,8 @@ class HelperService
     public static function verifyToken(#[\SensitiveParameter] $token)
     {
         try {
-            $file = FileService::getFilePath(config('firebase.projects.app.credentials'));
+            $credentials = config('firebase.projects.app.credentials');
+            $file = !empty($credentials) ? FileService::getFilePath($credentials) : null;
             if (!empty($file) && file_exists($file)) {
                 $firebase = (new Factory())
                     ->withServiceAccount($file)
@@ -254,7 +255,8 @@ class HelperService
 
     public static function removeUserFromFirebase($firebaseId)
     {
-        $file = FileService::getFilePath(config('firebase.projects.app.credentials'));
+        $credentials = config('firebase.projects.app.credentials');
+        $file = !empty($credentials) ? FileService::getFilePath($credentials) : null;
         if (!empty($file) && file_exists($file)) {
             $firebase = (new Factory())
                 ->withServiceAccount($file)
@@ -269,7 +271,8 @@ class HelperService
     public static function updateFirebasePassword($firebaseId, #[\SensitiveParameter] $newPassword)
     {
         try {
-            $file = FileService::getFilePath(config('firebase.projects.app.credentials'));
+            $credentials = config('firebase.projects.app.credentials');
+            $file = !empty($credentials) ? FileService::getFilePath($credentials) : null;
             if (!empty($file) && file_exists($file)) {
                 $firebase = (new Factory())
                     ->withServiceAccount($file)
