@@ -162,7 +162,9 @@ class ApiController extends Controller
                     return \Illuminate\Support\Facades\Schema::hasColumn('users', 'referred_by');
                 });
                 if ($hasReferredBy) {
-                    $affiliateCode = $request->cookie('affiliate_code') ?? $request->session()->get('affiliate_code') ?? $request->input('affiliate_code');
+                    $affiliateCode = $request->cookie('affiliate_code')
+                        ?? ($request->hasSession() ? $request->session()->get('affiliate_code') : null)
+                        ?? $request->input('affiliate_code');
                     if (!empty($affiliateCode)) {
                         $affiliateLink = \App\Models\AffiliateLink::where('code', $affiliateCode)->where('is_active', true)->first();
                         if ($affiliateLink) {
@@ -364,7 +366,9 @@ class ApiController extends Controller
                 return \Illuminate\Support\Facades\Schema::hasColumn('users', 'referred_by');
             });
             if ($hasReferredBy) {
-                $affiliateCode = $request->cookie('affiliate_code') ?? $request->session()->get('affiliate_code') ?? $request->input('affiliate_code');
+                $affiliateCode = $request->cookie('affiliate_code')
+                    ?? ($request->hasSession() ? $request->session()->get('affiliate_code') : null)
+                    ?? $request->input('affiliate_code');
                 if (!empty($affiliateCode)) {
                     $affiliateLink = \App\Models\AffiliateLink::where('code', $affiliateCode)->where('is_active', true)->first();
                     if ($affiliateLink) {
