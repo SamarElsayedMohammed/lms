@@ -221,6 +221,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('user-enrolled-courses', [CourseApiController::class, 'getUserEnrolledCourses']); // Get User Courses
     Route::get('my-learning', [CourseApiController::class, 'getMyLearning']); // Get My Learning Courses with Progress
 
+    // Countries (SPA بدون admin/ — نفس المتحكم؛ القائمة: GET countries فقط)
+    Route::get('countries', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'index']);
+    Route::get('countries/{id}', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'show']);
+    Route::post('countries', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'store']);
+    Route::match(['put', 'patch'], 'countries/{id}', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'update']);
+
     // Carts
     Route::group(['prefix' => 'cart'], function (): void {
         Route::get('/', [CartApiController::class, 'getUserCart']);
@@ -591,6 +597,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('countries/{id}', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'update']);
         Route::delete('countries/{id}', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'destroy']);
         Route::post('countries/{id}/toggle-status', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'toggleStatus']);
+
+        // Subscription plan (SPA admin — same path as curl: .../admin/subscription-plan)
+        Route::post('subscription-plan', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'store']);
 
         // Currencies (SupportedCurrency)
         Route::get('currencies', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'index']);

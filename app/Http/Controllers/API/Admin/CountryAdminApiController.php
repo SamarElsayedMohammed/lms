@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Http\Requests\Admin\StoreCountryRequest;
+use App\Http\Requests\Admin\UpdateCountryRequest;
+use App\Http\Resources\Admin\CountryAdminResource;
 use App\Models\Country;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Auth;
 
 class CountryAdminApiController extends AdminCrudApiController
 {
@@ -19,7 +22,7 @@ class CountryAdminApiController extends AdminCrudApiController
     public function index(Request $request): JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('countries-list');
+        $this->assertCanListCountries();
 
         $search = $request->input('search');
         $perPage = min((int) $request->input('per_page', 15), 100);
@@ -41,40 +44,33 @@ class CountryAdminApiController extends AdminCrudApiController
     public function show(int $id): JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('countries-list');
+        $this->assertCanListCountries();
 
         $country = Country::find($id);
         if (!$country) {
             return $this->jsonError(__('Country not found'), 404);
         }
 
-        return $this->jsonSuccess(__('Country retrieved'), $country);
+        return $this->jsonSuccess(__('Country retrieved'), new CountryAdminResource($country));
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreCountryRequest $request): JsonResponse
     {
         $this->ensureAdmin();
         $this->checkPermission('countries-create');
 
-        $validator = Validator::make($request->all(), [
-            'name_en' => 'required|string|max:255',
-            'name_ar' => 'nullable|string|max:255',
-            'currency_name' => 'nullable|string|max:255',
-            'status' => 'nullable|boolean',
-        ]);
-
-        if ($validator->fails()) {
-            return $this->jsonError($validator->errors()->first(), 422);
-        }
-
-        $data = $validator->validated();
+        $data = $request->validated();
         $data['status'] = $request->boolean('status', true);
         $country = Country::create($data);
 
-        return $this->jsonSuccess(__('Country created successfully'), $country, 201);
+        return $this->jsonSuccess(
+            __('Country created successfully'),
+            new CountryAdminResource($country),
+            201,
+        );
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateCountryRequest $request, int $id): JsonResponse
     {
         $this->ensureAdmin();
         $this->checkPermission('countries-edit');
@@ -84,19 +80,14 @@ class CountryAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Country not found'), 404);
         }
 
-        $validator = Validator::make($request->all(), [
-            'name_en' => 'required|string|max:255',
-            'name_ar' => 'nullable|string|max:255',
-            'currency_name' => 'nullable|string|max:255',
-            'status' => 'nullable|boolean',
-        ]);
-
-        if ($validator->fails()) {
-            return $this->jsonError($validator->errors()->first(), 422);
+        $data = $request->validated();
+        if ($request->has('status')) {
+            $data['status'] = $request->boolean('status');
         }
 
-        $country->update($validator->validated());
-        return $this->jsonSuccess(__('Country updated successfully'), $country->fresh());
+        $country->update($data);
+
+        return $this->jsonSuccess(__('Country updated successfully'), new CountryAdminResource($country->fresh()));
     }
 
     public function destroy(int $id): JsonResponse
@@ -127,5 +118,28 @@ class CountryAdminApiController extends AdminCrudApiController
         $country->save();
 
         return $this->jsonSuccess(__('Country status updated'), ['status' => (bool) $country->status]);
+    }
+
+    /**
+     * countries-list, or plan-related roles (e.g. Supervisor manage_plans) that need country data.
+     */
+    private function assertCanListCountries(): void
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            $this->unauthorized('Unauthenticated');
+        }
+        if ($user->can('countries-list')) {
+            return;
+        }
+        if ($user->can('manage_plans')) {
+            return;
+        }
+        foreach (['subscription-plans-list', 'subscription-plans-create', 'subscription-plans-edit'] as $permission) {
+            if ($user->can($permission)) {
+                return;
+            }
+        }
+        $this->unauthorized(__('You do not have permission to perform this action'));
     }
 }
