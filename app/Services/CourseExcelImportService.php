@@ -234,9 +234,9 @@ final class CourseExcelImportService
             $label = mb_strtolower(trim((string) $raw));
             $key = match (true) {
                 str_contains($label, 'course_id') => 'course_id',
-                str_contains($label, 'اسم الكورس') => 'name',
-                str_contains($label, 'اسم المحاضرة') => 'lecture_name',
-                str_contains($label, 'lesson_id') => 'lesson_id',
+                str_contains($label, 'course_name') || str_contains($label, 'اسم الكورس') => 'name',
+                str_contains($label, 'lecture_name') || str_contains($label, 'lesson_name') || str_contains($label, 'اسم المحاضرة') => 'lecture_name',
+                str_contains($label, 'lesson_id') || str_contains($label, 'lecture_id') => 'lesson_id',
                 default => null,
             };
             if ($key !== null) {
@@ -244,7 +244,7 @@ final class CourseExcelImportService
             }
         }
 
-        if (! isset($map['course_id'])) {
+        if (! in_array('course_id', $map, true)) {
             throw new \InvalidArgumentException(__('Could not find course_id column in header row.'));
         }
 
