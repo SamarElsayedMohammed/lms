@@ -14,6 +14,11 @@ final class GeoLocationService
      */
     public function getCountryCodeFromRequest(Request $request): null|string
     {
+        // Manual override for testing purposes (enabled for admin or during dev)
+        if ($request->has('test_country')) {
+            return strtoupper($request->query('test_country'));
+        }
+
         $ipAddress = $this->getRealIpAddress($request);
         if ($ipAddress) {
             $countryCode = $this->getCountryCodeFromIp($ipAddress);

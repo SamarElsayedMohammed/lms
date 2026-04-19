@@ -76,7 +76,7 @@ class CourseApiController extends Controller
             'id' => 'nullable|exists:courses,id',
             'level' => 'nullable',
             'search' => 'nullable|string|max:255',
-            'sort_by' => 'nullable|in:id,name,price,course_type',
+            'sort_by' => 'nullable|in:id,title,name,price,course_type,latest,created_at',
             'sort_order' => 'nullable|in:asc,desc',
             'per_page' => 'nullable|integer|min:1|max:100',
             'page' => 'nullable|integer|min:1',
@@ -459,6 +459,14 @@ class CourseApiController extends Controller
         // Sorting
         $sortField = $request->sort_by ?? 'id';
         $sortOrder = $request->sort_order ?? 'desc';
+
+        // Map aliases to actual database columns
+        if ($sortField === 'latest' || $sortField === 'newest') {
+            $sortField = 'created_at';
+            $sortOrder = 'desc';
+        } elseif ($sortField === 'name') {
+            $sortField = 'title';
+        }
 
         if ($request->filled('post_filter')) {
             if ($request->post_filter == 'newest') {
@@ -2230,7 +2238,7 @@ class CourseApiController extends Controller
                 'id' => 'nullable|exists:courses,id',
                 'level' => 'nullable|in:beginner,intermediate,advanced',
                 'search' => 'nullable|string|max:255',
-                'sort_by' => 'nullable|in:id,name,price,course_type',
+                'sort_by' => 'nullable|in:id,title,name,price,course_type,latest,created_at',
                 'sort_order' => 'nullable|in:asc,desc',
                 'per_page' => 'nullable|integer|min:1|max:100',
                 'page' => 'nullable|integer|min:1',
@@ -2452,6 +2460,15 @@ class CourseApiController extends Controller
 
             $sortField = $request->sort_by ?? 'id';
             $sortOrder = $request->sort_order ?? 'desc';
+
+            // Map aliases to actual database columns
+            if ($sortField === 'latest') {
+                $sortField = 'created_at';
+                $sortOrder = 'desc';
+            } elseif ($sortField === 'name') {
+                $sortField = 'title';
+            }
+
             $query->orderBy($sortField, $sortOrder);
 
             $perPage = $request->per_page ?? 15;
