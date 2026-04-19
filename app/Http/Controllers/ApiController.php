@@ -3124,4 +3124,48 @@ class ApiController extends Controller
             return ApiResponseService::errorResponse('Failed to check email existence');
         }
     }
+    /**
+     * Submit Become an Instructor form
+     */
+    public function submitBecomeInstructor(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'name' => 'required|string|max:255',
+                'email' => 'required|email|max:255',
+                'phone' => 'required|string|max:20',
+                'specialty' => 'nullable|string|max:255',
+                'experience_bio' => 'nullable|string|max:2000',
+            ]);
+
+            if ($validator->fails()) {
+                return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            // Save to database
+            $instructorRequest = \App\Models\InstructorRequest::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'specialty' => $request->specialty,
+                'experience_bio' => $request->experience_bio,
+                'status' => 'pending',
+            ]);
+
+            // Log the request
+            Log::info('New Become an Instructor request submitted:', [
+                'id' => $instructorRequest->id,
+                'name' => $instructorRequest->name,
+                'email' => $instructorRequest->email,
+            ]);
+
+            return ApiResponseService::successResponse(
+                'Your request has been submitted successfully! We will contact you soon.',
+                ['request_id' => $instructorRequest->id]
+            );
+        } catch (\Throwable $th) {
+            ApiResponseService::logErrorResponse($th, 'API Controller -> submitBecomeInstructor Method');
+            return ApiResponseService::errorResponse('Failed to submit request. Please try again later.', exception: $th);
+        }
+    }
 }
