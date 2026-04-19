@@ -2,6 +2,9 @@
 
 namespace App\Jobs;
 
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+use App\Models\SupportedCurrency;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
@@ -24,7 +27,7 @@ class UpdateExchangeRatesJob implements ShouldQueue
     {
         $apiKey = config('services.exchange_rate.api_key') ?? env('EXCHANGE_RATE_API_KEY');
         if (!$apiKey) {
-            \Log::warning('Exchange Rate API Key is missing.');
+            Log::warning('Exchange Rate API Key is missing.');
             return;
         }
 
@@ -34,7 +37,7 @@ class UpdateExchangeRatesJob implements ShouldQueue
             $response = \Illuminate\Support\Facades\Http::get($apiUrl);
 
             if (!$response->successful()) {
-                \Log::error('Failed to fetch exchange rates: ' . $response->body());
+                Log::error('Failed to fetch exchange rates: ' . $response->body());
                 return;
             }
 
@@ -42,7 +45,7 @@ class UpdateExchangeRatesJob implements ShouldQueue
             $rates = $data['conversion_rates'] ?? [];
 
             if (empty($rates)) {
-                \Log::error('Exchange rate data is empty.');
+                Log::error('Exchange rate data is empty.');
                 return;
             }
 
@@ -61,10 +64,10 @@ class UpdateExchangeRatesJob implements ShouldQueue
                 }
             }
 
-            \Log::info('Exchange rates updated successfully.');
+            Log::info('Exchange rates updated successfully.');
 
         } catch (\Exception $e) {
-            \Log::error('Error updating exchange rates: ' . $e->getMessage());
+            Log::error('Error updating exchange rates: ' . $e->getMessage());
         }
     }
 }

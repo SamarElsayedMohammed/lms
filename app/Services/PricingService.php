@@ -41,6 +41,28 @@ final class PricingService
             ];
         }
 
+        // --- NEW Fallback: Auto-conversion using exchange rates ---
+        if ($countryCode !== 'EG' && $countryCode !== '') {
+            $currency = SupportedCurrency::where('country_code', $countryCode)
+                ->where('is_active', true)
+                ->first();
+
+            if ($currency) {
+                $exchangeRate = (float) ($currency->exchange_rate_to_egp ?? 1.0);
+                if ($exchangeRate > 0) {
+                    $basePriceEgp = (float) ($plan->price ?? 0);
+                    $priceLocal = $basePriceEgp / $exchangeRate;
+
+                    return [
+                        'price' => round($priceLocal, 2),
+                        'currency_code' => $currency->currency_code,
+                        'currency_symbol' => $currency->currency_symbol,
+                    ];
+                }
+            }
+        }
+
+        // Final fallback: Base price in EGP
         return [
             'price' => (float) $plan->price,
             'currency_code' => 'EGP',
