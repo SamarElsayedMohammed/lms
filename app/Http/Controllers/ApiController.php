@@ -2228,13 +2228,43 @@ class ApiController extends Controller
             $perPage = $request->per_page ?? 15;
             $categories = $categoryQuery->paginate($perPage);
 
+            // Load first 2 courses for each category (recursive)
+            $categories->getCollection()->transform(function ($category) {
+                // Get IDs of this category and its subcategories (up to 2 levels deep)
+                $categoryIds = \App\Models\Category::where('id', $category->id)
+                    ->orWhere('parent_category_id', $category->id)
+                    ->orWhereIn('parent_category_id', function ($query) use ($category) {
+                        $query->select('id')->from('categories')->where('parent_category_id', $category->id);
+                    })
+                    ->pluck('id');
+
+                $category->courses = \App\Models\Course\Course::whereIn('category_id', $categoryIds)
+                    ->where('is_active', 1)
+                    ->where('status', 'publish')
+                    ->where('approval_status', 'approved')
+                    ->select('id', 'title', 'thumbnail', 'short_description', 'category_id', 'intro_video', 'intro_video_type')
+                    ->take(2)
+                    ->get()
+                    ->map(function ($course) use ($category) {
+                        return [
+                            'id' => $course->id,
+                            'title' => $course->title,
+                            'image' => $course->thumbnail, // Accessor handles URL
+                            'description' => $course->short_description,
+                            'intro_video' => $course->intro_video, // Accessor handles URL
+                            'category' => $category->name,
+                        ];
+                    });
+                return $category;
+            });
+
             if ($categories->isEmpty()) {
-                ApiResponseService::successResponse('No categories found');
+                return ApiResponseService::successResponse('No categories found');
             }
 
-            ApiResponseService::successResponse('Categories retrieved successfully', $categories);
+            return ApiResponseService::successResponse('Categories retrieved successfully', $categories);
         } catch (Throwable $th) {
-            ApiResponseService::errorResponse(exception: $th);
+            return ApiResponseService::errorResponse(exception: $th);
         }
     }
 
@@ -3092,6 +3122,50 @@ class ApiController extends Controller
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> isEmailExist Method');
             return ApiResponseService::errorResponse('Failed to check email existence');
+        }
+    }
+    /**
+     * Submit Become an Instructor form
+     */
+    public function submitBecomeInstructor(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'name' => 'required|string|max:255',
+                'email' => 'required|email|max:255',
+                'phone' => 'required|string|max:20',
+                'specialty' => 'nullable|string|max:255',
+                'experience_bio' => 'nullable|string|max:2000',
+            ]);
+
+            if ($validator->fails()) {
+                return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            // Save to database
+            $instructorRequest = \App\Models\InstructorRequest::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'specialty' => $request->specialty,
+                'experience_bio' => $request->experience_bio,
+                'status' => 'pending',
+            ]);
+
+            // Log the request
+            Log::info('New Become an Instructor request submitted:', [
+                'id' => $instructorRequest->id,
+                'name' => $instructorRequest->name,
+                'email' => $instructorRequest->email,
+            ]);
+
+            return ApiResponseService::successResponse(
+                'Your request has been submitted successfully! We will contact you soon.',
+                ['request_id' => $instructorRequest->id]
+            );
+        } catch (\Throwable $th) {
+            ApiResponseService::logErrorResponse($th, 'API Controller -> submitBecomeInstructor Method');
+            return ApiResponseService::errorResponse('Failed to submit request. Please try again later.', exception: $th);
         }
     }
 }

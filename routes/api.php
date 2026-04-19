@@ -76,11 +76,6 @@ Route::get('get-course-languages', [CourseApiController::class, 'getCourseLangua
 Route::get('get-tags', [CourseApiController::class, 'getCourseTags']); // Get Course Tags
 Route::get('get-counts', [HomeApiController::class, 'getCounts']);
 Route::get('marketing-pixels/active', [App\Http\Controllers\API\MarketingPixelApiController::class, 'getActivePixels']);
-Route::get('dashboard-test', fn() => response()->json([
-    'status' => true,
-    'message' => 'Dashboard API is working!',
-    'timestamp' => now()->toISOString(),
-])); // Test Dashboard API
 Route::get('get-categories-with-course-count', [HomeApiController::class, 'getCategoriesWithCourseCount']); // Get categories with courses count
 // settings APIs
 Route::get('app-settings', [ApiController::class, 'getAppSettings']); // Get App Settings
@@ -101,6 +96,7 @@ Route::prefix('helpdesk')->group(function (): void {
     Route::get('search', [HelpdeskApiController::class, 'search']);
 });
 Route::post('contact-us', [ApiController::class, 'submitContactForm']); // Submit Contact Us Form
+Route::post('become-instructor', [ApiController::class, 'submitBecomeInstructor']); // Submit Become an Instructor Form
 
 /**
  * Subscription APIs
@@ -663,6 +659,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'update']);
         Route::delete('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'destroy']);
         Route::put('feature-sections/{id}/restore', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'restore']);
+
+        // Instructor Requests
+        Route::get('instructor-requests', [\App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::class, 'index']);
+        Route::get('instructor-requests/{id}', [\App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::class, 'show']);
+        Route::put('instructor-requests/{id}/status', [\App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::class, 'updateStatus']);
+        Route::delete('instructor-requests/{id}', [\App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::class, 'destroy']);
     });
 
     /********************************************************************************** */
