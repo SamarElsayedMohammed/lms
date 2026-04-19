@@ -2228,13 +2228,43 @@ class ApiController extends Controller
             $perPage = $request->per_page ?? 15;
             $categories = $categoryQuery->paginate($perPage);
 
+            // Load first 2 courses for each category (recursive)
+            $categories->getCollection()->transform(function ($category) {
+                // Get IDs of this category and its subcategories (up to 2 levels deep)
+                $categoryIds = \App\Models\Category::where('id', $category->id)
+                    ->orWhere('parent_category_id', $category->id)
+                    ->orWhereIn('parent_category_id', function ($query) use ($category) {
+                        $query->select('id')->from('categories')->where('parent_category_id', $category->id);
+                    })
+                    ->pluck('id');
+
+                $category->courses = \App\Models\Course\Course::whereIn('category_id', $categoryIds)
+                    ->where('is_active', 1)
+                    ->where('status', 'publish')
+                    ->where('approval_status', 'approved')
+                    ->select('id', 'title', 'thumbnail', 'short_description', 'category_id', 'intro_video', 'intro_video_type')
+                    ->take(2)
+                    ->get()
+                    ->map(function ($course) use ($category) {
+                        return [
+                            'id' => $course->id,
+                            'title' => $course->title,
+                            'image' => $course->thumbnail, // Accessor handles URL
+                            'description' => $course->short_description,
+                            'intro_video' => $course->intro_video, // Accessor handles URL
+                            'category' => $category->name,
+                        ];
+                    });
+                return $category;
+            });
+
             if ($categories->isEmpty()) {
-                ApiResponseService::successResponse('No categories found');
+                return ApiResponseService::successResponse('No categories found');
             }
 
-            ApiResponseService::successResponse('Categories retrieved successfully', $categories);
+            return ApiResponseService::successResponse('Categories retrieved successfully', $categories);
         } catch (Throwable $th) {
-            ApiResponseService::errorResponse(exception: $th);
+            return ApiResponseService::errorResponse(exception: $th);
         }
     }
 

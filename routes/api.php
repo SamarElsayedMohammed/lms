@@ -76,11 +76,6 @@ Route::get('get-course-languages', [CourseApiController::class, 'getCourseLangua
 Route::get('get-tags', [CourseApiController::class, 'getCourseTags']); // Get Course Tags
 Route::get('get-counts', [HomeApiController::class, 'getCounts']);
 Route::get('marketing-pixels/active', [App\Http\Controllers\API\MarketingPixelApiController::class, 'getActivePixels']);
-Route::get('dashboard-test', fn() => response()->json([
-    'status' => true,
-    'message' => 'Dashboard API is working!',
-    'timestamp' => now()->toISOString(),
-])); // Test Dashboard API
 Route::get('get-categories-with-course-count', [HomeApiController::class, 'getCategoriesWithCourseCount']); // Get categories with courses count
 // settings APIs
 Route::get('app-settings', [ApiController::class, 'getAppSettings']); // Get App Settings
