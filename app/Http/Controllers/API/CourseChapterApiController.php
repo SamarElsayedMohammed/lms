@@ -426,7 +426,35 @@ class CourseChapterApiController extends Controller
 
             // Get user's curriculum completion tracking data
             $userCurriculumTracking = [];
+            $isPurchased = false;
             if ($user) {
+                // Check purchase for logged-in users
+                $latestOrderCourse = OrderCourse::whereHas('order', static function ($q) use ($user): void {
+                    $q->where('user_id', $user->id)->where('status', 'completed');
+                })
+                    ->where('course_id', $course->id)
+                    ->with('order')
+                    ->orderBy('created_at', 'desc')
+                    ->first();
+
+                if ($latestOrderCourse) {
+                    $latestOrderDate = $latestOrderCourse->order->created_at ?? $latestOrderCourse->created_at;
+
+                    $approvedRefund = RefundRequest::where('user_id', $user->id)
+                        ->where('course_id', $course->id)
+                        ->where('status', 'approved')
+                        ->orderBy('processed_at', 'desc')
+                        ->first();
+
+                    if ($approvedRefund && $approvedRefund->processed_at) {
+                        if ($latestOrderDate->gt($approvedRefund->processed_at)) {
+                            $isPurchased = true;
+                        }
+                    } else {
+                        $isPurchased = true;
+                    }
+                }
+
                 $chapterIds = $course->chapters->pluck('id')->toArray();
                 $userCurriculumTracking = UserCurriculumTracking::where('user_id', $user->id)
                     ->whereIn('course_chapter_id', $chapterIds)
@@ -434,6 +462,11 @@ class CourseChapterApiController extends Controller
                     ->groupBy(
                         static fn($item) => $item->course_chapter_id . '_' . $item->model_type . '_' . $item->model_id,
                     );
+            }
+
+            // Automatically grant access if course is free or user is the instructor
+            if ($course->course_type === 'free' || ($user && $course->user_id == $user->id)) {
+                $isPurchased = true;
             }
 
             // Helper function to check if curriculum item is completed
@@ -520,8 +553,8 @@ class CourseChapterApiController extends Controller
                 $allContent = collect();
 
                 // Add lectures
-                $lectures = $chapter->lectures->map(static function ($lecture) use ($chapter, $isItemCompleted) {
-                    $lectureData = (new \App\Http\Resources\CourseChapterLectureResource($lecture))->resolve();
+                $lectures = $chapter->lectures->map(static function ($lecture) use ($chapter, $isItemCompleted, $isPurchased) {
+                    $lectureData = (new \App\Http\Resources\CourseChapterLectureResource($lecture, $isPurchased))->resolve();
 
                     // Add curriculum-specific fields
                     $lectureData['is_completed'] = $isItemCompleted(
@@ -534,10 +567,10 @@ class CourseChapterApiController extends Controller
                         'id' => $resource->id,
                         'title' => $resource->title,
                         'type' => $resource->type,
-                        'file' => $resource->file,
+                        'file' => $isPurchased ? $resource->file : null,
                         'file_extension' => $resource->file_extension,
-                        'url' => $resource->url,
-                        'file_url' => $resource->file_url,
+                        'url' => $isPurchased ? $resource->url : null,
+                        'file_url' => $isPurchased ? $resource->file_url : null,
                         'order' => $resource->order,
                         'is_active' => $resource->is_active,
                     ]);
@@ -567,7 +600,7 @@ class CourseChapterApiController extends Controller
                         $quiz->id,
                     ),
                     'has_questions' => $quiz->questions->count() > 0,
-                    'questions' => $quiz->questions->map(static fn($question) => [
+                    'questions' => $isPurchased ? $quiz->questions->map(static fn($question) => [
                         'id' => $question->id,
                         'question' => $question->question,
                         'points' => $question->points,
@@ -579,7 +612,7 @@ class CourseChapterApiController extends Controller
                             'order' => $option->order,
                             'is_active' => $option->is_active,
                         ]),
-                    ]),
+                    ]) : [],
                     'created_at' => $quiz->created_at,
                     'updated_at' => $quiz->updated_at,
                 ]);
@@ -619,7 +652,7 @@ class CourseChapterApiController extends Controller
                         'allowed_file_types' => $assignment->allowed_file_types,
                         'media' => $assignment->media,
                         'media_extension' => $assignment->media_extension,
-                        'media_url' => $assignment->media ? asset('storage/' . $assignment->media) : null,
+                        'media_url' => ($isPurchased && $assignment->media) ? asset('storage/' . $assignment->media) : null,
                         'points' => $assignment->points,
                         'can_skip' => $assignment->can_skip,
                         'is_active' => $assignment->is_active,
@@ -645,9 +678,9 @@ class CourseChapterApiController extends Controller
                     'title' => $resource->title,
                     'slug' => $resource->slug,
                     'description' => $resource->description,
-                    'file' => $resource->file,
+                    'file' => $isPurchased ? $resource->file : null,
                     'file_extension' => $resource->file_extension,
-                    'url' => $resource->url,
+                    'url' => $isPurchased ? $resource->url : null,
                     'is_active' => $resource->is_active,
                     'chapter_order' => $resource->chapter_order,
                     'is_completed' => $isItemCompleted(

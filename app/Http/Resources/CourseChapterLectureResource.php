@@ -14,6 +14,24 @@ use Illuminate\Http\Resources\Json\JsonResource;
 final class CourseChapterLectureResource extends JsonResource
 {
     /**
+     * @var bool
+     */
+    protected bool $hasAccess = false;
+
+    /**
+     * Create a new resource instance.
+     *
+     * @param  mixed  $resource
+     * @param  bool  $hasAccess
+     * @return void
+     */
+    public function __construct($resource, bool $hasAccess = false)
+    {
+        parent::__construct($resource);
+        $this->hasAccess = $hasAccess;
+    }
+
+    /**
      * Transform the resource into an array.
      *
      * @return array<string, mixed>
@@ -22,6 +40,13 @@ final class CourseChapterLectureResource extends JsonResource
     {
         $lecture = $this->resource;
 
+        // Determine if user should see the sensitive file URL
+        // They can see it if:
+        // 1. They have purchased/enrolled in the course (passed via $hasAccess)
+        // 2. The lecture is marked as a free preview
+        // 3. The lecture itself is marked as free
+        $canSeeUrl = $this->hasAccess || $lecture->free_preview || $lecture->is_free;
+
         return [
             'id' => $lecture->id,
             'type' => 'lecture',
@@ -29,7 +54,7 @@ final class CourseChapterLectureResource extends JsonResource
             'slug' => $lecture->slug,
             'description' => $lecture->description,
             'file_type' => $lecture->file_type,
-            'file_url' => $lecture->file_url_for_api,
+            'file_url' => $canSeeUrl ? $lecture->file_url_for_api : null,
             'duration' => $lecture->duration,
             'hours' => $lecture->hours ?? 0,
             'minutes' => $lecture->minutes ?? 0,

@@ -589,7 +589,7 @@ class CourseApiController extends Controller
         // Transform data
         $courses
             ->getCollection()
-            ->transform(function ($course) use ($totalTaxPercentage) {
+            ->transform(function ($course) use ($totalTaxPercentage, $countryCode) {
                 $discountPercentage = 0;
                 if ($course->has_discount) {
                     $discountPercentage = round((($course->price - $course->discount_price) / $course->price) * 100, 2);
@@ -631,6 +631,7 @@ class CourseApiController extends Controller
                 $coursePricingData = $this->pricingService->calculateCoursePricing(
                     $course,
                     taxPercentage: $totalTaxPercentage,
+                    countryCode: $countryCode,
                 );
 
                 return [
@@ -657,6 +658,9 @@ class CourseApiController extends Controller
                     'total_duration_formatted' => $this->formatDuration($totalDuration),
                     'is_wishlisted' => $isWishlisted,
                     'is_enrolled' => $isEnrolled && !in_array($course->id, $refundedCourseIds),
+                    // Currency specific fields (explicitly copied for clarity)
+                    'currency_code' => $coursePricingData['currency_code'],
+                    'currency_symbol' => $coursePricingData['currency_symbol'],
                 ];
             });
 
@@ -763,6 +767,11 @@ class CourseApiController extends Controller
                 $isWishlist = Wishlist::where('user_id', $user->id)->where('course_id', $course->id)->exists();
             }
 
+            // [NEW LOGIC] Automatically grant access if course is free or user is the instructor
+            if ($course->course_type === 'free' || ($user && $course->user_id == $user->id)) {
+                $isPurchased = true;
+            }
+
             // Get user's curriculum completion tracking data
             $userCurriculumTracking = [];
             if ($user) {
@@ -777,17 +786,6 @@ class CourseApiController extends Controller
 
             // Calculate total course duration and prepare chapters data
             $totalCourseDuration = 0; // in seconds
-            // Get user's curriculum completion tracking data
-            $userCurriculumTracking = [];
-            if ($user) {
-                $chapterIds = $course->chapters->pluck('id')->toArray();
-                $userCurriculumTracking = UserCurriculumTracking::where('user_id', $user->id)
-                    ->whereIn('course_chapter_id', $chapterIds)
-                    ->get()
-                    ->groupBy(
-                        static fn($item) => $item->course_chapter_id . '_' . $item->model_type . '_' . $item->model_id,
-                    );
-            }
 
             // Helper function to check if curriculum item is completed
             $isItemCompleted = static function ($chapterId, $modelType, $modelId) use ($userCurriculumTracking) {
@@ -856,8 +854,8 @@ class CourseApiController extends Controller
                 $allContent = collect();
 
                 // Add lectures
-                $lectures = $chapter->lectures->map(function ($lecture) use ($chapter, $isItemCompleted, $request) {
-                    $resource = new CourseChapterLectureResource($lecture);
+                $lectures = $chapter->lectures->map(function ($lecture) use ($chapter, $isItemCompleted, $request, $isPurchased) {
+                    $resource = new CourseChapterLectureResource($lecture, $isPurchased);
                     $lectureData = $resource->toArray($request);
 
                     // Add completion and resources info
@@ -871,10 +869,10 @@ class CourseApiController extends Controller
                         'id' => $resource->id,
                         'title' => $resource->title,
                         'type' => $resource->type,
-                        'file' => $resource->file,
+                        'file' => $isPurchased ? $resource->file : null,
                         'file_extension' => $resource->file_extension,
-                        'url' => $resource->url,
-                        'file_url' => $resource->file_url,
+                        'url' => $isPurchased ? $resource->url : null,
+                        'file_url' => $isPurchased ? $resource->file_url : null,
                         'order' => $resource->order,
                         'is_active' => $resource->is_active,
                     ]);
@@ -900,7 +898,7 @@ class CourseApiController extends Controller
                     'chapter_order' => $quiz->chapter_order,
                     'is_completed' => $isItemCompleted($chapter->id, CourseChapterQuiz::class, $quiz->id),
                     'has_questions' => $quiz->questions->count() > 0,
-                    'questions' => $quiz->questions->map(static fn($question) => [
+                    'questions' => $isPurchased ? $quiz->questions->map(static fn($question) => [
                         'id' => $question->id,
                         'question' => $question->question,
                         'points' => $question->points,
@@ -912,7 +910,7 @@ class CourseApiController extends Controller
                             'order' => $option->order,
                             'is_active' => $option->is_active,
                         ]),
-                    ]),
+                    ]) : [],
                     'created_at' => $quiz->created_at,
                     'updated_at' => $quiz->updated_at,
                 ]);
@@ -952,7 +950,7 @@ class CourseApiController extends Controller
                         'allowed_file_types' => $assignment->allowed_file_types,
                         'media' => $assignment->media,
                         'media_extension' => $assignment->media_extension,
-                        'media_url' => $assignment->media ? asset('storage/' . $assignment->media) : null,
+                        'media_url' => ($isPurchased && $assignment->media) ? asset('storage/' . $assignment->media) : null,
                         'points' => $assignment->points,
                         'can_skip' => $assignment->can_skip,
                         'is_active' => $assignment->is_active,
@@ -978,9 +976,9 @@ class CourseApiController extends Controller
                     'title' => $resource->title,
                     'slug' => $resource->slug,
                     'description' => $resource->description,
-                    'file' => $resource->file,
+                    'file' => $isPurchased ? $resource->file : null,
                     'file_extension' => $resource->file_extension,
-                    'url' => $resource->url,
+                    'url' => $isPurchased ? $resource->url : null,
                     'is_active' => $resource->is_active,
                     'chapter_order' => $resource->chapter_order,
                     'is_completed' => $isItemCompleted($chapter->id, CourseChapterResource::class, $resource->id),
@@ -1205,6 +1203,7 @@ class CourseApiController extends Controller
             $coursePricingData = $this->pricingService->calculateCoursePricing(
                 $course,
                 taxPercentage: $totalTaxPercentage,
+                countryCode: $countryCode ?? null,
             );
 
             $discountPercentage = 0;
@@ -1259,7 +1258,7 @@ class CourseApiController extends Controller
                 'progress_percentage' => $progressPercentage,
                 'total_duration' => $totalCourseDuration, // in seconds
                 'total_duration_formatted' => $this->formatDuration($totalCourseDuration),
-                'preview_videos' => $this->getPreviewVideos($course, $request),
+                'preview_videos' => $this->getPreviewVideos($course, $request, $isPurchased),
             ];
 
             // Add current curriculum (last completed) for authenticated users
@@ -1395,7 +1394,7 @@ class CourseApiController extends Controller
      *     free_preview?: bool
      * }> Array of preview video data
      */
-    private function getPreviewVideos(Course $course, Request $request): array
+    private function getPreviewVideos(Course $course, Request $request, bool $isPurchased = false): array
     {
         $previewVideos = [];
 
@@ -1413,9 +1412,16 @@ class CourseApiController extends Controller
         foreach ($course->chapters as $chapter) {
             foreach ($chapter->lectures as $lecture) {
                 $isFreePreview = $lecture->free_preview ?? false;
+                $isPaidCourse = $course->course_type === 'paid';
+
+                // Skip if it's a paid course and not marked as free preview and not purchased
+                if ($isPaidCourse && !$isFreePreview && !$isPurchased) {
+                    continue;
+                }
 
                 // Use resource to get lecture data
-                $resource = new CourseChapterLectureResource($lecture);
+                // For preview videos list, we pass true to hasAccess so URLs are returned
+                $resource = new CourseChapterLectureResource($lecture, true);
                 $lectureData = $resource->toArray(request());
 
                 // Only include if file_type is set (valid lecture content)
