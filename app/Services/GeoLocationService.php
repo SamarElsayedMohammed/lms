@@ -14,12 +14,31 @@ final class GeoLocationService
      */
     public function getCountryCodeFromRequest(Request $request): null|string
     {
-        // Manual override for testing purposes (enabled for admin or during dev)
+        // 1. Manual override for testing purposes
         if ($request->has('test_country')) {
             return strtoupper($request->query('test_country'));
         }
 
+        // 2. High Priority: Cloudflare Country Header
+        // This is 100% accurate if the site is behind Cloudflare
+        $cfCountry = $request->server('HTTP_CF_IPCOUNTRY');
+        if ($cfCountry && strlen($cfCountry) === 2 && $cfCountry !== 'XX' && $cfCountry !== 'T1') {
+            return strtoupper($cfCountry);
+        }
+
+        // 3. Detect Real IP Address
         $ipAddress = $this->getRealIpAddress($request);
+        
+        // --- Debug Logging ---
+        if (config('app.debug')) {
+            Log::info('Detecting country for IP', [
+                'ip' => $ipAddress,
+                'cf_country' => $cfCountry,
+                'user_agent' => $request->userAgent(),
+                'headers' => collect($request->server())->filter(fn($v, $k) => str_starts_with($k, 'HTTP_'))->toArray()
+            ]);
+        }
+
         if ($ipAddress) {
             $countryCode = $this->getCountryCodeFromIp($ipAddress);
             if ($countryCode) {
@@ -27,10 +46,13 @@ final class GeoLocationService
             }
         }
 
-        // Fallback to user's country code if IP detection fails
+        // 4. Fallback to user's country code if IP detection fails
         $authUser = auth('sanctum')->user();
+        if ($authUser?->country_code) {
+            return strtoupper($authUser->country_code);
+        }
 
-        return $authUser?->country_code ?? null;
+        return null;
     }
 
     /**
