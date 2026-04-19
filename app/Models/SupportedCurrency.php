@@ -15,11 +15,13 @@ class SupportedCurrency extends Model
         'currency_symbol',
         'exchange_rate_to_egp',
         'is_active',
+        'last_updated_at',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'exchange_rate_to_egp' => 'float',
+        'last_updated_at' => 'datetime',
     ];
 
     public function scopeActive($query)

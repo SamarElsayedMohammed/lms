@@ -117,4 +117,22 @@ class CurrencyAdminApiController extends AdminCrudApiController
         $currency->delete();
         return $this->jsonSuccess(__('Currency deleted successfully'));
     }
+
+    /**
+     * Refresh exchange rates manually.
+     */
+    public function refreshRates(): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('settings-system-list');
+
+        try {
+            \App\Jobs\UpdateExchangeRatesJob::dispatchSync();
+            return $this->jsonSuccess(__('Exchange rates updated successfully'), [
+                'last_updated_at' => now()->toDateTimeString()
+            ]);
+        } catch (\Exception $e) {
+            return $this->jsonError(__('Failed to update rates: ') . $e->getMessage(), 500);
+        }
+    }
 }

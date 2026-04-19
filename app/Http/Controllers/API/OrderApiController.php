@@ -1002,54 +1002,47 @@ class OrderApiController extends Controller
                 'status' => $isFree ? 'completed' : 'pending', // Auto-complete for free courses
             ]);
 
-            // Tax is always exclusive - get tax based on IP country (with fallback to user's country)
-            $countryCode = $this->getCountryCodeForTax($request, $user);
+            // 1. Get Localization & Tax Info
+            $countryCode = $this->pricingService->getCountryCodeFromRequest($request);
             $totalTaxPercentage = Tax::getTotalTaxPercentageByCountry($countryCode);
 
-            // Get base price (from database - always exclusive)
-            $basePrice = $course->discount_price && $course->discount_price > 0
-                ? $course->discount_price
-                : $course->price ?? 0;
-
-            $total = $isFree ? 0 : $basePrice;
-
-            // Apply promo code if provided (only for paid courses)
+            // 2. Resolve Promo Code (if any)
+            $promoCode = null;
             $resolvedPromoCodeId = $request->get('resolved_promo_code_id');
             if (!$isFree && $resolvedPromoCodeId) {
-                // Apply promo code to base price (tax is exclusive)
-                $total = $this->applyPromoCodeToOrder(
-                    $order,
-                    $course,
-                    $resolvedPromoCodeId,
-                    $total,
-                    'exclusive',
-                    $totalTaxPercentage,
-                );
+                $promoCode = PromoCode::find($resolvedPromoCodeId);
             }
 
-            // Calculate tax on base price after promo code (always exclusive)
-            $totalTax = 0;
-            if (!$isFree && $total > 0 && $totalTaxPercentage > 0) {
-                // Tax is exclusive - calculate tax on base price
-                $totalTax = ($total * $totalTaxPercentage) / 100;
-            }
+            // 3. Calculate Pricing (Local & EGP)
+            $pricing = $this->pricingService->calculateCoursePricing(
+                $course,
+                promoCode: $promoCode,
+                taxPercentage: $totalTaxPercentage,
+                countryCode: $countryCode
+            );
 
-            // Create order course with calculated tax
+            // Create order course with calculated values
             OrderCourse::create([
-                'order_id' => $order->id,
-                'course_id' => $course->id,
-                'price' => $isFree ? 0 : $total,
-                'tax_price' => $totalTax,
+                'order_id'               => $order->id,
+                'course_id'              => $course->id,
+                'price'                  => $isFree ? 0 : $pricing['subtotal'], // Price after promo, before tax
+                'tax_price'              => $isFree ? 0 : $pricing['tax_amount'],
+                'amount_egp'             => $isFree ? 0 : $pricing['price_egp'], // Base EGP price
+                'currency_code'          => $pricing['currency_code'],
+                'exchange_rate_snapshot' => $pricing['exchange_rate'],
             ]);
 
-            // Calculate final price (base price + tax)
-            $finalPrice = $total + $totalTax;
+            // Final price (base price + tax)
+            $finalPrice = $pricing['total'];
 
             // Update order totals
             $order->update([
-                'total_price' => $total,
-                'tax_price' => $totalTax,
+                'total_price' => $pricing['subtotal'],
+                'tax_price' => $pricing['tax_amount'],
                 'final_price' => $finalPrice,
+                'promo_code_id' => $promoCode?->id,
+                'discount_amount' => $pricing['promo_discount'],
+                'promo_code' => $promoCode?->promo_code,
             ]);
 
             // If free course, complete the order directly
@@ -1315,92 +1308,53 @@ class OrderApiController extends Controller
             $hasFreeCourses = false;
             $appliedPromoCodes = [];
 
-            // Tax is always exclusive - get tax based on IP country (with fallback to user's country)
-            $countryCode = $this->getCountryCodeForTax($request, $user);
+            // 1. Get Localization & Tax Info
+            $countryCode = $this->pricingService->getCountryCodeFromRequest($request);
             $totalTaxPercentage = Tax::getTotalTaxPercentageByCountry($countryCode);
 
             // 5. Calculate price and apply individual promo codes per course
             foreach ($cartItems as $cart) {
                 $course = $cart->course;
-                if (!$course) {
-                    continue;
-                }
+                if (!$course) continue;
 
-                // Check if course is free
                 $isFree = $course->course_type === 'free';
-                if ($isFree) {
-                    $hasFreeCourses = true;
-                }
+                if ($isFree) $hasFreeCourses = true;
 
-                // Get base price (from database - always exclusive)
-                $basePrice = $isFree
-                    ? 0
-                    : (
-                        $course->discount_price
-                        && $course->discount_price > 0
-                            ? $course->discount_price
-                            : $course->price ?? 0
-                    );
+                // Determine promo code for this course
+                $promoCode = (!$isFree && $cart->promo_code_id) ? $cart->promoCode : null;
 
-                // Price is always base price (tax is exclusive)
-                $originalPrice = $basePrice;
+                // Calculate Pricing (Local & EGP)
+                $pricing = $this->pricingService->calculateCoursePricing(
+                    $course,
+                    promoCode: $promoCode,
+                    taxPercentage: $totalTaxPercentage,
+                    countryCode: $countryCode
+                );
 
-                $priceAfterDiscount = $originalPrice;
-                $courseDiscount = 0;
-
-                // Apply promo code if exists for this course
-                if (!$isFree && $cart->promo_code_id && $cart->promoCode) {
-                    $promo = $cart->promoCode;
-
-                    // Check if promo code is still valid
-                    if ($promo->status == 1 && $promo->start_date <= today() && $promo->end_date >= today()) {
-                        // Check usage limit (no_of_users)
-                        $isUsageLimitReached = $promo->no_of_users !== null && $promo->no_of_users <= 0;
-
-                        // Calculate discount
-                        if ($promo->discount_type === 'amount') {
-                            $courseDiscount = min($promo->discount, $originalPrice);
-                        } elseif ($promo->discount_type === 'percentage') {
-                            // Clamp discount percentage to 100% max
-                            $discountPercent = min($promo->discount, 100);
-                            $courseDiscount = ($originalPrice * $discountPercent) / 100;
-                        }
-
-                        $courseDiscount = min($courseDiscount, $originalPrice);
-                        $priceAfterDiscount = max(0, $originalPrice - $courseDiscount);
-                        $totalDiscountAmount += $courseDiscount;
-
-                        // Track applied promo codes
-                        if (!isset($appliedPromoCodes[$promo->id])) {
-                            $appliedPromoCodes[$promo->id] = [
-                                'code' => $promo->promo_code,
-                                'discount' => $courseDiscount,
-                            ];
-                        } else {
-                            $appliedPromoCodes[$promo->id]['discount'] += $courseDiscount;
-                        }
-                    }
-                }
-
-                // Calculate tax amount (always exclusive)
-                $tax = 0;
-
-                if (!$isFree && $priceAfterDiscount > 0 && $totalTaxPercentage > 0) {
-                    // Tax is exclusive - calculate tax on base price after discount
-                    $tax = ($priceAfterDiscount * $totalTaxPercentage) / 100;
-                }
-
-                $total += $priceAfterDiscount;
-                $totalTax += $tax;
-
+                // Create order course with localized values
                 OrderCourse::create([
-                    'order_id' => $order->id,
-                    'course_id' => $course->id,
-                    'promo_code_id' => $cart->promo_code_id, // Store individual promo code
-                    'price' => $priceAfterDiscount,
-                    'discount_amount' => $courseDiscount, // Store discount amount for this course
-                    'tax_price' => $tax,
+                    'order_id'               => $order->id,
+                    'course_id'              => $course->id,
+                    'promo_code_id'          => $cart->promo_code_id,
+                    'price'                  => $isFree ? 0 : $pricing['subtotal'],
+                    'tax_price'              => $isFree ? 0 : $pricing['tax_amount'],
+                    'discount_amount'        => $isFree ? 0 : $pricing['promo_discount'],
+                    'amount_egp'             => $isFree ? 0 : $pricing['price_egp'],
+                    'currency_code'          => $pricing['currency_code'],
+                    'exchange_rate_snapshot' => $pricing['exchange_rate'],
                 ]);
+
+                // Accumulate totals
+                $total += $isFree ? 0 : $pricing['subtotal'];
+                $totalTax += $isFree ? 0 : $pricing['tax_amount'];
+                $totalDiscountAmount += $isFree ? 0 : $pricing['promo_discount'];
+
+                if ($promoCode) {
+                    $appliedPromoCodes[] = [
+                        'code' => $promoCode->promo_code,
+                        'discount_amount' => $pricing['promo_discount'],
+                    ];
+                }
             }
 
             // 6. Update order with promo code information

@@ -603,6 +603,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Currencies (SupportedCurrency)
         Route::get('currencies', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'index']);
+        Route::post('currencies/refresh-rates', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'refreshRates']);
         Route::get('currencies/{id}', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'show']);
         Route::post('currencies', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'store']);
         Route::put('currencies/{id}', [\App\Http\Controllers\API\Admin\CurrencyAdminApiController::class, 'update']);
@@ -629,6 +630,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::match(['put', 'patch'], 'courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
         Route::get('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'show']);
         Route::delete('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'destroy']);
+
+        // Course Country Prices
+        Route::get('courses/{id}/country-prices', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'index']);
+        Route::post('courses/{id}/country-prices', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'store']);
+        Route::post('courses/{id}/country-prices/bulk', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'bulk']);
+        Route::delete('courses/{id}/country-prices/{country_code}', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'destroy']);
 
         // Instructors
         Route::get('instructors', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'index']);

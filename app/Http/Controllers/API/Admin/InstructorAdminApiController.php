@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
+use App\Services\FileService;
 
 class InstructorAdminApiController extends AdminCrudApiController
 {
@@ -78,6 +79,7 @@ class InstructorAdminApiController extends AdminCrudApiController
             'bank_name'             => 'nullable|string',
             'bank_account_holder_name' => 'nullable|string',
             'bank_ifsc_code'        => 'nullable|string',
+            'profile'               => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
         ]);
 
         if ($validator->fails()) {
@@ -90,6 +92,12 @@ class InstructorAdminApiController extends AdminCrudApiController
             $name = $request->input('name');
             $slug = HelperService::generateUniqueSlug(User::class, $name);
 
+            // Handle Profile Image Upload
+            $profilePath = null;
+            if ($request->hasFile('profile')) {
+                $profilePath = FileService::compressAndUpload($request->file('profile'), 'users/profiles');
+            }
+
             // 1. Create User
             $user = User::create([
                 'name'      => $name,
@@ -98,6 +106,7 @@ class InstructorAdminApiController extends AdminCrudApiController
                 'password'  => Hash::make($request->input('password')),
                 'mobile'    => $request->input('mobile'),
                 'is_active' => 1,
+                'profile'   => $profilePath,
             ]);
 
             // 2. Assign Role
@@ -161,6 +170,7 @@ class InstructorAdminApiController extends AdminCrudApiController
             'bank_name'                 => 'nullable|string',
             'bank_account_holder_name'  => 'nullable|string',
             'bank_ifsc_code'            => 'nullable|string',
+            'profile'                   => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
         ]);
 
         if ($validator->fails()) {
@@ -178,6 +188,12 @@ class InstructorAdminApiController extends AdminCrudApiController
             if ($request->filled('password')) {
                 $userData['password'] = Hash::make($request->input('password'));
             }
+
+            // Handle Profile Image Update/Replacement
+            if ($request->hasFile('profile')) {
+                $userData['profile'] = FileService::compressAndReplace($request->file('profile'), 'users/profiles', $user->getRawOriginal('profile'));
+            }
+
             $user->update($userData);
 
             // Update Instructor

@@ -322,6 +322,11 @@ class Course extends Model
         return $this->hasMany(\App\Models\CourseView::class);
     }
 
+    public function countryPrices()
+    {
+        return $this->hasMany(CourseCountryPrice::class);
+    }
+
     public function getViewCountAttribute()
     {
         return $this->views()->count();

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Course\Course;
+use App\Models\Course\CourseCountryPrice;
+use App\Models\SupportedCurrency;
 use App\Models\PromoCode;
 use App\Models\Tax;
 use Illuminate\Http\Request;
@@ -17,7 +19,72 @@ final class PricingCalculationService
     ) {}
 
     /**
-     * Calculate pricing for a single course with optional promo code
+     * Get localized pricing based on country code.
+     * Logic:
+     * 1. Check course_country_prices for a specific mapping.
+     * 2. If not found, fall back to default course.price (EGP).
+     * 3. Convert to local currency using exchange_rate_to_egp from supported_currencies.
+     */
+    public function getLocalizedPrice(Course $course, null|string $countryCode): array
+    {
+        // 1. Check for country-specific price
+        $countryPrice = null;
+        if ($countryCode) {
+            $countryPrice = CourseCountryPrice::where('course_id', $course->id)
+                ->where('country_code', $countryCode)
+                ->where('is_active', true)
+                ->first();
+        }
+
+        // 2. Determine base EGP prices
+        $isCountrySpecific = $countryPrice !== null;
+        if ($isCountrySpecific) {
+            $priceEgp = (float) $countryPrice->price_egp;
+            $discountPriceEgp = $countryPrice->discount_price_egp ? (float) $countryPrice->discount_price_egp : null;
+        } else {
+            $priceEgp = (float) ($course->price ?? 0);
+            $discountPriceEgp = $course->discount_price ? (float) $course->discount_price : null;
+        }
+
+        // 3. Get currency and exchange rate
+        $currencyCode = 'EGP';
+        $currencySymbol = 'ج.م';
+        $exchangeRate = 1.0;
+
+        if ($countryCode) {
+            $currency = SupportedCurrency::where('country_code', $countryCode)
+                ->where('is_active', true)
+                ->first();
+
+            if ($currency) {
+                $currencyCode = $currency->currency_code;
+                $currencySymbol = $currency->currency_symbol;
+                $exchangeRate = (float) ($currency->exchange_rate_to_egp ?? 1.0);
+            }
+        }
+
+        // 4. Calculate local prices
+        // local = egp / exchange_rate (since rate is EGP per 1 unit of local currency, e.g. 1 USD = 30 EGP)
+        // Wait, the design said: exchange_rate_to_egp
+        // If 1 SAR = 8 EGP, then exchange_rate_to_egp = 8.
+        // Price local = Price EGP / 8.
+        $priceLocal = $priceEgp / $exchangeRate;
+        $discountPriceLocal = $discountPriceEgp !== null ? ($discountPriceEgp / $exchangeRate) : null;
+
+        return [
+            'price_egp'           => round($priceEgp, 2),
+            'discount_price_egp'  => $discountPriceEgp ? round($discountPriceEgp, 2) : null,
+            'price_local'         => round($priceLocal, 2),
+            'discount_price_local'=> $discountPriceLocal ? round($discountPriceLocal, 2) : null,
+            'currency_code'       => $currencyCode,
+            'currency_symbol'     => $currencySymbol,
+            'exchange_rate'       => $exchangeRate,
+            'is_country_specific' => $isCountrySpecific,
+        ];
+    }
+
+    /**
+     * Calculate pricing for a single course with optional promo code and localized pricing.
      *
      * @return array{
      *     original_price: float,
@@ -28,25 +95,35 @@ final class PricingCalculationService
      *     tax_percentage: float,
      *     tax_amount: float,
      *     total: float,
-     *     promo_code_details: array|null
+     *     promo_code_details: array|null,
+     *     currency_code: string,
+     *     currency_symbol: string,
+     *     price_egp: float,
+     *     discount_price_egp: float|null,
+     *     exchange_rate: float,
+     *     is_country_specific: bool
      * }
      */
     public function calculateCoursePricing(
         Course $course,
         null|PromoCode $promoCode = null,
         null|float $taxPercentage = null,
+        null|string $countryCode = null,
     ): array {
-        // Original price (full price before any discount) - cast to float
-        $originalPrice = (float) ($course->price ?? 0);
+        // 1. Get Localized Base Prices
+        $localized = $this->getLocalizedPrice($course, $countryCode);
 
-        // Subtotal (price after course discount, before promo) - cast to float
-        $discountPrice = (float) ($course->discount_price ?? 0);
-        $subtotal = $discountPrice > 0 ? $discountPrice : $originalPrice;
+        // Original local price
+        $originalPrice = (float) $localized['price_local'];
 
-        // Course discount amount
+        // Subtotal local (price after course discount, before promo)
+        $discountPriceLocal = $localized['discount_price_local'];
+        $subtotal = $discountPriceLocal !== null ? $discountPriceLocal : $originalPrice;
+
+        // Course discount amount (local)
         $courseDiscount = $originalPrice - $subtotal;
 
-        // Calculate promo discount
+        // Calculate promo discount (local)
         $promoDiscount = 0;
         $promoCodeDetails = null;
 
@@ -79,6 +156,13 @@ final class PricingCalculationService
             'tax_amount' => round($taxAmount, 2),
             'total' => round($total, 2),
             'promo_code_details' => $promoCodeDetails,
+            // Localization metadata
+            'currency_code' => $localized['currency_code'],
+            'currency_symbol' => $localized['currency_symbol'],
+            'price_egp' => $localized['price_egp'],
+            'discount_price_egp' => $localized['discount_price_egp'],
+            'exchange_rate' => $localized['exchange_rate'],
+            'is_country_specific' => $localized['is_country_specific'],
         ];
     }
 
