@@ -71,34 +71,35 @@ class HomeApiController extends Controller
     public function getCategoriesWithCourseCount()
     {
         try {
-            $categories = Category::where('status', 1)->withCount([
-                'courses as active_course_count' => static function ($query): void {
-                    // Only count courses that are active, published, approved, and have at least one active chapter with curriculum
-                    $query
-                        ->where('is_active', true)
-                        ->where('status', 'publish')
-                        ->where('approval_status', 'approved')
-                        ->whereHas('chapters', static function ($chapterQuery): void {
-                            $chapterQuery
-                                ->where('is_active', true)
-                                ->where(static function ($curriculumQuery): void {
-                                    $curriculumQuery
-                                        ->whereHas('lectures', static function ($lectureQuery): void {
-                                            $lectureQuery->where('is_active', true);
-                                        })
-                                        ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                            $quizQuery->where('is_active', true);
-                                        })
-                                        ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                            $assignmentQuery->where('is_active', true);
-                                        })
-                                        ->orWhereHas('resources', static function ($resourceQuery): void {
-                                            $resourceQuery->where('is_active', true);
-                                        });
-                                });
-                        });
-                },
-            ])->get();
+            $categories = Category::where('status', 1)
+                ->select('categories.*')
+                ->selectRaw('(SELECT COUNT(DISTINCT courses.id) FROM courses
+                        WHERE courses.category_id IN (
+                            SELECT cat.id FROM categories cat
+                            WHERE cat.id = categories.id
+                            OR cat.parent_category_id = categories.id
+                            OR cat.parent_category_id IN (
+                                SELECT subcat.id FROM categories subcat
+                                WHERE subcat.parent_category_id = categories.id
+                            )
+                        )
+                        AND courses.is_active = 1
+                        AND courses.status = "publish"
+                        AND courses.approval_status = "approved"
+                        AND courses.deleted_at IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM course_chapters
+                            WHERE course_chapters.course_id = courses.id
+                            AND course_chapters.is_active = 1
+                            AND course_chapters.deleted_at IS NULL
+                            AND (
+                                EXISTS (SELECT 1 FROM course_chapter_lectures WHERE course_chapter_lectures.course_chapter_id = course_chapters.id AND course_chapter_lectures.is_active = 1 AND course_chapter_lectures.deleted_at IS NULL)
+                                OR EXISTS (SELECT 1 FROM course_chapter_quizzes WHERE course_chapter_quizzes.course_chapter_id = course_chapters.id AND course_chapter_quizzes.is_active = 1 AND course_chapter_quizzes.deleted_at IS NULL)
+                                OR EXISTS (SELECT 1 FROM course_chapter_assignments WHERE course_chapter_assignments.course_chapter_id = course_chapters.id AND course_chapter_assignments.is_active = 1 AND course_chapter_assignments.deleted_at IS NULL)
+                                OR EXISTS (SELECT 1 FROM course_chapter_resources WHERE course_chapter_resources.course_chapter_id = course_chapters.id AND course_chapter_resources.is_active = 1 AND course_chapter_resources.deleted_at IS NULL)
+                            )
+                        )) as active_course_count')
+                ->get();
 
             return ApiResponseService::successResponse(
                 'Categories with active course count retrieved successfully.',
