@@ -258,22 +258,12 @@ class CoursesController extends Controller
             $isInstructor = Auth::user()->hasRole('Instructor');
             $requestedStatus = $request->input('status');
 
-            if ($isAdmin) {
-                // Admin can set draft or publish directly; auto-approve
+            if ($isAdmin || $isInstructor) {
+                // Admin and Approved Instructor can set draft or publish directly; auto-approve
                 $data['status'] = in_array($requestedStatus, ['draft', 'publish']) ? $requestedStatus : 'publish';
                 $data['approval_status'] = $data['status'] === 'publish' ? 'approved' : null;
-                // For admins, respect the explicit is_active toggle
+                // Respect the explicit is_active toggle
                 $data['is_active'] = $request->has('is_active') ? ($request->is_active ? 1 : 0) : 1;
-            } elseif ($isInstructor) {
-                // Instructor can draft or publish; publish becomes pending until admin approval
-                if ($requestedStatus === 'publish') {
-                    $data['status'] = 'pending';
-                } else {
-                    $data['status'] = 'draft';
-                }
-                $data['approval_status'] = null;
-                // For instructors, derive is_active from status and approval
-                $data['is_active'] = 0;
             } else {
                 // Fallback
                 $data['status'] = 'draft';
@@ -518,6 +508,10 @@ class CoursesController extends Controller
             ->when(!empty($filterInstructorId), static function ($query) use ($filterInstructorId): void {
                 $query->where('user_id', $filterInstructorId);
             })
+            ->when(!auth()->user()->hasRole('Admin'), static function ($query): void {
+                // If not Admin, show only own courses
+                $query->where('user_id', auth()->id());
+            })
             ->when(!empty($showDeleted), static function ($query): void {
                 $query->onlyTrashed();
             });
@@ -609,6 +603,9 @@ class CoursesController extends Controller
             })
             ->when(!empty($instructorId), static function ($query) use ($instructorId): void {
                 $query->where('user_id', $instructorId);
+            })
+            ->when(!auth()->user()->hasRole('Admin'), static function ($query): void {
+                $query->where('user_id', auth()->id());
             });
 
         $total = $sql->count();
@@ -667,6 +664,9 @@ class CoursesController extends Controller
             })
             ->when(!empty($instructorId), static function ($query) use ($instructorId): void {
                 $query->where('user_id', $instructorId);
+            })
+            ->when(!auth()->user()->hasRole('Admin'), static function ($query): void {
+                $query->where('user_id', auth()->id());
             });
 
         $total = $sql->count();
@@ -1055,8 +1055,8 @@ class CoursesController extends Controller
             $isInstructor = Auth::user()->hasRole('Instructor');
             $requestedStatus = $request->input('status');
 
-            if ($isAdmin) {
-                // Admin controls status and approval directly
+            if ($isAdmin || $isInstructor) {
+                // Admin and Approved Instructor can set draft or publish directly; auto-approve
                 $data['status'] = in_array($requestedStatus, ['draft', 'publish'])
                     ? $requestedStatus
                     : $course->status ?? 'draft';
@@ -1067,28 +1067,10 @@ class CoursesController extends Controller
                 } else {
                     $data['approval_status'] = $data['status'] === 'publish' ? 'approved' : null;
                 }
-                // For admins, respect the explicit is_active toggle
+                // Respect the explicit is_active toggle
                 $data['is_active'] = $request->has('is_active')
                     ? ($request->is_active ? 1 : 0)
-                    : $course->is_active ?? 0;
-            } elseif ($isInstructor) {
-                // If course is not admin approved, instructor can set to draft or pending
-                if ($course->approval_status !== 'approved') {
-                    $data['status'] = in_array($requestedStatus, ['draft', 'pending'])
-                        ? $requestedStatus
-                        : $course->status;
-                    // Only set approval_status to null if course is not approved
-                    $data['approval_status'] = null;
-                } else {
-                    // If course is already admin approved (published and approved),
-                    // instructor cannot change any status or anything.
-                    // Preserve the approved status
-                    $data['status'] = $course->status;
-                    $data['approval_status'] = $course->approval_status;
-                }
-
-                // For instructors, derive is_active from status and approval
-                $data['is_active'] = $data['status'] === 'publish' && $course->approval_status === 'approved' ? 1 : 0;
+                    : $course->is_active ?? 1;
             } else {
                 $data['status'] = $course->status;
                 $data['approval_status'] = $course->approval_status;

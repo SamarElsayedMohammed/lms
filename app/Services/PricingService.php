@@ -25,15 +25,19 @@ final class PricingService
     {
         $countryCode = strtoupper($countryCode);
 
-        $planPrice = SubscriptionPlanPrice::where('plan_id', $plan->id)
-            ->where('country_code', $countryCode)
+        $planPrice = SubscriptionPlanPrice::query()
+            ->join('countries', 'subscription_plan_prices.country_id', '=', 'countries.id')
+            ->where('subscription_plan_prices.plan_id', $plan->id)
+            ->where('countries.iso_code', $countryCode)
+            ->select('subscription_plan_prices.*', 'countries.currency_code')
             ->first();
 
         if ($planPrice !== null) {
+            $currencyCode = $planPrice->currency_code ?? 'EGP';
             return [
                 'price' => (float) $planPrice->price,
-                'currency_code' => $planPrice->currency_code,
-                'currency_symbol' => $this->getCurrencySymbol($planPrice->currency_code),
+                'currency_code' => $currencyCode,
+                'currency_symbol' => $this->getCurrencySymbol($currencyCode),
             ];
         }
 

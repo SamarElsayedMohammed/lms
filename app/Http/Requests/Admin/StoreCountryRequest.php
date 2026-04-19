@@ -21,7 +21,9 @@ final class StoreCountryRequest extends FormRequest
         return [
             'name_en' => 'required|string|max:255',
             'name_ar' => 'nullable|string|max:255',
+            'iso_code' => 'required|string|size:2|unique:countries,iso_code',
             'currency_name' => 'nullable|string|max:255',
+            'currency_code' => 'nullable|string|size:3',
             'status' => 'nullable|boolean',
         ];
     }
