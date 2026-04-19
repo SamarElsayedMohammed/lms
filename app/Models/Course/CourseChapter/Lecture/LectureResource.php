@@ -13,6 +13,7 @@ class LectureResource extends Model
     protected $fillable = [
         'user_id',
         'lecture_id',
+        'title',
         'type',
         'file',
         'file_extension',

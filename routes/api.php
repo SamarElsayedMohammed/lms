@@ -632,9 +632,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Instructors
         Route::get('instructors', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'index']);
+        Route::post('instructors', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'store']);
         Route::get('instructors/{id}', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'show']);
+        Route::put('instructors/{id}', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'update']);
+        Route::delete('instructors/{id}', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'destroy']);
         Route::post('instructors/{id}/approve', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'approve']);
         Route::post('instructors/{id}/reject', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'reject']);
+        Route::post('instructors/{id}/suspend', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'suspend']);
+        Route::post('instructors/{id}/restore', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'restore']);
 
         // Tags
         Route::get('tags', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'index']);
