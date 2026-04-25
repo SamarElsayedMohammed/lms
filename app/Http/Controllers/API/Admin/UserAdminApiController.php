@@ -106,4 +106,29 @@ class UserAdminApiController extends AdminCrudApiController
 
         return $this->jsonSuccess(__('User status updated'), ['is_active' => (bool) $user->is_active]);
     }
+
+    public function assignRole(Request $request, int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('users-edit');
+
+        $user = User::find($id);
+        if (!$user) {
+            return $this->jsonError(__('User not found'), 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'role_name' => 'required|string|exists:roles,name',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        $user->syncRoles([$request->role_name]);
+
+        return $this->jsonSuccess(__('User role updated successfully'), [
+            'roles' => $user->getRoleNames()
+        ]);
+    }
 }

@@ -57,7 +57,7 @@ class ApiController extends Controller
             ]);
 
             // Check if user exists (including soft-deleted)
-            $userQuery = User::role(config('constants.SYSTEM_ROLES.GENERAL_USER'))
+            $userQuery = User::role(config('constants.SYSTEM_ROLES.USER'))
                 ->withTrashed()
                 ->when($request->has('email'), static function ($query) use ($request): void {
                     $query->where('email', $request->email);
@@ -118,7 +118,7 @@ class ApiController extends Controller
                     $q->withTrashed();
                 })
                 ->whereHas('user', static function ($q): void {
-                    $q->role(config('constants.SYSTEM_ROLES.GENERAL_USER'));
+                    $q->role(config('constants.SYSTEM_ROLES.USER'));
                 })
                 ->first();
 
@@ -180,7 +180,7 @@ class ApiController extends Controller
                 ], [
                     'firebase_id' => $firebaseId,
                 ]);
-                $user->assignRole(config('constants.SYSTEM_ROLES.GENERAL_USER'));
+                $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
                 Auth::login($user);
                 $auth = User::find($user->id);
                 DB::commit();
@@ -189,7 +189,7 @@ class ApiController extends Controller
                 $auth = Auth::user();
             }
 
-            if (!$auth->hasRole(config('constants.SYSTEM_ROLES.GENERAL_USER'))) {
+            if (!$auth->hasRole(config('constants.SYSTEM_ROLES.USER'))) {
                 ApiResponseService::validationError('Invalid Login Credentials');
             }
 
@@ -238,7 +238,7 @@ class ApiController extends Controller
                     $q->withTrashed();
                 })
                 ->whereHas('user', static function ($q): void {
-                    $q->role(config('constants.SYSTEM_ROLES.GENERAL_USER'));
+                    $q->role(config('constants.SYSTEM_ROLES.USER'));
                 })
                 ->first();
 
@@ -254,7 +254,7 @@ class ApiController extends Controller
             Auth::login($socialLogin->user);
             $auth = Auth::user();
 
-            if (!$auth->hasRole(config('constants.SYSTEM_ROLES.GENERAL_USER'))) {
+            if (!$auth->hasRole(config('constants.SYSTEM_ROLES.USER'))) {
                 ApiResponseService::validationError('Invalid Login Credentials');
             }
 
@@ -287,7 +287,7 @@ class ApiController extends Controller
             ]);
 
             $user = User::withTrashed()
-                ->role(config('constants.SYSTEM_ROLES.GENERAL_USER'))
+                ->role(config('constants.SYSTEM_ROLES.USER'))
                 ->where('mobile', $request->mobile)
                 ->first();
 
@@ -394,7 +394,7 @@ class ApiController extends Controller
                 ]);
             }
             // Assign General User role
-            $user->assignRole(config('constants.SYSTEM_ROLES.GENERAL_USER'));
+            $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
 
             // Update FCM token if provided
             if (!empty($request->fcm_id)) {
@@ -471,7 +471,7 @@ class ApiController extends Controller
             }
 
             // Only admin/staff roles: Super Admin, Admin, Staff, Supervisor (not General User)
-            $adminRoles = ['Super Admin', config('constants.SYSTEM_ROLES.ADMIN'), config('constants.SYSTEM_ROLES.STAFF'), config('constants.SYSTEM_ROLES.SUPERVISOR')];
+            $adminRoles = ['Super Admin', config('constants.SYSTEM_ROLES.SUPER_ADMIN'), config('constants.SYSTEM_ROLES.STAFF'), config('constants.SYSTEM_ROLES.SUPERVISOR')];
             if (!$user->hasAnyRole($adminRoles)) {
                 ApiResponseService::validationError(__('Access denied. Admin credentials required.'));
             }

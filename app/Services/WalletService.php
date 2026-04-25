@@ -128,7 +128,7 @@ class WalletService
             return 'instructor';
         }
 
-        if ($user->hasRole('Admin') || $user->hasRole('Staff')) {
+        if ($user->hasRole('Super Admin') || $user->hasRole('Staff')) {
             return 'staff';
         }
 

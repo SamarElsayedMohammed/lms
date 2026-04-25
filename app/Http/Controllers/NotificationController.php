@@ -22,7 +22,7 @@ class NotificationController extends Controller
         $coursesQuery = \App\Models\Course\Course::select('id', 'title');
 
         // If user is admin, filter courses by admin's user_id
-        if ($authUser && $authUser->hasRole(config('constants.SYSTEM_ROLES.ADMIN'))) {
+        if ($authUser && $authUser->hasRole(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))) {
             $coursesQuery->where('user_id', $authUser->id);
         }
 
