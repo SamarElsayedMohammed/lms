@@ -470,9 +470,15 @@ class ApiController extends Controller
                 ApiResponseService::validationError(__('Invalid credentials'));
             }
 
-            // Only admin/staff roles: Super Admin, Admin, Staff, Supervisor (not General User)
-            $adminRoles = ['Super Admin', config('constants.SYSTEM_ROLES.SUPER_ADMIN'), config('constants.SYSTEM_ROLES.STAFF'), config('constants.SYSTEM_ROLES.SUPERVISOR')];
-            if (!$user->hasAnyRole($adminRoles)) {
+            // Accept both old 'Admin' and new 'Super Admin' during transition period
+            $adminRoles = [
+                'Admin',          // legacy name
+                'Super Admin',    // new name
+                config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
+                config('constants.SYSTEM_ROLES.STAFF'),
+                config('constants.SYSTEM_ROLES.SUPERVISOR'),
+            ];
+            if (!$user->hasAnyRole($adminRoles, 'web')) {
                 ApiResponseService::validationError(__('Access denied. Admin credentials required.'));
             }
 

@@ -12,17 +12,26 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Rename 'General User' to 'User'
-        DB::table('roles')
-            ->where('name', 'General User')
-            ->where('guard_name', 'web')
-            ->update(['name' => 'User']);
+        $this->mergeRoles('General User', 'User');
+        $this->mergeRoles('Admin', 'Super Admin');
+    }
 
-        // Rename 'Admin' to 'Super Admin'
-        DB::table('roles')
-            ->where('name', 'Admin')
-            ->where('guard_name', 'web')
-            ->update(['name' => 'Super Admin']);
+    private function mergeRoles(string $oldName, string $newName): void
+    {
+        $oldRole = DB::table('roles')->where('name', $oldName)->where('guard_name', 'web')->first();
+        $newRole = DB::table('roles')->where('name', $newName)->where('guard_name', 'web')->first();
+
+        if ($oldRole && $newRole) {
+            // Both exist, move users from old to new and delete old
+            DB::table('model_has_roles')
+                ->where('role_id', $oldRole->id)
+                ->update(['role_id' => $newRole->id]);
+            
+            DB::table('roles')->where('id', $oldRole->id)->delete();
+        } elseif ($oldRole) {
+            // Only old exists, rename it
+            DB::table('roles')->where('id', $oldRole->id)->update(['name' => $newName]);
+        }
     }
 
     /**
@@ -30,16 +39,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Revert 'User' back to 'General User'
-        DB::table('roles')
-            ->where('name', 'User')
-            ->where('guard_name', 'web')
-            ->update(['name' => 'General User']);
-
-        // Revert 'Super Admin' back to 'Admin'
-        DB::table('roles')
-            ->where('name', 'Super Admin')
-            ->where('guard_name', 'web')
-            ->update(['name' => 'Admin']);
+        // For reverse, we just rename back if possible
+        DB::table('roles')->where('name', 'User')->update(['name' => 'General User']);
+        DB::table('roles')->where('name', 'Super Admin')->update(['name' => 'Admin']);
     }
 };

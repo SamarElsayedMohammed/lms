@@ -21,7 +21,7 @@ abstract class AdminCrudApiController extends Controller
             $this->unauthorized('Unauthenticated');
         }
         $adminRoles = ['Super Admin', config('constants.SYSTEM_ROLES.SUPER_ADMIN'), config('constants.SYSTEM_ROLES.STAFF'), config('constants.SYSTEM_ROLES.SUPERVISOR')];
-        if (!$user->hasAnyRole($adminRoles)) {
+        if (!$user->hasAnyRole($adminRoles, 'web')) {
             $this->unauthorized('Admin access required');
         }
     }

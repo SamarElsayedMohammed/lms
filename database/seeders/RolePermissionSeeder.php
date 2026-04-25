@@ -26,6 +26,7 @@ class RolePermissionSeeder extends Seeder
         $this->assignPermissionsToSalesRole();
         $this->assignPermissionsToAccountantRole();
         $this->assignPermissionsToModeratorRole();
+        $this->assignPermissionsToStaffRole();
     }
 
     // Create Roles
@@ -417,9 +418,14 @@ class RolePermissionSeeder extends Seeder
             'manage_settings',
             'manage_plans',
             'view_reports',
+            // Feature Flags
+            'feature-flags-list',
+            'feature-flags-create',
+            'feature-flags-edit',
+            'feature-flags-delete',
         ];
 
-        $adminRole->givePermissionTo($adminHasAccessTo); // Assign Permissions to Admin Role
+        $adminRole->syncPermissions($adminHasAccessTo); // Assign Permissions to Super Admin Role
     }
 
     public function assignPermissionsToInstructorRole()
@@ -553,6 +559,49 @@ class RolePermissionSeeder extends Seeder
         ];
 
         $moderatorRole->syncPermissions($permissions);
+    }
+
+    /**
+     * Assign permissions to Staff role
+     * Staff has access to core management areas but not financial/settings
+     */
+    public function assignPermissionsToStaffRole(): void
+    {
+        $staffRole = Role::where('name', config('constants.SYSTEM_ROLES.STAFF'))->first();
+        if (!$staffRole) return;
+
+        $permissions = [
+            'dashboard-list',
+            // Course Management
+            'courses-list', 'courses-create', 'courses-edit', 'courses-delete',
+            'courses-approve', 'courses-reject', 'courses-requests',
+            'course-chapters-list', 'course-chapters-create', 'course-chapters-edit', 'course-chapters-delete',
+            'course-languages-list', 'course-tags-list',
+            // Content
+            'categories-list', 'categories-create', 'categories-edit',
+            'faqs-list', 'faqs-create', 'faqs-edit', 'faqs-delete',
+            'pages-list', 'pages-create', 'pages-edit',
+            // User Management
+            'users-list', 'users-create', 'users-edit',
+            'instructors-list', 'instructors-edit', 'instructors-show-form', 'instructors-status-update',
+            'staff-list',
+            // Orders & Enrollments
+            'orders-list', 'enrollments-list', 'enrollments-create',
+            // Communication
+            'notifications-list', 'notifications-create',
+            // Assignments & Ratings
+            'assignments-list', 'assignments-review',
+            'ratings-list', 'ratings-edit',
+            // Reports (read-only)
+            'reports-course-list', 'reports-enrollment-list',
+            'reports-instructor-list',
+            // Help Desk
+            'helpdesk-groups-list', 'helpdesk-group-requests-list',
+            'helpdesk-questions-list', 'helpdesk-replies-list',
+            'contact-messages-list',
+        ];
+
+        $staffRole->syncPermissions($permissions);
     }
 
     /**
