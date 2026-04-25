@@ -215,7 +215,7 @@ class CoursesController extends Controller
             // Get User ID
             $staffUser = Auth::user()->hasRole('Staff');
             if ($staffUser) {
-                $adminUser = User::role('Admin')->first();
+                $adminUser = User::role('Super Admin')->first();
                 if ($adminUser) {
                     $userId = $adminUser->id;
                 } else {
@@ -254,7 +254,7 @@ class CoursesController extends Controller
             $data['certificate_fee'] = $request->certificate_enabled ? $request->certificate_fee ?? 0 : null; // Set Certificate Fee
 
             // Workflow: status and approval_status
-            $isAdmin = Auth::user()->hasRole('Admin');
+            $isAdmin = Auth::user()->hasRole('Super Admin');
             $isInstructor = Auth::user()->hasRole('Instructor');
             $requestedStatus = $request->input('status');
 
@@ -440,7 +440,7 @@ class CoursesController extends Controller
 
             // Sync Instructors
             // Priority: explicit instructors > admin override > single instructor mode
-            $isAdmin = Auth::user()->hasRole('Admin');
+            $isAdmin = Auth::user()->hasRole('Super Admin');
 
             // First check if instructors were explicitly provided
             if ($request->has('instructors') && !empty($request->instructors)) {
@@ -451,13 +451,13 @@ class CoursesController extends Controller
                 $course->instructors()->sync($instructorsIds);
             } elseif ($isAdmin) {
                 // Admin creates course without explicit instructors - assign admin as instructor
-                $adminUsers = User::role(config('constants.SYSTEM_ROLES.ADMIN'))->get();
+                $adminUsers = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
                 if ($adminUsers->isNotEmpty()) {
                     $course->instructors()->sync($adminUsers->pluck('id'));
                 }
             } elseif (InstructorModeService::isSingleInstructorMode()) {
                 // In single instructor mode without explicit instructors, assign admin as instructor
-                $adminUsers = User::role(config('constants.SYSTEM_ROLES.ADMIN'))->get();
+                $adminUsers = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
                 if ($adminUsers->isNotEmpty()) {
                     $course->instructors()->sync($adminUsers->pluck('id'));
                 }
@@ -508,7 +508,7 @@ class CoursesController extends Controller
             ->when(!empty($filterInstructorId), static function ($query) use ($filterInstructorId): void {
                 $query->where('user_id', $filterInstructorId);
             })
-            ->when(!auth()->user()->hasRole('Admin'), static function ($query): void {
+            ->when(!auth()->user()->hasRole('Super Admin'), static function ($query): void {
                 // If not Admin, show only own courses
                 $query->where('user_id', auth()->id());
             })
@@ -604,7 +604,7 @@ class CoursesController extends Controller
             ->when(!empty($instructorId), static function ($query) use ($instructorId): void {
                 $query->where('user_id', $instructorId);
             })
-            ->when(!auth()->user()->hasRole('Admin'), static function ($query): void {
+            ->when(!auth()->user()->hasRole('Super Admin'), static function ($query): void {
                 $query->where('user_id', auth()->id());
             });
 
@@ -665,7 +665,7 @@ class CoursesController extends Controller
             ->when(!empty($instructorId), static function ($query) use ($instructorId): void {
                 $query->where('user_id', $instructorId);
             })
-            ->when(!auth()->user()->hasRole('Admin'), static function ($query): void {
+            ->when(!auth()->user()->hasRole('Super Admin'), static function ($query): void {
                 $query->where('user_id', auth()->id());
             });
 
@@ -995,7 +995,7 @@ class CoursesController extends Controller
             $data['certificate_fee'] = $request->certificate_enabled ? $request->certificate_fee ?? 0 : null; // Set Certificate Fee
 
             $authUser = Auth::user();
-            $isAdmin = $authUser->hasRole('Admin');
+            $isAdmin = $authUser->hasRole('Super Admin');
 
             // Delete old thumbnail and upload new one
             if ($request->hasFile('thumbnail')) {
@@ -1143,13 +1143,13 @@ class CoursesController extends Controller
                 $course->instructors()->sync($instructorsIds);
             } elseif ($isAdmin) {
                 // Admin updates course without explicit instructors - assign admin as instructor
-                $adminUsers = User::role(config('constants.SYSTEM_ROLES.ADMIN'))->get();
+                $adminUsers = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
                 if ($adminUsers->isNotEmpty()) {
                     $course->instructors()->sync($adminUsers->pluck('id'));
                 }
             } elseif (InstructorModeService::isSingleInstructorMode()) {
                 // In single instructor mode without explicit instructors, assign admin as instructor
-                $adminUsers = User::role(config('constants.SYSTEM_ROLES.ADMIN'))->get();
+                $adminUsers = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
                 if ($adminUsers->isNotEmpty()) {
                     $course->instructors()->sync($adminUsers->pluck('id'));
                 }

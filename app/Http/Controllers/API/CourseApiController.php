@@ -139,7 +139,7 @@ class CourseApiController extends Controller
                             })
                             // OR if user is Admin, allow (Admin doesn't have instructor_details)
                             ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                             });
                     });
             })
@@ -1122,7 +1122,7 @@ class CourseApiController extends Controller
             // Get instructor details
             $instructorDetails = null;
             if ($course->user) {
-                $instructorType = $course->user->hasRole('Admin') ? 'admin' : 'instructor';
+                $instructorType = $course->user->hasRole('Super Admin') ? 'admin' : 'instructor';
 
                 // Get instructor type (individual/team) from instructor_details
                 $instructorTypeValue = null; // Default to null
@@ -1629,7 +1629,7 @@ class CourseApiController extends Controller
                             'email' => $instructor->email,
                             'slug' => $instructor->slug ?? null,
                             'profile' => $instructor->profile ?? null,
-                            'type' => $instructor->hasRole('Admin') ? 'admin' : 'instructor',
+                            'type' => $instructor->hasRole('Super Admin') ? 'admin' : 'instructor',
                         ]) : [],
                     'chapters' => $chapters,
                     'chapter_count' => $course->chapters->count(),
@@ -1946,7 +1946,7 @@ class CourseApiController extends Controller
                     'email' => $instructor->email,
                     'slug' => $instructor->slug,
                     'profile' => $instructor->profile,
-                    'type' => $instructor->hasRole('Admin') ? 'admin' : 'instructor',
+                    'type' => $instructor->hasRole('Super Admin') ? 'admin' : 'instructor',
                     'qualification' => $instructor->instructor_details->personal_details->qualification ?? '',
                     'years_of_experience' =>
                         $instructor->instructor_details->personal_details->years_of_experience ?? 0,

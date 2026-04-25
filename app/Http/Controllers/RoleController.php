@@ -99,7 +99,7 @@ class RoleController extends Controller
         $sort = request('sort', 'id');
         $order = request('order', 'DESC');
 
-        $sql = Role::where('custom_role', 1);
+        $sql = Role::whereNotNull('name'); // Show all roles
 
         if (!empty($request->search)) {
             $search = $request->search;
@@ -221,10 +221,16 @@ class RoleController extends Controller
         try {
             ResponseService::noPermissionThenSendJson('roles-delete');
             $role = Role::withCount('users')->findOrFail($id);
+            if ($role->custom_role == 0) {
+                return response()->json([
+                    'error'   => true,
+                    'message' => 'System roles cannot be deleted',
+                ]);
+            }
             if ($role->users_count) {
                 ResponseService::errorResponse('Cannot delete because data is associated with other data');
             } else {
-                Role::findOrFail($id)->delete();
+                $role->delete();
                 ResponseService::successResponse('Data Deleted Successfully');
             }
         } catch (Throwable $e) {

@@ -23,17 +23,24 @@ class RolePermissionSeeder extends Seeder
         $this->assignPermissionsToAdminRole();
         $this->assignPermissionsToInstructorRole();
         $this->assignPermissionsToSupervisorRole();
+        $this->assignPermissionsToSalesRole();
+        $this->assignPermissionsToAccountantRole();
+        $this->assignPermissionsToModeratorRole();
     }
 
     // Create Roles
     public function createRoles()
     {
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.ADMIN')], ['custom_role' => false]);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.INSTRUCTOR')], ['custom_role' => false]);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.SUPERVISOR')], ['custom_role' => false]);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.TEAM')], ['custom_role' => false]);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR')], ['custom_role' => false]);
-        Role::updateOrCreate(['name' => 'General User', 'guard_name' => 'web'], ['custom_role' => false]);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.SUPER_ADMIN')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.INSTRUCTOR')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.SUPERVISOR')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.USER')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.TEAM')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.ACCOUNTANT')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.SALES')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.MODERATOR')], ['custom_role' => false, 'guard_name' => 'web']);
+        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.STAFF')], ['custom_role' => false, 'guard_name' => 'web']);
     }
 
     // Create Permissions
@@ -150,7 +157,7 @@ class RolePermissionSeeder extends Seeder
     // Assign Permissions to Roles
     public function assignPermissionsToAdminRole()
     {
-        $adminRole = Role::where('name', 'Admin')->first(); // Get Admin Role
+        $adminRole = Role::where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->first(); // Get Super Admin Role
 
         // Admin Has Access To Everything - Based on Actual Admin Panel Operations
         $adminHasAccessTo = [
@@ -478,6 +485,74 @@ class RolePermissionSeeder extends Seeder
         ];
 
         $supervisorRole->syncPermissions($supervisorPermissions);
+    }
+
+    /**
+     * Assign permissions to Sales role
+     */
+    public function assignPermissionsToSalesRole(): void
+    {
+        $salesRole = Role::where('name', config('constants.SYSTEM_ROLES.SALES'))->first();
+        if (!$salesRole) return;
+
+        $permissions = [
+            'dashboard-list',
+            'promo-codes-list', 'promo-codes-create', 'promo-codes-edit', 'promo-codes-delete',
+            'sliders-list', 'sliders-create', 'sliders-edit', 'sliders-delete',
+            'feature-sections-list', 'feature-sections-create', 'feature-sections-edit', 'feature-sections-delete',
+            'categories-list', 'categories-create', 'categories-edit',
+            'reports-sales-list', 'reports-sales-export',
+            'reports-revenue-list',
+            'settings-app-list', 'settings-app-edit',
+        ];
+
+        $salesRole->syncPermissions($permissions);
+    }
+
+    /**
+     * Assign permissions to Accountant role
+     */
+    public function assignPermissionsToAccountantRole(): void
+    {
+        $accountantRole = Role::where('name', config('constants.SYSTEM_ROLES.ACCOUNTANT'))->first();
+        if (!$accountantRole) return;
+
+        $permissions = [
+            'dashboard-list',
+            'wallets-list', 'wallets-create', 'wallets-edit',
+            'withdrawals-list', 'withdrawals-process',
+            'refunds-list', 'refunds-process',
+            'reports-sales-list', 'reports-sales-export',
+            'reports-commission-list', 'reports-commission-export',
+            'reports-revenue-list',
+            'reports-enrollment-list',
+            'taxes-list', 'taxes-create', 'taxes-edit',
+        ];
+
+        $accountantRole->syncPermissions($permissions);
+    }
+
+    /**
+     * Assign permissions to Moderator role
+     */
+    public function assignPermissionsToModeratorRole(): void
+    {
+        $moderatorRole = Role::where('name', config('constants.SYSTEM_ROLES.MODERATOR'))->first();
+        if (!$moderatorRole) return;
+
+        $permissions = [
+            'dashboard-list',
+            'users-list', 'users-edit', 'users-delete',
+            'instructors-list', 'instructors-edit', 'instructors-show-form', 'instructors-status-update',
+            'helpdesk-groups-list', 'helpdesk-groups-create', 'helpdesk-groups-edit',
+            'helpdesk-group-requests-list', 'helpdesk-questions-list', 'helpdesk-replies-list',
+            'contact-messages-list', 'contact-messages-delete',
+            'ratings-list', 'ratings-edit', 'ratings-delete',
+            'faqs-list', 'faqs-create', 'faqs-edit', 'faqs-delete',
+            'pages-list', 'pages-edit',
+        ];
+
+        $moderatorRole->syncPermissions($permissions);
     }
 
     /**

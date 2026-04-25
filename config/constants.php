@@ -80,14 +80,16 @@ return [
         ['name' => 'team_admin_commission', 'value' => '10', 'type' => 'number'], // 10% for team instructors
     ],
     'SYSTEM_ROLES' => [
-        'ADMIN' => 'Admin',
-        'INSTRUCTOR' => 'Instructor',
+        'SUPER_ADMIN' => 'Super Admin',
         'SUPERVISOR' => 'Supervisor',
+        'INSTRUCTOR' => 'Instructor',
+        'USER' => 'User',
         'TEAM' => 'Team',
         'TEAM_INSTRUCTOR' => 'Team Instructor',
         'STAFF' => 'Staff',
         'ACCOUNTANT' => 'Accountant',
-        'GENERAL_USER' => 'General User',
+        'SALES' => 'Sales',
+        'MODERATOR' => 'Moderator',
     ],
     'CURRICULUM_TYPES' => [
         'LECTURE' => 'lecture',

@@ -579,7 +579,7 @@ class SettingsController extends Controller
     {
         try {
             // Get all admin users
-            $adminUsers = User::role(config('constants.SYSTEM_ROLES.ADMIN'))->get();
+            $adminUsers = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
 
             foreach ($adminUsers as $admin) {
                 // Give admin users instructor role as well (for single instructor mode)

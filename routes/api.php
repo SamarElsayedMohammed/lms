@@ -564,6 +564,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('users/{id}', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'show']);
         Route::put('users/{id}', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'update']);
         Route::post('users/{id}/toggle-status', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'toggleStatus']);
+        Route::post('users/{id}/assign-role', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'assignRole']);
 
         // Orders
         Route::get('orders', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'index']);
@@ -665,6 +666,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('instructor-requests/{id}', [\App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::class, 'show']);
         Route::put('instructor-requests/{id}/status', [\App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::class, 'updateStatus']);
         Route::delete('instructor-requests/{id}', [\App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::class, 'destroy']);
+
+        // Staff & Roles
+        Route::prefix('staff')->group(function (): void {
+            Route::get('roles', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'index']);
+            Route::get('roles/{id}', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'show']);
+            Route::post('roles', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'store']);
+            Route::put('roles/{id}', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'update']);
+            Route::delete('roles/{id}', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'destroy']);
+            Route::get('permissions', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'permissions']);
+        });
     });
 
     /********************************************************************************** */

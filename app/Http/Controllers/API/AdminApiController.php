@@ -37,7 +37,7 @@ class AdminApiController extends Controller
             }
 
             // Check if user is admin
-            if (!Auth::user()->hasRole('Admin')) {
+            if (!Auth::user()->hasRole('Super Admin')) {
                 return ApiResponseService::unauthorizedResponse('Only admins can view all assignment submissions.');
             }
 
@@ -179,7 +179,7 @@ class AdminApiController extends Controller
             }
 
             // Check if user is admin
-            if (!Auth::user()->hasRole('Admin')) {
+            if (!Auth::user()->hasRole('Super Admin')) {
                 return ApiResponseService::unauthorizedResponse('Only admins can view assignment submission details.');
             }
 
@@ -264,7 +264,7 @@ class AdminApiController extends Controller
             }
 
             // Check if user is admin
-            if (!Auth::user()->hasRole('Admin')) {
+            if (!Auth::user()->hasRole('Super Admin')) {
                 return ApiResponseService::unauthorizedResponse('Only admins can update assignment submissions.');
             }
 
@@ -324,7 +324,7 @@ class AdminApiController extends Controller
                 'comment' => $submission->comment,
                 'admin_comment' => $submission->admin_comment ?? null,
                 'updated_at' => $submission->updated_at,
-                'updated_by' => 'Admin',
+                'updated_by' => 'Super Admin',
             ];
 
             return ApiResponseService::successResponse(
@@ -344,7 +344,7 @@ class AdminApiController extends Controller
     {
         try {
             // Check if user is admin
-            if (!Auth::user()->hasRole('Admin')) {
+            if (!Auth::user()->hasRole('Super Admin')) {
                 return ApiResponseService::unauthorizedResponse('Only admins can view assignment statistics.');
             }
 
@@ -462,7 +462,7 @@ class AdminApiController extends Controller
             }
 
             // Check if user is admin
-            if (!Auth::user()->hasRole('Admin')) {
+            if (!Auth::user()->hasRole('Super Admin')) {
                 return ApiResponseService::unauthorizedResponse('Only admins can bulk update assignment submissions.');
             }
 

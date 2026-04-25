@@ -278,7 +278,7 @@ class PromoCodeApiController extends Controller
             }
 
             // Reject admin promo codes (user_id = 1 or Admin role)
-            $isAdmin = $promo->user_id == 1 || $promo->user->roles->contains('name', 'Admin');
+            $isAdmin = $promo->user_id == 1 || $promo->user->roles->contains('name', 'Super Admin');
 
             if ($isAdmin) {
                 return ApiResponseService::validationError(

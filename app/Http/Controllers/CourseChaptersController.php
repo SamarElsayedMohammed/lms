@@ -46,7 +46,7 @@ class CourseChaptersController extends Controller
         // Also fetch courses for filter dropdown (same as courses list)
         $coursesFilter = Course::select('id', 'title')->orderBy('title', 'asc')->get();
 
-        $instructors = \App\Models\User::role(['Instructor', 'Admin'])->select('id', 'name')->get();
+        $instructors = \App\Models\User::role(['Instructor', 'Super Admin'])->select('id', 'name')->get();
 
         return view('courses.chapters.index', compact('courses', 'instructors', 'coursesFilter'), [
             'type_menu' => 'course-chapters',

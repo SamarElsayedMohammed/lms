@@ -194,7 +194,7 @@ class CleanupDemoData extends Command
         $count = User::where('created_at', '>', $this->demoDataCutoffDate)
             ->where('created_at', '<', $cutoffTime)
             ->whereDoesntHave('roles', static function ($query): void {
-                $query->where('name', 'Admin');
+                $query->where('name', 'Super Admin');
             })
             ->delete();
 

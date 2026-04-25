@@ -17,7 +17,8 @@ class UserController extends Controller
     public function index()
     {
         ResponseService::noAnyPermissionThenRedirect(['users-list', 'manage_accounts']);
-        return view('admin.users.index', ['type_menu' => 'users']);
+        $roles = \Spatie\Permission\Models\Role::orderBy('id')->get();
+        return view('admin.users.index', compact('roles'), ['type_menu' => 'users']);
     }
 
     /**
@@ -62,7 +63,6 @@ class UserController extends Controller
 
         foreach ($result as $row) {
             $operate = '';
-            // Create view button manually
             $viewUrl = route('admin.users.details', $row->id);
             $operate .=
                 '<a href="'
@@ -70,6 +70,11 @@ class UserController extends Controller
                 . '" class="btn icon btn-xs btn-rounded btn-icon rounded-pill btn-info view_btn" title="View" data-target="#userDetailsModal" data-toggle="modal" id="'
                 . $row->id
                 . '"><i class="fas fa-eye"></i></a>&nbsp;&nbsp;';
+
+            $operate .=
+                '<a href="javascript:void(0)" class="btn icon btn-xs btn-rounded btn-icon rounded-pill btn-primary edit_role_btn" title="Change Role" data-user-id="'
+                . $row->id
+                . '" data-current-role="' . ($row->roles->first()->id ?? '') . '"><i class="fas fa-user-shield"></i></a>';
 
             $tempRow = $row->toArray();
             $tempRow['no'] = $no++;
@@ -171,6 +176,38 @@ class UserController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update user status: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Update user role
+     */
+    public function updateRole(Request $request, $id)
+    {
+        try {
+            ResponseService::noAnyPermissionThenSendJson(['users-edit', 'manage_accounts']);
+            
+            $request->validate([
+                'role_id' => 'required|exists:roles,id',
+            ]);
+
+            DB::beginTransaction();
+            $user = User::findOrFail($id);
+            $role = \Spatie\Permission\Models\Role::findOrFail($request->role_id);
+            
+            $user->syncRoles([$role->name]);
+            
+            DB::commit();
+            return response()->json([
+                'success' => true, 
+                'message' => 'Role updated successfully to ' . $role->name
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false, 
+                'message' => 'Failed to update role: ' . $e->getMessage()
             ], 500);
         }
     }

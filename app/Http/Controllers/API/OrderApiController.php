@@ -1617,7 +1617,7 @@ class OrderApiController extends Controller
         }
 
         // Validate promo code is applicable to this course
-        $isAdmin = $promoCode->user->roles->contains('name', 'Admin');
+        $isAdmin = $promoCode->user->roles->contains('name', 'Super Admin');
         $isInstructor = $promoCode->user->roles->contains('name', 'Instructor');
         $isValidForCourse = false;
 

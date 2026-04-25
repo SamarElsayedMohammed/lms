@@ -41,7 +41,7 @@ final readonly class CoursePolicy
      */
     public function approve(User $user, Course $course): bool
     {
-        return $user->hasRole('Admin');
+        return $user->hasRole('Super Admin');
     }
 
     /**
@@ -52,7 +52,7 @@ final readonly class CoursePolicy
     public function view(User $user, Course $course): bool
     {
         // Admin can view all courses
-        if ($user->hasRole('Admin')) {
+        if ($user->hasRole('Super Admin')) {
             return true;
         }
 

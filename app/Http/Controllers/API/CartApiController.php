@@ -124,7 +124,7 @@ class CartApiController extends Controller
                 }
 
                 // Check if promo code is applicable to this course
-                $isAdmin = $promoCode->user->roles->contains('name', 'Admin');
+                $isAdmin = $promoCode->user->roles->contains('name', 'Super Admin');
                 $isInstructor = $promoCode->user->roles->contains('name', 'Instructor');
                 $isApplicable = false;
 
@@ -406,7 +406,7 @@ class CartApiController extends Controller
                                 // Either user is admin OR has approved instructor details
                                 $q->whereHas('roles', static fn($roleQuery) => $roleQuery->where(
                                     'name',
-                                    'Admin',
+                                    'Super Admin',
                                 ))->orWhereHas('instructor_details', static fn($instructorQuery) => $instructorQuery->where(
                                     'status',
                                     'approved',
@@ -530,7 +530,7 @@ class CartApiController extends Controller
                         // Either user is admin OR has approved instructor details
                         $q->whereHas('roles', static fn($roleQuery) => $roleQuery->where(
                             'name',
-                            'Admin',
+                            'Super Admin',
                         ))->orWhereHas('instructor_details', static fn($instructorQuery) => $instructorQuery->where(
                             'status',
                             'approved',
@@ -562,7 +562,7 @@ class CartApiController extends Controller
 
             if ($promoCode && $this->pricingService->isPromoCodeValid($promoCode)) {
                 // Check if promo code is applicable to this course
-                $isAdmin = $promoCode->user->roles->contains('name', 'Admin');
+                $isAdmin = $promoCode->user->roles->contains('name', 'Super Admin');
                 $isInstructor = $promoCode->user->roles->contains('name', 'Instructor');
                 $isApplicable = false;
 

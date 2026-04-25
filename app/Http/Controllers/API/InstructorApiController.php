@@ -178,7 +178,7 @@ class InstructorApiController extends Controller
             // If this is first entry, notify all admins
             if ($isFirstEntry) {
                 $user = Auth::user();
-                $admins = \App\Models\User::role(config('constants.SYSTEM_ROLES.ADMIN'))->get();
+                $admins = \App\Models\User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
                 foreach ($admins as $admin) {
                     $admin->notify(new \App\Notifications\InstructorSubmissionNotification($instructor, $user));
                 }
@@ -1824,7 +1824,7 @@ class InstructorApiController extends Controller
             // Determine type based on user role: admin or instructor
             $user = $instructor->user;
             $type = 'instructor'; // default
-            if ($user && $user->hasRole(config('constants.SYSTEM_ROLES.ADMIN'))) {
+            if ($user && $user->hasRole(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))) {
                 $type = 'admin';
             } elseif ($user && $user->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))) {
                 $type = 'instructor';

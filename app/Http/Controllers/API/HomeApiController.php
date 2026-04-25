@@ -142,7 +142,7 @@ class HomeApiController extends Controller
                                     $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                         $instructorQuery->where('status', 'approved');
                                     })->orWhereHas('roles', static function ($roleQuery): void {
-                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                     });
                                 });
                         })
@@ -189,7 +189,7 @@ class HomeApiController extends Controller
                                     $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                         $instructorQuery->where('status', 'approved');
                                     })->orWhereHas('roles', static function ($roleQuery): void {
-                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                     });
                                 });
                         })
@@ -238,7 +238,7 @@ class HomeApiController extends Controller
                                     $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                         $instructorQuery->where('status', 'approved');
                                     })->orWhereHas('roles', static function ($roleQuery): void {
-                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                     });
                                 });
                         })
@@ -288,7 +288,7 @@ class HomeApiController extends Controller
                                     $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                         $instructorQuery->where('status', 'approved');
                                     })->orWhereHas('roles', static function ($roleQuery): void {
-                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                     });
                                 });
                         })
@@ -380,7 +380,7 @@ class HomeApiController extends Controller
                                         $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                             $instructorQuery->where('status', 'approved');
                                         })->orWhereHas('roles', static function ($roleQuery): void {
-                                            $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                            $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                         });
                                     });
                             })
@@ -607,7 +607,7 @@ class HomeApiController extends Controller
                                             $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                                 $instructorQuery->where('status', 'approved');
                                             })->orWhereHas('roles', static function ($roleQuery): void {
-                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                             });
                                         });
                                 })
@@ -643,7 +643,7 @@ class HomeApiController extends Controller
                                             $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                                 $instructorQuery->where('status', 'approved');
                                             })->orWhereHas('roles', static function ($roleQuery): void {
-                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                             });
                                         });
                                 })
@@ -685,7 +685,7 @@ class HomeApiController extends Controller
                                             $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                                 $instructorQuery->where('status', 'approved');
                                             })->orWhereHas('roles', static function ($roleQuery): void {
-                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                             });
                                         });
                                 })
@@ -734,7 +734,7 @@ class HomeApiController extends Controller
                                             $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                                 $instructorQuery->where('status', 'approved');
                                             })->orWhereHas('roles', static function ($roleQuery): void {
-                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                             });
                                         });
                                 })
@@ -784,7 +784,7 @@ class HomeApiController extends Controller
                                         $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                             $instructorQuery->where('status', 'approved');
                                         })->orWhereHas('roles', static function ($roleQuery): void {
-                                            $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                            $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                         });
                                     });
                             })
@@ -860,7 +860,7 @@ class HomeApiController extends Controller
                                             $query->whereHas('instructor_details', static function ($instructorQuery): void {
                                                 $instructorQuery->where('status', 'approved');
                                             })->orWhereHas('roles', static function ($roleQuery): void {
-                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.ADMIN'));
+                                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
                                             });
                                         });
                                 })
