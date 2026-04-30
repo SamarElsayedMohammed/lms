@@ -22,11 +22,22 @@ return new class extends Migration
         $newRole = DB::table('roles')->where('name', $newName)->where('guard_name', 'web')->first();
 
         if ($oldRole && $newRole) {
-            // Both exist, move users from old to new and delete old
+            // 1. Delete users from oldRole who already have newRole to avoid Duplicate Entry error
+            DB::table('model_has_roles')
+                ->where('role_id', $oldRole->id)
+                ->whereIn('model_id', function ($query) use ($newRole) {
+                    $query->select('model_id')
+                        ->from('model_has_roles')
+                        ->where('role_id', $newRole->id);
+                })
+                ->delete();
+
+            // 2. Move remaining users from old to new
             DB::table('model_has_roles')
                 ->where('role_id', $oldRole->id)
                 ->update(['role_id' => $newRole->id]);
             
+            // 3. Delete the old role
             DB::table('roles')->where('id', $oldRole->id)->delete();
         } elseif ($oldRole) {
             // Only old exists, rename it
