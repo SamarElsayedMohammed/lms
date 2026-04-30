@@ -1,0 +1,121 @@
+<?php
+
+namespace App\Http\Controllers\API\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Webinar;
+use App\Services\ApiResponseService;
+use App\Services\HelperService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+
+class WebinarAdminApiController extends AdminCrudApiController
+{
+    /**
+     * List webinars managed by admin/instructor
+     */
+    public function index(Request $request)
+    {
+        $this->ensureAdmin();
+        // If instructor, filter by instructor_id
+        $query = Webinar::with('instructor:id,name');
+        
+        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))) {
+            $query->where('instructor_id', Auth::id());
+        }
+
+        $perPage = min((int) $request->input('per_page', 15), 50);
+        $webinars = $query->latest()->paginate($perPage);
+
+        return ApiResponseService::successResponse('Webinars retrieved successfully', $webinars);
+    }
+
+    /**
+     * Create a new webinar
+     */
+    public function store(Request $request)
+    {
+        $this->ensureAdmin();
+
+        $validator = Validator::make($request->all(), [
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'start_at' => 'required|date|after:now',
+            'duration' => 'required|integer|min:5',
+            'is_free' => 'required|boolean',
+            'price' => 'required_if:is_free,false|numeric|min:0',
+            'provider' => 'required|in:zoom,jitsi,custom',
+            'join_url' => 'nullable|url',
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors()->first());
+        }
+
+        try {
+            $data = $request->all();
+            $data['instructor_id'] = Auth::id();
+            $data['slug'] = Str::slug($request->title) . '-' . Str::random(5);
+            
+            if ($request->provider === 'jitsi' && empty($request->join_url)) {
+                $data['join_url'] = "https://meet.jit.si/" . $data['slug'];
+            }
+
+            $webinar = Webinar::create($data);
+
+            return ApiResponseService::successResponse('Webinar created successfully', $webinar);
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to create webinar: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Update webinar details
+     */
+    public function update(Request $request, $id)
+    {
+        $this->ensureAdmin();
+        $webinar = Webinar::findOrFail($id);
+
+        // Security check for instructors
+        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR')) && $webinar->instructor_id !== Auth::id()) {
+            return ApiResponseService::errorResponse('Unauthorized', [], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'title' => 'sometimes|required|string|max:255',
+            'start_at' => 'sometimes|required|date',
+            'duration' => 'sometimes|required|integer|min:5',
+            'status' => 'sometimes|required|in:scheduled,live,completed,cancelled',
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors()->first());
+        }
+
+        try {
+            $webinar->update($request->all());
+            return ApiResponseService::successResponse('Webinar updated successfully', $webinar);
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to update webinar: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete webinar
+     */
+    public function destroy($id)
+    {
+        $this->ensureAdmin();
+        $webinar = Webinar::findOrFail($id);
+
+        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR')) && $webinar->instructor_id !== Auth::id()) {
+            return ApiResponseService::errorResponse('Unauthorized', [], 403);
+        }
+
+        $webinar->delete();
+        return ApiResponseService::successResponse('Webinar deleted successfully');
+    }
+}

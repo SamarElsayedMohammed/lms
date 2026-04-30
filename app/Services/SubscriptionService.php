@@ -19,7 +19,7 @@ final class SubscriptionService
     ) {}
 
     /**
-     * Create a new subscription for a user
+     * Create a new subscription for a user (Supports Stacking)
      */
     public function createSubscription(
         User $user,
@@ -29,15 +29,42 @@ final class SubscriptionService
         ?float $gatewayAmount = null
     ): Subscription {
         return DB::transaction(function () use ($user, $plan, $paymentMethod, $walletAmount, $gatewayAmount) {
-            // Cancel any existing active subscription
             $existingSubscription = $this->getActiveSubscription($user);
+            
+            // 1. Same Plan Stacking (Extension)
+            if ($existingSubscription && $existingSubscription->plan_id === $plan->id && !$existingSubscription->isLifetime()) {
+                $baseDays = $plan->getDurationDays();
+                if ($baseDays) {
+                    $existingSubscription->extend($baseDays);
+                    
+                    // Create payment record for the extension
+                    $this->createPaymentRecord($existingSubscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount);
+                    
+                    Log::info('Subscription extended (Stacked)', [
+                        'user_id' => $user->id,
+                        'plan_id' => $plan->id,
+                        'subscription_id' => $existingSubscription->id,
+                    ]);
+
+                    return $existingSubscription;
+                }
+            }
+
+            // 2. Different Plan Stacking (Queuing)
+            $startsAt = now();
+            $status = Subscription::STATUS_ACTIVE;
+            $parentSubscriptionId = null;
+
             if ($existingSubscription) {
-                $existingSubscription->cancel('Upgraded to new plan');
+                // If user has an active subscription, the new one starts after it
+                $startsAt = $existingSubscription->ends_at ?? now();
+                $status = Subscription::STATUS_PENDING; // Mark as pending until it's time to start
+                $parentSubscriptionId = $existingSubscription->id;
             }
 
             // Calculate dates
-            $startsAt = now();
-            $endsAt = $plan->isLifetime() ? null : $startsAt->copy()->addDays($plan->getDurationDays());
+            $baseDays = $plan->getDurationDays();
+            $endsAt = $plan->isLifetime() ? null : ($baseDays !== null ? $startsAt->copy()->addDays($baseDays) : null);
 
             // Create subscription
             $subscription = Subscription::create([
@@ -45,45 +72,81 @@ final class SubscriptionService
                 'plan_id' => $plan->id,
                 'starts_at' => $startsAt,
                 'ends_at' => $endsAt,
-                'status' => Subscription::STATUS_ACTIVE,
+                'status' => $status,
                 'auto_renew' => true,
+                'parent_subscription_id' => $parentSubscriptionId,
                 'notified_7_days' => false,
                 'notified_3_days' => false,
                 'notified_1_day' => false,
             ]);
 
             // Create payment record
-            $totalAmount = (float) $plan->price;
-            $walletAmount = $walletAmount ?? 0;
-            $gatewayAmount = $gatewayAmount ?? ($totalAmount - $walletAmount);
-
-            SubscriptionPayment::create([
-                'subscription_id' => $subscription->id,
-                'user_id' => $user->id,
-                'amount' => $totalAmount,
-                'wallet_amount' => $walletAmount,
-                'gateway_amount' => $gatewayAmount,
-                'status' => SubscriptionPayment::STATUS_COMPLETED,
-                'payment_method' => $paymentMethod ?? 'wallet',
-                'paid_at' => now(),
-            ]);
+            $this->createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount);
 
             // Deduct from wallet if applicable
             if ($walletAmount > 0 && $user->wallet_balance >= $walletAmount) {
                 $user->decrement('wallet_balance', $walletAmount);
             }
 
-            Log::info('Subscription created', [
+            Log::info('Subscription created' . ($status === Subscription::STATUS_PENDING ? ' (Queued)' : ''), [
                 'user_id' => $user->id,
                 'plan_id' => $plan->id,
                 'subscription_id' => $subscription->id,
             ]);
 
-            // Process affiliate referral (one-time commission if user was referred)
+            // Process affiliate referral
             $this->affiliateService->processReferral($user, $subscription);
+
+            // Server-side tracking
+            $this->trackSubscriptionPurchase($user, $subscription, $plan);
 
             return $subscription;
         });
+    }
+
+    /**
+     * Helper to create payment record
+     */
+    private function createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount): void
+    {
+        $totalAmount = (float) $plan->price;
+        $walletAmount = $walletAmount ?? 0;
+        $gatewayAmount = $gatewayAmount ?? ($totalAmount - $walletAmount);
+
+        SubscriptionPayment::create([
+            'subscription_id' => $subscription->id,
+            'user_id' => $user->id,
+            'amount' => $totalAmount,
+            'wallet_amount' => $walletAmount,
+            'gateway_amount' => $gatewayAmount,
+            'status' => SubscriptionPayment::STATUS_COMPLETED,
+            'payment_method' => $paymentMethod ?? 'wallet',
+            'paid_at' => now(),
+        ]);
+    }
+
+    /**
+     * Helper to track purchase
+     */
+    private function trackSubscriptionPurchase($user, $subscription, $plan): void
+    {
+        \App\Services\TrackingService::sendFacebookEvent('Purchase', [
+            'em' => hash('sha256', $user->email),
+        ], [
+            'value' => (float) $plan->price,
+            'currency' => 'EGP',
+            'content_name' => $plan->name,
+            'content_ids' => [(string) $plan->id],
+            'content_type' => 'product',
+        ]);
+        \App\Services\TrackingService::sendGA4Event('purchase', [
+            'transaction_id' => 'SUB-' . $subscription->id,
+            'value' => (float) $plan->price,
+            'currency' => 'EGP',
+            'items' => [
+                ['item_id' => (string) $plan->id, 'item_name' => $plan->name]
+            ]
+        ]);
     }
 
     /**

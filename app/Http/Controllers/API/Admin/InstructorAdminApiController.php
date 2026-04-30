@@ -80,6 +80,9 @@ class InstructorAdminApiController extends AdminCrudApiController
             'bank_account_holder_name' => 'nullable|string',
             'bank_ifsc_code'        => 'nullable|string',
             'profile'               => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'team_logo'             => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'id_proof'              => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf,doc,docx|max:5120',
+            'preview_video'         => 'nullable|file|mimes:mp4,mov,avi,wmv,flv,mpeg,mpg,m4v,webm|max:51200',
         ]);
 
         if ($validator->fails()) {
@@ -131,6 +134,12 @@ class InstructorAdminApiController extends AdminCrudApiController
                 'bank_name'                 => $request->input('bank_name'),
                 'bank_account_holder_name'  => $request->input('bank_account_holder_name'),
                 'bank_ifsc_code'            => $request->input('bank_ifsc_code'),
+                'team_logo'                 => $request->hasFile('team_logo') ? FileService::compressAndUpload($request->file('team_logo'), 'instructor/team_logos') : null,
+                'team_logo_extension'       => $request->hasFile('team_logo') ? $request->file('team_logo')->getClientOriginalExtension() : null,
+                'id_proof'                  => $request->hasFile('id_proof') ? FileService::compressAndUpload($request->file('id_proof'), 'instructor/id_proofs') : null,
+                'id_proof_extension'        => $request->hasFile('id_proof') ? $request->file('id_proof')->getClientOriginalExtension() : null,
+                'preview_video'             => $request->hasFile('preview_video') ? FileService::compressAndUpload($request->file('preview_video'), 'instructor/videos') : null,
+                'preview_video_extension'   => $request->hasFile('preview_video') ? $request->file('preview_video')->getClientOriginalExtension() : null,
             ]);
 
             DB::commit();
@@ -171,6 +180,9 @@ class InstructorAdminApiController extends AdminCrudApiController
             'bank_account_holder_name'  => 'nullable|string',
             'bank_ifsc_code'            => 'nullable|string',
             'profile'                   => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'team_logo'                 => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'id_proof'                  => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf,doc,docx|max:5120',
+            'preview_video'             => 'nullable|file|mimes:mp4,mov,avi,wmv,flv,mpeg,mpg,m4v,webm|max:51200',
         ]);
 
         if ($validator->fails()) {
@@ -200,12 +212,43 @@ class InstructorAdminApiController extends AdminCrudApiController
             $instructor->update($request->only(['type', 'status']));
 
             // Update Personal Details
+            $personalDetails = $request->only([
+                'qualification', 'years_of_experience', 'skills', 'about_me', 'team_name',
+                'bank_account_number', 'bank_name', 'bank_account_holder_name', 'bank_ifsc_code'
+            ]);
+
+            $existingDetails = $instructor->personal_details;
+
+            if ($request->hasFile('team_logo')) {
+                $personalDetails['team_logo'] = FileService::compressAndReplace(
+                    $request->file('team_logo'), 
+                    'instructor/team_logos', 
+                    $existingDetails ? $existingDetails->getRawOriginal('team_logo') : null
+                );
+                $personalDetails['team_logo_extension'] = $request->file('team_logo')->getClientOriginalExtension();
+            }
+
+            if ($request->hasFile('id_proof')) {
+                $personalDetails['id_proof'] = FileService::compressAndReplace(
+                    $request->file('id_proof'), 
+                    'instructor/id_proofs', 
+                    $existingDetails ? $existingDetails->getRawOriginal('id_proof') : null
+                );
+                $personalDetails['id_proof_extension'] = $request->file('id_proof')->getClientOriginalExtension();
+            }
+
+            if ($request->hasFile('preview_video')) {
+                $personalDetails['preview_video'] = FileService::compressAndReplace(
+                    $request->file('preview_video'), 
+                    'instructor/videos', 
+                    $existingDetails ? $existingDetails->getRawOriginal('preview_video') : null
+                );
+                $personalDetails['preview_video_extension'] = $request->file('preview_video')->getClientOriginalExtension();
+            }
+
             $instructor->personal_details()->updateOrCreate(
                 ['instructor_id' => $instructor->id],
-                $request->only([
-                    'qualification', 'years_of_experience', 'skills', 'about_me', 'team_name',
-                    'bank_account_number', 'bank_name', 'bank_account_holder_name', 'bank_ifsc_code'
-                ])
+                $personalDetails
             );
 
             DB::commit();

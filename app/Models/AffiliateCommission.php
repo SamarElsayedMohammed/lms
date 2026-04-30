@@ -13,6 +13,7 @@ class AffiliateCommission extends Model
         'subscription_id',
         'plan_id',
         'amount',
+        'commission_type',
         'commission_rate',
         'status',
         'earned_date',
@@ -24,6 +25,7 @@ class AffiliateCommission extends Model
 
     protected $casts = [
         'amount' => 'float',
+        'commission_type' => 'string',
         'commission_rate' => 'float',
         'earned_date' => 'date',
         'available_date' => 'date',

@@ -153,19 +153,7 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            // Check if user already has active subscription
-            $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
-            if ($existingSubscription) {
-                return ApiResponseService::errorResponse(
-                    'لديك اشتراك نشط بالفعل. يمكنك الترقية أو الانتظار حتى انتهاء الاشتراك الحالي.',
-                    ['current_subscription' => [
-                        'plan_name' => $existingSubscription->plan->name,
-                        'ends_at' => $existingSubscription->ends_at?->format('Y-m-d'),
-                        'days_remaining' => $existingSubscription->days_remaining,
-                    ]],
-                    400
-                );
-            }
+            // Allow subscription stacking: the SubscriptionService will carry over remaining days.
 
             $plan = SubscriptionPlan::findOrFail($request->plan_id);
 

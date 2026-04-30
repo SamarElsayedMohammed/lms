@@ -164,11 +164,24 @@ class ApiController extends Controller
                 if ($hasReferredBy) {
                     $affiliateCode = $request->cookie('affiliate_code')
                         ?? ($request->hasSession() ? $request->session()->get('affiliate_code') : null)
+                        ?? $request->input('referral')
                         ?? $request->input('affiliate_code');
+                        
                     if (!empty($affiliateCode)) {
                         $affiliateLink = \App\Models\AffiliateLink::where('code', $affiliateCode)->where('is_active', true)->first();
                         if ($affiliateLink) {
                             $userData['referred_by'] = $affiliateLink->user_id;
+                        } else {
+                            if ($request->has('referral') || $request->has('affiliate_code')) {
+                                DB::rollBack();
+                                return response()->json([
+                                    'success' => false,
+                                    'message' => 'Invalid referral code',
+                                    'errors' => [
+                                        'referral' => ['Invalid referral code']
+                                    ]
+                                ], 422);
+                            }
                         }
                     }
                 }
@@ -184,6 +197,13 @@ class ApiController extends Controller
                 Auth::login($user);
                 $auth = User::find($user->id);
                 DB::commit();
+
+                // Server-side tracking
+                \App\Services\TrackingService::sendFacebookEvent('CompleteRegistration', [
+                    'em' => hash('sha256', $user->email),
+                    'ph' => $user->mobile ? hash('sha256', $user->mobile) : null,
+                ]);
+                \App\Services\TrackingService::sendGA4Event('sign_up', ['method' => $request->type]);
             } else {
                 Auth::login($socialLogin->user);
                 $auth = Auth::user();
@@ -203,8 +223,8 @@ class ApiController extends Controller
             }
 
             $token = $auth->createToken($auth->name ?? '')->plainTextToken;
-            $auth['token'] = $token;
-            ApiResponseService::successResponse('User logged-in successfully', $auth);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $token);
+            ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
         } catch (Throwable $th) {
             DB::rollBack();
             ApiResponseService::errorResponse(exception: $th);
@@ -268,8 +288,8 @@ class ApiController extends Controller
             }
 
             $token = $auth->createToken($auth->name ?? '')->plainTextToken;
-            $auth['token'] = $token;
-            ApiResponseService::successResponse('User logged-in successfully', $auth);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $token);
+            ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -315,8 +335,8 @@ class ApiController extends Controller
 
             // Generate new token
             $token = $user->createToken($user->name ?? '')->plainTextToken;
-            $user['token'] = $token;
-            ApiResponseService::successResponse('Login successful', $user);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
+            ApiResponseService::successResponse('Login successful', $formattedUser);
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -368,11 +388,24 @@ class ApiController extends Controller
             if ($hasReferredBy) {
                 $affiliateCode = $request->cookie('affiliate_code')
                     ?? ($request->hasSession() ? $request->session()->get('affiliate_code') : null)
+                    ?? $request->input('referral')
                     ?? $request->input('affiliate_code');
+                    
                 if (!empty($affiliateCode)) {
                     $affiliateLink = \App\Models\AffiliateLink::where('code', $affiliateCode)->where('is_active', true)->first();
                     if ($affiliateLink) {
                         $userData['referred_by'] = $affiliateLink->user_id;
+                    } else {
+                        if ($request->has('referral') || $request->has('affiliate_code')) {
+                            DB::rollBack();
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Invalid referral code',
+                                'errors' => [
+                                    'referral' => ['Invalid referral code']
+                                ]
+                            ], 422);
+                        }
                     }
                 }
             }
@@ -409,8 +442,8 @@ class ApiController extends Controller
             DB::commit();
             // Generate new token
             $token = $user->createToken($user->name ?? '')->plainTextToken;
-            $user['token'] = $token;
-            ApiResponseService::successResponse('Registration successful', $user);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
+            ApiResponseService::successResponse('Registration successful', $formattedUser);
         } catch (Throwable $th) {
             DB::rollBack();
             ApiResponseService::errorResponse(exception: $th);
@@ -3173,5 +3206,36 @@ class ApiController extends Controller
             ApiResponseService::logErrorResponse($th, 'API Controller -> submitBecomeInstructor Method');
             return ApiResponseService::errorResponse('Failed to submit request. Please try again later.', exception: $th);
         }
+    }
+
+    /**
+     * Format user response with roles and permissions correctly (removes pivot data).
+     *
+     * @param User $user
+     * @param string $token
+     * @return array
+     */
+    protected function formatUserWithRolesAndPermissions(User $user, string $token): array
+    {
+        $userData = $user->toArray();
+        $userData['token'] = $token;
+
+        $userData['roles'] = $user->roles->map(function ($role) {
+            return [
+                'id' => $role->id,
+                'name' => $role->name,
+                'guard_name' => $role->guard_name,
+                'custom_role' => $role->custom_role,
+            ];
+        })->toArray();
+
+        $userData['permissions'] = $user->getAllPermissions()->map(function ($permission) {
+            return [
+                'id' => $permission->id,
+                'name' => $permission->name,
+            ];
+        })->toArray();
+
+        return $userData;
     }
 }

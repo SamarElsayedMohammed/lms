@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Builder;
  * @property int|null $duration_days
  * @property string $billing_cycle
  * @property float $price
+ * @property string $commission_type
  * @property float $commission_rate
  * @property array|null $features
  * @property bool $is_active
@@ -39,6 +40,7 @@ final class SubscriptionPlan extends Model
         'duration_days',
         'billing_cycle',
         'price',
+        'commission_type',
         'commission_rate',
         'features',
         'is_active',
@@ -47,6 +49,7 @@ final class SubscriptionPlan extends Model
 
     protected $casts = [
         'price' => 'decimal:2',
+        'commission_type' => 'string',
         'commission_rate' => 'decimal:2',
         'features' => 'array',
         'is_active' => 'boolean',

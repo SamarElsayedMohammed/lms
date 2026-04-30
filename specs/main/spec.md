@@ -1,6 +1,8 @@
 # Feature Specification: LMS Remaining Tasks (23 Tasks)
 
-**Date**: 2026-02-18 | **Priority**: High | **Est. Time**: 25.25 hours
+> **Task IDs:** The numbered items below (T008, T014, …) are **legacy ClickUp-style references**. For current IDs, checkpoints, and completion status, use **`specs/main/tasks.md`**. The master execution overview is **`specs/main/plan.md`**.
+
+**Date**: 2026-02-18 | **Priority**: High | **Est. Time**: 25.25 hours *(original estimate; see tasks.md for full scope)*
 
 ## Overview
 

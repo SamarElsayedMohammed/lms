@@ -24,6 +24,11 @@ use Carbon\Carbon;
  * @property bool $notified_7_days
  * @property bool $notified_3_days
  * @property bool $notified_1_day
+ * @property string $activation_mode
+ * @property Carbon|null $queued_starts_at
+ * @property Carbon|null $queued_expires_at
+ * @property int|null $parent_subscription_id
+ * @property Carbon|null $paid_at
  * @property string|null $cancellation_reason
  * @property Carbon|null $cancelled_at
  * @property Carbon $created_at
@@ -50,12 +55,20 @@ final class Subscription extends Model
         'notified_7_days',
         'notified_3_days',
         'notified_1_day',
+        'activation_mode',
+        'queued_starts_at',
+        'queued_expires_at',
+        'parent_subscription_id',
+        'paid_at',
     ];
 
     protected $casts = [
         'starts_at' => 'datetime',
         'ends_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'queued_starts_at' => 'datetime',
+        'queued_expires_at' => 'datetime',
+        'paid_at' => 'datetime',
         'auto_renew' => 'boolean',
         'notified_7_days' => 'boolean',
         'notified_3_days' => 'boolean',
@@ -81,6 +94,14 @@ final class Subscription extends Model
     public function plan(): BelongsTo
     {
         return $this->belongsTo(SubscriptionPlan::class, 'plan_id');
+    }
+
+    /**
+     * Get the parent subscription if this is queued
+     */
+    public function parentSubscription(): BelongsTo
+    {
+        return $this->belongsTo(Subscription::class, 'parent_subscription_id');
     }
 
     /**

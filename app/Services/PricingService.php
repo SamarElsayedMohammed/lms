@@ -100,6 +100,36 @@ final class PricingService
         return round($amount * (float) $currency->exchange_rate_to_egp, 2);
     }
 
+    /**
+     * Convert amount from EGP to given currency code.
+     */
+    public function convertFromEgp(float $amount, string $currencyCode): float
+    {
+        $currencyCode = strtoupper($currencyCode);
+
+        if ($currencyCode === 'EGP') {
+            return $amount;
+        }
+
+        $currency = SupportedCurrency::where('currency_code', $currencyCode)->first();
+
+        if ($currency === null || (float) $currency->exchange_rate_to_egp <= 0) {
+            return $amount;
+        }
+
+        return round($amount / (float) $currency->exchange_rate_to_egp, 2);
+    }
+
+    /**
+     * Get currency details for a given country code.
+     */
+    public function getCurrencyForCountry(string $countryCode): ?SupportedCurrency
+    {
+        return SupportedCurrency::where('country_code', strtoupper($countryCode))
+            ->where('is_active', true)
+            ->first();
+    }
+
     private function getCurrencySymbol(string $currencyCode): string
     {
         $currency = SupportedCurrency::where('currency_code', strtoupper($currencyCode))->first();

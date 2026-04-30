@@ -27,4 +27,5 @@ Artisan::command('inspire', function (): void {
 Schedule::command('affiliate:release-commissions')->daily();
 Schedule::command('subscriptions:send-expiry-notifications')->daily();
 Schedule::command('subscriptions:handle-expired')->daily();
+Schedule::command('subscriptions:activate-queued')->hourly();
 Schedule::command('currencies:update-rates')->hourlyAt(0)->skip(fn() => now()->hour % 5 !== 0);

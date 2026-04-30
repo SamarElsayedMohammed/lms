@@ -51,6 +51,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('user-exists', [ApiController::class, 'userExists']);
 Route::post('user-signup', [ApiController::class, 'userSignup']);
 Route::post('user-login', [ApiController::class, 'userLogin']);
+Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin']);
 Route::post('mobile-login', [ApiController::class, 'mobileLogin']);
 Route::post('mobile-registration', [ApiController::class, 'mobileRegistration']);
 Route::post('mobile-reset-password', [ApiController::class, 'mobileResetPassword']);
@@ -64,6 +65,17 @@ Route::post('admin-login', [ApiController::class, 'adminLogin']);
 
 Route::get('categories', [ApiController::class, 'getCategories']); // Get Categories
 Route::get('get-custom-form-fields', [ApiController::class, 'getCustomFormFields']); // Get Custom Form Fields
+Route::get('active-popup', [\App\Http\Controllers\API\PopupCampaignApiController::class, 'getActiveCampaign']); // Get active popup campaign
+
+Route::get('ip-debug', function (Illuminate\Http\Request $request, App\Services\GeoLocationService $geo) {
+    return response()->json([
+        'detected_country' => $geo->getCountryCodeFromRequest($request),
+        'real_ip' => $geo->getRealIpAddress($request),
+        'request_ip' => $request->ip(),
+        'cf_country' => $request->server('HTTP_CF_IPCOUNTRY'),
+        'headers' => collect($request->server())->filter(fn($v, $k) => str_starts_with($k, 'HTTP_'))->toArray()
+    ]);
+});
 
 Route::post('course-view', [CourseApiController::class, 'courseView']);
 Route::get('get-search-suggestions', [CourseApiController::class, 'getSearchSuggestions']);
@@ -127,6 +139,7 @@ Route::prefix('affiliate')->group(function (): void {
         Route::get('stats', [AffiliateApiController::class, 'getStats']);
         Route::get('commissions', [AffiliateApiController::class, 'getCommissions']);
         Route::post('withdraw', [AffiliateApiController::class, 'requestWithdrawal']);
+        Route::post('transfer-to-wallet', [AffiliateApiController::class, 'transferToWallet']);
         Route::get('withdrawals', [AffiliateApiController::class, 'getWithdrawals']);
     });
 });
@@ -289,6 +302,17 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('/withdrawal-request', [WalletApiController::class, 'createWithdrawalRequest']); // Create withdrawal request
         Route::get('/withdrawal-requests', [WalletApiController::class, 'getWithdrawalRequests']); // Get withdrawal requests
         Route::get('/withdrawal-request/details', [WalletApiController::class, 'getWithdrawalRequestDetails']); // Get withdrawal request details
+        
+        // Manual Deposits
+        Route::get('/manual-deposits/methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
+        Route::post('/manual-deposits', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit']);
+        Route::get('/manual-deposits', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMyDeposits']);
+
+        // Webinars (User)
+        Route::get('/webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);
+        Route::get('/webinars/{id}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
+        Route::post('/webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register']);
+        Route::get('/webinars/{id}/join', [\App\Http\Controllers\API\WebinarApiController::class, 'join']);
     });
 
     // rating_reviews
@@ -542,6 +566,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('withdrawals/pending', [AffiliateController::class, 'pendingWithdrawals']);
         Route::post('withdrawals/{id}/approve', [AffiliateController::class, 'approveWithdrawal']);
         Route::post('withdrawals/{id}/reject', [AffiliateController::class, 'rejectWithdrawal']);
+
+        // Admin Popup Campaigns
+        Route::prefix('popup-campaigns')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'store']);
+            Route::put('/{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'update']);
+            Route::delete('/{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'destroy']);
+        });
         Route::get('commissions', [AffiliateController::class, 'allCommissions']);
         Route::get('stats', [AffiliateController::class, 'stats']);
     });
@@ -675,6 +707,33 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::put('roles/{id}', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'update']);
             Route::delete('roles/{id}', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'destroy']);
             Route::get('permissions', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'permissions']);
+        });
+
+        // Manual Deposit Methods & Requests (Admin)
+        Route::prefix('manual-deposits')->group(function (): void {
+            Route::get('methods', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'indexMethods']);
+            Route::post('methods', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'storeMethod']);
+            Route::put('methods/{id}', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'updateMethod']);
+            Route::delete('methods/{id}', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'destroyMethod']);
+            
+            Route::get('/', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'indexDeposits']);
+            Route::post('{id}/status', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'updateDepositStatus']);
+        });
+
+        // Webinars (Admin/Instructor)
+        Route::prefix('webinars')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'store']);
+            Route::put('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'update']);
+            Route::delete('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'destroy']);
+        });
+
+        // Popup Campaigns (Admin)
+        Route::prefix('marketing/popups')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'store']);
+            Route::put('{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'update']);
+            Route::delete('{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'destroy']);
         });
     });
 
