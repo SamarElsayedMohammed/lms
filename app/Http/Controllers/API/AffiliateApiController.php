@@ -9,6 +9,7 @@ use App\Models\AffiliateCommission;
 use App\Models\AffiliateWithdrawal;
 use App\Services\AffiliateService;
 use App\Services\ApiResponseService;
+use App\Services\PricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,8 +20,8 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 final class AffiliateApiController extends Controller
 {
     public function __construct(
-        private readonly AffiliateService $affiliateService,
-        private readonly PricingService $pricingService
+        private readonly \App\Services\AffiliateService $affiliateService,
+        private readonly \App\Services\PricingService $pricingService
     ) {}
 
     /**
