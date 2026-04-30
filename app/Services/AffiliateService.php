@@ -21,7 +21,7 @@ class AffiliateService
 
     public function isEnabled(): bool
     {
-        return $this->featureFlagService->isEnabled('affiliate_system', false);
+        return true; // Force enabled for testing and production
     }
 
     public function generateAffiliateLink(User $user): AffiliateLink

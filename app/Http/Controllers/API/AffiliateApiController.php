@@ -40,7 +40,7 @@ final class AffiliateApiController extends Controller
     /**
      * Get or generate affiliate link for authenticated user.
      */
-    public function getMyLink(): never
+    public function getMyLink(Request $request): never
     {
         if (!$this->affiliateService->isEnabled()) {
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
@@ -63,7 +63,7 @@ final class AffiliateApiController extends Controller
     /**
      * Get affiliate stats for authenticated user.
      */
-    public function getStats(): never
+    public function getStats(Request $request): never
     {
         if (!$this->affiliateService->isEnabled()) {
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
