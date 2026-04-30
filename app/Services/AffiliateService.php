@@ -69,8 +69,8 @@ class AffiliateService
             return null;
         }
 
+        // Rule: Commission is given ONLY on the FIRST subscription for the referred user.
         $existingCommission = AffiliateCommission::where('referred_user_id', $referredUser->id)
-            ->where('subscription_id', $subscription->id)
             ->exists();
         if ($existingCommission) {
             return null;
@@ -81,11 +81,18 @@ class AffiliateService
         $paymentAmount = $payment ? (float) $payment->amount : (float) $plan->price;
 
         $commissionRate = (float) ($plan->commission_rate ?? 0);
+        $commissionType = $plan->commission_type ?? 'percentage';
+        
         if ($commissionRate <= 0) {
             return null;
         }
 
-        $amount = round($paymentAmount * ($commissionRate / 100), 2);
+        if ($commissionType === 'fixed') {
+            $amount = $commissionRate;
+        } else {
+            $amount = round($paymentAmount * ($commissionRate / 100), 2);
+        }
+
         $earnedDate = Carbon::today();
         $availableDate = $this->calculateAvailableDate($earnedDate);
 
@@ -96,13 +103,14 @@ class AffiliateService
             ? $earnedDate->copy()->day(15)
             : $earnedDate->copy()->endOfMonth();
 
-        return DB::transaction(function () use ($affiliateId, $referredUser, $subscription, $plan, $amount, $commissionRate, $earnedDate, $availableDate, $periodStart, $periodEnd) {
+        return DB::transaction(function () use ($affiliateId, $referredUser, $subscription, $plan, $amount, $commissionType, $commissionRate, $earnedDate, $availableDate, $periodStart, $periodEnd) {
             $commission = AffiliateCommission::create([
                 'affiliate_id' => $affiliateId,
                 'referred_user_id' => $referredUser->id,
                 'subscription_id' => $subscription->id,
                 'plan_id' => $plan->id,
                 'amount' => $amount,
+                'commission_type' => $commissionType,
                 'commission_rate' => $commissionRate,
                 'status' => 'pending',
                 'earned_date' => $earnedDate,
@@ -207,6 +215,60 @@ class AffiliateService
                 'status' => 'pending',
                 'requested_at' => now(),
             ]);
+        });
+    }
+
+    /**
+     * Transfer available commission directly to user's wallet balance.
+     * No minimum amount required.
+     */
+    public function transferCommissionToWallet(User $user, float $amount): void
+    {
+        if (!$this->isEnabled()) {
+            throw new \InvalidArgumentException('Affiliate system is not enabled.');
+        }
+
+        if ($amount <= 0) {
+            throw new \InvalidArgumentException('Amount must be greater than zero.');
+        }
+
+        $availableBalance = $this->getAvailableBalance($user);
+        if ($availableBalance < $amount) {
+            throw new \InvalidArgumentException('Insufficient available balance.');
+        }
+
+        DB::transaction(function () use ($user, $amount) {
+            $commissions = AffiliateCommission::forAffiliate($user->id)
+                ->available()
+                ->orderBy('available_date')
+                ->orderBy('id')
+                ->get();
+
+            $selected = [];
+            $sum = 0.0;
+
+            foreach ($commissions as $commission) {
+                $selected[] = $commission;
+                $sum += (float) $commission->amount;
+                if ($sum >= $amount) {
+                    break;
+                }
+            }
+
+            if ($sum < $amount) {
+                throw new \InvalidArgumentException('Insufficient available balance.');
+            }
+
+            foreach ($selected as $commission) {
+                $commission->update([
+                    'status' => 'transferred_to_wallet',
+                    'withdrawn_at' => now(),
+                ]);
+            }
+
+            // The amount deducted from commission goes into wallet.
+            // Since we transfer whole discrete commission records, the user gets the exact sum of those records.
+            $user->increment('wallet_balance', $sum);
         });
     }
 

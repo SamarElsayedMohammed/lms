@@ -56,7 +56,8 @@ final class SubscriptionPlanService
             'billing_cycle' => 'custom',
             'duration_days' => (int) $panel['duration'],
             'price' => $listPrice,
-            'commission_rate' => 0,
+            'commission_type' => $panel['commission_type'] ?? 'percentage',
+            'commission_rate' => $panel['commission_rate'] ?? 0,
             'features' => $panel['features'] ?? null,
             'sort_order' => 0,
             'countries' => [
@@ -84,6 +85,7 @@ final class SubscriptionPlanService
 
             $validated['slug'] = $this->uniqueSlugForName($validated['name']);
             $validated['duration_days'] = $this->resolveDurationDays($validated);
+            $validated['commission_type'] = $validated['commission_type'] ?? 'percentage';
             $validated['commission_rate'] = $validated['commission_rate'] ?? 0;
             $validated['sort_order'] = $validated['sort_order'] ?? 0;
             $validated['is_active'] = $isActive;

@@ -19,7 +19,8 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 final class AffiliateApiController extends Controller
 {
     public function __construct(
-        private readonly AffiliateService $affiliateService
+        private readonly AffiliateService $affiliateService,
+        private readonly PricingService $pricingService
     ) {}
 
     /**
@@ -74,9 +75,22 @@ final class AffiliateApiController extends Controller
 
         $link = $this->affiliateService->generateAffiliateLink($user);
 
+        $availableEgp = $this->affiliateService->getAvailableBalance($user);
+        $pendingEgp = $this->affiliateService->getPendingBalance($user);
+        
+        $countryCode = $this->pricingService->detectUserCountry($request);
+        $currency = $this->pricingService->getCurrencyForCountry($countryCode);
+        
+        $displayCurrency = $currency ? $currency->currency_code : 'EGP';
+        $displaySymbol = $currency ? $currency->currency_symbol : 'ج.م';
+        
         ApiResponseService::successResponse('OK', [
-            'available_balance' => $this->affiliateService->getAvailableBalance($user),
-            'pending_balance' => $this->affiliateService->getPendingBalance($user),
+            'available_balance' => (float) $availableEgp,
+            'pending_balance' => (float) $pendingEgp,
+            'local_available_balance' => $this->pricingService->convertFromEgp((float) $availableEgp, $displayCurrency),
+            'local_pending_balance' => $this->pricingService->convertFromEgp((float) $pendingEgp, $displayCurrency),
+            'display_currency' => $displayCurrency,
+            'display_symbol' => $displaySymbol,
             'total_conversions' => $link->total_conversions,
             'total_clicks' => $link->total_clicks,
         ]);
@@ -110,9 +124,18 @@ final class AffiliateApiController extends Controller
 
         $paginator = $query->paginate($perPage);
 
+        $countryCode = $this->pricingService->detectUserCountry($request);
+        $currency = $this->pricingService->getCurrencyForCountry($countryCode);
+        $displayCurrency = $currency ? $currency->currency_code : 'EGP';
+        $displaySymbol = $currency ? $currency->currency_symbol : 'ج.م';
+
         $commissions = $paginator->getCollection()->map(fn (AffiliateCommission $c) => [
             'id' => $c->id,
             'amount' => (float) $c->amount,
+            'local_amount' => $this->pricingService->convertFromEgp((float) $c->amount, $displayCurrency),
+            'display_currency' => $displayCurrency,
+            'display_symbol' => $displaySymbol,
+            'commission_type' => $c->commission_type ?? 'percentage',
             'commission_rate' => (float) $c->commission_rate,
             'status' => $c->status,
             'earned_date' => $c->earned_date?->format('Y-m-d'),
@@ -161,7 +184,16 @@ final class AffiliateApiController extends Controller
         }
 
         try {
-            $withdrawal = $this->affiliateService->requestWithdrawal($user, (float) $request->input('amount'));
+            $amount = (float) $request->input('amount');
+            
+            // Convert back to EGP if user is in a different country
+            $countryCode = $this->pricingService->detectUserCountry($request);
+            $currency = $this->pricingService->getCurrencyForCountry($countryCode);
+            if ($currency && $currency->currency_code !== 'EGP') {
+                $amount = $this->pricingService->convertToEgp($amount, $currency->currency_code);
+            }
+
+            $withdrawal = $this->affiliateService->requestWithdrawal($user, $amount);
 
             ApiResponseService::successResponse('Withdrawal request submitted successfully', [
                 'withdrawal' => [
@@ -170,6 +202,48 @@ final class AffiliateApiController extends Controller
                     'status' => $withdrawal->status,
                     'requested_at' => $withdrawal->requested_at?->format('Y-m-d H:i:s'),
                 ],
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            ApiResponseService::errorResponse($e->getMessage(), null, 422);
+        }
+    }
+
+    /**
+     * Transfer available commission to user wallet.
+     */
+    public function transferToWallet(Request $request): never
+    {
+        if (!$this->affiliateService->isEnabled()) {
+            ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
+        }
+
+        $user = Auth::user();
+        if (!$user) {
+            ApiResponseService::errorResponse('Authentication required.', null, 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required|numeric|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            ApiResponseService::validationError($validator->errors()->first());
+        }
+
+        try {
+            $amount = (float) $request->input('amount');
+            
+            // Convert back to EGP if user is in a different country
+            $countryCode = $this->pricingService->detectUserCountry($request);
+            $currency = $this->pricingService->getCurrencyForCountry($countryCode);
+            if ($currency && $currency->currency_code !== 'EGP') {
+                $amount = $this->pricingService->convertToEgp($amount, $currency->currency_code);
+            }
+
+            $this->affiliateService->transferCommissionToWallet($user, $amount);
+
+            ApiResponseService::successResponse('Commission transferred to wallet successfully', [
+                'new_wallet_balance' => (float) $user->fresh()->wallet_balance,
             ]);
         } catch (\InvalidArgumentException $e) {
             ApiResponseService::errorResponse($e->getMessage(), null, 422);
@@ -195,9 +269,17 @@ final class AffiliateApiController extends Controller
 
         $paginator = $this->affiliateService->getWithdrawals($user, $perPage);
 
+        $countryCode = $this->pricingService->detectUserCountry($request);
+        $currency = $this->pricingService->getCurrencyForCountry($countryCode);
+        $displayCurrency = $currency ? $currency->currency_code : 'EGP';
+        $displaySymbol = $currency ? $currency->currency_symbol : 'ج.م';
+
         $withdrawals = $paginator->getCollection()->map(fn (AffiliateWithdrawal $w) => [
             'id' => $w->id,
             'amount' => (float) $w->amount,
+            'local_amount' => $this->pricingService->convertFromEgp((float) $w->amount, $displayCurrency),
+            'display_currency' => $displayCurrency,
+            'display_symbol' => $displaySymbol,
             'status' => $w->status,
             'requested_at' => $w->requested_at?->format('Y-m-d H:i:s'),
             'processed_at' => $w->processed_at?->format('Y-m-d H:i:s'),

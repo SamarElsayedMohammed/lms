@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Mail\SubscriptionExpiryNotification;
 use App\Models\UserFcmToken;
 use App\Services\NotificationService;
 use App\Services\SubscriptionService;
@@ -32,8 +31,9 @@ class SendSubscriptionExpiryNotifications extends Command
 
             foreach ($subscriptions as $subscription) {
                 try {
-                    Mail::to($subscription->user->email)->send(
-                        new SubscriptionExpiryNotification($subscription, $days)
+                    // Send Multi-channel Notification (Mail + Database)
+                    $subscription->user->notify(
+                        new \App\Notifications\SubscriptionExpiryNotification($subscription, $days)
                     );
 
                     $this->sendPushNotification($subscription, $days);

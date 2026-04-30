@@ -26,6 +26,7 @@ final class SubscriptionPlanAdminResource extends JsonResource
             'billing_cycle_label' => $this->billing_cycle_label,
             'duration_days' => $this->duration_days,
             'price' => (float) $this->price,
+            'commission_type' => $this->commission_type ?? 'percentage',
             'commission_rate' => (float) $this->commission_rate,
             'features' => $this->features,
             'is_active' => (bool) $this->is_active,

@@ -210,6 +210,7 @@ class InstructorApiController extends Controller
                     $this->instructorPersonalDetailFolder,
                     $existingFile,
                 );
+                $personalDetailsData['team_logo_extension'] = $request->team_logo->getClientOriginalExtension();
             }
             if ($request->hasFile('id_proof')) {
                 $existingFile = !empty($instructorPersonalDetail)
@@ -220,6 +221,7 @@ class InstructorApiController extends Controller
                     $this->instructorPersonalDetailFolder,
                     $existingFile,
                 );
+                $personalDetailsData['id_proof_extension'] = $request->id_proof->getClientOriginalExtension();
             }
             if ($request->hasFile('preview_video')) {
                 $existingFile = !empty($instructorPersonalDetail)
@@ -230,6 +232,7 @@ class InstructorApiController extends Controller
                     $this->instructorPersonalDetailFolder,
                     $existingFile,
                 );
+                $personalDetailsData['preview_video_extension'] = $request->preview_video->getClientOriginalExtension();
             }
 
             // Update or Create Personal Details

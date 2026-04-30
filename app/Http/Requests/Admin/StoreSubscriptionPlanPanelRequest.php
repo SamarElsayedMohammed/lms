@@ -28,6 +28,8 @@ final class StoreSubscriptionPlanPanelRequest extends FormRequest
             'status' => 'nullable|boolean',
             'is_featured' => 'nullable|boolean',
             'can_subscribe' => 'nullable|boolean',
+            'commission_type' => 'nullable|in:percentage,fixed',
+            'commission_rate' => 'nullable|numeric|min:0',
             'features' => 'nullable|array',
             'features.*' => 'nullable|string|max:500',
         ];
