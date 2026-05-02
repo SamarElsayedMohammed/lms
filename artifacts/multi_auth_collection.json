@@ -1,0 +1,306 @@
+{
+  "info": {
+    "name": "Multi-Auth Systems API",
+    "description": "كولكشن كامل لأنظمة تسجيل الدخول المتعددة في LMS",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api", "type": "string" },
+    { "key": "admin_token", "value": "YOUR_ADMIN_TOKEN", "type": "string" },
+    { "key": "user_token", "value": "YOUR_USER_TOKEN", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🔥 1. Firebase Auth (Mobile App)",
+      "description": "يستخدم Firebase token للتحقق. مناسب للموبايل مع Google/Apple/Email.",
+      "item": [
+        {
+          "name": "User Signup — Email",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"email\",\n  \"firebase_token\": \"FIREBASE_ID_TOKEN_HERE\",\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"confirm_password\": \"password123\",\n  \"name\": \"Ahmed Mohamed\",\n  \"mobile\": null,\n  \"fcm_id\": null,\n  \"platform_type\": \"android\",\n  \"referral\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/user-signup", "host": ["{{base_url}}"], "path": ["user-signup"] },
+            "description": "تسجيل مستخدم جديد عبر Email.\n\nيتطلب firebase_token من Firebase SDK.\nيدعم referral code للإحالة."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK", "code": 200,
+              "body": "{\n  \"status\": true,\n  \"message\": \"User logged-in successfully\",\n  \"data\": {\n    \"id\": 10,\n    \"name\": \"Ahmed Mohamed\",\n    \"email\": \"user@example.com\",\n    \"mobile\": null,\n    \"profile\": null,\n    \"token\": \"1|abcdefghij...\",\n    \"roles\": [{\"id\": 1, \"name\": \"User\", \"guard_name\": \"web\", \"custom_role\": 0}],\n    \"permissions\": []\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "User Signup — Google (Firebase)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"google\",\n  \"firebase_token\": \"FIREBASE_ID_TOKEN_FROM_GOOGLE\",\n  \"name\": \"Ahmed Mohamed\",\n  \"email\": \"ahmed@gmail.com\",\n  \"profile\": \"https://lh3.googleusercontent.com/photo.jpg\",\n  \"fcm_id\": null,\n  \"platform_type\": \"android\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/user-signup", "host": ["{{base_url}}"], "path": ["user-signup"] },
+            "description": "تسجيل/دخول عبر Google مع Firebase.\nإذا المستخدم موجود يتم دخوله تلقائياً."
+          }
+        },
+        {
+          "name": "User Signup — Apple (Firebase)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"apple\",\n  \"firebase_token\": \"FIREBASE_ID_TOKEN_FROM_APPLE\",\n  \"name\": \"Ahmed Mohamed\",\n  \"email\": \"ahmed@icloud.com\",\n  \"fcm_id\": null,\n  \"platform_type\": \"ios\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/user-signup", "host": ["{{base_url}}"], "path": ["user-signup"] }
+          }
+        },
+        {
+          "name": "User Login — Email (Firebase)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"email\",\n  \"firebase_token\": \"FIREBASE_ID_TOKEN_HERE\",\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"fcm_id\": null,\n  \"platform_type\": \"android\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/user-login", "host": ["{{base_url}}"], "path": ["user-login"] },
+            "description": "تسجيل دخول مستخدم موجود.\nإذا غير موجود يرجع: 'User not found. Please sign up first.'"
+          }
+        },
+        {
+          "name": "User Login — Google (Firebase)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"google\",\n  \"firebase_token\": \"FIREBASE_ID_TOKEN_FROM_GOOGLE\",\n  \"fcm_id\": null,\n  \"platform_type\": \"android\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/user-login", "host": ["{{base_url}}"], "path": ["user-login"] }
+          }
+        },
+        {
+          "name": "Check User Exists",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/user-exists", "host": ["{{base_url}}"], "path": ["user-exists"] },
+            "description": "يتحقق إذا كان المستخدم مسجلاً من قبل.\nيدعم email أو mobile.\n\nResponse: { is_new_user: true/false }"
+          },
+          "response": [
+            {
+              "name": "User Exists",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": true, \"message\": null, \"data\": { \"is_new_user\": false } }"
+            },
+            {
+              "name": "New User",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": true, \"message\": null, \"data\": { \"is_new_user\": true } }"
+            }
+          ]
+        },
+        {
+          "name": "Check User Exists — By Mobile",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"01012345678\",\n  \"country_calling_code\": \"+20\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/user-exists", "host": ["{{base_url}}"], "path": ["user-exists"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🌐 2. Social Login — Socialite (Web SPA)",
+      "description": "يستخدم Laravel Socialite. مناسب للويب مع Google/Facebook.\nيختلف عن Firebase: يستخدم access_token من Google/Facebook SDK مباشرة.",
+      "item": [
+        {
+          "name": "Social Login — Google",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_token\": \"GOOGLE_ACCESS_TOKEN_FROM_JS_SDK\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/social-login/google", "host": ["{{base_url}}"], "path": ["social-login", "google"] },
+            "description": "تسجيل دخول/تسجيل عبر Google Socialite.\n\n1. Frontend يحصل على access_token من Google JS SDK\n2. يرسله للـ API\n3. API يتحقق من التوكن مع Google\n4. ينشئ/يجلب المستخدم تلقائياً\n\nلا يحتاج تسجيل منفصل — ينشئ حساب جديد تلقائياً."
+          },
+          "response": [
+            {
+              "name": "Success — New User Created",
+              "status": "OK", "code": 200,
+              "body": "{\n  \"status\": true,\n  \"message\": \"Logged in successfully\",\n  \"data\": {\n    \"user\": {\n      \"id\": 15,\n      \"name\": \"Ahmed Mohamed\",\n      \"email\": \"ahmed@gmail.com\",\n      \"profile\": \"https://lh3.googleusercontent.com/photo.jpg\",\n      \"slug\": \"ahmed-mohamed\"\n    },\n    \"token\": \"2|xyz789abc...\"\n  }\n}"
+            },
+            {
+              "name": "Error — No Email from Provider",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": false, \"message\": \"Email not provided by social provider.\" }"
+            }
+          ]
+        },
+        {
+          "name": "Social Login — Facebook",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_token\": \"FACEBOOK_ACCESS_TOKEN_FROM_JS_SDK\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/social-login/facebook", "host": ["{{base_url}}"], "path": ["social-login", "facebook"] },
+            "description": "تسجيل دخول عبر Facebook.\n\nملاحظة: Facebook قد لا يرجع email دائماً إذا المستخدم لم يمنح الصلاحية."
+          }
+        }
+      ]
+    },
+    {
+      "name": "📱 3. Mobile Auth (رقم الهاتف)",
+      "description": "تسجيل الدخول برقم الهاتف وكلمة المرور. يستخدم Firebase للتحقق من الهاتف عند التسجيل.",
+      "item": [
+        {
+          "name": "Mobile Registration",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ahmed Mohamed\",\n  \"mobile\": \"01012345678\",\n  \"country_calling_code\": \"+20\",\n  \"password\": \"password123\",\n  \"confirm_password\": \"password123\",\n  \"firebase_token\": \"FIREBASE_TOKEN_AFTER_PHONE_VERIFY\",\n  \"email\": null,\n  \"fcm_id\": null,\n  \"platform_type\": \"android\",\n  \"referral\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/mobile-registration", "host": ["{{base_url}}"], "path": ["mobile-registration"] },
+            "description": "تسجيل مستخدم جديد برقم الهاتف.\n\nالخطوات:\n1. المستخدم يتحقق من رقم هاتفه عبر Firebase Phone Auth\n2. يحصل على firebase_token\n3. يرسله مع بيانات التسجيل\n\nيُسجل في: users (type=mobile) + social_logins (type=phone)"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK", "code": 200,
+              "body": "{\n  \"status\": true,\n  \"message\": \"Registration successful\",\n  \"data\": {\n    \"id\": 20,\n    \"name\": \"Ahmed Mohamed\",\n    \"mobile\": \"01012345678\",\n    \"token\": \"3|mno456...\",\n    \"roles\": [{\"id\": 1, \"name\": \"User\"}],\n    \"permissions\": []\n  }\n}"
+            },
+            {
+              "name": "Error — Mobile Already Exists",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": false, \"message\": \"User already exists\" }"
+            }
+          ]
+        },
+        {
+          "name": "Mobile Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"01012345678\",\n  \"country_calling_code\": \"+20\",\n  \"password\": \"password123\",\n  \"fcm_id\": null,\n  \"platform_type\": \"android\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/mobile-login", "host": ["{{base_url}}"], "path": ["mobile-login"] },
+            "description": "تسجيل دخول برقم الهاتف وكلمة المرور.\nلا يحتاج firebase_token."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK", "code": 200,
+              "body": "{\n  \"status\": true,\n  \"message\": \"Login successful\",\n  \"data\": {\n    \"id\": 20,\n    \"name\": \"Ahmed Mohamed\",\n    \"mobile\": \"01012345678\",\n    \"token\": \"3|mno456...\",\n    \"roles\": [{\"id\": 1, \"name\": \"User\"}],\n    \"permissions\": []\n  }\n}"
+            },
+            {
+              "name": "Error — Wrong Password",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": false, \"message\": \"Invalid password\" }"
+            },
+            {
+              "name": "Error — User Not Found",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": false, \"message\": \"User Not Found\" }"
+            }
+          ]
+        },
+        {
+          "name": "Mobile Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firebase_token\": \"FIREBASE_TOKEN_AFTER_PHONE_VERIFY\",\n  \"password\": \"newpassword123\",\n  \"confirm_password\": \"newpassword123\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/mobile-reset-password", "host": ["{{base_url}}"], "path": ["mobile-reset-password"] },
+            "description": "إعادة تعيين كلمة المرور.\n\nالخطوات:\n1. المستخدم يتحقق من رقم هاتفه عبر Firebase\n2. يحصل على firebase_token\n3. يرسله مع كلمة المرور الجديدة"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": true, \"message\": \"Password reset successfully\", \"data\": null }"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🏢 4. Admin Login",
+      "description": "تسجيل دخول الأدمن عبر Email + Password.\nلا يحتاج Firebase.",
+      "item": [
+        {
+          "name": "Admin Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"admin123\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/admin-login", "host": ["{{base_url}}"], "path": ["admin-login"] },
+            "description": "تسجيل دخول لوحة التحكم.\n\nالأدوار المقبولة:\n- Super Admin\n- Admin (legacy)\n- Staff\n- Supervisor\n\nأي دور آخر يرجع: 'Access denied. Admin credentials required.'"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK", "code": 200,
+              "body": "{\n  \"status\": true,\n  \"message\": \"Login successful\",\n  \"data\": {\n    \"id\": 1,\n    \"name\": \"Super Admin\",\n    \"email\": \"admin@example.com\",\n    \"token\": \"1|admintoken...\",\n    \"token_type\": \"Bearer\"\n  }\n}"
+            },
+            {
+              "name": "Error — Wrong Credentials",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": false, \"message\": \"Invalid credentials\" }"
+            },
+            {
+              "name": "Error — Not Admin",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": false, \"message\": \"Access denied. Admin credentials required.\" }"
+            },
+            {
+              "name": "Error — Account Deactivated",
+              "status": "OK", "code": 200,
+              "body": "{ \"status\": false, \"message\": \"Account is deactivated. Please contact the administrator\" }"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
