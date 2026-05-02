@@ -21,10 +21,8 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('marketing-list');
 
-        $query = PopupCampaign::with('promoCode');
-        
         $perPage = min((int) $request->input('per_page', 15), 50);
-        $campaigns = $query->latest()->paginate($perPage);
+        $campaigns = PopupCampaign::latest()->paginate($perPage);
 
         return ApiResponseService::successResponse('Campaigns retrieved', $campaigns);
     }
@@ -38,13 +36,17 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
         $this->checkPermission('marketing-create');
 
         $validator = Validator::make($request->all(), [
-            'title' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'promo_code_id' => 'nullable|exists:promo_codes,id',
-            'starts_at' => 'nullable|date',
-            'ends_at' => 'nullable|date|after_or_equal:starts_at',
-            'is_active' => 'boolean',
+            'title'          => 'required|string|max:255',
+            'description'    => 'nullable|string',
+            'image'          => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'promo_code'     => 'nullable|string|max:100',
+            'discount_value' => 'nullable|numeric|min:0',
+            'discount_type'  => 'nullable|in:percentage,amount',
+            'cta_url'        => 'nullable|string|max:500',
+            'cta_text'       => 'nullable|string|max:100',
+            'is_active'      => 'boolean',
+            'starts_at'      => 'nullable|date',
+            'ends_at'        => 'nullable|date|after_or_equal:starts_at',
         ]);
 
         if ($validator->fails()) {
@@ -52,8 +54,13 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
         }
 
         try {
-            $data = $request->only(['title', 'description', 'promo_code_id', 'starts_at', 'ends_at', 'is_active']);
-            
+            $data = $request->only([
+                'title', 'description', 'promo_code',
+                'discount_value', 'discount_type',
+                'cta_url', 'cta_text',
+                'starts_at', 'ends_at', 'is_active',
+            ]);
+
             if ($request->hasFile('image')) {
                 $data['image'] = FileService::compressAndUpload($request->file('image'), $this->folder);
             }
@@ -77,9 +84,17 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
         $campaign = PopupCampaign::findOrFail($id);
 
         $validator = Validator::make($request->all(), [
-            'title' => 'sometimes|required|string|max:255',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'promo_code_id' => 'nullable|exists:promo_codes,id',
+            'title'          => 'sometimes|required|string|max:255',
+            'description'    => 'nullable|string',
+            'image'          => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'promo_code'     => 'nullable|string|max:100',
+            'discount_value' => 'nullable|numeric|min:0',
+            'discount_type'  => 'nullable|in:percentage,amount',
+            'cta_url'        => 'nullable|string|max:500',
+            'cta_text'       => 'nullable|string|max:100',
+            'is_active'      => 'boolean',
+            'starts_at'      => 'nullable|date',
+            'ends_at'        => 'nullable|date|after_or_equal:starts_at',
         ]);
 
         if ($validator->fails()) {
@@ -87,15 +102,24 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
         }
 
         try {
-            $data = $request->only(['title', 'description', 'promo_code_id', 'starts_at', 'ends_at', 'is_active']);
+            $data = $request->only([
+                'title', 'description', 'promo_code',
+                'discount_value', 'discount_type',
+                'cta_url', 'cta_text',
+                'starts_at', 'ends_at', 'is_active',
+            ]);
 
             if ($request->hasFile('image')) {
-                $data['image'] = FileService::compressAndReplace($request->file('image'), $this->folder, $campaign->getRawOriginal('image'));
+                $data['image'] = FileService::compressAndReplace(
+                    $request->file('image'),
+                    $this->folder,
+                    $campaign->getRawOriginal('image')
+                );
             }
 
             $campaign->update($data);
 
-            return ApiResponseService::successResponse('Campaign updated successfully', $campaign);
+            return ApiResponseService::successResponse('Campaign updated successfully', $campaign->fresh());
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to update campaign: ' . $e->getMessage());
         }
@@ -110,7 +134,7 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
         $this->checkPermission('marketing-delete');
 
         $campaign = PopupCampaign::findOrFail($id);
-        
+
         if ($campaign->image) {
             FileService::delete($campaign->getRawOriginal('image'));
         }

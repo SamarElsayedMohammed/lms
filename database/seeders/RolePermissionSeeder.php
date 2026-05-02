@@ -127,6 +127,10 @@ class RolePermissionSeeder extends Seeder
             ['name' => 'manage_settings'],
             ['name' => 'manage_plans'],
             ['name' => 'view_reports'],
+            // Marketing (Popup Campaigns, Promo Campaigns, etc.)
+            ...self::permission('marketing'),
+            // Finance (Wallets, Payouts, Affiliate Finance, etc.)
+            ...self::permission('finance'),
             // Feature Flags
             ...self::permission('feature-flags'),
         ];
@@ -418,6 +422,16 @@ class RolePermissionSeeder extends Seeder
             'manage_settings',
             'manage_plans',
             'view_reports',
+            // Marketing (Popup Campaigns, Promo Campaigns, etc.)
+            'marketing-list',
+            'marketing-create',
+            'marketing-edit',
+            'marketing-delete',
+            // Finance (Wallets, Payouts, Affiliate Finance, etc.)
+            'finance-list',
+            'finance-create',
+            'finance-edit',
+            'finance-delete',
             // Feature Flags
             'feature-flags-list',
             'feature-flags-create',

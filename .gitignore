@@ -106,3 +106,4 @@ backups/
 /public/storage/*
 /public/build/*
 /public/.DS_Store
+firebase_credentials.json
