@@ -20,6 +20,7 @@ class Webinar extends Model
         'meeting_id',
         'meeting_password',
         'join_url',
+        'recording_url',
         'provider',
         'status',
         'is_free',

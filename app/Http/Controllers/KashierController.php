@@ -55,6 +55,11 @@ final class KashierController extends Controller
             return $this->handleWalletTopUp($orderId, $status, $data);
         }
 
+        // Webinar registration
+        if (str_starts_with($orderId, 'webinar_')) {
+            return $this->handleWebinarPayment($orderId, $status, $data);
+        }
+
         // Subscription payment
         if (!str_starts_with($orderId, 'sub_')) {
             Log::warning('Kashier webhook: invalid orderId', ['orderId' => $orderId]);
@@ -207,6 +212,83 @@ final class KashierController extends Controller
             return response('OK', 200);
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: wallet top-up failed', ['message' => $e->getMessage(), 'orderId' => $orderId]);
+            return response('Internal Server Error', 500);
+        }
+    }
+
+    private function handleWebinarPayment(string $orderId, string $status, array $data): Response
+    {
+        $parts = explode('_', $orderId);
+        if (count($parts) < 3) {
+            Log::warning('Kashier webhook: invalid webinar orderId', ['orderId' => $orderId]);
+            return response('Invalid order format', 400);
+        }
+
+        $webinarId = (int) $parts[1];
+        $userId = (int) $parts[2];
+
+        $user = User::find($userId);
+        $webinar = \App\Models\Webinar::find($webinarId);
+
+        if (!$user || !$webinar) {
+            Log::warning('Kashier webhook: user or webinar not found', ['userId' => $userId, 'webinarId' => $webinarId]);
+            return response('User or Webinar not found', 404);
+        }
+
+        if (in_array($status, ['failed', 'rejected', 'cancelled'], true)) {
+            Log::info('Kashier webhook: webinar payment failed', ['orderId' => $orderId, 'status' => $status]);
+            return response('OK', 200);
+        }
+
+        if (!in_array($status, ['success', 'completed', 'captured', 'paid'], true)) {
+            return response('OK', 200);
+        }
+
+        // Get registration
+        $registration = \App\Models\WebinarRegistration::where('user_id', $userId)
+            ->where('webinar_id', $webinarId)
+            ->first();
+
+        if (!$registration) {
+            Log::warning('Kashier webhook: webinar registration not found', ['userId' => $userId, 'webinarId' => $webinarId]);
+            return response('Registration not found', 404);
+        }
+
+        if ($registration->payment_status === 'paid') {
+            Log::info('Kashier webhook: webinar already paid', ['orderId' => $orderId]);
+            return response('OK', 200);
+        }
+
+        try {
+            DB::transaction(function () use ($registration, $user, $webinar, $orderId) {
+                // Deduct wallet if it was a split payment
+                $pending = Cache::pull('kashier_pending_' . $orderId);
+                $walletAmount = (float) ($pending['wallet_amount'] ?? 0);
+
+                if ($walletAmount > 0 && $user->wallet_balance >= $walletAmount) {
+                    \App\Services\WalletService::debitWallet(
+                        $user->id,
+                        $walletAmount,
+                        'webinar_payment',
+                        'Paid part of webinar via wallet: ' . $webinar->title,
+                        (string) $webinar->id,
+                        'webinar'
+                    );
+                }
+
+                $registration->update(['payment_status' => 'paid']);
+            });
+
+            $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
+
+            Log::info('Kashier webhook: webinar payment completed', ['userId' => $userId, 'webinarId' => $webinarId]);
+            return response('OK', 200);
+
+        } catch (\Throwable $e) {
+            Log::error('Kashier webhook: failed to activate webinar registration', [
+                'message' => $e->getMessage(),
+                'orderId' => $orderId,
+            ]);
             return response('Internal Server Error', 500);
         }
     }

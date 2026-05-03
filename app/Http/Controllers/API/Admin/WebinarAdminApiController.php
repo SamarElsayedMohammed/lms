@@ -46,7 +46,7 @@ class WebinarAdminApiController extends AdminCrudApiController
             'duration' => 'required|integer|min:5',
             'is_free' => 'required|boolean',
             'price' => 'required_if:is_free,false|numeric|min:0',
-            'provider' => 'required|in:zoom,jitsi,custom',
+            'provider' => 'required|in:zoom,jitsi,google_meet,custom',
             'join_url' => 'nullable|url',
         ]);
 
@@ -61,6 +61,43 @@ class WebinarAdminApiController extends AdminCrudApiController
             
             if ($request->provider === 'jitsi' && empty($request->join_url)) {
                 $data['join_url'] = "https://meet.jit.si/" . $data['slug'];
+            } elseif ($request->provider === 'zoom') {
+                try {
+                    $zoomService = app(\App\Services\ZoomService::class);
+                    $zoomResponse = $zoomService->createMeeting(
+                        $request->title,
+                        $request->start_at,
+                        (int) $request->duration
+                    );
+
+                    if ($zoomResponse['success']) {
+                        $data['join_url'] = $zoomResponse['data']['join_url'];
+                        $data['meeting_id'] = (string) $zoomResponse['data']['meeting_id'];
+                        $data['meeting_password'] = $zoomResponse['data']['password'];
+                    } else {
+                        \Illuminate\Support\Facades\Log::warning('Failed to auto-create Zoom meeting: ' . $zoomResponse['message']);
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Zoom Service Error: ' . $e->getMessage());
+                }
+            } elseif ($request->provider === 'google_meet') {
+                try {
+                    $googleService = app(\App\Services\GoogleMeetService::class);
+                    $googleResponse = $googleService->createMeeting(
+                        $request->title,
+                        $request->start_at,
+                        (int) $request->duration
+                    );
+
+                    if ($googleResponse['success']) {
+                        $data['join_url'] = $googleResponse['data']['join_url'];
+                        $data['meeting_id'] = (string) $googleResponse['data']['meeting_id'];
+                    } else {
+                        \Illuminate\Support\Facades\Log::warning('Failed to auto-create Google Meet: ' . $googleResponse['message']);
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Google Meet Service Error: ' . $e->getMessage());
+                }
             }
 
             $webinar = Webinar::create($data);
@@ -89,6 +126,7 @@ class WebinarAdminApiController extends AdminCrudApiController
             'start_at' => 'sometimes|required|date',
             'duration' => 'sometimes|required|integer|min:5',
             'status' => 'sometimes|required|in:scheduled,live,completed,cancelled',
+            'recording_url' => 'nullable|url',
         ]);
 
         if ($validator->fails()) {
