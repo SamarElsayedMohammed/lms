@@ -16,12 +16,20 @@ class GoogleMeetService
         $this->client->setApplicationName('LMS Webinar System');
         $this->client->setScopes([\Google\Service\Calendar::CALENDAR_EVENTS]);
         
+        $base64Credentials = env('GOOGLE_MEET_CREDENTIALS_BASE64');
         $credentialsPath = storage_path('app/google-credentials.json');
-        
-        if (file_exists($credentialsPath)) {
+
+        if (!empty($base64Credentials)) {
+            $credentialsArray = json_decode(base64_decode($base64Credentials), true);
+            if (is_array($credentialsArray)) {
+                $this->client->setAuthConfig($credentialsArray);
+            } else {
+                Log::error('Failed to decode GOOGLE_MEET_CREDENTIALS_BASE64');
+            }
+        } elseif (file_exists($credentialsPath)) {
             $this->client->setAuthConfig($credentialsPath);
         } else {
-            Log::warning('Google credentials file not found at: ' . $credentialsPath);
+            Log::warning('Google credentials not found in .env or storage/app/google-credentials.json');
         }
         
         $this->client->setAccessType('offline');
@@ -38,10 +46,11 @@ class GoogleMeetService
      */
     public function createMeeting(string $title, string $startAt, int $durationMinutes, string $timezone = 'UTC'): array
     {
-        if (!file_exists(storage_path('app/google-credentials.json'))) {
+        $base64Credentials = env('GOOGLE_MEET_CREDENTIALS_BASE64');
+        if (empty($base64Credentials) && !file_exists(storage_path('app/google-credentials.json'))) {
             return [
                 'success' => false,
-                'message' => 'Google credentials file is missing. Please set up the Service Account.',
+                'message' => 'Google credentials are missing. Please set GOOGLE_MEET_CREDENTIALS_BASE64 in .env or provide the json file.',
             ];
         }
 
