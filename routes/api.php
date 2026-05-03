@@ -735,6 +735,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::put('{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'update']);
             Route::delete('{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'destroy']);
         });
+
+        // Marketing Pixels (Admin)
+        Route::prefix('marketing/pixels')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'store']);
+            Route::put('{id}', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'update']);
+            Route::delete('{id}', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'destroy']);
+        });
     });
 
     /********************************************************************************** */
