@@ -767,6 +767,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('my-refunds', [RefundApiController::class, 'getUserRefunds']);
         Route::post('check-eligibility', [RefundApiController::class, 'checkRefundEligibility']);
     });
+    
 
     // Finance Management APIs (Admin/Instructor)
     Route::prefix('finance')->group(function (): void {
