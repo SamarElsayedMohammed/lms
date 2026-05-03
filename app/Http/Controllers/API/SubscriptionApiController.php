@@ -141,6 +141,7 @@ final class SubscriptionApiController extends Controller
                 'plan_id' => 'required|exists:subscription_plans,id',
                 'payment_method' => 'nullable|string',
                 'use_wallet' => 'nullable|boolean',
+                'promo_code' => 'nullable|string|max:50',
             ]);
 
             if ($validator->fails()) {
@@ -161,7 +162,39 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
             }
 
-            $totalAmount = (float) $plan->price;
+            $originalAmount = (float) $plan->price;
+            $discountAmount = 0;
+            $appliedPromoCode = null;
+
+            // Apply promo code discount from active popup campaigns
+            if ($request->filled('promo_code')) {
+                $campaign = \App\Models\PopupCampaign::where('is_active', true)
+                    ->where('promo_code', $request->promo_code)
+                    ->where(function ($q) {
+                        $q->whereNull('starts_at')->orWhere('starts_at', '<=', now());
+                    })
+                    ->where(function ($q) {
+                        $q->whereNull('ends_at')->orWhere('ends_at', '>=', now());
+                    })
+                    ->first();
+
+                if (!$campaign) {
+                    return ApiResponseService::errorResponse('كود الخصم غير صالح أو منتهي الصلاحية.', [], 400);
+                }
+
+                // Calculate discount
+                if ($campaign->discount_type === 'percentage') {
+                    $discountAmount = round($originalAmount * ($campaign->discount_value / 100), 2);
+                } else {
+                    // Fixed amount discount
+                    $discountAmount = min($campaign->discount_value, $originalAmount);
+                }
+
+                $appliedPromoCode = $campaign->promo_code;
+            }
+
+            $totalAmount = max($originalAmount - $discountAmount, 0);
+
             $split = $this->subscriptionService->walletAndGatewayPayment(
                 $user,
                 $plan,
@@ -171,6 +204,13 @@ final class SubscriptionApiController extends Controller
             $walletAmount = $split['wallet_amount'];
             $gatewayAmount = $split['gateway_amount'];
 
+            // Build discount metadata for payment record
+            $discountMeta = [
+                'promo_code' => $appliedPromoCode,
+                'original_amount' => $originalAmount,
+                'discount_amount' => $discountAmount,
+            ];
+
             // Full wallet payment: create subscription immediately
             if ($gatewayAmount <= 0) {
                 $subscription = $this->subscriptionService->createSubscription(
@@ -178,7 +218,8 @@ final class SubscriptionApiController extends Controller
                     $plan,
                     $request->payment_method ?? 'wallet',
                     $walletAmount,
-                    0
+                    0,
+                    $discountMeta
                 );
 
                 return ApiResponseService::successResponse('تم الاشتراك بنجاح!', [
@@ -191,6 +232,9 @@ final class SubscriptionApiController extends Controller
                         'status' => $subscription->status,
                     ],
                     'payment' => [
+                        'original_amount' => $originalAmount,
+                        'discount_amount' => $discountAmount,
+                        'promo_code' => $appliedPromoCode,
                         'total_amount' => $totalAmount,
                         'wallet_amount' => $walletAmount,
                         'gateway_amount' => 0,
@@ -215,6 +259,9 @@ final class SubscriptionApiController extends Controller
                 'wallet_amount' => $walletAmount,
                 'plan_id' => $plan->id,
                 'user_id' => $user->id,
+                'promo_code' => $appliedPromoCode,
+                'original_amount' => $originalAmount,
+                'discount_amount' => $discountAmount,
             ], self::KASHIER_PENDING_TTL);
 
             return ApiResponseService::successResponse('يرجى إكمال الدفع عبر Kashier.', [
@@ -222,6 +269,9 @@ final class SubscriptionApiController extends Controller
                 'checkout_url' => $checkout['url'],
                 'order_id' => $checkout['order_id'],
                 'payment' => [
+                    'original_amount' => $originalAmount,
+                    'discount_amount' => $discountAmount,
+                    'promo_code' => $appliedPromoCode,
                     'total_amount' => $totalAmount,
                     'wallet_amount' => $walletAmount,
                     'gateway_amount' => $gatewayAmount,
@@ -231,6 +281,7 @@ final class SubscriptionApiController extends Controller
             return ApiResponseService::errorResponse('Failed to create subscription: ' . $e->getMessage());
         }
     }
+
 
     /**
      * Renew subscription (pay for next period and extend)
@@ -387,6 +438,9 @@ final class SubscriptionApiController extends Controller
                 'amount' => (float) $payment->amount,
                 'wallet_amount' => (float) $payment->wallet_amount,
                 'gateway_amount' => (float) $payment->gateway_amount,
+                'promo_code' => $payment->promo_code,
+                'original_amount' => $payment->original_amount ? (float) $payment->original_amount : null,
+                'discount_amount' => (float) $payment->discount_amount,
                 'status' => $payment->status,
                 'payment_method' => $payment->payment_method,
                 'transaction_id' => $payment->transaction_id,

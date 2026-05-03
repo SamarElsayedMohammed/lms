@@ -26,9 +26,10 @@ final class SubscriptionService
         SubscriptionPlan $plan,
         ?string $paymentMethod = null,
         ?float $walletAmount = null,
-        ?float $gatewayAmount = null
+        ?float $gatewayAmount = null,
+        array $discountMeta = []
     ): Subscription {
-        return DB::transaction(function () use ($user, $plan, $paymentMethod, $walletAmount, $gatewayAmount) {
+        return DB::transaction(function () use ($user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta) {
             $existingSubscription = $this->getActiveSubscription($user);
             
             // 1. Same Plan Stacking (Extension)
@@ -38,7 +39,7 @@ final class SubscriptionService
                     $existingSubscription->extend($baseDays);
                     
                     // Create payment record for the extension
-                    $this->createPaymentRecord($existingSubscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount);
+                    $this->createPaymentRecord($existingSubscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta);
                     
                     Log::info('Subscription extended (Stacked)', [
                         'user_id' => $user->id,
@@ -81,7 +82,7 @@ final class SubscriptionService
             ]);
 
             // Create payment record
-            $this->createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount);
+            $this->createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta);
 
             // Deduct from wallet if applicable
             if ($walletAmount > 0 && $user->wallet_balance >= $walletAmount) {
@@ -107,20 +108,29 @@ final class SubscriptionService
     /**
      * Helper to create payment record
      */
-    private function createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount): void
+    private function createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, array $discountMeta = []): void
     {
         $totalAmount = (float) $plan->price;
         $walletAmount = $walletAmount ?? 0;
         $gatewayAmount = $gatewayAmount ?? ($totalAmount - $walletAmount);
 
+        // If discount was applied, use discounted total for the payment amount
+        $paymentAmount = $totalAmount;
+        if (!empty($discountMeta['discount_amount']) && $discountMeta['discount_amount'] > 0) {
+            $paymentAmount = max($totalAmount - $discountMeta['discount_amount'], 0);
+        }
+
         SubscriptionPayment::create([
             'subscription_id' => $subscription->id,
             'user_id' => $user->id,
-            'amount' => $totalAmount,
+            'amount' => $paymentAmount,
             'wallet_amount' => $walletAmount,
             'gateway_amount' => $gatewayAmount,
             'status' => SubscriptionPayment::STATUS_COMPLETED,
             'payment_method' => $paymentMethod ?? 'wallet',
+            'promo_code' => $discountMeta['promo_code'] ?? null,
+            'original_amount' => !empty($discountMeta['promo_code']) ? $totalAmount : null,
+            'discount_amount' => $discountMeta['discount_amount'] ?? 0,
             'paid_at' => now(),
         ]);
     }

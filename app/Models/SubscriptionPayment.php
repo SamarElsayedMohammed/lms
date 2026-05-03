@@ -19,6 +19,9 @@ use Carbon\Carbon;
  * @property float $gateway_amount
  * @property string $status
  * @property string|null $payment_method
+ * @property string|null $promo_code
+ * @property float|null $original_amount
+ * @property float $discount_amount
  * @property string|null $transaction_id
  * @property array|null $gateway_response
  * @property Carbon|null $paid_at
@@ -39,6 +42,9 @@ final class SubscriptionPayment extends Model
         'gateway_amount',
         'status',
         'payment_method',
+        'promo_code',
+        'original_amount',
+        'discount_amount',
         'transaction_id',
         'gateway_response',
         'paid_at',
@@ -48,6 +54,8 @@ final class SubscriptionPayment extends Model
         'amount' => 'decimal:2',
         'wallet_amount' => 'decimal:2',
         'gateway_amount' => 'decimal:2',
+        'original_amount' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
         'gateway_response' => 'array',
         'paid_at' => 'datetime',
     ];
