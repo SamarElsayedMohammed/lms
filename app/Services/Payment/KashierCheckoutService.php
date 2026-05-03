@@ -132,6 +132,55 @@ final class KashierCheckoutService implements PaymentGatewayContract
     }
 
     /**
+     * Create checkout session for Webinar Registration.
+     * Order ID format: webinar_{webinarId}_{userId}_{timestamp}
+     *
+     * @return array{url: string, order_id: string, hash: string, amount: float, currency: string}
+     */
+    public function createWebinarCheckoutSession(int $webinarId, User $user, float $amount): array
+    {
+        $config = $this->getConfig();
+        $this->validateConfig($config);
+
+        $orderId = 'webinar_' . $webinarId . '_' . $user->id . '_' . time();
+        $currency = 'EGP';
+        $amountFormatted = number_format((float) $amount, 2, '.', '');
+
+        $hash = $this->generateOrderHash(
+            $config['merchant_id'],
+            $orderId,
+            $amountFormatted,
+            $currency,
+            $config['api_key']
+        );
+
+        $baseUrl = $config['mode'] === 'live' ? self::BASE_URL_LIVE : self::BASE_URL_TEST;
+        $callbackUrl = urlencode(url('/webhooks/kashier'));
+
+        $url = $baseUrl
+            . '?merchantId=' . $config['merchant_id']
+            . '&orderId=' . $orderId
+            . '&mode=' . $config['mode']
+            . '&amount=' . $amountFormatted
+            . '&currency=' . $currency
+            . '&hash=' . $hash
+            . '&merchantRedirect=' . $callbackUrl
+            . '&allowedMethods=card,wallet,bank'
+            . '&display=en';
+
+        return [
+            'url' => $url,
+            'order_id' => $orderId,
+            'hash' => $hash,
+            'amount' => (float) $amount,
+            'currency' => $currency,
+            'merchant_id' => $config['merchant_id'],
+            'mode' => $config['mode'],
+            'meta' => ['user_id' => $user->id, 'webinar_id' => $webinarId, 'type' => 'webinar_registration'],
+        ];
+    }
+
+    /**
      * Verify webhook/callback signature from Kashier.
      */
     public function verifyPayment(array $data): bool

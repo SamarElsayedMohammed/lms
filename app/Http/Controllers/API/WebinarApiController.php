@@ -48,6 +48,14 @@ class WebinarApiController extends Controller
             $user = Auth::guard('sanctum')->user();
             $is_registered = $user ? WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->exists() : false;
 
+            // Hide sensitive links if not registered or not completed
+            if (!$is_registered) {
+                $webinar->makeHidden(['join_url', 'meeting_password']);
+            }
+            if (!$is_registered || $webinar->status !== 'completed') {
+                $webinar->makeHidden(['recording_url']);
+            }
+
             return ApiResponseService::successResponse('Webinar details retrieved', [
                 'webinar' => $webinar,
                 'is_registered' => $is_registered
@@ -76,16 +84,81 @@ class WebinarApiController extends Controller
             }
 
             if (!$webinar->is_free && $webinar->price > 0) {
-                // Here we would integrate payment logic or check wallet balance
-                // For now, let's assume it requires manual approval or redirect to payment
-                return ApiResponseService::successResponse('This webinar requires payment.', ['requires_payment' => true, 'price' => $webinar->price]);
+                $totalAmount = $webinar->price;
+                $walletAmount = 0.0;
+                $gatewayAmount = $totalAmount;
+                $useWallet = $request->boolean('use_wallet');
+
+                if ($useWallet && $user->wallet_balance > 0) {
+                    $walletAmount = (float) min($user->wallet_balance, $totalAmount);
+                    $gatewayAmount = $totalAmount - $walletAmount;
+                }
+
+                // If fully paid by wallet
+                if ($gatewayAmount <= 0) {
+                    \Illuminate\Support\Facades\DB::transaction(function () use ($user, $webinar, $walletAmount) {
+                        \App\Services\WalletService::debitWallet(
+                            $user->id,
+                            $walletAmount,
+                            'webinar_payment',
+                            'Paid for webinar: ' . $webinar->title,
+                            (string) $webinar->id,
+                            'webinar'
+                        );
+
+                        WebinarRegistration::create([
+                            'user_id' => $user->id,
+                            'webinar_id' => $webinar->id,
+                            'payment_status' => 'paid',
+                        ]);
+                    });
+
+                    $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
+
+                    return ApiResponseService::successResponse('Successfully registered for the webinar using wallet.');
+                }
+
+                // If requires Kashier gateway
+                try {
+                    $kashierService = app(\App\Services\Payment\KashierCheckoutService::class);
+                    $checkout = $kashierService->createWebinarCheckoutSession($webinar->id, $user, $gatewayAmount);
+                } catch (\RuntimeException $e) {
+                    return ApiResponseService::errorResponse('Payment gateway is not configured.', [], 503);
+                }
+
+                \Illuminate\Support\Facades\Cache::put('kashier_pending_' . $checkout['order_id'], [
+                    'wallet_amount' => $walletAmount,
+                    'webinar_id' => $webinar->id,
+                    'user_id' => $user->id,
+                ], 3600); // 1 hour TTL
+
+                // Create a pending registration
+                WebinarRegistration::create([
+                    'user_id' => $user->id,
+                    'webinar_id' => $webinar->id,
+                    'payment_status' => 'pending',
+                ]);
+
+                return ApiResponseService::successResponse('Please complete payment via Kashier.', [
+                    'requires_checkout' => true,
+                    'checkout_url' => $checkout['url'],
+                    'order_id' => $checkout['order_id'],
+                    'payment' => [
+                        'total_amount' => $totalAmount,
+                        'wallet_amount' => $walletAmount,
+                        'gateway_amount' => $gatewayAmount,
+                    ],
+                ]);
             }
 
+            // Free webinar
             WebinarRegistration::create([
                 'user_id' => $user->id,
                 'webinar_id' => $webinar->id,
-                'payment_status' => $webinar->is_free ? 'free' : 'pending',
+                'payment_status' => 'free',
             ]);
+
+            $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
 
             return ApiResponseService::successResponse('Successfully registered for the webinar.');
         } catch (\Throwable $e) {
