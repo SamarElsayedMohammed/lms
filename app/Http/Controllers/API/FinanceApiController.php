@@ -811,6 +811,16 @@ class FinanceApiController extends Controller
     }
 
     /**
+     * Update withdrawal request status via path parameter (v1 canonical support)
+     */
+    public function updateWithdrawalRequestStatusViaPath(Request $request, $id)
+    {
+        // Inject ID into request so it works with the existing validation logic
+        $request->merge(['withdrawal_request_id' => $id]);
+        return $this->updateWithdrawalRequestStatus($request);
+    }
+
+    /**
      * Get withdrawal request details for admin
      */
     public function getWithdrawalRequestDetails(Request $request)

@@ -141,6 +141,8 @@ Route::prefix('affiliate')->group(function (): void {
         Route::post('withdraw', [AffiliateApiController::class, 'requestWithdrawal']);
         Route::post('transfer-to-wallet', [AffiliateApiController::class, 'transferToWallet']);
         Route::get('withdrawals', [AffiliateApiController::class, 'getWithdrawals']);
+        Route::get('referrals', [AffiliateApiController::class, 'getReferrals']);
+        Route::get('marketing-assets', [AffiliateApiController::class, 'getMarketingAssets']);
     });
 });
 Route::get('ref/{code}', [AffiliateApiController::class, 'trackReferral'])->where('code', '[A-Za-z0-9]+');
@@ -229,6 +231,20 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('delete-account', [ApiController::class, 'deleteAccount']); // Delete User Account
     Route::get('user-enrolled-courses', [CourseApiController::class, 'getUserEnrolledCourses']); // Get User Courses
     Route::get('my-learning', [CourseApiController::class, 'getMyLearning']); // Get My Learning Courses with Progress
+    Route::get('user/dashboard', [\App\Http\Controllers\API\User\UserDashboardApiController::class, 'getDashboardData']); // User Dashboard API
+    Route::get('user/certificates', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getUserCertificates']); // User Certificates List
+    Route::get('reports/comprehensive', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getComprehensiveReport']); // Comprehensive User Report
+    
+    // Financial Transactions (Unified)
+    Route::get('user/financial-transactions', [\App\Http\Controllers\API\User\UserFinanceReportApiController::class, 'getFinancialTransactions']);
+
+    // Account Security & Sessions
+    Route::get('user/active-sessions', [ApiController::class, 'getActiveSessions']);
+    Route::post('user/active-sessions/{id}/logout', [ApiController::class, 'logoutSession']);
+
+    // Notification Settings
+    Route::get('user/notification-settings', [ApiController::class, 'getNotificationSettings']);
+    Route::post('user/notification-settings', [ApiController::class, 'updateNotificationSettings']);
 
     // Countries (SPA بدون admin/ — نفس المتحكم؛ القائمة: GET countries فقط)
     Route::get('countries', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'index']);
@@ -305,14 +321,21 @@ Route::middleware('auth:sanctum')->group(function (): void {
         
         // Manual Deposits
         Route::get('/manual-deposits/methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
-        Route::post('/manual-deposits', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit']);
-        Route::get('/manual-deposits', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMyDeposits']);
-
         // Webinars (User)
         Route::get('/webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);
         Route::get('/webinars/{id}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
         Route::post('/webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register']);
         Route::get('/webinars/{id}/join', [\App\Http\Controllers\API\WebinarApiController::class, 'join']);
+    });
+
+    // Wallet Funding Suite (User Contract - v1)
+    Route::prefix('v1/wallet')->group(function (): void {
+        Route::get('/overview', [WalletApiController::class, 'getWalletSummary']);
+        Route::get('/transactions', [WalletApiController::class, 'getWalletHistory']);
+        Route::get('/deposit-methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
+        Route::get('/withdrawal-methods', [WalletApiController::class, 'getWithdrawalMethods']);
+        Route::post('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit']);
+        Route::post('/withdrawal-requests', [WalletApiController::class, 'createWithdrawalRequest']);
     });
 
     // rating_reviews
@@ -743,6 +766,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::put('{id}', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'update']);
             Route::delete('{id}', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'destroy']);
         });
+    });
+
+    // Wallet Funding Suite (Admin Contract - v1)
+    Route::prefix('v1/admin/wallet')->group(function (): void {
+        Route::get('/deposit-requests', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'indexDeposits']);
+        Route::get('/withdrawal-requests', [FinanceApiController::class, 'getAdminWithdrawalRequests']);
+        Route::put('/deposit-requests/{id}/status', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'updateDepositStatus']);
+        Route::put('/withdrawal-requests/{id}/status', [FinanceApiController::class, 'updateWithdrawalRequestStatusViaPath']);
     });
 
     /********************************************************************************** */

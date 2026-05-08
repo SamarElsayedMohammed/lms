@@ -301,6 +301,48 @@ final class AffiliateApiController extends Controller
     }
 
     /**
+     * Get paginated referral list.
+     */
+    public function getReferrals(Request $request): never
+    {
+        if (!$this->affiliateService->isEnabled()) {
+            ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
+        }
+
+        $user = Auth::user();
+        if (!$user) {
+            ApiResponseService::errorResponse('Authentication required.', null, 401);
+        }
+
+        $perPage = min((int) $request->input('per_page', 15), 50);
+        $perPage = max($perPage, 1);
+
+        $paginator = $this->affiliateService->getReferredUsers($user, $perPage);
+
+        $referrals = $paginator->getCollection()->map(fn (User $u) => [
+            'id' => $u->id,
+            'name' => $u->name,
+            'email' => $u->email,
+            'profile' => $u->profile,
+            'joined_at' => $u->created_at->format('Y-m-d'),
+            'orders_count' => $u->orders_count,
+            'status' => $u->orders_count > 0 ? 'converted' : 'pending',
+        ]);
+
+        ApiResponseService::successResponse('OK', [
+            'referrals' => $referrals,
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+        ]);
+    }
+
+    /**
      * Track referral click, store in session/cookie, redirect.
      */
     public function trackReferral(string $code): JsonResponse|RedirectResponse
@@ -317,5 +359,41 @@ final class AffiliateApiController extends Controller
         $redirectUrl = config('app.url', url('/'));
 
         return redirect()->away($redirectUrl);
+    }
+    /**
+     * Get marketing assets for affiliates.
+     */
+    public function getMarketingAssets(Request $request)
+    {
+        if (!$this->affiliateService->isEnabled()) {
+            return ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
+        }
+
+        $assets = [
+            'banners' => [
+                [
+                    'title' => 'Main Banner 728x90',
+                    'image_url' => asset('img/affiliate/banner_728x90.png'),
+                    'dimensions' => '728x90',
+                ],
+                [
+                    'title' => 'Square Banner 300x300',
+                    'image_url' => asset('img/affiliate/banner_300x300.png'),
+                    'dimensions' => '300x300',
+                ],
+            ],
+            'promotional_texts' => [
+                [
+                    'title' => 'Social Media Post',
+                    'content' => 'Check out this amazing course on Skillso! Use my link to get started.',
+                ],
+                [
+                    'title' => 'Email Subject',
+                    'content' => 'I thought you might be interested in this...',
+                ],
+            ],
+        ];
+
+        return ApiResponseService::successResponse('Marketing assets retrieved successfully', $assets);
     }
 }

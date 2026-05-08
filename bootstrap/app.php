@@ -10,6 +10,10 @@ return Application::configure(basePath: dirname(__DIR__))
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        then: function () {
+            Illuminate\Support\Facades\Route::middleware('api')
+                ->group(base_path('routes/canonical-api.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Trust proxies (Traefik/Caddy/Coolify) so Laravel detects correct scheme (HTTPS) and host
