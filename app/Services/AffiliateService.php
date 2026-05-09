@@ -283,6 +283,19 @@ class AffiliateService
     }
 
     /**
+     * Get paginated list of referred users for an affiliate.
+     */
+    public function getReferredUsers(User $user, int $perPage = 15): LengthAwarePaginator
+    {
+        return User::where('referred_by', $user->id)
+            ->withCount(['orders' => function ($query) {
+                $query->where('status', 'completed');
+            }])
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
      * Process (approve) a withdrawal.
      */
     public function processWithdrawal(AffiliateWithdrawal $withdrawal, User $admin): void

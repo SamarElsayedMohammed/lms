@@ -1,6 +1,6 @@
 {
     "info": {
-        "name": "LMS API Collection",
+        "name": "LMS Pro - Comprehensive Full API",
         "description": "Complete API collection for the Learning Management System",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
@@ -15,6 +15,104 @@
         }
     ],
     "item": [
+        {
+            "name": "Reports",
+            "item": [
+                {
+                    "name": "Comprehensive User Report",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/reports/comprehensive",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "description": "Get detailed reporting for the authenticated user. Admins can pass ?user_id=ID"
+                    }
+                },
+                {
+                    "name": "Sales Report (Admin)",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/reports/sales?report_type=summary",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "description": "Types: summary, detailed, chart"
+                    }
+                },
+                {
+                    "name": "Commission Report (Admin)",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/reports/commission?report_type=summary",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Course Report (Admin)",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/reports/course?report_type=summary",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Instructor Report (Admin)",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/reports/instructor?report_type=summary",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Enrollment Report (Admin)",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/reports/enrollment?report_type=summary",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Revenue Report (Admin)",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/reports/revenue?report_type=summary",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         {
             "name": "Authentication",
             "item": [

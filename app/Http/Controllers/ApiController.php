@@ -222,13 +222,23 @@ class ApiController extends Controller
                 ]);
             }
 
-            $token = $auth->createToken($auth->name ?? '')->plainTextToken;
+            $token = $this->createTokenWithMetadata($auth, $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $token);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
         } catch (Throwable $th) {
             DB::rollBack();
             ApiResponseService::errorResponse(exception: $th);
         }
+    }
+
+    private function createTokenWithMetadata($user, $name, Request $request)
+    {
+        $tokenResult = $user->createToken($name);
+        $token = $tokenResult->accessToken;
+        $token->ip_address = $request->ip();
+        $token->user_agent = $request->userAgent();
+        $token->save();
+        return $tokenResult->plainTextToken;
     }
 
     public function userLogin(Request $request)
@@ -287,7 +297,7 @@ class ApiController extends Controller
                 ]);
             }
 
-            $token = $auth->createToken($auth->name ?? '')->plainTextToken;
+            $token = $this->createTokenWithMetadata($auth, $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $token);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
         } catch (Throwable $th) {
@@ -334,7 +344,7 @@ class ApiController extends Controller
             }
 
             // Generate new token
-            $token = $user->createToken($user->name ?? '')->plainTextToken;
+            $token = $this->createTokenWithMetadata($user, $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
             ApiResponseService::successResponse('Login successful', $formattedUser);
         } catch (Throwable $th) {
@@ -441,7 +451,7 @@ class ApiController extends Controller
 
             DB::commit();
             // Generate new token
-            $token = $user->createToken($user->name ?? '')->plainTextToken;
+            $token = $this->createTokenWithMetadata($user, $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
             ApiResponseService::successResponse('Registration successful', $formattedUser);
         } catch (Throwable $th) {
@@ -510,12 +520,13 @@ class ApiController extends Controller
                 config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
                 config('constants.SYSTEM_ROLES.STAFF'),
                 config('constants.SYSTEM_ROLES.SUPERVISOR'),
+                config('constants.SYSTEM_ROLES.INSTRUCTOR'),
             ];
             if (!$user->hasAnyRole($adminRoles, 'web')) {
                 ApiResponseService::validationError(__('Access denied. Admin credentials required.'));
             }
 
-            $token = $user->createToken('admin-dashboard')->plainTextToken;
+            $token = $this->createTokenWithMetadata($user, 'admin-dashboard', $request);
             $userData = $user->toArray();
             $userData['token'] = $token;
             $userData['token_type'] = 'Bearer';
@@ -3237,5 +3248,100 @@ class ApiController extends Controller
         })->toArray();
 
         return $userData;
+    }
+
+    public function getActiveSessions(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            $sessions = $user->tokens->map(function ($token) use ($user) {
+                return [
+                    'id' => $token->id,
+                    'name' => $token->name,
+                    'ip_address' => $token->ip_address,
+                    'user_agent' => $token->user_agent,
+                    'last_used_at' => $token->last_used_at,
+                    'is_current' => $token->id === $user->currentAccessToken()->id,
+                ];
+            });
+
+            return ApiResponseService::successResponse('Active sessions retrieved successfully', $sessions);
+        } catch (\Throwable $th) {
+            return ApiResponseService::errorResponse($th->getMessage());
+        }
+    }
+
+    public function logoutSession(Request $request, $id)
+    {
+        try {
+            $user = Auth::user();
+            $token = $user->tokens()->where('id', $id)->first();
+            
+            if (!$token) {
+                return ApiResponseService::errorResponse('Session not found');
+            }
+
+            $token->delete();
+            return ApiResponseService::successResponse('Session logged out successfully');
+        } catch (\Throwable $th) {
+            return ApiResponseService::errorResponse($th->getMessage());
+        }
+    }
+
+    public function getNotificationSettings(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            $settings = \App\Models\NotificationSetting::where('user_id', $user->id)->get();
+            
+            // Default settings if empty
+            if ($settings->isEmpty()) {
+                $keys = ['course_updates', 'marketing', 'wallet_activity', 'new_messages'];
+                foreach ($keys as $key) {
+                    \App\Models\NotificationSetting::create([
+                        'user_id' => $user->id,
+                        'setting_key' => $key,
+                        'email_enabled' => true,
+                        'push_enabled' => true,
+                    ]);
+                }
+                $settings = \App\Models\NotificationSetting::where('user_id', $user->id)->get();
+            }
+
+            return ApiResponseService::successResponse('Notification settings retrieved successfully', $settings);
+        } catch (\Throwable $th) {
+            return ApiResponseService::errorResponse($th->getMessage());
+        }
+    }
+
+    public function updateNotificationSettings(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            $validator = Validator::make($request->all(), [
+                'settings' => 'required|array',
+                'settings.*.setting_key' => 'required|string',
+                'settings.*.email_enabled' => 'required|boolean',
+                'settings.*.push_enabled' => 'required|boolean',
+            ]);
+
+            if ($validator->fails()) {
+                return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            foreach ($request->settings as $setting) {
+                \App\Models\NotificationSetting::updateOrCreate(
+                    ['user_id' => $user->id, 'setting_key' => $setting['setting_key']],
+                    [
+                        'email_enabled' => $setting['email_enabled'],
+                        'push_enabled' => $setting['push_enabled'],
+                    ]
+                );
+            }
+
+            return ApiResponseService::successResponse('Notification settings updated successfully');
+        } catch (\Throwable $th) {
+            return ApiResponseService::errorResponse($th->getMessage());
+        }
     }
 }

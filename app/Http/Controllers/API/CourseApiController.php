@@ -91,6 +91,7 @@ class CourseApiController extends Controller
             'rating_filter' => 'nullable|string', // Comma separated: 1,2,3,4,5
             'duration_filter' => 'nullable|string', // Comma separated: 1-4_weeks,4-12_weeks,3-6_months,6-12_months
             'feature_section_id' => 'nullable|exists:feature_sections,id', // Optional: Filter by feature section
+            'is_featured' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -176,6 +177,10 @@ class CourseApiController extends Controller
 
         if ($request->filled('level')) {
             $query->whereIn('level', explode(',', $request->level));
+        }
+
+        if ($request->filled('is_featured')) {
+            $query->where('is_featured', $request->boolean('is_featured'));
         }
 
         if ($request->filled('course_type')) {
@@ -660,6 +665,7 @@ class CourseApiController extends Controller
                     'author_id' => $course->user->id ?? null,
                     'author_name' => $course->user->name ?? null,
                     'author_slug' => $course->user->slug ?? null,
+                    'is_featured' => (bool) $course->is_featured,
                     ...$coursePricingData,
                     'discount_percentage' => $discountPercentage,
                     'total_duration' => $totalDuration, // in seconds
@@ -1250,6 +1256,7 @@ class CourseApiController extends Controller
                 'meta_title' => $course->meta_title ?? $course->title,
                 'meta_description' => $course->meta_description ?? $course->short_description,
                 'meta_image' => $course->meta_image ?? $course->thumbnail,
+                'is_featured' => (bool) $course->is_featured,
                 // Instructor Details
                 'instructor' => $instructorDetails,
                 // Course Content

@@ -246,4 +246,12 @@ final class User extends Authenticatable
     {
         return $this->belongsTo(User::class, 'referred_by');
     }
+
+    /**
+     * Get users referred by this user.
+     */
+    public function referrals(): HasMany
+    {
+        return $this->hasMany(User::class, 'referred_by');
+    }
 }

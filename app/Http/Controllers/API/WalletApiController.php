@@ -666,6 +666,57 @@ class WalletApiController extends Controller
     }
 
     /**
+     * Get available withdrawal methods
+     */
+    public function getWithdrawalMethods(Request $request)
+    {
+        // Currently returning static methods as per validatePaymentDetails
+        $methods = [
+            [
+                'id' => 'bank_transfer',
+                'name' => 'Bank Transfer',
+                'description' => 'Direct transfer to your bank account',
+                'fields' => [
+                    ['name' => 'account_holder_name', 'label' => 'Account Holder Name', 'type' => 'text', 'required' => true],
+                    ['name' => 'account_number', 'label' => 'Account Number', 'type' => 'text', 'required' => true],
+                    ['name' => 'bank_name', 'label' => 'Bank Name', 'type' => 'text', 'required' => true],
+                    ['name' => 'other_details', 'label' => 'Other Details (e.g. routing number)', 'type' => 'text', 'required' => true],
+                ],
+                'is_active' => true,
+            ],
+            [
+                'id' => 'paypal',
+                'name' => 'PayPal',
+                'description' => 'Transfer to your PayPal account',
+                'fields' => [
+                    ['name' => 'paypal_email', 'label' => 'PayPal Email', 'type' => 'email', 'required' => true],
+                ],
+                'is_active' => true,
+            ],
+            [
+                'id' => 'stripe',
+                'name' => 'Stripe',
+                'description' => 'Transfer to your Stripe account',
+                'fields' => [
+                    ['name' => 'stripe_account_id', 'label' => 'Stripe Account ID', 'type' => 'text', 'required' => true],
+                ],
+                'is_active' => true,
+            ],
+            [
+                'id' => 'razorpay',
+                'name' => 'Razorpay',
+                'description' => 'Transfer to your Razorpay account',
+                'fields' => [
+                    ['name' => 'razorpay_account_id', 'label' => 'Razorpay Account ID', 'type' => 'text', 'required' => true],
+                ],
+                'is_active' => true,
+            ]
+        ];
+
+        return ApiResponseService::successResponse('Withdrawal methods retrieved successfully', $methods);
+    }
+
+    /**
      * Get withdrawal request details
      */
     public function getWithdrawalRequestDetails(Request $request)
