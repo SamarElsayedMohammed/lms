@@ -62,6 +62,7 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
             'standalone_lessons'            => 'nullable|array',
+            'is_featured'                   => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -153,6 +154,7 @@ class CourseAdminApiController extends AdminCrudApiController
                 'intro_video_type'   => $introVideoType,
                 'content_structure'  => $contentStructure,
                 'language_id'        => $languageId,
+                'is_featured'        => $request->boolean('is_featured'),
             ]);
 
             // ── Tags ────────────────────────────────────────────────
@@ -478,6 +480,7 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
             'standalone_lessons'            => 'nullable|array',
+            'is_featured'                   => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -566,6 +569,7 @@ class CourseAdminApiController extends AdminCrudApiController
                 'intro_video'        => $introVideo,
                 'intro_video_type'   => $introVideoType,
                 'content_structure'  => $contentStructure,
+                'is_featured'        => $request->has('is_featured') ? $request->boolean('is_featured') : $course->is_featured,
             ]);
 
             // ── Tags ────────────────────────────────────────────────

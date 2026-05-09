@@ -48,6 +48,7 @@ class Course extends Model
         'meta_image',
         'meta_description',
         'meta_keywords',
+        'is_featured',
     ];
 
     protected $casts = [
@@ -59,6 +60,7 @@ class Course extends Model
         'price' => 'decimal:2',
         'discount_price' => 'decimal:2',
         'certificate_fee' => 'decimal:2',
+        'is_featured' => 'boolean',
     ];
 
     protected $appends = ['total_tax_percentage', 'display_price', 'display_discount_price', 'tax_amount'];

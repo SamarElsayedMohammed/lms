@@ -177,6 +177,54 @@ class HomeApiController extends Controller
                     $data = $query->latest()->take($limit)->get();
                     break;
 
+                case 'featured_courses':
+                    $query = Course::with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
+                        ->where('is_active', 1)
+                        ->where('status', 'publish')
+                        ->where('approval_status', 'approved')
+                        ->where('is_featured', 1)
+                        ->whereHas('user', static function ($userQuery): void {
+                            $userQuery
+                                ->where('is_active', 1)
+                                ->where(static function ($query): void {
+                                    $query->whereHas('instructor_details', static function ($instructorQuery): void {
+                                        $instructorQuery->where('status', 'approved');
+                                    })->orWhereHas('roles', static function ($roleQuery): void {
+                                        $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
+                                    });
+                                });
+                        })
+                        ->whereHas('chapters', static function ($chapterQuery): void {
+                            $chapterQuery
+                                ->where('is_active', true)
+                                ->where(static function ($curriculumQuery): void {
+                                    $curriculumQuery
+                                        ->whereHas('lectures', static function ($lectureQuery): void {
+                                            $lectureQuery->where('is_active', true);
+                                        })
+                                        ->orWhereHas('quizzes', static function ($quizQuery): void {
+                                            $quizQuery->where('is_active', true);
+                                        })
+                                        ->orWhereHas('assignments', static function ($assignmentQuery): void {
+                                            $assignmentQuery->where('is_active', true);
+                                        })
+                                        ->orWhereHas('resources', static function ($resourceQuery): void {
+                                            $resourceQuery->where('is_active', true);
+                                        });
+                                });
+                        });
+
+                    if ($request->filled('course_type')) {
+                        $query->whereIn('course_type', explode(',', $request->course_type));
+                    }
+
+                    if ($request->filled('level')) {
+                        $query->whereIn('level', explode(',', $request->level));
+                    }
+
+                    $data = $query->latest()->take($limit)->get();
+                    break;
+
                 case 'top_rated_courses':
                     $query = Course::with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
                         ->where('is_active', 1)
