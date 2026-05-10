@@ -49,6 +49,8 @@ class Course extends Model
         'meta_description',
         'meta_keywords',
         'is_featured',
+        'ai_knowledge_file',
+        'ai_knowledge_content',
     ];
 
     protected $casts = [

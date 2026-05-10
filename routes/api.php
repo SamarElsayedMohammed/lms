@@ -60,6 +60,18 @@ Route::post('admin-login', [ApiController::class, 'adminLogin']);
 /********************************************************************************************* */
 
 /**
+ * Chatbot APIs (Public - No Auth Required)
+ */
+Route::prefix('chatbot')->group(function (): void {
+    Route::get('/config', [\App\Http\Controllers\API\ChatbotApiController::class, 'getConfig']);
+    Route::post('/faq-answer', [\App\Http\Controllers\API\ChatbotApiController::class, 'getFaqAnswer']);
+    Route::post('/message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendMessage'])
+        ->middleware('throttle:30,1'); // Rate limit: 30 messages per minute
+});
+
+/********************************************************************************************* */
+
+/**
  * General APIs
  */
 
@@ -235,6 +247,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('user/certificates', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getUserCertificates']); // User Certificates List
     Route::get('reports/comprehensive', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getComprehensiveReport']); // Comprehensive User Report
     
+    // Course Chatbot (AI — per course, subscribers only)
+    Route::post('chatbot/course-message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendCourseMessage'])
+        ->middleware('throttle:30,1');
+    
+    // Chat Conversations (Threads)
+    Route::get('chatbot/conversations', [\App\Http\Controllers\API\ChatbotApiController::class, 'getConversations']);
+    Route::get('chatbot/conversations/{id}', [\App\Http\Controllers\API\ChatbotApiController::class, 'getConversationMessages']);
+
     // Financial Transactions (Unified)
     Route::get('user/financial-transactions', [\App\Http\Controllers\API\User\UserFinanceReportApiController::class, 'getFinancialTransactions']);
 
@@ -765,6 +785,37 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::post('/', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'store']);
             Route::put('{id}', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'update']);
             Route::delete('{id}', [\App\Http\Controllers\API\Admin\MarketingPixelAdminApiController::class, 'destroy']);
+        });
+
+        // Chatbot Management (Admin)
+        Route::prefix('chatbot')->group(function (): void {
+            // Settings
+            Route::get('/settings', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'getSettings']);
+            Route::put('/settings', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateSettings']);
+            Route::post('/settings', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateSettings']); // POST variant for file uploads
+
+            // FAQ Buttons
+            Route::get('/faqs', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexFaqs']);
+            Route::post('/faqs', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'storeFaq']);
+            Route::get('/faqs/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'showFaq']);
+            Route::put('/faqs/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateFaq']);
+            Route::delete('/faqs/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'destroyFaq']);
+            Route::put('/faqs/{id}/restore', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'restoreFaq']);
+
+            // Knowledge Base
+            Route::get('/knowledge', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexKnowledge']);
+            Route::post('/knowledge', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'storeKnowledge']);
+            Route::get('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'showKnowledge']);
+            Route::put('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']);
+            Route::post('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']); // POST variant for file uploads
+            Route::delete('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'destroyKnowledge']);
+            Route::post('/knowledge/{id}/toggle', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'toggleKnowledge']);
+
+            // Chat History (Logs)
+            Route::get('/logs', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexLogs']);
+
+            // Test Chat
+            Route::post('/test', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'testChat']);
         });
     });
 

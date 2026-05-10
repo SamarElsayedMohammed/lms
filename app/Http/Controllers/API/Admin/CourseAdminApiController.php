@@ -63,6 +63,7 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections.*.lessons' => 'nullable|array',
             'standalone_lessons'            => 'nullable|array',
             'is_featured'                   => 'nullable|boolean',
+            'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -156,6 +157,17 @@ class CourseAdminApiController extends AdminCrudApiController
                 'language_id'        => $languageId,
                 'is_featured'        => $request->boolean('is_featured'),
             ]);
+
+            // AI Knowledge Base file for course chatbot
+            if ($request->hasFile('ai_knowledge_file')) {
+                $knowledgeFile = $request->file('ai_knowledge_file');
+                $filePath = FileService::upload($knowledgeFile, 'courses/ai_knowledge');
+                $fileContent = file_get_contents($knowledgeFile->getRealPath());
+                $course->update([
+                    'ai_knowledge_file' => $filePath,
+                    'ai_knowledge_content' => $fileContent,
+                ]);
+            }
 
             // ── Tags ────────────────────────────────────────────────
             $tags = $request->input('tags', []);
@@ -481,6 +493,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections.*.lessons' => 'nullable|array',
             'standalone_lessons'            => 'nullable|array',
             'is_featured'                   => 'nullable|boolean',
+            'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
+            'remove_ai_knowledge'           => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -571,6 +585,30 @@ class CourseAdminApiController extends AdminCrudApiController
                 'content_structure'  => $contentStructure,
                 'is_featured'        => $request->has('is_featured') ? $request->boolean('is_featured') : $course->is_featured,
             ]);
+
+            // AI Knowledge Base file for course chatbot
+            if ($request->boolean('remove_ai_knowledge')) {
+                // Admin wants to remove the knowledge file
+                if ($course->ai_knowledge_file) {
+                    FileService::delete($course->ai_knowledge_file);
+                }
+                $course->update([
+                    'ai_knowledge_file' => null,
+                    'ai_knowledge_content' => null,
+                ]);
+            } elseif ($request->hasFile('ai_knowledge_file')) {
+                // Upload new knowledge file
+                if ($course->ai_knowledge_file) {
+                    FileService::delete($course->ai_knowledge_file);
+                }
+                $knowledgeFile = $request->file('ai_knowledge_file');
+                $filePath = FileService::upload($knowledgeFile, 'courses/ai_knowledge');
+                $fileContent = file_get_contents($knowledgeFile->getRealPath());
+                $course->update([
+                    'ai_knowledge_file' => $filePath,
+                    'ai_knowledge_content' => $fileContent,
+                ]);
+            }
 
             // ── Tags ────────────────────────────────────────────────
             $tags = $request->input('tags', []);
