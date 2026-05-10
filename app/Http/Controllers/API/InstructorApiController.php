@@ -1271,7 +1271,7 @@ class InstructorApiController extends Controller
             'slug' => 'nullable|string|exists:users,slug',
             'type' => 'nullable|in:individual,team',
             'search' => 'nullable|string|max:255',
-            'sort_by' => 'nullable|in:id,created_at,updated_at',
+            'sort_by' => 'nullable|in:id,created_at,updated_at,average_rating',
             'sort_order' => 'nullable|in:asc,desc',
             'per_page' => 'nullable|integer|min:1|max:100',
             'page' => 'nullable|integer|min:1',
@@ -1413,7 +1413,11 @@ class InstructorApiController extends Controller
         }
 
         // ✅ Sorting
-        $query->orderBy($request->sort_by ?? 'id', $request->sort_order ?? 'desc');
+        $sortBy = $request->sort_by ?? 'id';
+        if ($sortBy === 'average_rating') {
+            $sortBy = 'ratings_avg_rating';
+        }
+        $query->orderBy($sortBy, $request->sort_order ?? 'desc');
 
         // ✅ Pagination
         $instructors = $query->paginate($request->per_page ?? 15);
