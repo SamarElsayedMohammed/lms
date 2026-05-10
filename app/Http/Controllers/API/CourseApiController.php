@@ -125,7 +125,11 @@ class CourseApiController extends Controller
             'chapters.resources',
         ])
             ->withAvg('ratings', 'rating')
-            ->withCount('ratings')
+            ->withCount(['ratings', 'views', 'orderCourses' => static function ($q): void {
+                $q->whereHas('order', static function ($orderQuery): void {
+                    $orderQuery->where('status', 'completed');
+                });
+            }])
             ->where('is_active', 1) // ensure active only
             ->where('status', 'publish') // ensure published status
             ->where('approval_status', 'approved') // ensure approved status
@@ -659,6 +663,8 @@ class CourseApiController extends Controller
                     'certificate_enabled' => $course->certificate_enabled ?? false,
                     'certificate_fee' => $course->certificate_fee ? (float) $course->certificate_fee : null,
                     'ratings' => $course->ratings_count ?? 0,
+                    'view_count' => $course->views_count ?? 0,
+                    'student_count' => $course->order_courses_count ?? 0,
                     'average_rating' => round($course->ratings_avg_rating ?? 0, 2),
                     'title' => $course->title,
                     'short_description' => $course->short_description,
@@ -717,7 +723,11 @@ class CourseApiController extends Controller
                         },
                     ]);
                 },
-            ])->withAvg('ratings', 'rating')->withCount('ratings');
+            ])->withAvg('ratings', 'rating')->withCount(['ratings', 'views', 'orderCourses' => static function ($q): void {
+                $q->whereHas('order', static function ($orderQuery): void {
+                    $orderQuery->where('status', 'completed');
+                });
+            }]);
 
             if ($request->filled('id')) {
                 $course = $courseQuery->where('id', $request->id)->first();
@@ -1240,17 +1250,14 @@ class CourseApiController extends Controller
                 'certificate_enabled' => $course->certificate_enabled ?? false,
                 'certificate_fee' => $course->certificate_fee ? (float) $course->certificate_fee : null,
                 'ratings' => $course->ratings_count ?? 0,
+                'view_count' => $course->views_count ?? 0,
                 'average_rating' => round($course->ratings_avg_rating ?? 0, 2),
                 'author_name' => $course->user->name ?? null,
                 ...$coursePricingData,
                 'discount_percentage' => $discountPercentage,
                 'is_purchased' => $isPurchased,
                 'is_wishlist' => $isWishlist,
-                'enroll_students' => OrderCourse::whereHas('order', static function ($q): void {
-                    $q->where('status', 'completed');
-                })
-                    ->where('course_id', $course->id)
-                    ->count(),
+                'enroll_students' => $course->order_courses_count ?? 0,
                 'last_updated' => $course->updated_at ? $course->updated_at->format('Y-m-d H:i:s') : null,
                 // Meta Information
                 'meta_title' => $course->meta_title ?? $course->title,
