@@ -37,14 +37,14 @@ final class KashierController extends Controller
             $data = array_merge($data, $data['data']);
         }
 
-        if (empty($data)) {
-            Log::warning('Kashier webhook: empty payload');
-            return $this->respond($request, 'Bad Request', 400, false);
-        }
+        Log::info('Kashier webhook/redirect received', [
+            'method' => $request->method(),
+            'data' => $data
+        ]);
 
         $isVerified = false;
         if ($request->isMethod('get')) {
-            $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? '';
+            $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? $data['queryString']['transactionId'] ?? '';
             if (!empty($transactionId)) {
                 $apiStatus = $this->kashierService->getPaymentStatus($transactionId);
                 if ($apiStatus !== 'unknown') {
@@ -56,15 +56,17 @@ final class KashierController extends Controller
             $isVerified = $this->kashierService->verifyPayment($data);
         }
 
+        $orderId = $data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '';
+        $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? ''));
+        $isSuccess = in_array($status, ['success', 'completed', 'captured', 'paid'], true);
+
         if (!$isVerified) {
-            Log::warning('Kashier webhook: signature/API verification failed');
+            Log::warning('Kashier webhook: signature/API verification failed', [
+                'orderId' => $orderId,
+                'transactionId' => $transactionId ?? 'none'
+            ]);
+            
             if ($request->isMethod('get')) {
-                // If it's a GET request and verification fails, just redirect the user to the frontend
-                // to maintain the UI flow, but DO NOT process any database updates.
-                $orderId = $data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '';
-                $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? ''));
-                $isSuccess = in_array($status, ['success', 'completed', 'captured', 'paid'], true);
-                
                 $redirectPath = '/plans';
                 if (str_starts_with($orderId, 'wlt_')) {
                     $redirectPath = '/my-wallet';

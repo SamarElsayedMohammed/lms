@@ -423,11 +423,9 @@ class FinanceApiController extends Controller
                 'status' => 'pending',
             ]);
 
-            // Deduct amount from wallet balance directly (without creating history entry)
-            // History entry will be created only when withdrawal is approved/rejected
-            $user->wallet_balance -= $amount;
-            $user->save();
-            $user->refresh(); // Refresh to get updated balance
+            // Withdrawal request is created as 'pending'. 
+            // Balance will be deducted ONLY when admin approves the request.
+            // We already checked if user has sufficient balance in line 547.
 
             DB::commit();
 
@@ -785,15 +783,27 @@ class FinanceApiController extends Controller
             ]);
 
             // Handle wallet operations based on status change
-            if ($oldStatus === 'pending' && $newStatus === 'rejected') {
-                // Refund the amount back to user's wallet
+            if ($newStatus === 'approved' || $newStatus === 'completed') {
+                // Debit the amount from user's wallet now that it's approved
+                WalletService::debitWallet(
+                    $withdrawalRequest->user_id,
+                    $withdrawalRequest->amount,
+                    'withdrawal',
+                    "Withdrawal request #{$withdrawalRequest->id} approved",
+                    $withdrawalRequest->id,
+                    \App\Models\WithdrawalRequest::class,
+                    $withdrawalRequest->entry_type
+                );
+            } elseif ($oldStatus === 'approved' && $newStatus === 'rejected') {
+                // If it was already approved (and thus debited), refund it
                 WalletService::creditWallet(
                     $withdrawalRequest->user_id,
                     $withdrawalRequest->amount,
                     'withdrawal',
-                    "Withdrawal request #{$withdrawalRequest->id} rejected - Amount refunded",
+                    "Withdrawal request #{$withdrawalRequest->id} previously approved but now rejected - Amount refunded",
                     $withdrawalRequest->id,
                     \App\Models\WithdrawalRequest::class,
+                    $withdrawalRequest->entry_type
                 );
             }
 
