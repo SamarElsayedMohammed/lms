@@ -54,7 +54,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
         );
 
         $baseUrl = $config['mode'] === 'live' ? self::BASE_URL_LIVE : self::BASE_URL_TEST;
-        $callbackUrl = urlencode(url('/webhooks/kashier'));
+        $callbackUrl = urlencode(url('/webhooks/kashier?order_id=' . $orderId));
 
         $url = $baseUrl
             . '?merchantId=' . $config['merchant_id']
@@ -106,7 +106,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
         );
 
         $baseUrl = $config['mode'] === 'live' ? self::BASE_URL_LIVE : self::BASE_URL_TEST;
-        $callbackUrl = urlencode(url('/webhooks/kashier'));
+        $callbackUrl = urlencode(url('/webhooks/kashier?order_id=' . $orderId));
 
         $url = $baseUrl
             . '?merchantId=' . $config['merchant_id']
@@ -155,7 +155,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
         );
 
         $baseUrl = $config['mode'] === 'live' ? self::BASE_URL_LIVE : self::BASE_URL_TEST;
-        $callbackUrl = urlencode(url('/webhooks/kashier'));
+        $callbackUrl = urlencode(url('/webhooks/kashier?order_id=' . $orderId));
 
         $url = $baseUrl
             . '?merchantId=' . $config['merchant_id']
