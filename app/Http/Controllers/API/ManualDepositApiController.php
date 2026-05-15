@@ -7,6 +7,7 @@ use App\Models\ManualDeposit;
 use App\Models\ManualDepositMethod;
 use App\Services\ApiResponseService;
 use App\Services\FileService;
+use App\Services\GeoLocationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -14,13 +15,32 @@ use Illuminate\Support\Facades\Validator;
 class ManualDepositApiController extends Controller
 {
     private $receiptFolder = 'manual_deposits/receipts';
+    private $geoLocationService;
+
+    public function __construct(GeoLocationService $geoLocationService)
+    {
+        $this->geoLocationService = $geoLocationService;
+    }
 
     /**
      * Get active manual deposit methods for user
      */
-    public function getMethods()
+    public function getMethods(Request $request)
     {
-        $methods = ManualDepositMethod::where('is_active', true)->get();
+        $user = Auth::user();
+        $countryCode = $user?->country_code ?? $this->geoLocationService->getCountryCodeFromRequest($request);
+
+        $query = ManualDepositMethod::where('is_active', true);
+
+        if ($countryCode) {
+            $query->where(function ($q) use ($countryCode) {
+                $q->whereJsonContains('countries', $countryCode)
+                  ->orWhereNull('countries')
+                  ->orWhere('countries', '[]');
+            });
+        }
+
+        $methods = $query->get();
         return ApiResponseService::successResponse('Manual deposit methods retrieved successfully', $methods);
     }
 

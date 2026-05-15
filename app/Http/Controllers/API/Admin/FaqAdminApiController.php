@@ -107,12 +107,12 @@ class FaqAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('faqs-delete');
 
-        $faq = Faq::find($id);
+        $faq = Faq::withTrashed()->find($id);
         if (!$faq) {
             return $this->jsonError(__('FAQ not found'), 404);
         }
 
-        $faq->delete();
+        $faq->forceDelete();
         return $this->jsonSuccess(__('FAQ deleted successfully'));
     }
 

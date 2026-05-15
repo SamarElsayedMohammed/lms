@@ -19,6 +19,7 @@ use App\Models\SeoSetting;
 use App\Models\SocialLogin;
 use App\Models\SocialMedia;
 use App\Models\User;
+use App\Models\UserDevice;
 use App\Models\UserFcmToken;
 use App\Services\ApiResponseService;
 use App\Services\ApiService;
@@ -98,6 +99,9 @@ class ApiController extends Controller
                 'platform_type' => 'nullable|in:android,ios',
                 'firebase_token' => 'required',
                 'mobile' => 'nullable|unique:users,mobile',
+                'device_type' => 'nullable|in:web,android,ios,desktop',
+                'device_id' => 'nullable|string|max:255',
+                'device_name' => 'nullable|string|max:255',
             ];
 
             // If type is email, password is required
@@ -222,6 +226,12 @@ class ApiController extends Controller
                 ]);
             }
 
+            // Verify device limits
+            $deviceError = $this->verifyDeviceLimits($auth, $request);
+            if ($deviceError) {
+                ApiResponseService::validationError($deviceError);
+            }
+
             $token = $this->createTokenWithMetadata($auth, $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $token);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
@@ -233,12 +243,43 @@ class ApiController extends Controller
 
     private function createTokenWithMetadata($user, $name, Request $request)
     {
+        // Enforce single active session: revoke all existing tokens
+        $user->tokens()->delete();
+
         $tokenResult = $user->createToken($name);
         $token = $tokenResult->accessToken;
         $token->ip_address = $request->ip();
         $token->user_agent = $request->userAgent();
         $token->save();
         return $tokenResult->plainTextToken;
+    }
+
+    /**
+     * Verify device limits for user login.
+     * Returns null if allowed, or error response if blocked.
+     */
+    private function verifyDeviceLimits(User $user, Request $request)
+    {
+        $deviceType = $request->input('device_type');
+        $deviceId   = $request->input('device_id');
+
+        // If client doesn't send device info, skip verification (backward compatibility)
+        if (empty($deviceType) || empty($deviceId)) {
+            return null;
+        }
+
+        $result = UserDevice::verifyDevice(
+            $user->id,
+            $deviceType,
+            $deviceId,
+            $request->input('device_name')
+        );
+
+        if (!$result['allowed']) {
+            return $result['message'];
+        }
+
+        return null;
     }
 
     public function userLogin(Request $request)
@@ -249,6 +290,9 @@ class ApiController extends Controller
                 'type' => 'required|in:google,apple,email',
                 'platform_type' => 'nullable|in:android,ios',
                 'firebase_token' => 'required',
+                'device_type' => 'nullable|in:web,android,ios,desktop',
+                'device_id' => 'nullable|string|max:255',
+                'device_name' => 'nullable|string|max:255',
             ];
 
             // If type is email, password is required
@@ -297,6 +341,12 @@ class ApiController extends Controller
                 ]);
             }
 
+            // Verify device limits
+            $deviceError = $this->verifyDeviceLimits($auth, $request);
+            if ($deviceError) {
+                ApiResponseService::validationError($deviceError);
+            }
+
             $token = $this->createTokenWithMetadata($auth, $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $token);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
@@ -314,6 +364,9 @@ class ApiController extends Controller
                 'password' => 'required|string|min:6',
                 'fcm_id' => 'nullable|string',
                 'platform_type' => 'nullable|in:android,ios',
+                'device_type' => 'nullable|in:web,android,ios,desktop',
+                'device_id' => 'nullable|string|max:255',
+                'device_name' => 'nullable|string|max:255',
             ]);
 
             $user = User::withTrashed()
@@ -343,6 +396,12 @@ class ApiController extends Controller
                 ]);
             }
 
+            // Verify device limits
+            $deviceError = $this->verifyDeviceLimits($user, $request);
+            if ($deviceError) {
+                ApiResponseService::validationError($deviceError);
+            }
+
             // Generate new token
             $token = $this->createTokenWithMetadata($user, $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
@@ -368,6 +427,9 @@ class ApiController extends Controller
                 'firebase_token' => 'required',
                 'email' => 'nullable|email',
                 'country_calling_code' => 'nullable|string|max:10',
+                'device_type' => 'nullable|in:web,android,ios,desktop',
+                'device_id' => 'nullable|string|max:255',
+                'device_name' => 'nullable|string|max:255',
             ]);
 
             $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
@@ -450,6 +512,13 @@ class ApiController extends Controller
             }
 
             DB::commit();
+
+            // Verify device limits (for new user, this will register the device)
+            $deviceError = $this->verifyDeviceLimits($user, $request);
+            if ($deviceError) {
+                ApiResponseService::validationError($deviceError);
+            }
+
             // Generate new token
             $token = $this->createTokenWithMetadata($user, $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
@@ -497,6 +566,9 @@ class ApiController extends Controller
             ApiService::validateRequest($request, [
                 'email' => 'required|email',
                 'password' => 'required|string',
+                'device_type' => 'nullable|in:web,android,ios,desktop',
+                'device_id' => 'nullable|string|max:255',
+                'device_name' => 'nullable|string|max:255',
             ]);
 
             $user = User::where('email', $request->email)->first();
@@ -524,6 +596,12 @@ class ApiController extends Controller
             ];
             if (!$user->hasAnyRole($adminRoles, 'web')) {
                 ApiResponseService::validationError(__('Access denied. Admin credentials required.'));
+            }
+
+            // Verify device limits
+            $deviceError = $this->verifyDeviceLimits($user, $request);
+            if ($deviceError) {
+                ApiResponseService::validationError($deviceError);
             }
 
             $token = $this->createTokenWithMetadata($user, 'admin-dashboard', $request);

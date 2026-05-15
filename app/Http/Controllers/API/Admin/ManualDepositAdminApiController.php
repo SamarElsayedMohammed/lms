@@ -41,6 +41,8 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'account_details' => 'nullable|string',
             'instructions' => 'nullable|string',
+            'countries' => 'nullable|array',
+            'countries.*' => 'nullable|string|max:10',
             'is_active' => 'nullable|boolean',
         ]);
 
@@ -48,7 +50,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $data = $request->only(['name', 'account_details', 'instructions', 'is_active']);
+        $data = $request->only(['name', 'account_details', 'instructions', 'countries', 'is_active']);
         
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndUpload($request->file('image'), $this->methodFolder);
@@ -74,6 +76,8 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'account_details' => 'nullable|string',
             'instructions' => 'nullable|string',
+            'countries' => 'nullable|array',
+            'countries.*' => 'nullable|string|max:10',
             'is_active' => 'nullable|boolean',
         ]);
 
@@ -81,7 +85,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $data = $request->only(['name', 'account_details', 'instructions', 'is_active']);
+        $data = $request->only(['name', 'account_details', 'instructions', 'countries', 'is_active']);
 
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndReplace($request->file('image'), $this->methodFolder, $method->getRawOriginal('image'));
