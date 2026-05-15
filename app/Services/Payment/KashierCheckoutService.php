@@ -183,19 +183,35 @@ final class KashierCheckoutService implements PaymentGatewayContract
     /**
      * Verify webhook/callback signature from Kashier.
      */
-    public function verifyPayment(array $data): bool
+    public function verifyPayment(array $payload): bool
     {
-        $signature = $data['signature'] ?? '';
-        if (empty($signature)) {
-            return false;
-        }
-
         $config = $this->getConfig();
         if (empty($config['api_key'])) {
             return false;
         }
 
+        // Handle Kashier webhook structure (nested data object)
+        $data = $payload;
+        if (isset($payload['data']) && is_array($payload['data'])) {
+            $data = $payload['data'];
+            // Signature is usually in the top level for webhooks, but data is what's signed
+            $signature = $payload['signature'] ?? $data['signature'] ?? '';
+        } else {
+            $signature = $payload['signature'] ?? '';
+        }
+
+        if (empty($signature)) {
+            return false;
+        }
+
+        // Kashier signature rules:
+        // 1. Take all fields except signature and mode
+        // 2. Sort them alphabetically
+        // 3. Join with & (key=value)
+        // 4. Hash with API Key using SHA256
         $queryParts = [];
+        ksort($data);
+
         foreach ($data as $key => $value) {
             if (in_array(strtolower($key), ['signature', 'mode'], true) || is_array($value)) {
                 continue;
@@ -205,8 +221,17 @@ final class KashierCheckoutService implements PaymentGatewayContract
         $queryString = implode('&', $queryParts);
 
         $expectedSignature = hash_hmac('sha256', $queryString, $config['api_key'], false);
+        $isValid = hash_equals($expectedSignature, $signature);
 
-        return hash_equals($expectedSignature, $signature);
+        if (!$isValid) {
+            Log::warning('Kashier signature verification failed', [
+                'expected' => $expectedSignature,
+                'received' => $signature,
+                'queryString' => $queryString
+            ]);
+        }
+
+        return $isValid;
     }
 
     /**
