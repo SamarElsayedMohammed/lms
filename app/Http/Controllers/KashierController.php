@@ -44,37 +44,40 @@ final class KashierController extends Controller
         ]);
 
         $isVerified = false;
-        if ($request->isMethod('get')) {
-            $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? $data['queryString']['transactionId'] ?? '';
-            if (!empty($transactionId)) {
-                $apiStatus = $this->kashierService->getPaymentStatus($transactionId);
-                if ($apiStatus !== 'unknown') {
-                    $isVerified = true;
-                    $data['paymentStatus'] = $apiStatus; // Trust the API status
-                }
+        $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? $data['queryString']['transactionId'] ?? '';
+
+        // ALWAYS try to verify via API if we have a transactionId (most reliable method)
+        if (!empty($transactionId)) {
+            Log::info('Kashier: Verifying via API', ['transactionId' => $transactionId]);
+            $apiData = $this->kashierService->getPaymentDetails($transactionId);
+            if ($apiData && in_array($apiData['status'], ['success', 'completed', 'captured', 'paid'], true)) {
+                $isVerified = true;
+                $status = $apiData['status'];
+                $isSuccess = true;
+                Log::info('Kashier: API verification successful');
             }
-        } else {
-            // Use the original nested payload for signature verification
-            $isVerified = $this->kashierService->verifyPayment($payload);
         }
 
-        $orderId = (string)($data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '');
-        $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? ''));
-        $isSuccess = in_array($status, ['success', 'completed', 'captured', 'paid'], true);
-
+        // Fallback to signature verification if API check didn't happen or failed
         if (!$isVerified) {
-            Log::warning('Kashier webhook: signature/API verification failed', [
+            if ($request->isMethod('get')) {
+                // Signature for GET is complex and unreliable due to param order, 
+                // so we mainly trust the API check above.
+                Log::info('Kashier: GET request without successful API verification');
+            } else {
+                $isVerified = $this->kashierService->verifyPayment($payload);
+            }
+        }
+
+        if (!$isVerified && !$isSuccess) {
+            Log::warning('Kashier webhook: Total verification failed', [
                 'orderId' => $orderId,
-                'transactionId' => $transactionId ?? 'none'
+                'transactionId' => $transactionId
             ]);
             
             if ($request->isMethod('get')) {
-                $redirectPath = '/plans';
-                if (str_starts_with($orderId, 'wlt_')) {
-                    $redirectPath = '/my-wallet';
-                }
-                
-                return $this->respond($request, 'Redirecting...', 302, $isSuccess, $redirectPath);
+                $redirectPath = str_starts_with($orderId, 'wlt_') ? '/my-wallet' : '/plans';
+                return $this->respond($request, 'Verification failed', 302, false, $redirectPath);
             }
             return $this->respond($request, 'Invalid signature', 400, false);
         }
