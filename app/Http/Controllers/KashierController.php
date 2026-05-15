@@ -42,8 +42,36 @@ final class KashierController extends Controller
             return $this->respond($request, 'Bad Request', 400, false);
         }
 
-        if (!$this->kashierService->verifyPayment($data)) {
-            Log::warning('Kashier webhook: signature verification failed');
+        $isVerified = false;
+        if ($request->isMethod('get')) {
+            $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? '';
+            if (!empty($transactionId)) {
+                $apiStatus = $this->kashierService->getPaymentStatus($transactionId);
+                if ($apiStatus !== 'unknown') {
+                    $isVerified = true;
+                    $data['paymentStatus'] = $apiStatus; // Trust the API status
+                }
+            }
+        } else {
+            $isVerified = $this->kashierService->verifyPayment($data);
+        }
+
+        if (!$isVerified) {
+            Log::warning('Kashier webhook: signature/API verification failed');
+            if ($request->isMethod('get')) {
+                // If it's a GET request and verification fails, just redirect the user to the frontend
+                // to maintain the UI flow, but DO NOT process any database updates.
+                $orderId = $data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '';
+                $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? ''));
+                $isSuccess = in_array($status, ['success', 'completed', 'captured', 'paid'], true);
+                
+                $redirectPath = '/plans';
+                if (str_starts_with($orderId, 'wlt_')) {
+                    $redirectPath = '/my-wallet';
+                }
+                
+                return $this->respond($request, 'Redirecting...', 302, $isSuccess, $redirectPath);
+            }
             return $this->respond($request, 'Invalid signature', 400, false);
         }
 
@@ -298,16 +326,25 @@ final class KashierController extends Controller
         }
     }
 
-    private function respond(Request $request, string $message, int $statusCode, bool $isSuccess)
+    private function respond(Request $request, string $message, int $statusCode, bool $isSuccess, string $redirectPath = null)
     {
         // If it's a GET request, or a non-JSON POST request (like an HTML form redirect from Kashier), redirect the user
         if ($request->isMethod('get') || !$request->isJson()) {
             $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://skillso.net')), '/');
             
-            if ($isSuccess) {
-                return redirect()->away($frontendUrl . '/plans?payment=success');
+            if ($redirectPath === null) {
+                $orderId = $request->input('merchantOrderId') ?? $request->input('merchant_order_id') ?? $request->input('orderId') ?? $request->input('order_id') ?? '';
+                if (str_starts_with($orderId, 'wlt_')) {
+                    $redirectPath = '/my-wallet';
+                } else {
+                    $redirectPath = '/plans';
+                }
             }
-            return redirect()->away($frontendUrl . '/plans?payment=failed');
+            
+            if ($isSuccess) {
+                return redirect()->away($frontendUrl . $redirectPath . '?payment=success');
+            }
+            return redirect()->away($frontendUrl . $redirectPath . '?payment=failed');
         }
 
         return response($message, $statusCode);

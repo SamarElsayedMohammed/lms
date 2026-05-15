@@ -28,7 +28,7 @@ $request = Request::create('/webhooks/kashier', 'POST', [
 ]);
 
 // Create anonymous class to mock KashierCheckoutService
-$mockKashier = new class implements \App\Services\Payment\PaymentGatewayContract {
+$mockKashier = new class extends \App\Services\Payment\KashierCheckoutService {
     public function initiate(\App\Models\Order $order, array $options = []): array { return []; }
     public function createCheckoutSession(\App\Models\SubscriptionPlan $plan, User $user, float $amount): array { return []; }
     public function createWalletTopUpSession(User $user, float $amount): array { return []; }
