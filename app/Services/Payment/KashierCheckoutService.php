@@ -216,23 +216,36 @@ final class KashierCheckoutService implements PaymentGatewayContract
     public function getPaymentStatus(string $transactionId): string
     {
         $config = $this->getConfig();
-        if (empty($config['api_key']) || empty($config['merchant_id'])) {
+        if (empty($config['api_key'])) {
             return 'unknown';
         }
 
         try {
-            $baseUrl = $config['mode'] === 'live' ? self::BASE_URL_LIVE : self::BASE_URL_TEST;
-            $response = Http::timeout(10)->get($baseUrl . '/api/transaction/' . $transactionId, [
-                'merchantId' => $config['merchant_id'],
-                'apiKey' => $config['api_key'],
-            ]);
+            // Kashier Management API uses api.kashier.io
+            $response = Http::withHeaders([
+                'Authorization' => $config['api_key'],
+            ])->timeout(10)->get('https://api.kashier.io/v1/transaction/' . $transactionId);
 
             if ($response->successful()) {
-                $body = $response->json();
-                return $body['status'] ?? 'unknown';
+                $data = $response->json();
+                // Kashier API response structure: { "status": "success", "response": { "status": "captured", ... } }
+                // or similar. Let's be flexible and check common paths.
+                $status = $data['response']['status'] ?? $data['status'] ?? 'unknown';
+                
+                Log::info('Kashier API status check', [
+                    'transactionId' => $transactionId,
+                    'status' => $status
+                ]);
+
+                return strtolower((string) $status);
             }
+            
+            Log::warning('Kashier API status check failed', [
+                'transactionId' => $transactionId,
+                'response' => $response->body()
+            ]);
         } catch (\Throwable $e) {
-            Log::warning('Kashier getPaymentStatus failed: ' . $e->getMessage());
+            Log::warning('Kashier getPaymentStatus exception: ' . $e->getMessage());
         }
 
         return 'unknown';
