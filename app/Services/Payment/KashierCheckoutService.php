@@ -197,7 +197,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
 
         $queryParts = [];
         foreach ($data as $key => $value) {
-            if (in_array(strtolower($key), ['signature', 'mode'], true)) {
+            if (in_array(strtolower($key), ['signature', 'mode'], true) || is_array($value)) {
                 continue;
             }
             $queryParts[] = $key . '=' . $value;
