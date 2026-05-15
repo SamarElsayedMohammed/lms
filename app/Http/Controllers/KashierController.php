@@ -207,13 +207,26 @@ final class KashierController extends Controller
         $amount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? $data['queryString']['transactionAmount'] ?? 0);
         $transactionId = (string) ($data['transactionId'] ?? $data['transaction_id'] ?? $data['queryString']['transactionId'] ?? $orderId);
 
+        // FALLBACK: If amount is missing (common in redirects), fetch it from Kashier API
+        if ($amount <= 0 && !empty($transactionId) && $transactionId !== $orderId) {
+            Log::info('Kashier handleWalletTopUp: Amount missing, fetching from API', ['transactionId' => $transactionId]);
+            $apiData = $this->kashierService->getPaymentDetails($transactionId);
+            if ($apiData && isset($apiData['amount'])) {
+                $amount = (float) $apiData['amount'];
+                Log::info('Kashier handleWalletTopUp: Amount recovered from API', ['amount' => $amount]);
+            }
+        }
+
         if ($amount <= 0) {
             Log::warning('Kashier webhook: invalid wallet top-up amount', [
                 'orderId' => $orderId, 
                 'amount' => $amount,
-                'received_data' => $data
+                'transactionId' => $transactionId,
+                'is_get' => $request->isMethod('get')
             ]);
-            return $this->respond($request, 'Invalid amount', 400, false);
+            // If it's a redirect, we might still want to show success UI if the status is success, 
+            // even if the balance update happens via webhook.
+            return $this->respond($request, 'Amount missing for processing', 200, $isSuccess);
         }
 
         if (in_array($status, ['failed', 'rejected', 'cancelled'], true)) {

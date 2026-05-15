@@ -275,6 +275,38 @@ final class KashierCheckoutService implements PaymentGatewayContract
 
         return 'unknown';
     }
+    /**
+     * Get full payment details from Kashier API.
+     */
+    public function getPaymentDetails(string $transactionId): ?array
+    {
+        $config = $this->getConfig();
+        if (empty($config['api_key'])) {
+            return null;
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => $config['api_key'],
+            ])->timeout(10)->get('https://api.kashier.io/v1/transaction/' . $transactionId);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $res = $data['response'] ?? $data;
+                
+                return [
+                    'status' => strtolower((string) ($res['status'] ?? 'unknown')),
+                    'amount' => (float) ($res['amount'] ?? 0),
+                    'currency' => $res['currency'] ?? 'EGP',
+                    'order_id' => $res['merchantOrderId'] ?? $res['orderId'] ?? null,
+                ];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Kashier getPaymentDetails exception: ' . $e->getMessage());
+        }
+
+        return null;
+    }
 
     private function getConfig(): array
     {
