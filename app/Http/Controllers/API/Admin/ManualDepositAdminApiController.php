@@ -176,8 +176,8 @@ class ManualDepositAdminApiController extends AdminCrudApiController
                     (float) $deposit->amount,
                     'deposit',
                     'Manual Deposit Approved',
-                    ManualDeposit::class,
-                    $deposit->id
+                    $deposit->id,
+                    ManualDeposit::class
                 );
                 
                 // Notify user

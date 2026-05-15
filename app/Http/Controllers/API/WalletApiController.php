@@ -124,7 +124,7 @@ class WalletApiController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'transaction_type' => 'nullable|in:refund,purchase,commission,withdrawal,adjustment,reward',
+                'transaction_type' => 'nullable|in:refund,purchase,commission,withdrawal,adjustment,reward,wallet_topup,deposit',
                 'type' => 'nullable|in:credit,debit',
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
@@ -173,7 +173,8 @@ class WalletApiController extends Controller
                             \App\Models\Order::class => ['orderCourses.course', 'paymentTransaction'],
                             \App\Models\RefundRequest::class => ['course', 'transaction.order'],
                             \App\Models\WithdrawalRequest::class => [],
-                            \App\Models\Commission::class => ['course', 'order'], // Added Commission with course and order
+                            \App\Models\Commission::class => ['course', 'order'],
+                            \App\Models\ManualDeposit::class => ['method'],
                         ]);
                     },
                 ])
@@ -284,6 +285,20 @@ class WalletApiController extends Controller
                         // Get status from Commission
                         $status = $reference->status;
                     }
+                    // Handle ManualDeposit reference
+                    elseif ($referenceType === \App\Models\ManualDeposit::class) {
+                        $status = $reference->status;
+                        $transactionId = $reference->transaction_id;
+                        if ($reference->method) {
+                            $paymentMethod = $reference->method->name;
+                        }
+                    }
+                }
+
+                // Fallback for wallet_topup if reference is not a model
+                if (!$transactionId && $transaction->transaction_type === 'wallet_topup') {
+                    $transactionId = $transaction->reference_id;
+                    $paymentMethod = 'Kashier';
                 }
 
                 // Add new fields to the transaction object
