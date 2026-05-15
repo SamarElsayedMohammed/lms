@@ -174,6 +174,13 @@ final class KashierController extends Controller
                 }
             });
 
+            // Send notification to user
+            try {
+                $user->notify(new \App\Notifications\SubscriptionExpiryNotification($subscription, (int)$plan->getDurationDays()));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to send subscription notification: ' . $e->getMessage());
+            }
+
             Log::info('Kashier webhook: subscription activated', [
                 'userId' => $user->id,
                 'planId' => $plan->id,
