@@ -24,19 +24,41 @@ class UserFinanceReportApiController extends Controller
                 return ApiResponseService::errorResponse('User not authenticated', null, 401);
             }
 
+            // Admin can filter by user_id or see all if they are in admin context
+            $isAdmin = $user->hasRole('Super Admin') || $user->hasRole('Admin') || $user->role === 'admin';
+            $targetUserId = $request->input('user_id');
+            
             $perPage = $request->input('per_page', 15);
+            $page = $request->input('page', 1);
+
+            // Base queries
+            $orderQuery = Order::query();
+            $subscriptionQuery = SubscriptionPayment::query();
+            $walletQuery = WalletHistory::query()->with('user');
+
+            // Apply filters based on role and targetUserId
+            if ($targetUserId) {
+                $orderQuery->where('user_id', $targetUserId);
+                $subscriptionQuery->where('user_id', $targetUserId);
+                $walletQuery->where('user_id', $targetUserId);
+            } elseif (!$isAdmin) {
+                // Regular users only see their own
+                $orderQuery->where('user_id', $user->id);
+                $subscriptionQuery->where('user_id', $user->id);
+                $walletQuery->where('user_id', $user->id);
+            }
 
             // 1. Get Course Orders
-            $orders = Order::where('user_id', $user->id)
-                ->where('status', 'completed')
+            $orders = $orderQuery->where('status', 'completed')
                 ->get()
                 ->map(function ($order) {
                     return [
                         'id' => $order->id,
+                        'user_name' => $order->user->name ?? 'Unknown',
                         'type' => 'course_purchase',
                         'title' => 'Course Purchase: ' . $order->order_number,
                         'amount' => (float) $order->final_price,
-                        'currency' => $order->currency ?? 'USD',
+                        'currency' => $order->currency ?? 'EGP',
                         'status' => $order->status,
                         'date' => $order->created_at->toDateTimeString(),
                         'timestamp' => $order->created_at->timestamp,
@@ -46,21 +68,17 @@ class UserFinanceReportApiController extends Controller
                 });
 
             // 2. Get Subscription Payments
-            // Check if SubscriptionPayment model exists, if not, skip
-            $subscriptions = [];
-            if (class_exists(SubscriptionPayment::class)) {
-                $subscriptions = SubscriptionPayment::whereHas('subscription', function($q) use ($user) {
-                    $q->where('user_id', $user->id);
-                })
-                ->where('status', 'paid')
+            $subscriptions = $subscriptionQuery->where('status', 'paid')
+                ->with(['subscription.plan', 'user'])
                 ->get()
                 ->map(function ($payment) {
                     return [
                         'id' => $payment->id,
+                        'user_name' => $payment->user->name ?? 'Unknown',
                         'type' => 'subscription',
                         'title' => 'Subscription: ' . ($payment->subscription->plan->name ?? 'Plan'),
                         'amount' => (float) $payment->amount,
-                        'currency' => $payment->currency ?? 'USD',
+                        'currency' => $payment->currency ?? 'EGP',
                         'status' => $payment->status,
                         'date' => $payment->created_at->toDateTimeString(),
                         'timestamp' => $payment->created_at->timestamp,
@@ -68,27 +86,27 @@ class UserFinanceReportApiController extends Controller
                         'payment_method' => $payment->payment_method,
                     ];
                 });
-            }
 
-            // 3. Get Wallet History (Deposits, Withdrawals, Refunds)
-            $wallet = WalletHistory::where('user_id', $user->id)
-                ->get()
+            // 3. Get Wallet History
+            $wallet = $walletQuery->get()
                 ->map(function ($history) {
-                    $type = $history->transaction_type; // deposit, withdrawal, refund, commission
-                    $title = ucfirst(str_replace('_', ' ', $type));
+                    $type = $history->transaction_type;
+                    $title = ucwords(str_replace('_', ' ', (string)$type));
                     
                     return [
                         'id' => $history->id,
+                        'user_name' => $history->user->name ?? 'Unknown',
                         'type' => 'wallet_' . $type,
-                        'title' => $title,
+                        'title' => 'Wallet: ' . $title,
                         'amount' => (float) $history->amount,
-                        'currency' => $history->currency ?? 'USD',
-                        'status' => $history->status ?? 'completed',
+                        'currency' => $history->currency ?? 'EGP',
+                        'status' => 'completed',
                         'date' => $history->created_at->toDateTimeString(),
                         'timestamp' => $history->created_at->timestamp,
-                        'reference_id' => $history->transaction_id ?? null,
+                        'reference_id' => $history->reference_id,
                         'payment_method' => $history->payment_method ?? 'wallet',
                         'description' => $history->description,
+                        'entry_type' => $history->type, // credit/debit
                     ];
                 });
 
@@ -99,8 +117,7 @@ class UserFinanceReportApiController extends Controller
                 ->sortByDesc('timestamp')
                 ->values();
 
-            // Pagination manually
-            $page = $request->input('page', 1);
+            // Pagination
             $paginated = $allTransactions->forPage($page, $perPage);
 
             $data = [
@@ -112,8 +129,8 @@ class UserFinanceReportApiController extends Controller
                     'last_page' => ceil($allTransactions->count() / $perPage),
                 ],
                 'summary' => [
-                    'total_spent' => round($orders->sum('amount') + collect($subscriptions)->sum('amount'), 2),
-                    'wallet_balance' => round($user->wallet_balance ?? 0, 2),
+                    'total_transactions' => $allTransactions->count(),
+                    'wallet_balance' => $targetUserId ? (User::find($targetUserId)->wallet_balance ?? 0) : ($isAdmin ? null : $user->wallet_balance),
                 ]
             ];
 

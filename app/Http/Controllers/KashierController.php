@@ -141,12 +141,6 @@ final class KashierController extends Controller
 
     private function handleSuccess(Request $request, User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data)
     {
-        $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
-        if ($existingSubscription) {
-            Log::info('Kashier webhook: user already has active subscription', ['userId' => $user->id]);
-            return $this->respond($request, 'OK', 200, true);
-        }
-
         $existingPayment = SubscriptionPayment::where('transaction_id', $transactionId)->first();
         if ($existingPayment) {
             Log::info('Kashier webhook: payment already processed', ['transactionId' => $transactionId]);

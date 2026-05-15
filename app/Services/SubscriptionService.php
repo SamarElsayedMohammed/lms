@@ -95,8 +95,16 @@ final class SubscriptionService
                 'subscription_id' => $subscription->id,
             ]);
 
-            // Process affiliate referral
-            $this->affiliateService->processReferral($user, $subscription);
+            // Process affiliate referral (wrapped in try-catch to prevent breaking subscription)
+            try {
+                $this->affiliateService->processReferral($user, $subscription);
+            } catch (\Throwable $e) {
+                Log::error('SubscriptionService: Affiliate referral processing failed', [
+                    'message' => $e->getMessage(),
+                    'user_id' => $user->id,
+                    'subscription_id' => $subscription->id,
+                ]);
+            }
 
             // Server-side tracking
             $this->trackSubscriptionPurchase($user, $subscription, $plan);
