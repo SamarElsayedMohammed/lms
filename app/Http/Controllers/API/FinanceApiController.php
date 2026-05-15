@@ -809,6 +809,13 @@ class FinanceApiController extends Controller
 
             DB::commit();
 
+            // Send notification to user
+            try {
+                $withdrawalRequest->user->notify(new \App\Notifications\WithdrawalStatusNotification($withdrawalRequest));
+            } catch (\Throwable $e) {
+                \Log::warning('Failed to send withdrawal status notification: ' . $e->getMessage());
+            }
+
             return ApiResponseService::successResponse('Withdrawal request status updated successfully', [
                 'withdrawal_request' => $withdrawalRequest->fresh(['user:id,name,email', 'processedBy:id,name']),
                 'old_status' => $oldStatus,
