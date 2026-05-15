@@ -207,11 +207,16 @@ final class KashierController extends Controller
             return $this->respond($request, 'Order not found', 404, false);
         }
 
-        $amount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? 0);
-        $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? $orderId;
+        // Extract amount - support multiple keys from Kashier
+        $amount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? $data['queryString']['transactionAmount'] ?? 0);
+        $transactionId = (string) ($data['transactionId'] ?? $data['transaction_id'] ?? $data['queryString']['transactionId'] ?? $orderId);
 
         if ($amount <= 0) {
-            Log::warning('Kashier webhook: invalid wallet top-up amount', ['orderId' => $orderId, 'amount' => $amount]);
+            Log::warning('Kashier webhook: invalid wallet top-up amount', [
+                'orderId' => $orderId, 
+                'amount' => $amount,
+                'received_data' => $data
+            ]);
             return $this->respond($request, 'Invalid amount', 400, false);
         }
 

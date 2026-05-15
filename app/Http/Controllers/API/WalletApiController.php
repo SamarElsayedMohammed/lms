@@ -239,6 +239,55 @@ class WalletApiController extends Controller
     }
 
     /**
+     * Helper to format WalletHistory item consistently
+     */
+    private function formatHistoryItem($history)
+    {
+        $description = $history->description;
+        $status = 'approved'; // If it's in WalletHistory, it's usually processed
+        $paymentMethod = null;
+        $transactionId = null;
+
+        if ($history->reference) {
+            $ref = $history->reference;
+            if ($history->reference_type === \App\Models\ManualDeposit::class) {
+                $status = $ref->status;
+                $paymentMethod = $ref->method ? $ref->method->name : null;
+                $transactionId = $ref->transaction_id;
+            } elseif ($history->reference_type === \App\Models\WithdrawalRequest::class) {
+                $status = $ref->status;
+                $paymentMethod = $ref->payment_method;
+            } elseif ($history->reference_type === \App\Models\Order::class) {
+                $paymentMethod = $ref->payment_method;
+                $status = $ref->status;
+            }
+        }
+
+        // Topup fallback
+        if ($history->transaction_type === 'wallet_topup' && !$transactionId) {
+            $transactionId = $history->reference_id;
+            $paymentMethod = 'Kashier';
+        }
+
+        return [
+            'id' => $history->id,
+            'amount' => (float)$history->amount,
+            'type' => $history->type,
+            'transaction_type' => $history->transaction_type,
+            'description' => $description,
+            'balance_before' => (float)$history->balance_before,
+            'balance_after' => (float)$history->balance_after,
+            'status' => $status,
+            'created_at' => $history->created_at->toDateTimeString(),
+            'created_at_formatted' => $history->created_at->format('Y-m-d H:i:s'),
+            'time_ago' => $history->created_at->diffForHumans(),
+            'is_pending' => false,
+            'payment_method' => $paymentMethod,
+            'transaction_id' => $transactionId
+        ];
+    }
+
+    /**
      * Create withdrawal request for user
      */
     public function createWithdrawalRequest(Request $request)
