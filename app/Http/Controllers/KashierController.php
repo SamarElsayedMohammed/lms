@@ -43,7 +43,11 @@ final class KashierController extends Controller
             'data' => $data
         ]);
 
+        // Initialize variables to prevent undefined variable errors
         $isVerified = false;
+        $orderId = (string)($data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '');
+        $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? 'unknown'));
+        $isSuccess = in_array($status, ['success', 'completed', 'captured', 'paid'], true);
         $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? $data['queryString']['transactionId'] ?? '';
 
         // ALWAYS try to verify via API if we have a transactionId (most reliable method)
@@ -81,9 +85,6 @@ final class KashierController extends Controller
             }
             return $this->respond($request, 'Invalid signature', 400, false);
         }
-
-        $orderId = $data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '';
-        $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? ''));
 
         if (empty($orderId)) {
             Log::warning('Kashier webhook: empty orderId');
