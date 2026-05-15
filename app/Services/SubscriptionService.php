@@ -451,12 +451,11 @@ final class SubscriptionService
     /**
      * Get payment history for a user
      */
-    public function getPaymentHistory(User $user, int $limit = 10): \Illuminate\Database\Eloquent\Collection
+    public function getPaymentHistory(User $user, int $perPage = 10): \Illuminate\Contracts\Pagination\LengthAwarePaginator
     {
         return SubscriptionPayment::forUser($user->id)
             ->with('subscription.plan')
             ->orderByDesc('created_at')
-            ->limit($limit)
-            ->get();
+            ->paginate($perPage);
     }
 }
