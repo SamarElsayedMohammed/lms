@@ -98,17 +98,17 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            $status = $this->subscriptionService->getSubscriptionStatus($user);
-            
-            $response = [
-                'has_access' => $status['has_access'],
-                'status' => $status['status'],
-                'message' => $status['message'] ?? null,
-            ];
+            // Fetch all active and pending subscriptions
+            $subscriptions = Subscription::with('plan')
+                ->where('user_id', $user->id)
+                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING])
+                ->orderBy('starts_at', 'asc')
+                ->get();
 
-            if ($status['subscription']) {
-                $subscription = $status['subscription'];
-                $response['subscription'] = [
+            $hasAccess = $subscriptions->contains('status', Subscription::STATUS_ACTIVE);
+            
+            $formattedSubscriptions = $subscriptions->map(function ($subscription) {
+                return [
                     'id' => $subscription->id,
                     'plan' => [
                         'id' => $subscription->plan->id,
@@ -122,10 +122,16 @@ final class SubscriptionApiController extends Controller
                     'is_lifetime' => $subscription->isLifetime(),
                     'auto_renew' => $subscription->auto_renew,
                     'status' => $subscription->status,
+                    'status_label' => $subscription->status === Subscription::STATUS_ACTIVE ? 'Active' : 'Pending (Queued)',
                 ];
-            }
+            });
 
-            return ApiResponseService::successResponse('Subscription status retrieved successfully', $response);
+            return ApiResponseService::successResponse('Subscription status retrieved successfully', [
+                'has_access' => $hasAccess,
+                'subscriptions' => $formattedSubscriptions,
+                // Backward compatibility for single subscription clients
+                'subscription' => $formattedSubscriptions->first() 
+            ]);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve subscription status: ' . $e->getMessage());
         }
