@@ -452,7 +452,17 @@ final class SubscriptionApiController extends Controller
                 'created_at' => $payment->created_at->format('Y-m-d H:i:s'),
             ]);
 
+            $totalPaid = \App\Models\SubscriptionPayment::where('user_id', $user->id)
+                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->sum('amount');
+            
+            $transactionsCount = \App\Models\SubscriptionPayment::where('user_id', $user->id)
+                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->count();
+
             return ApiResponseService::successResponse('Payment history retrieved successfully', [
+                'total_paid' => (float) $totalPaid,
+                'transactions_count' => $transactionsCount,
                 'payments' => $formattedPayments,
             ]);
         } catch (\Throwable $e) {
