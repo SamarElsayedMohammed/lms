@@ -28,48 +28,53 @@ final class KashierController extends Controller
      * Handle Kashier payment callback (redirect after payment or webhook).
      * Supports both GET (redirect) and POST (webhook).
      */
-    public function handleWebhook(Request $request): Response
+    public function handleWebhook(Request $request)
     {
         $data = $request->all();
+        
+        // Handle Kashier JSON webhook payload format
+        if (isset($data['data']) && is_array($data['data'])) {
+            $data = array_merge($data, $data['data']);
+        }
 
         if (empty($data)) {
             Log::warning('Kashier webhook: empty payload');
-            return response('Bad Request', 400);
+            return $this->respond($request, 'Bad Request', 400, false);
         }
 
         if (!$this->kashierService->verifyPayment($data)) {
             Log::warning('Kashier webhook: signature verification failed');
-            return response('Invalid signature', 400);
+            return $this->respond($request, 'Invalid signature', 400, false);
         }
 
-        $orderId = $data['orderId'] ?? $data['order_id'] ?? '';
-        $status = strtolower((string) ($data['status'] ?? $data['transactionStatus'] ?? ''));
+        $orderId = $data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '';
+        $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? ''));
 
         if (empty($orderId)) {
             Log::warning('Kashier webhook: empty orderId');
-            return response('Invalid order', 400);
+            return $this->respond($request, 'Invalid order', 400, false);
         }
 
         // Wallet top-up (T095)
         if (str_starts_with($orderId, 'wlt_')) {
-            return $this->handleWalletTopUp($orderId, $status, $data);
+            return $this->handleWalletTopUp($request, $orderId, $status, $data);
         }
 
         // Webinar registration
         if (str_starts_with($orderId, 'webinar_')) {
-            return $this->handleWebinarPayment($orderId, $status, $data);
+            return $this->handleWebinarPayment($request, $orderId, $status, $data);
         }
 
         // Subscription payment
         if (!str_starts_with($orderId, 'sub_')) {
             Log::warning('Kashier webhook: invalid orderId', ['orderId' => $orderId]);
-            return response('Invalid order', 400);
+            return $this->respond($request, 'Invalid order', 400, false);
         }
 
         $parts = explode('_', $orderId);
         if (count($parts) < 4) {
             Log::warning('Kashier webhook: cannot parse orderId', ['orderId' => $orderId]);
-            return response('Invalid order format', 400);
+            return $this->respond($request, 'Invalid order format', 400, false);
         }
 
         $planId = (int) $parts[1];
@@ -80,7 +85,7 @@ final class KashierController extends Controller
 
         if (!$plan || !$user) {
             Log::warning('Kashier webhook: plan or user not found', ['planId' => $planId, 'userId' => $userId]);
-            return response('Order not found', 404);
+            return $this->respond($request, 'Order not found', 404, false);
         }
 
         $gatewayAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? $plan->price);
@@ -92,30 +97,30 @@ final class KashierController extends Controller
         $totalAmount = $gatewayAmount + (float) $walletAmount;
 
         if (in_array($status, ['success', 'completed', 'captured', 'paid'], true)) {
-            return $this->handleSuccess($user, $plan, $walletAmount, $gatewayAmount, $transactionId, $data);
+            return $this->handleSuccess($request, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, $data);
         }
 
         if (in_array($status, ['failed', 'rejected', 'cancelled'], true)) {
             Log::info('Kashier webhook: payment failed', ['orderId' => $orderId, 'status' => $status]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, false);
         }
 
         Log::info('Kashier webhook: unhandled status', ['orderId' => $orderId, 'status' => $status]);
-        return response('OK', 200);
+        return $this->respond($request, 'OK', 200, false);
     }
 
-    private function handleSuccess(User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data): Response
+    private function handleSuccess(Request $request, User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data)
     {
         $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
         if ($existingSubscription) {
             Log::info('Kashier webhook: user already has active subscription', ['userId' => $user->id]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, true);
         }
 
         $existingPayment = SubscriptionPayment::where('transaction_id', $transactionId)->first();
         if ($existingPayment) {
             Log::info('Kashier webhook: payment already processed', ['transactionId' => $transactionId]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, true);
         }
 
         $paymentMethod = $walletAmount > 0 ? 'wallet_and_kashier' : 'kashier';
@@ -145,7 +150,7 @@ final class KashierController extends Controller
                 'transactionId' => $transactionId,
             ]);
 
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, true);
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: failed to create subscription', [
                 'message' => $e->getMessage(),
@@ -153,23 +158,23 @@ final class KashierController extends Controller
                 'planId' => $plan->id,
             ]);
 
-            return response('Internal Server Error', 500);
+            return $this->respond($request, 'Internal Server Error', 500, false);
         }
     }
 
-    private function handleWalletTopUp(string $orderId, string $status, array $data): Response
+    private function handleWalletTopUp(Request $request, string $orderId, string $status, array $data)
     {
         $parts = explode('_', $orderId);
         if (count($parts) < 3) {
             Log::warning('Kashier webhook: invalid wallet orderId', ['orderId' => $orderId]);
-            return response('Invalid order', 400);
+            return $this->respond($request, 'Invalid order', 400, false);
         }
 
         $userId = (int) $parts[1];
         $user = User::find($userId);
         if (!$user) {
             Log::warning('Kashier webhook: user not found for wallet top-up', ['userId' => $userId]);
-            return response('Order not found', 404);
+            return $this->respond($request, 'Order not found', 404, false);
         }
 
         $amount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? 0);
@@ -177,16 +182,16 @@ final class KashierController extends Controller
 
         if ($amount <= 0) {
             Log::warning('Kashier webhook: invalid wallet top-up amount', ['orderId' => $orderId, 'amount' => $amount]);
-            return response('Invalid amount', 400);
+            return $this->respond($request, 'Invalid amount', 400, false);
         }
 
         if (in_array($status, ['failed', 'rejected', 'cancelled'], true)) {
             Log::info('Kashier webhook: wallet top-up failed', ['orderId' => $orderId, 'status' => $status]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, false);
         }
 
         if (!in_array($status, ['success', 'completed', 'captured', 'paid'], true)) {
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, false);
         }
 
         // Idempotency: check if already processed
@@ -195,7 +200,7 @@ final class KashierController extends Controller
             ->exists();
         if ($existing) {
             Log::info('Kashier webhook: wallet top-up already processed', ['orderId' => $orderId]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, true);
         }
 
         try {
@@ -209,19 +214,19 @@ final class KashierController extends Controller
                 'user'
             );
             Log::info('Kashier webhook: wallet top-up completed', ['userId' => $userId, 'amount' => $amount]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, true);
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: wallet top-up failed', ['message' => $e->getMessage(), 'orderId' => $orderId]);
-            return response('Internal Server Error', 500);
+            return $this->respond($request, 'Internal Server Error', 500, false);
         }
     }
 
-    private function handleWebinarPayment(string $orderId, string $status, array $data): Response
+    private function handleWebinarPayment(Request $request, string $orderId, string $status, array $data)
     {
         $parts = explode('_', $orderId);
         if (count($parts) < 3) {
             Log::warning('Kashier webhook: invalid webinar orderId', ['orderId' => $orderId]);
-            return response('Invalid order format', 400);
+            return $this->respond($request, 'Invalid order format', 400, false);
         }
 
         $webinarId = (int) $parts[1];
@@ -232,16 +237,16 @@ final class KashierController extends Controller
 
         if (!$user || !$webinar) {
             Log::warning('Kashier webhook: user or webinar not found', ['userId' => $userId, 'webinarId' => $webinarId]);
-            return response('User or Webinar not found', 404);
+            return $this->respond($request, 'User or Webinar not found', 404, false);
         }
 
         if (in_array($status, ['failed', 'rejected', 'cancelled'], true)) {
             Log::info('Kashier webhook: webinar payment failed', ['orderId' => $orderId, 'status' => $status]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, false);
         }
 
         if (!in_array($status, ['success', 'completed', 'captured', 'paid'], true)) {
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, false);
         }
 
         // Get registration
@@ -251,12 +256,12 @@ final class KashierController extends Controller
 
         if (!$registration) {
             Log::warning('Kashier webhook: webinar registration not found', ['userId' => $userId, 'webinarId' => $webinarId]);
-            return response('Registration not found', 404);
+            return $this->respond($request, 'Registration not found', 404, false);
         }
 
         if ($registration->payment_status === 'paid') {
             Log::info('Kashier webhook: webinar already paid', ['orderId' => $orderId]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, true);
         }
 
         try {
@@ -282,14 +287,29 @@ final class KashierController extends Controller
             $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
 
             Log::info('Kashier webhook: webinar payment completed', ['userId' => $userId, 'webinarId' => $webinarId]);
-            return response('OK', 200);
+            return $this->respond($request, 'OK', 200, true);
 
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: failed to activate webinar registration', [
                 'message' => $e->getMessage(),
                 'orderId' => $orderId,
             ]);
-            return response('Internal Server Error', 500);
+            return $this->respond($request, 'Internal Server Error', 500, false);
         }
+    }
+
+    private function respond(Request $request, string $message, int $statusCode, bool $isSuccess)
+    {
+        // If it's a GET request, or a non-JSON POST request (like an HTML form redirect from Kashier), redirect the user
+        if ($request->isMethod('get') || !$request->isJson()) {
+            $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://skillso.net')), '/');
+            
+            if ($isSuccess) {
+                return redirect()->away($frontendUrl . '/plans?payment=success');
+            }
+            return redirect()->away($frontendUrl . '/plans?payment=failed');
+        }
+
+        return response($message, $statusCode);
     }
 }
