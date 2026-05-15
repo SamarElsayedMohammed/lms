@@ -333,29 +333,28 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Wallet & Withdrawal
     Route::group(['prefix' => 'wallet'], function (): void {
         Route::get('/summary', [WalletApiController::class, 'getWalletSummary']); // Get wallet summary
+        Route::get('/overview', [WalletApiController::class, 'getWalletSummary']); // Alias
         Route::get('/history', [WalletApiController::class, 'getWalletHistory']); // Get wallet history
+        Route::get('/transactions', [WalletApiController::class, 'getWalletHistory']); // Alias
         Route::post('/top-up', [WalletApiController::class, 'topUp']); // Wallet top-up via Kashier (T095)
+        
+        // Withdrawals
+        Route::get('/withdrawal-methods', [WalletApiController::class, 'getWithdrawalMethods']);
         Route::post('/withdrawal-request', [WalletApiController::class, 'createWithdrawalRequest']); // Create withdrawal request
+        Route::post('/withdrawal-requests', [WalletApiController::class, 'createWithdrawalRequest']); // Alias
         Route::get('/withdrawal-requests', [WalletApiController::class, 'getWithdrawalRequests']); // Get withdrawal requests
         Route::get('/withdrawal-request/details', [WalletApiController::class, 'getWithdrawalRequestDetails']); // Get withdrawal request details
         
         // Manual Deposits
         Route::get('/manual-deposits/methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
+        Route::get('/deposit-methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
+        Route::post('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit']);
+        
         // Webinars (User)
         Route::get('/webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);
         Route::get('/webinars/{id}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
         Route::post('/webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register']);
         Route::get('/webinars/{id}/join', [\App\Http\Controllers\API\WebinarApiController::class, 'join']);
-    });
-
-    // Wallet Funding Suite (User Contract - v1)
-    Route::prefix('v1/wallet')->group(function (): void {
-        Route::get('/overview', [WalletApiController::class, 'getWalletSummary']);
-        Route::get('/transactions', [WalletApiController::class, 'getWalletHistory']);
-        Route::get('/deposit-methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
-        Route::get('/withdrawal-methods', [WalletApiController::class, 'getWithdrawalMethods']);
-        Route::post('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit']);
-        Route::post('/withdrawal-requests', [WalletApiController::class, 'createWithdrawalRequest']);
     });
 
     // rating_reviews

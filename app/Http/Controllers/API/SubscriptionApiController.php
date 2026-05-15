@@ -417,7 +417,7 @@ final class SubscriptionApiController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'limit' => 'nullable|integer|min:1|max:50',
+                'per_page' => 'nullable|integer|min:1|max:50',
             ]);
 
             if ($validator->fails()) {
@@ -430,10 +430,10 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            $limit = $request->input('limit', 10);
-            $payments = $this->subscriptionService->getPaymentHistory($user, $limit);
+            $perPage = $request->input('per_page', 10);
+            $paginator = $this->subscriptionService->getPaymentHistory($user, $perPage);
 
-            $formattedPayments = $payments->map(fn($payment) => [
+            $formattedPayments = $paginator->getCollection()->map(fn($payment) => [
                 'id' => $payment->id,
                 'amount' => (float) $payment->amount,
                 'wallet_amount' => (float) $payment->wallet_amount,
@@ -452,8 +452,26 @@ final class SubscriptionApiController extends Controller
                 'created_at' => $payment->created_at->format('Y-m-d H:i:s'),
             ]);
 
+            $totalPaid = \App\Models\SubscriptionPayment::where('user_id', $user->id)
+                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->sum('amount');
+            
+            $transactionsCount = \App\Models\SubscriptionPayment::where('user_id', $user->id)
+                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->count();
+
             return ApiResponseService::successResponse('Payment history retrieved successfully', [
+                'total_paid' => (float) $totalPaid,
+                'transactions_count' => $transactionsCount,
                 'payments' => $formattedPayments,
+                'pagination' => [
+                    'current_page' => $paginator->currentPage(),
+                    'per_page' => $paginator->perPage(),
+                    'total' => $paginator->total(),
+                    'last_page' => $paginator->lastPage(),
+                    'from' => $paginator->firstItem(),
+                    'to' => $paginator->lastItem(),
+                ],
             ]);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve payment history: ' . $e->getMessage());
