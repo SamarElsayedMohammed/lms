@@ -61,7 +61,11 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections'           => 'nullable|array',
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
+            'curriculum_sections.*.lessons.*.materials'       => 'nullable|array',
+            'curriculum_sections.*.lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'standalone_lessons'            => 'nullable|array',
+            'standalone_lessons.*.materials'       => 'nullable|array',
+            'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
             'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
         ]);
@@ -207,7 +211,8 @@ class CourseAdminApiController extends AdminCrudApiController
                     if (is_array($lessons)) {
                         foreach ($lessons as $lessonOrder => $lesson) {
                                 $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1);
-                                $this->buildLectureResources($lesson['materials'] ?? [], $lecture->id, $instructorId);
+                                $materialFiles = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.materials") ?? [];
+                                $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
                             }
                         }
                     }
@@ -227,7 +232,8 @@ class CourseAdminApiController extends AdminCrudApiController
 
                     foreach ($standaloneLessons as $lessonOrder => $lesson) {
                         $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1);
-                        $this->buildLectureResources($lesson['materials'] ?? [], $lecture->id, $instructorId);
+                        $materialFiles = $request->file("standalone_lessons.{$lessonOrder}.materials") ?? [];
+                        $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
                     }
                 }
 
@@ -302,27 +308,45 @@ class CourseAdminApiController extends AdminCrudApiController
 
     /**
      * Create material resources for a lecture.
+     * Supports both file uploads and URL links.
      */
-    private function buildLectureResources(array $materials, int $lectureId, int $userId): void
+    private function buildLectureResources(array $materials, array $materialFiles, int $lectureId, int $userId): void
     {
         if (!is_array($materials)) {
             return;
         }
 
         foreach ($materials as $index => $material) {
-            if (empty($material['url']) && empty($material['title'])) {
-                continue;
-            }
+            // Check if a file was uploaded for this material
+            $uploadedFile = $materialFiles[$index]['file'] ?? null;
 
-            LectureResource::create([
-                'user_id'    => $userId,
-                'lecture_id' => $lectureId,
-                'title'      => $material['title'] ?? null,
-                'type'       => 'url',
-                'url'        => $material['url'] ?? '',
-                'is_active'  => true,
-                'order'      => $index,
-            ]);
+            if ($uploadedFile) {
+                // File upload mode
+                $filePath = FileService::upload($uploadedFile, 'lecture_resources');
+                $fileExtension = $uploadedFile->getClientOriginalExtension();
+
+                LectureResource::create([
+                    'user_id'        => $userId,
+                    'lecture_id'     => $lectureId,
+                    'title'          => $material['title'] ?? $uploadedFile->getClientOriginalName(),
+                    'type'           => 'file',
+                    'file'           => $filePath,
+                    'file_extension' => $fileExtension,
+                    'is_active'      => true,
+                    'order'          => $index,
+                ]);
+            } elseif (!empty($material['url']) || !empty($material['title'])) {
+                // URL mode (backward compatible)
+                LectureResource::create([
+                    'user_id'    => $userId,
+                    'lecture_id' => $lectureId,
+                    'title'      => $material['title'] ?? null,
+                    'type'       => 'url',
+                    'url'        => $material['url'] ?? '',
+                    'is_active'  => true,
+                    'order'      => $index,
+                ]);
+            }
         }
     }
 
@@ -445,8 +469,10 @@ class CourseAdminApiController extends AdminCrudApiController
             'materials'     => $lecture->resources->map(fn ($r) => [
                 'id'    => $r->id,
                 'title' => $r->title,
-                'url'   => $r->url,
                 'type'  => $r->type,
+                'url'   => $r->type === 'url' ? $r->url : null,
+                'file'  => $r->type === 'file' ? $r->file : null,
+                'file_extension' => $r->file_extension,
                 'order' => $r->order,
             ])->values()->toArray(),
         ];
@@ -491,7 +517,11 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections'           => 'nullable|array',
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
+            'curriculum_sections.*.lessons.*.materials'       => 'nullable|array',
+            'curriculum_sections.*.lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'standalone_lessons'            => 'nullable|array',
+            'standalone_lessons.*.materials'       => 'nullable|array',
+            'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
             'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
             'remove_ai_knowledge'           => 'nullable|boolean',
@@ -658,7 +688,8 @@ class CourseAdminApiController extends AdminCrudApiController
                         if (is_array($lessons)) {
                             foreach ($lessons as $lessonOrder => $lesson) {
                                 $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1);
-                                $this->buildLectureResources($lesson['materials'] ?? [], $lecture->id, $instructorId);
+                                $materialFiles = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.materials") ?? [];
+                                $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
                             }
                         }
                     }
@@ -678,7 +709,8 @@ class CourseAdminApiController extends AdminCrudApiController
 
                     foreach ($standaloneLessons as $lessonOrder => $lesson) {
                         $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1);
-                        $this->buildLectureResources($lesson['materials'] ?? [], $lecture->id, $instructorId);
+                        $materialFiles = $request->file("standalone_lessons.{$lessonOrder}.materials") ?? [];
+                        $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
                     }
                 }
             }

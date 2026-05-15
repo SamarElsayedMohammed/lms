@@ -12,11 +12,13 @@ class ManualDepositMethod extends Model
         'image',
         'account_details',
         'instructions',
+        'countries',
         'is_active',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'countries' => 'array',
     ];
 
     public function getImageAttribute($value)
