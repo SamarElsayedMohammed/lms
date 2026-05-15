@@ -123,337 +123,114 @@ class WalletApiController extends Controller
     public function getWalletHistory(Request $request)
     {
         try {
-            $validator = Validator::make($request->all(), [
-                'transaction_type' => 'nullable|in:refund,purchase,commission,withdrawal,adjustment,reward,wallet_topup,deposit',
-                'type' => 'nullable|in:credit,debit',
-                'date_from' => 'nullable|date',
-                'date_to' => 'nullable|date|after_or_equal:date_from',
-                'per_page' => 'nullable|integer|min:1|max:100',
-                'page' => 'nullable|integer|min:1',
-            ]);
-
-            if ($validator->fails()) {
-                return ApiResponseService::validationError($validator->errors()->first());
-            }
-
             $user = Auth::user();
-
             if (!$user) {
                 return ApiResponseService::errorResponse('Authentication required.');
-            }
-
-            $query = WalletHistory::where('user_id', $user->id);
-
-            // Apply filters
-            if ($request->filled('transaction_type')) {
-                $query->where('transaction_type', $request->transaction_type);
-            }
-
-            if ($request->filled('type')) {
-                $query->where('type', $request->type);
-            }
-
-            if ($request->filled('date_from')) {
-                $query->whereDate('created_at', '>=', $request->date_from);
-            }
-
-            if ($request->filled('date_to')) {
-                $query->whereDate('created_at', '<=', $request->date_to);
             }
 
             $perPage = $request->per_page ?? 15;
             $currentPage = $request->page ?? 1;
 
-            // Get ALL transactions first (without pagination) to merge with pending withdrawals
-            // Eager load reference relationships based on reference_type
-            $allTransactionsQuery = $query
+            // 1. Fetch WalletHistory entries
+            $historyQuery = WalletHistory::where('user_id', $user->id)
                 ->with([
                     'reference' => static function ($morphTo): void {
                         $morphTo->morphWith([
-                            \App\Models\Order::class => ['orderCourses.course', 'paymentTransaction'],
-                            \App\Models\RefundRequest::class => ['course', 'transaction.order'],
+                            \App\Models\Order::class => ['orderCourses.course'],
+                            \App\Models\RefundRequest::class => ['course'],
                             \App\Models\WithdrawalRequest::class => [],
                             \App\Models\Commission::class => ['course', 'order'],
                             \App\Models\ManualDeposit::class => ['method'],
                         ]);
                     },
-                ])
-                ->orderBy('created_at', 'desc')
+                ]);
+
+            if ($request->filled('type')) {
+                $historyQuery->where('type', $request->type);
+            }
+
+            $walletHistories = $historyQuery->orderBy('created_at', 'desc')->get();
+
+            // 2. Fetch ALL Manual Deposits
+            $manualDeposits = \App\Models\ManualDeposit::with('method')
+                ->where('user_id', $user->id)
                 ->get();
 
-            // Check if user has pending withdrawal request
-            $hasPendingWithdrawal = WithdrawalRequest::where('user_id', $user->id)
-                ->where('status', 'pending')
-                ->exists();
-
-            // Get withdrawal request IDs that already have WalletHistory entries
-            $withdrawalIdsWithHistory = WalletHistory::where('user_id', $user->id)
-                ->where('reference_type', \App\Models\WithdrawalRequest::class)
-                ->whereNotNull('reference_id')
-                ->pluck('reference_id')
-                ->unique()
-                ->toArray();
-
-            // Get pending withdrawal requests to append to history
-            $pendingWithdrawals = WithdrawalRequest::where('user_id', $user->id)
-                ->where('status', 'pending')
-                ->orderBy('created_at', 'desc')
+            // 3. Fetch ALL Withdrawal Requests
+            $withdrawalRequests = \App\Models\WithdrawalRequest::where('user_id', $user->id)
                 ->get();
 
-            // Get approved/processing/completed withdrawal requests that don't have WalletHistory entries
-            $approvedWithdrawals = WithdrawalRequest::where('user_id', $user->id)
-                ->whereIn('status', ['approved', 'processing', 'completed'])
-                ->whereNotIn('id', $withdrawalIdsWithHistory)
-                ->orderBy('created_at', 'desc')
-                ->get();
+            // 4. Build Unified List
+            $unifiedList = collect();
 
-            // Transform the data to include additional fields
-            $allTransactionsQuery->transform(static function ($transaction) {
-                $courseName = null;
-                $transactionId = null;
-                $orderNumber = null;
-                $status = null;
-                $paymentMethod = null;
-                $paymentDetails = null;
+            // Add all wallet histories
+            foreach ($walletHistories as $history) {
+                $unifiedList->push($this->formatHistoryItem($history));
+            }
 
-                // Get data based on reference type
-                if ($transaction->reference) {
-                    $reference = $transaction->reference;
-                    $referenceType = $transaction->reference_type;
+            // Add Manual Deposits that don't have history yet
+            foreach ($manualDeposits as $deposit) {
+                $exists = $walletHistories->contains(function ($h) use ($deposit) {
+                    return $h->reference_type === \App\Models\ManualDeposit::class && $h->reference_id == $deposit->id;
+                });
 
-                    // Handle Order reference
-                    if ($referenceType === \App\Models\Order::class) {
-                        // Get course name from first order course
-                        if ($reference->orderCourses && $reference->orderCourses->isNotEmpty()) {
-                            $firstCourse = $reference->orderCourses->first()->course;
-                            $courseName = $firstCourse ? $firstCourse->title : null;
-                        }
-
-                        // Get transaction_id from Transaction model (via order relationship)
-                        // Transaction belongsTo Order, so query Transaction where order_id matches
-                        $orderTransaction = \App\Models\Transaction::where('order_id', $reference->id)->first();
-                        if ($orderTransaction) {
-                            $transactionId = $orderTransaction->transaction_id;
-                        }
-
-                        // Get order_number from Order
-                        $orderNumber = $reference->order_number;
-
-                        $status = $reference->status;
-                        $paymentMethod = $reference->payment_method;
-                    }
-                    // Handle RefundRequest reference
-                    elseif ($referenceType === \App\Models\RefundRequest::class) {
-                        $courseName = $reference->course ? $reference->course->title : null;
-
-                        // Get transaction_id from Transaction model (via RefundRequest -> Transaction relationship)
-                        if ($reference->transaction) {
-                            $transactionId = $reference->transaction->transaction_id;
-                        }
-
-                        // Get order_number from Transaction -> Order relationship
-                        if ($reference->transaction && $reference->transaction->order) {
-                            $orderNumber = $reference->transaction->order->order_number;
-                        }
-
-                        $status = $reference->status;
-                    }
-                    // Handle WithdrawalRequest reference
-                    elseif ($referenceType === \App\Models\WithdrawalRequest::class) {
-                        $status = $reference->status;
-                        $paymentMethod = $reference->payment_method;
-                        $paymentDetails = $reference->payment_details;
-                    }
-                    // Handle Commission reference
-                    elseif ($referenceType === \App\Models\Commission::class) {
-                        // Get course name from Commission
-                        $courseName = $reference->course ? $reference->course->title : null;
-
-                        // Get order_number from Commission -> Order relationship
-                        if ($reference->order) {
-                            $orderNumber = $reference->order->order_number;
-                            // Get transaction_id from Order's Transaction
-                            $orderTransaction = \App\Models\Transaction::where(
-                                'order_id',
-                                $reference->order->id,
-                            )->first();
-                            if ($orderTransaction) {
-                                $transactionId = $orderTransaction->transaction_id;
-                            }
-                        }
-
-                        // Get status from Commission
-                        $status = $reference->status;
-                    }
-                    // Handle ManualDeposit reference
-                    elseif ($referenceType === \App\Models\ManualDeposit::class) {
-                        $status = $reference->status;
-                        $transactionId = $reference->transaction_id;
-                        if ($reference->method) {
-                            $paymentMethod = $reference->method->name;
-                        }
-                    }
+                if (!$exists) {
+                    $unifiedList->push([
+                        'id' => null,
+                        'amount' => (float)$deposit->amount,
+                        'type' => 'credit',
+                        'transaction_type' => 'deposit',
+                        'description' => 'Manual Deposit - ' . ($deposit->method ? $deposit->method->name : 'Request'),
+                        'status' => $deposit->status,
+                        'created_at' => $deposit->created_at->toDateTimeString(),
+                        'created_at_formatted' => $deposit->created_at->format('Y-m-d H:i:s'),
+                        'time_ago' => $deposit->created_at->diffForHumans(),
+                        'is_pending' => $deposit->status === 'pending',
+                        'payment_method' => $deposit->method ? $deposit->method->name : null,
+                        'transaction_id' => $deposit->transaction_id
+                    ]);
                 }
+            }
 
-                // Fallback for wallet_topup if reference is not a model
-                if (!$transactionId && $transaction->transaction_type === 'wallet_topup') {
-                    $transactionId = $transaction->reference_id;
-                    $paymentMethod = 'Kashier';
+            // Add Withdrawal Requests that don't have history yet
+            foreach ($withdrawalRequests as $withdrawal) {
+                $exists = $walletHistories->contains(function ($h) use ($withdrawal) {
+                    return $h->reference_type === \App\Models\WithdrawalRequest::class && $h->reference_id == $withdrawal->id;
+                });
+
+                if (!$exists) {
+                    $unifiedList->push([
+                        'id' => null,
+                        'amount' => (float)$withdrawal->amount,
+                        'type' => 'debit',
+                        'transaction_type' => 'withdrawal',
+                        'description' => 'Withdrawal Request',
+                        'status' => $withdrawal->status,
+                        'created_at' => $withdrawal->created_at->toDateTimeString(),
+                        'created_at_formatted' => $withdrawal->created_at->format('Y-m-d H:i:s'),
+                        'time_ago' => $withdrawal->created_at->diffForHumans(),
+                        'is_pending' => $withdrawal->status === 'pending',
+                        'payment_method' => $withdrawal->payment_method,
+                        'payment_details' => $withdrawal->payment_details
+                    ]);
                 }
+            }
 
-                // Add new fields to the transaction object
-                $transaction->course_name = $courseName;
-                $transaction->transaction_id = $transactionId;
-                $transaction->order_number = $orderNumber;
-                $transaction->transaction_date = $transaction->created_at->format('Y-m-d H:i:s');
-                $transaction->status = $status;
-                $transaction->payment_method = $paymentMethod;
-                $transaction->payment_details = $paymentDetails;
-                $transaction->type_label = ucfirst((string) $transaction->type);
-                $transaction->transaction_type_label = ucwords(str_replace('_', ' ', $transaction->transaction_type));
-                $transaction->created_at_formatted = $transaction->created_at->format('Y-m-d H:i:s');
-                $transaction->time_ago = $transaction->created_at->diffForHumans();
+            // 5. Sort and Paginate
+            $sortedList = $unifiedList->sortByDesc('created_at')->values();
+            $total = $sortedList->count();
+            $pagedData = $sortedList->forPage($currentPage, $perPage)->values();
 
-                // Ensure numeric values are floats
-                $transaction->amount = (float) $transaction->amount;
-                $transaction->balance_before = (float) $transaction->balance_before;
-                $transaction->balance_after = (float) $transaction->balance_after;
-
-                return $transaction;
-            });
-
-            // Format pending withdrawal requests as wallet history entries
-            $pendingWithdrawalEntries = $pendingWithdrawals->map(static function ($withdrawal) use ($user) {
-                // Calculate balance: when withdrawal is created, amount is deducted from wallet
-                // So balance_before = current_balance + withdrawal_amount
-                // balance_after = current_balance
-                $balanceAfter = (float) $user->wallet_balance;
-                $balanceBefore = (float) ($balanceAfter + $withdrawal->amount);
-
-                return [
-                    'id' => (int) $withdrawal->id, // Use withdrawal ID directly
-                    'user_id' => $user->id,
-                    'amount' => (float) abs($withdrawal->amount), // Positive amount
-                    'type' => 'debit',
-                    'transaction_type' => 'withdrawal',
-                    'entry_type' => $withdrawal->entry_type ?? 'user',
-                    'reference_id' => $withdrawal->id,
-                    'reference_type' => \App\Models\WithdrawalRequest::class,
-                    'description' => 'Withdrawal Request - Pending',
-                    'balance_before' => $balanceBefore,
-                    'balance_after' => $balanceAfter,
-                    'created_at' => $withdrawal->created_at->toDateTimeString(),
-                    'updated_at' => $withdrawal->updated_at->toDateTimeString(),
-                    // Additional fields matching wallet history format
-                    'course_name' => null,
-                    'transaction_id' => null,
-                    'order_number' => null,
-                    'transaction_date' => $withdrawal->created_at->format('Y-m-d H:i:s'),
-                    'status' => 'pending',
-                    'payment_method' => $withdrawal->payment_method,
-                    'payment_details' => $withdrawal->payment_details,
-                    'type_label' => 'Debit',
-                    'transaction_type_label' => 'Withdrawal',
-                    'created_at_formatted' => $withdrawal->created_at->format('Y-m-d H:i:s'),
-                    'time_ago' => $withdrawal->created_at->diffForHumans(),
-                ];
-            })->toArray();
-
-            // Format approved/processing/completed withdrawal requests as wallet history entries
-            $approvedWithdrawalEntries = $approvedWithdrawals->map(static function ($withdrawal) use ($user) {
-                // Calculate balance: when withdrawal is created, amount is deducted from wallet
-                // So balance_before = current_balance + withdrawal_amount
-                // balance_after = current_balance
-                $balanceAfter = (float) $user->wallet_balance;
-                $balanceBefore = (float) ($balanceAfter + $withdrawal->amount);
-
-                $statusLabel = ucfirst((string) $withdrawal->status);
-                $description = "Withdrawal Request - {$statusLabel}";
-
-                return [
-                    'id' => (int) $withdrawal->id, // Use withdrawal ID directly
-                    'user_id' => $user->id,
-                    'amount' => (float) abs($withdrawal->amount), // Positive amount
-                    'type' => 'debit',
-                    'transaction_type' => 'withdrawal',
-                    'entry_type' => $withdrawal->entry_type ?? 'user',
-                    'reference_id' => $withdrawal->id,
-                    'reference_type' => \App\Models\WithdrawalRequest::class,
-                    'description' => $description,
-                    'balance_before' => $balanceBefore,
-                    'balance_after' => $balanceAfter,
-                    'created_at' => $withdrawal->created_at->toDateTimeString(),
-                    'updated_at' => $withdrawal->updated_at->toDateTimeString(),
-                    // Additional fields matching wallet history format
-                    'course_name' => null,
-                    'transaction_id' => null,
-                    'order_number' => null,
-                    'transaction_date' => $withdrawal->created_at->format('Y-m-d H:i:s'),
-                    'status' => $withdrawal->status,
-                    'payment_method' => $withdrawal->payment_method,
-                    'payment_details' => $withdrawal->payment_details,
-                    'type_label' => 'Debit',
-                    'transaction_type_label' => 'Withdrawal',
-                    'created_at_formatted' => $withdrawal->created_at->format('Y-m-d H:i:s'),
-                    'time_ago' => $withdrawal->created_at->diffForHumans(),
-                ];
-            })->toArray();
-
-            // Convert transactions to arrays using json encode/decode to handle all attributes
-            $transactionsArray = $allTransactionsQuery->map(static function ($transaction) {
-                // Use json encode/decode to convert object to array, preserving all attributes
-                $json = json_encode($transaction);
-                $arr = json_decode($json, true);
-                // Ensure created_at is properly formatted as string
-                if (isset($arr['created_at']) && is_array($arr['created_at'])) {
-                    // If it's a Carbon date array, convert to string
-                    if (isset($arr['created_at']['date'])) {
-                        $arr['created_at'] = $arr['created_at']['date'];
-                    }
-                } elseif (isset($transaction->created_at) && is_object($transaction->created_at)) {
-                    $arr['created_at'] = $transaction->created_at->toDateTimeString();
-                }
-                return $arr;
-            })->toArray();
-
-            // Merge and sort by created_at descending using collection
-            $allTransactions = collect($transactionsArray)
-                ->merge($pendingWithdrawalEntries)
-                ->merge($approvedWithdrawalEntries)
-                ->sortByDesc(static function ($item) {
-                    if (isset($item['created_at'])) {
-                        return is_string($item['created_at']) ? strtotime($item['created_at']) : 0;
-                    }
-                    return 0;
-                })
-                ->values()
-                ->toArray();
-
-            // Get pagination parameters
-            $originalTotal = count($transactionsArray);
-            $pendingCount = $pendingWithdrawals->count();
-            $approvedCount = $approvedWithdrawals->count();
-            $newTotal = $originalTotal + $pendingCount + $approvedCount;
-
-            // Paginate the merged array
-            $offset = ($currentPage - 1) * $perPage;
-            $paginatedData = array_slice($allTransactions, $offset, $perPage);
-
-            // Create new paginated collection with merged data
-            $paginatedTransactions = new \Illuminate\Pagination\LengthAwarePaginator(
-                $paginatedData,
-                $newTotal,
+            $paginated = new \Illuminate\Pagination\LengthAwarePaginator(
+                $pagedData,
+                $total,
                 $perPage,
                 $currentPage,
-                [
-                    'path' => \Illuminate\Pagination\Paginator::resolveCurrentPath(),
-                    'pageName' => 'page',
-                ],
+                ['path' => $request->url(), 'query' => $request->query()]
             );
 
-            // Convert paginated collection to array and add is_withdrawal_request_pending field
-            $responseData = $paginatedTransactions->toArray();
-            $responseData['is_withdrawal_request_pending'] = $hasPendingWithdrawal;
+            $responseData = $paginated->toArray();
+            $responseData['is_withdrawal_request_pending'] = $withdrawalRequests->where('status', 'pending')->isNotEmpty();
 
             return ApiResponseService::successResponse('Wallet history retrieved successfully', $responseData);
         } catch (\Throwable $e) {
@@ -584,11 +361,9 @@ class WalletApiController extends Controller
                 'status' => 'pending',
             ]);
 
-            // Deduct amount from wallet balance directly (without creating history entry)
-            // History entry will be created only when withdrawal is approved/rejected
-            $user->wallet_balance -= $amount;
-            $user->save();
-            $user->refresh(); // Refresh to get updated balance
+            // Withdrawal request is created as 'pending'.
+            // Balance will be deducted ONLY when admin approves the request.
+            // We already checked if user has sufficient balance in line 547.
 
             DB::commit();
 
