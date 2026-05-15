@@ -30,11 +30,12 @@ final class KashierController extends Controller
      */
     public function handleWebhook(Request $request)
     {
-        $data = $request->all();
+        $payload = $request->all();
+        $data = $payload;
         
-        // Handle Kashier JSON webhook payload format
-        if (isset($data['data']) && is_array($data['data'])) {
-            $data = array_merge($data, $data['data']);
+        // Flatten data for easier access to common fields
+        if (isset($payload['data']) && is_array($payload['data'])) {
+            $data = array_merge($payload, $payload['data']);
         }
 
         Log::info('Kashier webhook/redirect received', [
@@ -53,10 +54,11 @@ final class KashierController extends Controller
                 }
             }
         } else {
-            $isVerified = $this->kashierService->verifyPayment($data);
+            // Use the original nested payload for signature verification
+            $isVerified = $this->kashierService->verifyPayment($payload);
         }
 
-        $orderId = $data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '';
+        $orderId = (string)($data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '');
         $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? ''));
         $isSuccess = in_array($status, ['success', 'completed', 'captured', 'paid'], true);
 
