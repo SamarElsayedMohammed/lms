@@ -9,6 +9,6 @@ class Faq extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['question', 'answer', 'is_active'];
+    protected $fillable = ['question', 'answer', 'is_active', 'sequence'];
     protected $dates = ['created_at', 'updated_at', 'deleted_at'];
 }

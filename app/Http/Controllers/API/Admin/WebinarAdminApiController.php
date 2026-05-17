@@ -48,6 +48,9 @@ class WebinarAdminApiController extends AdminCrudApiController
             'price' => 'required_if:is_free,false|numeric|min:0',
             'provider' => 'required|in:zoom,jitsi,google_meet,custom',
             'join_url' => 'nullable|url',
+            'features' => 'nullable|array',
+            'max_attendees' => 'nullable|integer|min:0',
+            'tags' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -127,6 +130,9 @@ class WebinarAdminApiController extends AdminCrudApiController
             'duration' => 'sometimes|required|integer|min:5',
             'status' => 'sometimes|required|in:scheduled,live,completed,cancelled',
             'recording_url' => 'nullable|url',
+            'features' => 'nullable|array',
+            'max_attendees' => 'nullable|integer|min:0',
+            'tags' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -155,5 +161,43 @@ class WebinarAdminApiController extends AdminCrudApiController
 
         $webinar->delete();
         return ApiResponseService::successResponse('Webinar deleted successfully');
+    }
+
+    /**
+     * List registrants for a specific webinar
+     * GET /api/admin/webinars/{id}/registrants
+     */
+    public function registrants(Request $request, $id)
+    {
+        $this->ensureAdmin();
+        $webinar = Webinar::findOrFail($id);
+
+        // Security check for instructors
+        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR')) && $webinar->instructor_id !== Auth::id()) {
+            return ApiResponseService::errorResponse('Unauthorized', [], 403);
+        }
+
+        $registrations = \App\Models\WebinarRegistration::with('user:id,name,email,mobile')
+            ->where('webinar_id', $id)
+            ->latest()
+            ->get()
+            ->map(function ($reg) {
+                return [
+                    'id' => $reg->id,
+                    'user_id' => $reg->user_id,
+                    'name' => $reg->user->name ?? 'N/A',
+                    'email' => $reg->user->email ?? 'N/A',
+                    'phone' => $reg->user->mobile ?? 'N/A',
+                    'payment_status' => $reg->payment_status,
+                    'paid_amount' => $reg->paid_amount,
+                    'registered_at' => $reg->created_at->toDateTimeString(),
+                ];
+            });
+
+        return ApiResponseService::successResponse('Registrants retrieved successfully', [
+            'webinar_title' => $webinar->title,
+            'total_registrants' => $registrations->count(),
+            'registrants' => $registrations,
+        ]);
     }
 }

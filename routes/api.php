@@ -107,7 +107,8 @@ Route::get('web-settings', [ApiController::class, 'getWebSettings']); // Get Web
 Route::get('why-choose-us', [ApiController::class, 'getWhyChooseUs']); // Get Why Choose Us
 Route::get('become-instructor', [ApiController::class, 'getBecomeInstructor']); // Get Become Instructor
 Route::get('system-languages', [ApiController::class, 'getSystemLanguages']);
-Route::get('faqs', [ApiController::class, 'getFaqs']); // Get FAQs
+Route::get('faqs', [ApiController::class, 'getFaqs']); // Get FAQs (site-wide)
+Route::get('courses/{courseId}/faqs', [\App\Http\Controllers\API\CourseFaqPublicApiController::class, 'index']); // Get Course FAQs (public)
 Route::get('pages', [ApiController::class, 'getPages']); // Get Pages (with optional type and language_id filters)
 Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO Settings (with optional type, language_id, and language_code filters)
 
@@ -647,8 +648,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // FAQs
         Route::get('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'index']);
-        Route::get('faqs/{id}', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'show']);
         Route::post('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'store']);
+        Route::post('faqs/reorder', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'reorder']);
+        Route::get('faqs/{id}', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'show']);
         Route::put('faqs/{id}', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'update']);
         Route::delete('faqs/{id}', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'destroy']);
         Route::put('faqs/{id}/restore', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'restore']);
@@ -704,6 +706,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::match(['put', 'patch'], 'courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
         Route::get('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'show']);
         Route::delete('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'destroy']);
+
+        // [14] Course FAQs (Admin / Instructor)
+        Route::get('courses/{courseId}/faqs', [\App\Http\Controllers\API\Admin\CourseFaqAdminApiController::class, 'index']);
+        Route::post('courses/{courseId}/faqs', [\App\Http\Controllers\API\Admin\CourseFaqAdminApiController::class, 'store']);
+        Route::post('courses/{courseId}/faqs/reorder', [\App\Http\Controllers\API\Admin\CourseFaqAdminApiController::class, 'reorder']);
+        Route::get('courses/{courseId}/faqs/{id}', [\App\Http\Controllers\API\Admin\CourseFaqAdminApiController::class, 'show']);
+        Route::put('courses/{courseId}/faqs/{id}', [\App\Http\Controllers\API\Admin\CourseFaqAdminApiController::class, 'update']);
+        Route::delete('courses/{courseId}/faqs/{id}', [\App\Http\Controllers\API\Admin\CourseFaqAdminApiController::class, 'destroy']);
 
         // Course Country Prices
         Route::get('courses/{id}/country-prices', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'index']);
@@ -771,6 +781,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::post('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'store']);
             Route::put('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'update']);
             Route::delete('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'destroy']);
+            Route::get('{id}/registrants', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'registrants']);
         });
 
         // Popup Campaigns (Admin)
@@ -885,7 +896,20 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('instructor', [ReportsApiController::class, 'getInstructorReport']); // Instructor reports
         Route::get('enrollment', [ReportsApiController::class, 'getEnrollmentReport']); // Enrollment reports
         Route::get('revenue', [ReportsApiController::class, 'getRevenueReport']); // Revenue reports
+
+        // [8] Student Reports
+        Route::get('students/completion-stats', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'completionStats']);
+        Route::get('students/{id}', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'show']);
+        Route::get('students', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'index']);
     });
+
+    // [9] Payment Gateway Settings API (Admin)
+    Route::prefix('admin/settings')->group(function (): void {
+        Route::get('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'index']);
+        Route::put('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'update']);
+        Route::post('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'update']); // POST variant
+    });
+
 
     // Certificate Generation APIs (Requires Authentication)
     Route::post('generate-course-certificate', [CourseApiController::class, 'generateCourseCertificate']); // Generate Course Completion Certificate

@@ -492,7 +492,7 @@ class ReportsApiController extends Controller
         return [
             'total_commissions' => $commissions->count(),
             'total_admin_commission' => $commissions->sum('admin_commission_amount'),
-            'total_instructor_commission' => $commissions->sum('instructor_commission_amount'),
+            'total_affiliate_commission' => $commissions->sum('instructor_commission_amount'),
             'paid_commissions' => $commissions->where('status', 'paid')->count(),
             'pending_commissions' => $commissions->where('status', 'pending')->count(),
             'top_earning_instructors' => $this->getTopEarningInstructors($commissions),
@@ -522,7 +522,7 @@ class ReportsApiController extends Controller
                 DATE_FORMAT(created_at, '{$format}') as period,
                 COUNT(*) as commission_count,
                 SUM(admin_commission_amount) as admin_total,
-                SUM(instructor_commission_amount) as instructor_total
+                SUM(instructor_commission_amount) as affiliate_total
             ")->groupBy('period')->orderBy('period')->get();
     }
 
@@ -587,7 +587,6 @@ class ReportsApiController extends Controller
             'pending_instructors' => $instructors->where('status', 'pending')->count(),
             'total_courses_created' => $instructors->sum(static fn($instructor) => $instructor->user->courses->count()),
             'top_instructors_by_courses' => $this->getTopInstructorsByCourses($instructors),
-            'instructors_by_status' => $instructors->groupBy('status')->map->count(),
         ];
     }
 
@@ -614,7 +613,6 @@ class ReportsApiController extends Controller
                 'performance_metrics' => [
                     'total_courses' => $courses->count(),
                     'total_enrollments' => $courses->sum(static fn($course) => $course->orderCourses->count()),
-                    'total_revenue' => $courses->sum(static fn($course) => $course->orderCourses->sum('price')),
                     'average_rating' => $courses->avg(static fn($course) => $course->ratings->avg('rating')),
                 ],
             ];
@@ -680,7 +678,6 @@ class ReportsApiController extends Controller
                 static fn($orders) => $orders->sum('final_price'),
             ),
             'revenue_by_category' => $this->getRevenueByCategory($orders),
-            'top_revenue_courses' => $this->getTopRevenueCourses($orders),
             'revenue_trend' => $this->getRevenueTrend($orders),
         ];
     }
