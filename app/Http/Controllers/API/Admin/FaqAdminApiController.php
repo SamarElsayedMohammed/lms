@@ -32,7 +32,7 @@ class FaqAdminApiController extends AdminCrudApiController
                 $q->where('question', 'like', "%{$search}%")->orWhere('answer', 'like', "%{$search}%");
             }));
 
-        $faqs = $query->orderBy('id', 'desc')->paginate($perPage);
+        $faqs = $query->orderBy('sequence')->orderBy('id', 'desc')->paginate($perPage);
 
         return $this->jsonSuccess(__('FAQs retrieved'), $faqs);
     }
@@ -128,5 +128,35 @@ class FaqAdminApiController extends AdminCrudApiController
 
         $faq->restore();
         return $this->jsonSuccess(__('FAQ restored successfully'), $faq->fresh());
+    }
+
+    /**
+     * POST /api/admin/faqs/reorder - Update FAQ display order
+     */
+    public function reorder(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('faqs-edit');
+
+        $validator = Validator::make($request->all(), [
+            'order'   => 'required|array',
+            'order.*' => 'integer|exists:faqs,id',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        try {
+            DB::beginTransaction();
+            foreach ($request->order as $index => $faqId) {
+                Faq::where('id', $faqId)->update(['sequence' => $index + 1]);
+            }
+            DB::commit();
+            return $this->jsonSuccess(__('FAQ order updated successfully'));
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return $this->jsonError(__('Failed to update FAQ order') . ': ' . $e->getMessage(), 500);
+        }
     }
 }

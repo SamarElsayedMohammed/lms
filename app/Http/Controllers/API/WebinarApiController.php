@@ -56,9 +56,13 @@ class WebinarApiController extends Controller
                 $webinar->makeHidden(['recording_url']);
             }
 
+            // Append computed attributes
+            $webinar->append(['spots_left', 'is_full']);
+
             return ApiResponseService::successResponse('Webinar details retrieved', [
                 'webinar' => $webinar,
-                'is_registered' => $is_registered
+                'is_registered' => $is_registered,
+                'registered_count' => $webinar->registrations()->count(),
             ]);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve webinar: ' . $e->getMessage());
@@ -76,6 +80,10 @@ class WebinarApiController extends Controller
 
             if ($webinar->status === 'completed' || $webinar->status === 'cancelled') {
                 return ApiResponseService::errorResponse('This webinar is no longer available for registration.');
+            }
+
+            if ($webinar->is_full) {
+                return ApiResponseService::errorResponse('This webinar is full. No more registrations allowed.');
             }
 
             $existing = WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->first();

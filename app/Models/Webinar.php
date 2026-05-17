@@ -14,6 +14,7 @@ class Webinar extends Model
         'title',
         'slug',
         'description',
+        'features',
         'image',
         'start_at',
         'duration',
@@ -25,13 +26,35 @@ class Webinar extends Model
         'status',
         'is_free',
         'price',
+        'max_attendees',
+        'tags',
     ];
 
     protected $casts = [
         'start_at' => 'datetime',
         'is_free' => 'boolean',
         'price' => 'decimal:2',
+        'features' => 'array',
+        'max_attendees' => 'integer',
     ];
+
+    // Accessor for spots left
+    public function getSpotsLeftAttribute(): int
+    {
+        if ($this->max_attendees <= 0) {
+            return 9999; // Unlimited
+        }
+        return max(0, $this->max_attendees - $this->registrations()->count());
+    }
+
+    // Accessor for is full
+    public function getIsFullAttribute(): bool
+    {
+        if ($this->max_attendees <= 0) {
+            return false;
+        }
+        return $this->registrations()->count() >= $this->max_attendees;
+    }
 
     public function instructor()
     {
