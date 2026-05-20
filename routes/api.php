@@ -67,6 +67,7 @@ Route::prefix('chatbot')->group(function (): void {
     Route::post('/faq-answer', [\App\Http\Controllers\API\ChatbotApiController::class, 'getFaqAnswer']);
     Route::post('/message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendMessage'])
         ->middleware('throttle:30,1'); // Rate limit: 30 messages per minute
+    Route::get('/debug', [\App\Http\Controllers\API\ChatbotApiController::class, 'debug']);
 });
 
 /********************************************************************************************* */

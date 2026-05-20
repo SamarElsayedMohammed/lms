@@ -233,4 +233,49 @@ class ChatbotApiController extends Controller
             'data' => $conversation->messages,
         ], 200, [], JSON_UNESCAPED_UNICODE);
     }
+
+    /**
+     * Diagnostic debug endpoint for testing AI settings on the staging server
+     */
+    public function debug(): JsonResponse
+    {
+        $provider = env('AI_PROVIDER', 'not_set');
+        $openRouterKey = env('OPENROUTER_API_KEY');
+        $openRouterModel = env('OPENROUTER_MODEL');
+        $geminiKey = config('services.gemini.api_key');
+
+        // Mask keys for safety
+        $maskedOpenRouterKey = $openRouterKey ? substr($openRouterKey, 0, 10) . '...' : 'null';
+        $maskedGeminiKey = $geminiKey ? substr($geminiKey, 0, 10) . '...' : 'null';
+
+        $debugData = [
+            'env' => [
+                'AI_PROVIDER' => $provider,
+                'OPENROUTER_API_KEY' => $maskedOpenRouterKey,
+                'OPENROUTER_MODEL' => $openRouterModel,
+                'GEMINI_API_KEY' => $maskedGeminiKey,
+            ],
+            'test_connection' => null,
+        ];
+
+        try {
+            $service = new \App\Services\ChatBotService();
+            $reflection = new \ReflectionMethod($service, 'callAiApi');
+            $reflection->setAccessible(true);
+            $reply = $reflection->invoke($service, 'You are a debug assistant.', 'Hello', 10);
+
+            $debugData['test_connection'] = [
+                'status' => 'success',
+                'reply' => $reply,
+            ];
+        } catch (\Throwable $e) {
+            $debugData['test_connection'] = [
+                'status' => 'failed',
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ];
+        }
+
+        return response()->json($debugData);
+    }
 }
