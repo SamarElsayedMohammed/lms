@@ -48,6 +48,9 @@ final class SubscriptionPayment extends Model
         'transaction_id',
         'gateway_response',
         'paid_at',
+        'manual_deposit_method_id',
+        'receipt',
+        'admin_notes',
     ];
 
     protected $casts = [
@@ -79,6 +82,25 @@ final class SubscriptionPayment extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the manual deposit method used
+     */
+    public function manualDepositMethod(): BelongsTo
+    {
+        return $this->belongsTo(ManualDepositMethod::class, 'manual_deposit_method_id');
+    }
+
+    /**
+     * Accessor: Receipt full URL
+     */
+    public function getReceiptAttribute($value)
+    {
+        if ($value) {
+            return \App\Services\FileService::getFileUrl($value);
+        }
+        return null;
     }
 
     /**

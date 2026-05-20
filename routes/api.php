@@ -775,6 +775,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::post('{id}/status', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'updateDepositStatus']);
         });
 
+        // Manual Subscription Management (Admin)
+        Route::prefix('manual-subscriptions')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'index']);
+            Route::post('{id}/approve', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'approve']);
+            Route::post('{id}/reject', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'reject']);
+        });
+
         // Webinars (Admin/Instructor)
         Route::prefix('webinars')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'index']);
