@@ -129,6 +129,7 @@ final class SubscriptionApiController extends Controller
                     'auto_renew' => $subscription->auto_renew,
                     'status' => $subscription->status,
                     'status_label' => $statusLabel,
+                    'created_at' => $subscription->created_at->format('Y-m-d H:i:s'),
                 ];
             });
 

@@ -55,7 +55,7 @@ class ChatBotService
         $systemPrompt = $this->buildSystemPrompt($settings, $knowledgeContext);
 
         try {
-            $reply = $this->callGeminiApi($systemPrompt, $message, (int) ($settings['chatbot_max_tokens'] ?? 500));
+            $reply = $this->callAiApi($systemPrompt, $message, (int) ($settings['chatbot_max_tokens'] ?? 500));
 
             // Manage Conversation
             $userId = Auth::id();
@@ -130,7 +130,7 @@ class ChatBotService
 
         try {
             $maxTokens = (int) ($settings['chatbot_max_tokens'] ?? 500);
-            $reply = $this->callGeminiApi($systemPrompt, $message, $maxTokens);
+            $reply = $this->callAiApi($systemPrompt, $message, $maxTokens);
 
             // Manage Conversation
             $userId = Auth::id();
@@ -245,10 +245,105 @@ class ChatBotService
     }
 
     /**
-     * Call Gemini API
+     * Call AI API (Supports OpenAI, OpenRouter & Gemini dynamically)
      */
-    private function callGeminiApi(string $systemPrompt, string $userMessage, int $maxTokens = 500): string
+    private function callAiApi(string $systemPrompt, string $userMessage, int $maxTokens = 500): string
     {
+        $provider = env('AI_PROVIDER', 'gemini');
+
+        // Support OpenRouter
+        if ($provider === 'openrouter') {
+            $apiKey = env('OPENROUTER_API_KEY');
+            $model = env('OPENROUTER_MODEL', 'google/gemini-2.0-flash-exp');
+
+            if (empty($apiKey)) {
+                throw new \RuntimeException('OpenRouter API key is not configured. Set OPENROUTER_API_KEY in .env');
+            }
+
+            $response = Http::withToken($apiKey)
+                ->withHeaders([
+                    'HTTP-Referer' => url('/'),
+                    'X-Title' => 'SkillsWa LMS',
+                ])
+                ->timeout(30)
+                ->post('https://openrouter.ai/api/v1/chat/completions', [
+                    'model' => $model,
+                    'messages' => [
+                        [
+                            'role' => 'system',
+                            'content' => $systemPrompt,
+                        ],
+                        [
+                            'role' => 'user',
+                            'content' => $userMessage,
+                        ],
+                    ],
+                    'max_tokens' => $maxTokens,
+                    'temperature' => 0.7,
+                ]);
+
+            if (!$response->successful()) {
+                Log::error('OpenRouter API Error', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                throw new \RuntimeException('OpenRouter API returned error: ' . $response->status());
+            }
+
+            $data = $response->json();
+            $text = $data['choices'][0]['message']['content'] ?? null;
+
+            if (empty($text)) {
+                throw new \RuntimeException('Empty response from OpenRouter API');
+            }
+
+            return trim($text);
+        }
+
+        // Support OpenAI
+        if ($provider === 'openai') {
+            $apiKey = env('OPENAI_API_KEY');
+            $model = env('OPENAI_MODEL', 'gpt-4o-mini');
+
+            if (empty($apiKey)) {
+                throw new \RuntimeException('OpenAI API key is not configured. Set OPENAI_API_KEY in .env');
+            }
+
+            $response = Http::withToken($apiKey)->timeout(30)->post('https://api.openai.com/v1/chat/completions', [
+                'model' => $model,
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => $systemPrompt,
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => $userMessage,
+                    ],
+                ],
+                'max_tokens' => $maxTokens,
+                'temperature' => 0.7,
+            ]);
+
+            if (!$response->successful()) {
+                Log::error('OpenAI API Error', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                throw new \RuntimeException('OpenAI API returned error: ' . $response->status());
+            }
+
+            $data = $response->json();
+            $text = $data['choices'][0]['message']['content'] ?? null;
+
+            if (empty($text)) {
+                throw new \RuntimeException('Empty response from OpenAI API');
+            }
+
+            return trim($text);
+        }
+
+        // Support Gemini
         $apiKey = config('services.gemini.api_key');
         $model = config('services.gemini.model', 'gemini-2.0-flash');
 
@@ -287,8 +382,6 @@ class ChatBotService
         }
 
         $data = $response->json();
-
-        // Extract text from Gemini response
         $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? null;
 
         if (empty($text)) {
