@@ -98,16 +98,22 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            // Fetch all active and pending subscriptions
+            // Fetch all active, pending and pending approval subscriptions
             $subscriptions = Subscription::with('plan')
                 ->where('user_id', $user->id)
-                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING])
+                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
                 ->orderBy('starts_at', 'asc')
                 ->get();
 
             $hasAccess = $subscriptions->contains('status', Subscription::STATUS_ACTIVE);
             
             $formattedSubscriptions = $subscriptions->map(function ($subscription) {
+                $statusLabel = match($subscription->status) {
+                    Subscription::STATUS_ACTIVE => 'Active',
+                    Subscription::STATUS_PENDING => 'Pending (Queued)',
+                    Subscription::STATUS_PENDING_APPROVAL => 'Pending Admin Approval',
+                    default => ucfirst($subscription->status),
+                };
                 return [
                     'id' => $subscription->id,
                     'plan' => [
@@ -122,7 +128,7 @@ final class SubscriptionApiController extends Controller
                     'is_lifetime' => $subscription->isLifetime(),
                     'auto_renew' => $subscription->auto_renew,
                     'status' => $subscription->status,
-                    'status_label' => $subscription->status === Subscription::STATUS_ACTIVE ? 'Active' : 'Pending (Queued)',
+                    'status_label' => $statusLabel,
                 ];
             });
 
@@ -148,6 +154,9 @@ final class SubscriptionApiController extends Controller
                 'payment_method' => 'nullable|string',
                 'use_wallet' => 'nullable|boolean',
                 'promo_code' => 'nullable|string|max:50',
+                'manual_deposit_method_id' => 'required_if:payment_method,manual|exists:manual_deposit_methods,id',
+                'receipt' => 'required_if:payment_method,manual|image|mimes:jpeg,png,jpg,webp|max:5120',
+                'transaction_id' => 'nullable|string|max:255',
             ]);
 
             if ($validator->fails()) {
@@ -247,6 +256,71 @@ final class SubscriptionApiController extends Controller
                     ],
                     'requires_checkout' => false,
                 ]);
+            }
+
+            // Manual payment flow
+            if ($request->payment_method === 'manual') {
+                $method = \App\Models\ManualDepositMethod::find($request->manual_deposit_method_id);
+                if (!$method || !$method->is_active) {
+                    return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
+                }
+
+                try {
+                    $receiptPath = \App\Services\FileService::compressAndUpload(
+                        $request->file('receipt'),
+                        'subscriptions/receipts'
+                    );
+
+                    // Create subscription with pending_approval status
+                    $subscription = Subscription::create([
+                        'user_id' => $user->id,
+                        'plan_id' => $plan->id,
+                        'starts_at' => now(), // Placeholders, will be updated upon admin approval
+                        'ends_at' => null,   // Will be updated upon admin approval
+                        'status' => Subscription::STATUS_PENDING_APPROVAL,
+                        'auto_renew' => true,
+                    ]);
+
+                    // Create payment record in pending status
+                    \App\Models\SubscriptionPayment::create([
+                        'subscription_id' => $subscription->id,
+                        'user_id' => $user->id,
+                        'amount' => $totalAmount,
+                        'wallet_amount' => $walletAmount,
+                        'gateway_amount' => $gatewayAmount,
+                        'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
+                        'payment_method' => 'manual',
+                        'manual_deposit_method_id' => $request->manual_deposit_method_id,
+                        'receipt' => $receiptPath,
+                        'transaction_id' => $request->transaction_id,
+                        'promo_code' => $appliedPromoCode,
+                        'original_amount' => $appliedPromoCode ? $originalAmount : null,
+                        'discount_amount' => $discountAmount,
+                        'paid_at' => null,
+                    ]);
+
+                    return ApiResponseService::successResponse('تم إنشاء طلب الدفع بنجاح وجاري مراجعة الطلب من قبل الإدارة.', [
+                        'requires_checkout' => false,
+                        'subscription' => [
+                            'id' => $subscription->id,
+                            'plan_name' => $plan->name,
+                            'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
+                            'ends_at' => null,
+                            'status' => $subscription->status,
+                        ],
+                        'payment' => [
+                            'original_amount' => $originalAmount,
+                            'discount_amount' => $discountAmount,
+                            'promo_code' => $appliedPromoCode,
+                            'total_amount' => $totalAmount,
+                            'wallet_amount' => $walletAmount,
+                            'gateway_amount' => $gatewayAmount,
+                            'payment_method' => 'manual',
+                        ]
+                    ]);
+                } catch (\Exception $e) {
+                    return ApiResponseService::errorResponse('فشل في إرسال طلب الاشتراك اليدوي: ' . $e->getMessage());
+                }
             }
 
             // Gateway payment required: create Kashier checkout

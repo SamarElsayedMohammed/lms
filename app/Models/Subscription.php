@@ -79,6 +79,7 @@ final class Subscription extends Model
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_CANCELLED = 'cancelled';
     public const STATUS_PENDING = 'pending';
+    public const STATUS_PENDING_APPROVAL = 'pending_approval';
 
     /**
      * Get the user that owns the subscription
