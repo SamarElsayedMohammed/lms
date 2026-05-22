@@ -69,6 +69,8 @@ class FaqAdminApiController extends AdminCrudApiController
             DB::beginTransaction();
             $data = $validator->validated();
             $data['is_active'] = $request->boolean('is_active', true);
+            $maxSeq = (int) (Faq::max('sequence') ?? 0);
+            $data['sequence'] = $maxSeq + 1;
             $faq = Faq::create($data);
             DB::commit();
             return $this->jsonSuccess(__('FAQ created successfully'), $faq, 201);

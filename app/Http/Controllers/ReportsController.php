@@ -1693,28 +1693,6 @@ class ReportsController extends Controller
 
                 // Calculate total revenue
                 $instructor->total_revenue = 0;
-                if ($instructor->courses) {
-                    $instructor->total_revenue = $instructor->courses->sum(static function ($course) {
-                        if ($course->orderCourses) {
-                            return $course
-                                ->orderCourses
-                                ->filter(
-                                    static fn($orderCourse) => (
-                                        $orderCourse->order
-                                        && $orderCourse->order->status === 'completed'
-                                    ),
-                                )
-                                ->sum(static function ($orderCourse) {
-                                    $price = $orderCourse->price ?? 0;
-                                    $tax = $orderCourse->tax_price ?? 0;
-
-                                    return $price + $tax;
-                                });
-                        }
-
-                        return 0;
-                    });
-                }
 
                 return $instructor;
             });
@@ -1883,7 +1861,6 @@ class ReportsController extends Controller
                     'Status',
                     'Total Courses',
                     'Total Enrollments',
-                    'Total Revenue',
                     'Join Date',
                 ]);
 
@@ -1896,7 +1873,6 @@ class ReportsController extends Controller
                         ucfirst($instructor->instructor_details->status ?? 'N/A'),
                         $instructor->total_courses ?? 0,
                         $instructor->total_enrollments ?? 0,
-                        $currencySymbol . number_format($instructor->total_revenue ?? 0, 2),
                         $instructor->created_at->format('d M Y'),
                     ]);
                 }
@@ -2514,24 +2490,6 @@ class ReportsController extends Controller
 
         // Top revenue courses
         $topRevenueCourses = [];
-        $courseRevenue = [];
-
-        foreach ($orders as $order) {
-            foreach ($order->orderCourses as $orderCourse) {
-                $courseId = $orderCourse->course_id;
-                if (!isset($courseRevenue[$courseId])) {
-                    $courseRevenue[$courseId] = [
-                        'course' => $orderCourse->course,
-                        'revenue' => 0,
-                        'orders_count' => 0,
-                    ];
-                }
-                $courseRevenue[$courseId]['revenue'] += $orderCourse->price ?: 0;
-                $courseRevenue[$courseId]['orders_count']++;
-            }
-        }
-
-        $topRevenueCourses = collect($courseRevenue)->sortByDesc('revenue')->values()->take(5)->toArray();
 
         // Revenue by category
         $revenueByCategory = [];
@@ -2554,7 +2512,7 @@ class ReportsController extends Controller
             'total_orders' => $totalOrders,
             'average_order_value' => $averageOrderValue,
             'revenue_by_payment_method' => $revenueByPaymentMethod,
-            'top_revenue_courses' => $topRevenueCourses,
+            'top_revenue_courses' => [],
             'revenue_by_category' => $revenueByCategory,
         ];
     }

@@ -247,6 +247,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('my-learning', [CourseApiController::class, 'getMyLearning']); // Get My Learning Courses with Progress
     Route::get('user/dashboard', [\App\Http\Controllers\API\User\UserDashboardApiController::class, 'getDashboardData']); // User Dashboard API
     Route::get('user/certificates', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getUserCertificates']); // User Certificates List
+    Route::get('user/learning-stats', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getLearningStats']); // Student learning progress summary
     Route::get('reports/comprehensive', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getComprehensiveReport']); // Comprehensive User Report
     
     // Course Chatbot (AI — per course, subscribers only)

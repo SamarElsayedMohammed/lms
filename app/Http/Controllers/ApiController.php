@@ -3072,7 +3072,7 @@ class ApiController extends Controller
             $page = max(1, (int) $page);
 
             // Get only active FAQs with pagination
-            $faqs = Faq::where('is_active', true)->orderBy('id', 'asc')->paginate($perPage, ['*'], 'page', $page);
+            $faqs = Faq::where('is_active', true)->orderBy('sequence')->orderBy('id')->paginate($perPage, ['*'], 'page', $page);
 
             // Transform data for response
             $faqs->getCollection()->transform(static fn($faq) => [

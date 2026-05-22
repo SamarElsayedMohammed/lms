@@ -150,51 +150,70 @@ class StudentReportAdminApiController extends AdminCrudApiController
     {
         $this->ensureAdmin();
 
-        // Count of students per completion bracket
         $brackets = [
-            'no_courses'    => 0,
-            'not_started'   => 0,  // enrolled but 0% in all courses
-            'in_progress'   => 0,  // at least one in-progress
-            'all_completed' => 0,  // all enrolled courses completed
+            'no_courses' => 0,
+            'not_started' => 0,
+            'in_progress' => 0,
+            'all_completed' => 0,
         ];
 
-        // Students who completed at least one course
-        $studentsWithCompletions = DB::table('user_curriculum_trackings as uct')
-            ->join('course_chapters as cc', 'uct.chapter_id', '=', 'cc.id')
-            ->where('uct.status', 'completed')
-            ->select('uct.user_id', 'cc.course_id')
-            ->distinct()
-            ->get();
+        $studentIds = User::whereHas('orders', fn ($q) => $q->where('status', 'completed'))->pluck('id');
+        $totalCompletedCourseEnrollments = 0;
+        $totalInProgressCourseEnrollments = 0;
+        $courseCompletionCounts = [];
 
-        $totalStudents = User::whereHas('orders', fn($q) => $q->where('status', 'completed'))->count();
-        $studentsWithZeroProgress = $totalStudents - $studentsWithCompletions->pluck('user_id')->unique()->count();
+        foreach ($studentIds as $userId) {
+            $enrolledIds = OrderCourse::whereHas('order', fn ($q) => $q->where('user_id', $userId)->where('status', 'completed'))
+                ->pluck('course_id')
+                ->unique()
+                ->values()
+                ->all();
 
-        // Courses completed per student
-        $completedPerStudent = DB::table('user_course_tracks')
-            ->where('status', 'completed')
-            ->select('user_id', DB::raw('COUNT(course_id) as completed_count'))
-            ->groupBy('user_id')
-            ->get()
-            ->keyBy('user_id');
+            if ($enrolledIds === []) {
+                $brackets['no_courses']++;
+                continue;
+            }
 
-        // Top completed courses
-        $topCompletedCourses = DB::table('user_course_tracks')
-            ->where('status', 'completed')
-            ->select('course_id', DB::raw('COUNT(user_id) as completions'))
-            ->groupBy('course_id')
-            ->orderByDesc('completions')
-            ->limit(10)
-            ->get()
-            ->map(function ($row) {
-                $course = Course::find($row->course_id);
+            $completed = 0;
+            $inProgress = 0;
+
+            foreach ($enrolledIds as $courseId) {
+                $progress = $this->calculateCourseProgress((int) $userId, (int) $courseId);
+
+                if ($progress >= 100) {
+                    $completed++;
+                    $courseCompletionCounts[$courseId] = ($courseCompletionCounts[$courseId] ?? 0) + 1;
+                } elseif ($progress > 0) {
+                    $inProgress++;
+                }
+            }
+
+            $totalCompletedCourseEnrollments += $completed;
+            $totalInProgressCourseEnrollments += $inProgress;
+
+            if ($completed === count($enrolledIds)) {
+                $brackets['all_completed']++;
+            } elseif ($inProgress > 0) {
+                $brackets['in_progress']++;
+            } else {
+                $brackets['not_started']++;
+            }
+        }
+
+        $topCompletedCourses = collect($courseCompletionCounts)
+            ->sortDesc()
+            ->take(10)
+            ->map(function ($completions, $courseId) {
+                $course = Course::find($courseId);
+
                 return [
-                    'course_id'   => $row->course_id,
-                    'title'       => $course?->title ?? 'N/A',
-                    'completions' => $row->completions,
+                    'course_id' => (int) $courseId,
+                    'title' => $course?->title ?? 'N/A',
+                    'completions' => $completions,
                 ];
-            });
+            })
+            ->values();
 
-        // Monthly enrollment trend (last 6 months)
         $trend = DB::table('order_courses as oc')
             ->join('orders as o', 'oc.order_id', '=', 'o.id')
             ->where('o.status', 'completed')
@@ -205,12 +224,14 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->get();
 
         return $this->jsonSuccess('Completion statistics retrieved', [
-            'total_students'            => $totalStudents,
-            'students_with_activity'    => $studentsWithCompletions->pluck('user_id')->unique()->count(),
-            'students_no_activity'      => max(0, $studentsWithZeroProgress),
-            'top_completed_courses'     => $topCompletedCourses,
-            'monthly_enrollment_trend'  => $trend,
-            'generated_at'             => Carbon::now()->toDateTimeString(),
+            'total_students' => $studentIds->count(),
+            'students_with_enrollments' => $studentIds->count() - $brackets['no_courses'],
+            'completion_brackets' => $brackets,
+            'total_completed_course_enrollments' => $totalCompletedCourseEnrollments,
+            'total_in_progress_course_enrollments' => $totalInProgressCourseEnrollments,
+            'top_completed_courses' => $topCompletedCourses,
+            'monthly_enrollment_trend' => $trend,
+            'generated_at' => Carbon::now()->toDateTimeString(),
         ]);
     }
 
@@ -245,6 +266,8 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 }
             }
 
+            $notStarted = max(0, count($enrolledIds) - $completed - $inProgress);
+
             return [
                 'student_id'        => $user->id,
                 'name'              => $user->name,
@@ -252,12 +275,25 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 'total_enrolled'    => count($enrolledIds),
                 'completed_courses' => $completed,
                 'in_progress'       => $inProgress,
+                'not_started'       => $notStarted,
+                'open_courses'      => count($enrolledIds) - $completed,
                 'completion_rate'   => count($enrolledIds) > 0
                     ? round(($completed / count($enrolledIds)) * 100, 2)
                     : 0,
                 'joined_at'         => $user->created_at?->toDateString(),
             ];
         });
+
+        if ($request->filled('status')) {
+            $items = $items->filter(function ($item) use ($request) {
+                return match ($request->status) {
+                    'completed' => $item['completed_courses'] > 0,
+                    'in_progress' => $item['in_progress'] > 0,
+                    'not_started' => $item['not_started'] > 0,
+                    default => true,
+                };
+            })->values();
+        }
 
         return [
             'data'         => $items,
@@ -298,8 +334,11 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $items = collect($paginated->items())->map(function ($row) {
             $progress = $this->calculateCourseProgress($row->user_id, $row->course_id);
             $status = 'not_started';
-            if ($progress >= 100) $status = 'completed';
-            elseif ($progress > 0) $status = 'in_progress';
+            if ($progress >= 100) {
+                $status = 'completed';
+            } elseif ($progress > 0) {
+                $status = 'in_progress';
+            }
 
             return [
                 'student_id'       => $row->user_id,
@@ -312,6 +351,10 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 'status'           => $status,
             ];
         });
+
+        if ($request->filled('status')) {
+            $items = $items->filter(fn ($item) => $item['status'] === $request->status)->values();
+        }
 
         return [
             'data'         => $items,

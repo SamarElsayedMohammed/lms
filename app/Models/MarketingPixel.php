@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 class MarketingPixel extends Model
 {
     protected $fillable = [
+        'name',
         'platform',
         'pixel_id',
         'is_active',
