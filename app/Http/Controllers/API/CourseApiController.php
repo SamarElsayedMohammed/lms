@@ -1257,6 +1257,7 @@ class CourseApiController extends Controller
                 'discount_percentage' => $discountPercentage,
                 'is_purchased' => $isPurchased,
                 'is_wishlist' => $isWishlist,
+                'has_ai_assistant' => !empty($course->getRawOriginal('ai_knowledge_content')),
                 'enroll_students' => $course->order_courses_count ?? 0,
                 'last_updated' => $course->updated_at ? $course->updated_at->format('Y-m-d H:i:s') : null,
                 // Meta Information
@@ -1951,6 +1952,7 @@ class CourseApiController extends Controller
                     ->count(),
                 'last_updated' => $course->updated_at ? $course->updated_at->format('Y-m-d H:i:s') : null,
                 'is_purchased' => $isPurchased,
+                'has_ai_assistant' => !empty($course->getRawOriginal('ai_knowledge_content')),
                 'meta_title' => $course->meta_title ?? $course->title,
                 'meta_description' => $course->meta_description ?? $course->short_description,
                 'preview_video' => $course->intro_video,

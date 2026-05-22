@@ -92,15 +92,18 @@ class TagAdminApiController extends AdminCrudApiController
         return $this->jsonSuccess(__('Tag updated successfully'), $tag->fresh());
     }
 
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('course-tags-list');
+        $this->checkPermission('course-tags-delete');
 
         $tag = Tag::find($id);
         if (!$tag) {
             return $this->jsonError(__('Tag not found'), 404);
         }
+
+        // Automatically detach all courses and delete the tag
+        $tag->courses()->detach();
 
         $tag->delete();
         return $this->jsonSuccess(__('Tag deleted successfully'));

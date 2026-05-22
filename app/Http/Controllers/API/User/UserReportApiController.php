@@ -25,6 +25,31 @@ use Illuminate\Support\Facades\DB;
 class UserReportApiController extends Controller
 {
     /**
+     * Get lightweight learning stats for the authenticated student
+     */
+    public function getLearningStats(Request $request)
+    {
+        try {
+            /** @var User|null $user */
+            $user = Auth::user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('User not authenticated', null, 401);
+            }
+
+            $summary = $this->getLearningSummary($user);
+            $summary['not_started_courses'] = max(
+                0,
+                $summary['total_enrolled_courses'] - $summary['completed_courses'] - $summary['in_progress_courses'],
+            );
+            $summary['open_courses'] = max(0, $summary['total_enrolled_courses'] - $summary['completed_courses']);
+
+            return ApiResponseService::successResponse('Learning stats retrieved successfully', $summary);
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to retrieve learning stats: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Get comprehensive report for a user
      */
     public function getComprehensiveReport(Request $request)

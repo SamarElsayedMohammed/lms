@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\Category;
+use App\Models\Course\Course;
 use App\Services\FileService;
 use App\Services\HelperService;
 use Illuminate\Http\JsonResponse;
@@ -175,7 +176,7 @@ class CategoryAdminApiController extends AdminCrudApiController
     /**
      * DELETE /api/admin/categories/{id} - Soft delete category
      */
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
         $this->ensureAdmin();
         $this->checkPermission('categories-delete');
@@ -185,12 +186,37 @@ class CategoryAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Category not found'), 404);
         }
 
-        if ($category->subcategories()->exists()) {
-            return $this->jsonError(__('Please delete subcategories before deleting this category'), 422);
+        // Automatically find a reassignment category if not provided
+        $reassignCategoryId = $request->filled('reassign_category_id') 
+            ? (int) $request->reassign_category_id 
+            : null;
+
+        if (!$reassignCategoryId) {
+            // Get the first active category that is not this one and not a subcategory of this one
+            $fallbackCategory = Category::where('id', '!=', $id)
+                ->where('parent_category_id', '!=', $id)
+                ->whereNull('deleted_at')
+                ->first();
+            if ($fallbackCategory) {
+                $reassignCategoryId = $fallbackCategory->id;
+            }
         }
-        if ($category->courses()->exists()) {
-            $count = $category->courses()->count();
-            return $this->jsonError(__('Cannot delete: category is linked to :count course(s)', ['count' => $count]), 422);
+
+        // Handle subcategories
+        if ($category->subcategories()->exists()) {
+            foreach ($category->subcategories as $subcategory) {
+                if ($subcategory->courses()->exists() && $reassignCategoryId) {
+                    Course::where('category_id', $subcategory->id)
+                        ->update(['category_id' => $reassignCategoryId]);
+                }
+                $subcategory->delete();
+            }
+        }
+
+        // Handle direct courses
+        if ($category->courses()->exists() && $reassignCategoryId) {
+            Course::where('category_id', $id)
+                ->update(['category_id' => $reassignCategoryId]);
         }
 
         try {

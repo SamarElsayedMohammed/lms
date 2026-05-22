@@ -38,8 +38,10 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
             'kashier_iframe_key', 'kashier_mode',
             // Stripe
             'stripe_status', 'stripe_publishable_key', 'stripe_secret_key',
+            'stripe_webhook_secret', 'stripe_currency',
             // Razorpay
-            'razorpay_status', 'razorpay_key', 'razorpay_secret',
+            'razorpay_status', 'razorpay_api_key', 'razorpay_secret_key',
+            'razorpay_webhook_url', 'razorpay_webhook_secret_key',
             // Flutterwave
             'flutterwave_status', 'flutterwave_public_key', 'flutterwave_secret_key',
             'flutterwave_encryption_key',
@@ -48,10 +50,10 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
             'paymob_hmac_secret',
         ];
 
-        $settings = Setting::whereIn('variable', $settingKeys)
+        $settings = Setting::whereIn('name', $settingKeys)
             ->get()
-            ->keyBy('variable')
-            ->map(fn($s) => $s->value);
+            ->keyBy('name')
+            ->map(fn($s) => $s->getRawOriginal('value') ?? $s->value);
 
         $gateways = [
             'kashier' => [
@@ -68,8 +70,10 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
             ],
             'razorpay' => [
                 'enabled' => (bool) ($settings['razorpay_status'] ?? false),
-                'key'     => $settings['razorpay_key'] ?? '',
-                'secret'  => $settings['razorpay_secret'] ?? '',
+                'api_key' => $settings['razorpay_api_key'] ?? '',
+                'secret_key' => $settings['razorpay_secret_key'] ?? '',
+                'webhook_url' => $settings['razorpay_webhook_url'] ?? '',
+                'webhook_secret_key' => $settings['razorpay_webhook_secret_key'] ?? '',
             ],
             'flutterwave' => [
                 'enabled'        => (bool) ($settings['flutterwave_status'] ?? false),
@@ -95,7 +99,7 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
     public function update(Request $request): JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('settings-payment-gateway-list');
+        $this->checkPermission('settings-payment-gateway-edit');
 
         $validator = Validator::make($request->all(), [
             'gateway' => 'required|in:kashier,stripe,razorpay,flutterwave,paymob',
@@ -113,9 +117,14 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
             'stripe_status'          => 'sometimes|boolean',
 
             // Razorpay fields
-            'razorpay_key'    => 'sometimes|nullable|string|max:255',
-            'razorpay_secret' => 'sometimes|nullable|string|max:255',
+            'razorpay_api_key' => 'sometimes|nullable|string|max:255',
+            'razorpay_secret_key' => 'sometimes|nullable|string|max:255',
+            'razorpay_webhook_url' => 'sometimes|nullable|string|max:500',
+            'razorpay_webhook_secret_key' => 'sometimes|nullable|string|max:255',
             'razorpay_status' => 'sometimes|boolean',
+            // Backward-compatible aliases
+            'razorpay_key' => 'sometimes|nullable|string|max:255',
+            'razorpay_secret' => 'sometimes|nullable|string|max:255',
 
             // Flutterwave fields
             'flutterwave_public_key'     => 'sometimes|nullable|string|max:255',
@@ -146,7 +155,8 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
                 'stripe_status', 'stripe_publishable_key', 'stripe_secret_key',
             ],
             'razorpay' => [
-                'razorpay_status', 'razorpay_key', 'razorpay_secret',
+                'razorpay_status', 'razorpay_api_key', 'razorpay_secret_key',
+                'razorpay_webhook_url', 'razorpay_webhook_secret_key',
             ],
             'flutterwave' => [
                 'flutterwave_status', 'flutterwave_public_key', 'flutterwave_secret_key',
@@ -160,6 +170,15 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
 
         $keysToUpdate = $gatewayMap[$gateway] ?? [];
 
+        if ($gateway === 'razorpay') {
+            if ($request->has('razorpay_key') && !$request->has('razorpay_api_key')) {
+                $request->merge(['razorpay_api_key' => $request->input('razorpay_key')]);
+            }
+            if ($request->has('razorpay_secret') && !$request->has('razorpay_secret_key')) {
+                $request->merge(['razorpay_secret_key' => $request->input('razorpay_secret')]);
+            }
+        }
+
         foreach ($keysToUpdate as $key) {
             if ($request->has($key)) {
                 $value = is_bool($request->input($key))
@@ -167,8 +186,8 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
                     : $request->input($key, '');
 
                 Setting::updateOrCreate(
-                    ['variable' => $key],
-                    ['value' => (string) $value]
+                    ['name' => $key],
+                    ['value' => (string) $value, 'type' => 'text']
                 );
             }
         }

@@ -75,9 +75,7 @@ class ReportsApiController extends Controller
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
                 'course_id' => 'nullable|exists:courses,id',
-                'instructor_id' => 'nullable|exists:users,id',
                 'status' => 'nullable|in:pending,paid,cancelled',
-                'instructor_type' => 'nullable|in:individual,team',
                 'report_type' => 'nullable|in:summary,detailed,chart',
                 'group_by' => 'nullable|in:day,week,month,year',
                 'per_page' => 'nullable|integer|min:1|max:100',
@@ -87,7 +85,7 @@ class ReportsApiController extends Controller
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
-            $query = Commission::with(['instructor', 'course.category', 'order']);
+            $query = Commission::with(['course.category', 'order']);
 
             // Apply filters
             $this->applyCommissionFilters($query, $request);
@@ -239,7 +237,6 @@ class ReportsApiController extends Controller
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
                 'course_id' => 'nullable|exists:courses,id',
-                'instructor_id' => 'nullable|exists:users,id',
                 'category_id' => 'nullable|exists:categories,id',
                 'payment_method' => 'nullable|in:stripe,razorpay,flutterwave,wallet',
                 'report_type' => 'nullable|in:summary,detailed,chart,comparison',
@@ -361,14 +358,8 @@ class ReportsApiController extends Controller
         if ($request->filled('course_id')) {
             $query->where('course_id', $request->course_id);
         }
-        if ($request->filled('instructor_id')) {
-            $query->where('instructor_id', $request->instructor_id);
-        }
         if ($request->filled('status')) {
             $query->where('status', $request->status);
-        }
-        if ($request->filled('instructor_type')) {
-            $query->where('instructor_type', $request->instructor_type);
         }
     }
 
@@ -492,19 +483,24 @@ class ReportsApiController extends Controller
         return [
             'total_commissions' => $commissions->count(),
             'total_admin_commission' => $commissions->sum('admin_commission_amount'),
-            'total_affiliate_commission' => $commissions->sum('instructor_commission_amount'),
             'paid_commissions' => $commissions->where('status', 'paid')->count(),
             'pending_commissions' => $commissions->where('status', 'pending')->count(),
-            'top_earning_instructors' => $this->getTopEarningInstructors($commissions),
             'commission_by_course' => $this->getCommissionByCourse($commissions),
-            'recent_commissions' => $commissions->sortByDesc('created_at')->take(10)->values(),
+            'recent_commissions' => $this->stripCommissionInstructorData(
+                $commissions->sortByDesc('created_at')->take(10)->values(),
+            ),
         ];
     }
 
     private function getDetailedCommissionData($query, $request)
     {
         $perPage = $request->per_page ?? 15;
-        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $paginated = $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $paginated->setCollection(
+            $this->stripCommissionInstructorData($paginated->getCollection()),
+        );
+
+        return $paginated;
     }
 
     private function getCommissionChartData($query, $request)
@@ -521,8 +517,7 @@ class ReportsApiController extends Controller
         return $query->selectRaw("
                 DATE_FORMAT(created_at, '{$format}') as period,
                 COUNT(*) as commission_count,
-                SUM(admin_commission_amount) as admin_total,
-                SUM(instructor_commission_amount) as affiliate_total
+                SUM(admin_commission_amount) as admin_total
             ")->groupBy('period')->orderBy('period')->get();
     }
 
@@ -604,16 +599,21 @@ class ReportsApiController extends Controller
     private function getInstructorPerformanceData($query, $request)
     {
         return $query->with([
-            'user.courses.orderCourses',
-            'user.courses.ratings',
+            'user.courses' => static function ($q): void {
+                $q->withCount('orderCourses')->with('ratings:id,course_id,rating');
+            },
         ])->get()->map(static function ($instructor) {
             $courses = $instructor->user->courses;
+
             return [
                 'instructor' => $instructor,
                 'performance_metrics' => [
                     'total_courses' => $courses->count(),
-                    'total_enrollments' => $courses->sum(static fn($course) => $course->orderCourses->count()),
-                    'average_rating' => $courses->avg(static fn($course) => $course->ratings->avg('rating')),
+                    'total_enrollments' => $courses->sum('order_courses_count'),
+                    'average_rating' => round(
+                        $courses->avg(static fn($course) => $course->ratings->avg('rating')) ?? 0,
+                        2,
+                    ),
                 ],
             ];
         });
@@ -664,7 +664,6 @@ class ReportsApiController extends Controller
         $query = Order::where('status', 'completed');
         $this->applyDateFilter($query, $request);
         $this->applyCourseFilter($query, $request);
-        $this->applyInstructorFilter($query, $request);
         $this->applyCategoryFilter($query, $request);
         $this->applyPaymentMethodFilter($query, $request);
 
@@ -679,6 +678,48 @@ class ReportsApiController extends Controller
             ),
             'revenue_by_category' => $this->getRevenueByCategory($orders),
             'revenue_trend' => $this->getRevenueTrend($orders),
+            'revenue_distribution' => $this->getRevenueCommissionDistribution($request),
+        ];
+    }
+
+    private function buildRevenueCommissionQuery(Request $request)
+    {
+        $query = Commission::query();
+        $this->applyDateFilter($query, $request);
+
+        if ($request->filled('course_id')) {
+            $query->where('course_id', $request->course_id);
+        }
+
+        if ($request->filled('category_id')) {
+            $query->whereHas('course', static function ($q) use ($request): void {
+                $q->where('category_id', $request->category_id);
+            });
+        }
+
+        if ($request->filled('payment_method')) {
+            $query->whereHas('order', static function ($q) use ($request): void {
+                $q->where('payment_method', $request->payment_method)->where('status', 'completed');
+            });
+        }
+
+        return $query;
+    }
+
+    private function getRevenueCommissionDistribution(Request $request): array
+    {
+        $stats = $this->buildRevenueCommissionQuery($request)
+            ->selectRaw('
+                COALESCE(SUM(admin_commission_amount), 0) as admin_share,
+                COALESCE(SUM(instructor_commission_amount), 0) as affiliate_marketing_commission_share
+            ')
+            ->first();
+
+        return [
+            'admin_share' => (float) ($stats->admin_share ?? 0),
+            'instructor_share' => (float) ($stats->affiliate_marketing_commission_share ?? 0),
+            'affiliate_marketing_share' => (float) ($stats->affiliate_marketing_commission_share ?? 0),
+            'affiliate_marketing_commission_share' => (float) ($stats->affiliate_marketing_commission_share ?? 0),
         ];
     }
 
@@ -687,7 +728,6 @@ class ReportsApiController extends Controller
         $query = Order::where('status', 'completed')->with(['orderCourses.course', 'user']);
         $this->applyDateFilter($query, $request);
         $this->applyCourseFilter($query, $request);
-        $this->applyInstructorFilter($query, $request);
         $this->applyCategoryFilter($query, $request);
         $this->applyPaymentMethodFilter($query, $request);
 
@@ -700,7 +740,6 @@ class ReportsApiController extends Controller
         $query = Order::where('status', 'completed');
         $this->applyDateFilter($query, $request);
         $this->applyCourseFilter($query, $request);
-        $this->applyInstructorFilter($query, $request);
         $this->applyCategoryFilter($query, $request);
         $this->applyPaymentMethodFilter($query, $request);
 
@@ -778,31 +817,32 @@ class ReportsApiController extends Controller
             ->values();
     }
 
-    private function getTopEarningInstructors($commissions)
-    {
-        return $commissions
-            ->groupBy('instructor_id')
-            ->map(static fn($instructorCommissions) => [
-                'instructor' => $instructorCommissions->first()->instructor,
-                'total_commission' => $instructorCommissions->sum('instructor_commission_amount'),
-                'commission_count' => $instructorCommissions->count(),
-            ])
-            ->sortByDesc('total_commission')
-            ->take(10)
-            ->values();
-    }
-
     private function getCommissionByCourse($commissions)
     {
         return $commissions
             ->groupBy('course_id')
             ->map(static fn($courseCommissions) => [
                 'course' => $courseCommissions->first()->course,
-                'total_commission' => $courseCommissions->sum('instructor_commission_amount'),
+                'total_commission' => $courseCommissions->sum('admin_commission_amount'),
                 'commission_count' => $courseCommissions->count(),
             ])
             ->sortByDesc('total_commission')
             ->values();
+    }
+
+    private function stripCommissionInstructorData($commissions)
+    {
+        return $commissions->map(static function ($commission) {
+            $commission->makeHidden([
+                'instructor_id',
+                'instructor_type',
+                'instructor_commission_rate',
+                'instructor_commission_amount',
+            ]);
+            $commission->unsetRelation('instructor');
+
+            return $commission;
+        });
     }
 
     private function getCoursesByCategory($courses)

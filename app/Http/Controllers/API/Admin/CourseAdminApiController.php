@@ -61,9 +61,13 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections'           => 'nullable|array',
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
+            'curriculum_sections.*.lessons.*.type' => 'nullable|in:video,file,youtube_url',
+            'curriculum_sections.*.lessons.*.file' => 'nullable|file|max:51200',
             'curriculum_sections.*.lessons.*.materials'       => 'nullable|array',
             'curriculum_sections.*.lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'standalone_lessons'            => 'nullable|array',
+            'standalone_lessons.*.type'     => 'nullable|in:video,file,youtube_url',
+            'standalone_lessons.*.file'     => 'nullable|file|max:51200',
             'standalone_lessons.*.materials'       => 'nullable|array',
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
@@ -210,7 +214,8 @@ class CourseAdminApiController extends AdminCrudApiController
                     $lessons = $section['lessons'] ?? [];
                     if (is_array($lessons)) {
                         foreach ($lessons as $lessonOrder => $lesson) {
-                                $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1);
+                                $contentFile = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.file");
+                                $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1, $contentFile);
                                 $materialFiles = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.materials") ?? [];
                                 $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
                             }
@@ -231,7 +236,8 @@ class CourseAdminApiController extends AdminCrudApiController
                     ]);
 
                     foreach ($standaloneLessons as $lessonOrder => $lesson) {
-                        $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1);
+                        $contentFile = $request->file("standalone_lessons.{$lessonOrder}.file");
+                        $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1, $contentFile);
                         $materialFiles = $request->file("standalone_lessons.{$lessonOrder}.materials") ?? [];
                         $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
                     }
@@ -285,24 +291,52 @@ class CourseAdminApiController extends AdminCrudApiController
     /**
      * Create a single lecture from lesson data.
      */
-    private function buildLectureData(array $lesson, int $chapterId, int $userId, int $order): CourseChapterLecture
-    {
-        $type = ($lesson['type'] ?? 'video') === 'video' ? 'youtube_url' : ($lesson['type'] ?? 'youtube_url');
+    private function buildLectureData(
+        array $lesson,
+        int $chapterId,
+        int $userId,
+        int $order,
+        ?\Illuminate\Http\UploadedFile $contentFile = null,
+    ): CourseChapterLecture {
         [$hours, $minutes, $seconds] = $this->parseDuration($lesson['duration'] ?? null);
+        $rawType = $lesson['type'] ?? 'video';
+
+        if ($contentFile) {
+            $filePath = FileService::upload($contentFile, 'course-chapters/lectures');
+
+            return CourseChapterLecture::create([
+                'user_id'           => $userId,
+                'course_chapter_id' => $chapterId,
+                'title'             => $lesson['title'] ?? 'Untitled Lesson',
+                'slug'              => HelperService::generateUniqueSlug(CourseChapterLecture::class, $lesson['title'] ?? 'untitled'),
+                'type'              => 'file',
+                'file'              => $filePath,
+                'file_extension'    => $contentFile->getClientOriginalExtension(),
+                'youtube_url'       => null,
+                'hours'             => $hours,
+                'minutes'           => $minutes,
+                'seconds'           => $seconds,
+                'chapter_order'     => $order,
+                'is_active'         => true,
+                'free_preview'      => false,
+            ]);
+        }
+
+        $type = $rawType === 'file' ? 'file' : (($rawType === 'video') ? 'youtube_url' : $rawType);
 
         return CourseChapterLecture::create([
-            'user_id'            => $userId,
-            'course_chapter_id'  => $chapterId,
-            'title'              => $lesson['title'] ?? 'Untitled Lesson',
-            'slug'               => HelperService::generateUniqueSlug(CourseChapterLecture::class, $lesson['title'] ?? 'untitled'),
-            'type'               => $type,
-            'youtube_url'        => $lesson['content_url'] ?? null,
-            'hours'              => $hours,
-            'minutes'            => $minutes,
-            'seconds'            => $seconds,
-            'chapter_order'      => $order,
-            'is_active'          => true,
-            'free_preview'       => false,
+            'user_id'           => $userId,
+            'course_chapter_id' => $chapterId,
+            'title'             => $lesson['title'] ?? 'Untitled Lesson',
+            'slug'              => HelperService::generateUniqueSlug(CourseChapterLecture::class, $lesson['title'] ?? 'untitled'),
+            'type'              => $type,
+            'youtube_url'       => $lesson['content_url'] ?? null,
+            'hours'             => $hours,
+            'minutes'           => $minutes,
+            'seconds'           => $seconds,
+            'chapter_order'     => $order,
+            'is_active'         => true,
+            'free_preview'      => false,
         ]);
     }
 
@@ -444,6 +478,9 @@ class CourseAdminApiController extends AdminCrudApiController
             fn ($s) => count($s['lessons']), $curriculumSections
         )) + count($standaloneLessons);
 
+        $courseData['has_ai_assistant'] = !empty($course->getRawOriginal('ai_knowledge_content'));
+        unset($courseData['ai_knowledge_content']);
+
         return $courseData;
     }
 
@@ -457,8 +494,11 @@ class CourseAdminApiController extends AdminCrudApiController
             'title'         => $lecture->title,
             'slug'          => $lecture->slug,
             'type'          => $lecture->type,
-            'content_url'   => $lecture->youtube_url,   // اسم موحّد مع طلب الإنشاء
+            'content_url'   => $lecture->type === 'file' ? FileService::getFileUrl($lecture->getRawOriginal('file')) : $lecture->youtube_url,
             'youtube_url'   => $lecture->youtube_url,
+            'file'          => $lecture->type === 'file' ? $lecture->getRawOriginal('file') : null,
+            'file_url'      => $lecture->type === 'file' ? FileService::getFileUrl($lecture->getRawOriginal('file')) : null,
+            'file_extension'=> $lecture->file_extension,
             'hours'         => $lecture->hours,
             'minutes'       => $lecture->minutes,
             'seconds'       => $lecture->seconds,
@@ -517,9 +557,13 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections'           => 'nullable|array',
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
+            'curriculum_sections.*.lessons.*.type' => 'nullable|in:video,file,youtube_url',
+            'curriculum_sections.*.lessons.*.file' => 'nullable|file|max:51200',
             'curriculum_sections.*.lessons.*.materials'       => 'nullable|array',
             'curriculum_sections.*.lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'standalone_lessons'            => 'nullable|array',
+            'standalone_lessons.*.type'     => 'nullable|in:video,file,youtube_url',
+            'standalone_lessons.*.file'     => 'nullable|file|max:51200',
             'standalone_lessons.*.materials'       => 'nullable|array',
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
@@ -687,7 +731,8 @@ class CourseAdminApiController extends AdminCrudApiController
                         $lessons = $section['lessons'] ?? [];
                         if (is_array($lessons)) {
                             foreach ($lessons as $lessonOrder => $lesson) {
-                                $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1);
+                                $contentFile = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.file");
+                                $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1, $contentFile);
                                 $materialFiles = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.materials") ?? [];
                                 $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
                             }
@@ -708,7 +753,8 @@ class CourseAdminApiController extends AdminCrudApiController
                     ]);
 
                     foreach ($standaloneLessons as $lessonOrder => $lesson) {
-                        $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1);
+                        $contentFile = $request->file("standalone_lessons.{$lessonOrder}.file");
+                        $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1, $contentFile);
                         $materialFiles = $request->file("standalone_lessons.{$lessonOrder}.materials") ?? [];
                         $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
                     }

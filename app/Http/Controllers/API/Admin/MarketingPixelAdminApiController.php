@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
-use App\Http\Controllers\Controller;
 use App\Models\MarketingPixel;
 use App\Services\ApiResponseService;
 use Illuminate\Http\JsonResponse;
@@ -12,20 +11,29 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 
-final class MarketingPixelAdminApiController extends Controller
+final class MarketingPixelAdminApiController extends AdminCrudApiController
 {
     private const ALLOWED_PLATFORMS = [
         'hotjar', 'microsoft_clarity', 'google_tag_manager',
         'google_analytics', 'facebook', 'tiktok', 'snapchat', 'instagram',
     ];
 
+    public function __construct()
+    {
+        $this->middleware('auth:sanctum');
+    }
+
     /**
      * List all marketing pixels
      */
     public function index(): JsonResponse
     {
-        $pixels = MarketingPixel::orderBy('platform')->get()->map(fn($pixel) => [
+        $this->ensureAdmin();
+        $this->checkPermission('settings-system-list');
+
+        $pixels = MarketingPixel::orderBy('platform')->orderBy('id')->get()->map(fn($pixel) => [
             'id' => $pixel->id,
+            'name' => $pixel->name,
             'platform' => $pixel->platform,
             'pixel_id' => $pixel->pixel_id,
             'is_active' => $pixel->is_active,
@@ -40,11 +48,15 @@ final class MarketingPixelAdminApiController extends Controller
     }
 
     /**
-     * Create or update a marketing pixel
+     * Create a marketing pixel (multiple pixels per platform allowed)
      */
     public function store(Request $request): JsonResponse
     {
+        $this->ensureAdmin();
+        $this->checkPermission('settings-system-edit');
+
         $validator = Validator::make($request->all(), [
+            'name' => 'nullable|string|max:255',
             'platform' => 'required|string|in:' . implode(',', self::ALLOWED_PLATFORMS),
             'pixel_id' => 'required|string|max:500',
             'is_active' => 'nullable|boolean',
@@ -58,26 +70,19 @@ final class MarketingPixelAdminApiController extends Controller
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $pixel = MarketingPixel::updateOrCreate(
-            ['platform' => $request->platform],
-            [
-                'pixel_id' => $request->pixel_id,
-                'is_active' => $request->boolean('is_active', true),
-                'additional_config' => $request->additional_config,
-            ]
-        );
+        $pixel = MarketingPixel::create([
+            'name' => $request->input('name', $request->platform),
+            'platform' => $request->platform,
+            'pixel_id' => $request->pixel_id,
+            'is_active' => $request->boolean('is_active', true),
+            'additional_config' => $request->additional_config,
+        ]);
 
         Cache::forget('marketing_pixels_active');
 
-        return ApiResponseService::successResponse('Marketing pixel saved successfully', [
-            'pixel' => [
-                'id' => $pixel->id,
-                'platform' => $pixel->platform,
-                'pixel_id' => $pixel->pixel_id,
-                'is_active' => $pixel->is_active,
-                'additional_config' => $pixel->additional_config,
-            ],
-        ]);
+        return ApiResponseService::successResponse('Marketing pixel created successfully', [
+            'pixel' => $this->formatPixel($pixel),
+        ], 201);
     }
 
     /**
@@ -85,12 +90,16 @@ final class MarketingPixelAdminApiController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
+        $this->ensureAdmin();
+        $this->checkPermission('settings-system-edit');
+
         $pixel = MarketingPixel::find($id);
         if (!$pixel) {
             return ApiResponseService::errorResponse('Marketing pixel not found', [], 404);
         }
 
         $validator = Validator::make($request->all(), [
+            'name' => 'nullable|string|max:255',
             'pixel_id' => 'nullable|string|max:500',
             'is_active' => 'nullable|boolean',
             'additional_config' => 'nullable|array',
@@ -100,6 +109,9 @@ final class MarketingPixelAdminApiController extends Controller
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
+        if ($request->has('name')) {
+            $pixel->name = $request->name;
+        }
         if ($request->has('pixel_id')) {
             $pixel->pixel_id = $request->pixel_id;
         }
@@ -115,13 +127,7 @@ final class MarketingPixelAdminApiController extends Controller
         Cache::forget('marketing_pixels_active');
 
         return ApiResponseService::successResponse('Marketing pixel updated', [
-            'pixel' => [
-                'id' => $pixel->id,
-                'platform' => $pixel->platform,
-                'pixel_id' => $pixel->pixel_id,
-                'is_active' => $pixel->is_active,
-                'additional_config' => $pixel->additional_config,
-            ],
+            'pixel' => $this->formatPixel($pixel),
         ]);
     }
 
@@ -130,6 +136,9 @@ final class MarketingPixelAdminApiController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
+        $this->ensureAdmin();
+        $this->checkPermission('settings-system-edit');
+
         $pixel = MarketingPixel::find($id);
         if (!$pixel) {
             return ApiResponseService::errorResponse('Marketing pixel not found', [], 404);
@@ -140,5 +149,17 @@ final class MarketingPixelAdminApiController extends Controller
         Cache::forget('marketing_pixels_active');
 
         return ApiResponseService::successResponse('Marketing pixel deleted');
+    }
+
+    private function formatPixel(MarketingPixel $pixel): array
+    {
+        return [
+            'id' => $pixel->id,
+            'name' => $pixel->name,
+            'platform' => $pixel->platform,
+            'pixel_id' => $pixel->pixel_id,
+            'is_active' => $pixel->is_active,
+            'additional_config' => $pixel->additional_config,
+        ];
     }
 }
