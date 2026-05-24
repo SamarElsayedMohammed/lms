@@ -5,12 +5,14 @@ namespace App\Notifications;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
 use App\Models\Webinar;
+use App\Traits\PushesToFirebase;
 
 class WebinarRegistrationNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, PushesToFirebase;
 
     private $webinar;
     private $isReminder;
@@ -64,5 +66,18 @@ class WebinarRegistrationNotification extends Notification implements ShouldQueu
             'message' => $this->isReminder ? 'Starting soon: ' . $this->webinar->title : 'You are successfully registered for: ' . $this->webinar->title,
             'start_at' => $this->webinar->start_at->toIso8601String(),
         ];
+    }
+
+    public function toDatabase(object $notifiable): DatabaseMessage
+    {
+        $data = $this->toArray($notifiable);
+
+        $this->sendFcmNotification($notifiable, [
+            'title' => $data['title'],
+            'body' => $data['message'],
+            'type' => $data['type'],
+        ]);
+        
+        return new DatabaseMessage($data);
     }
 }

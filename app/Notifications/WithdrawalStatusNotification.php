@@ -5,11 +5,13 @@ namespace App\Notifications;
 use App\Models\WithdrawalRequest;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\PushesToFirebase;
 
 class WithdrawalStatusNotification extends Notification
 {
-    use Queueable;
+    use Queueable, PushesToFirebase;
 
     protected $withdrawalRequest;
 
@@ -55,5 +57,18 @@ class WithdrawalStatusNotification extends Notification
             'message_ar' => 'تم ' . $statusAr . ' طلب السحب الخاص بك بمبلغ ' . $this->withdrawalRequest->amount . ' جنيه.',
             'type' => 'withdrawal'
         ];
+    }
+
+    public function toDatabase(object $notifiable): DatabaseMessage
+    {
+        $data = $this->toArray($notifiable);
+
+        $this->sendFcmNotification($notifiable, [
+            'title' => $data['title'],
+            'body' => $data['message'],
+            'type' => $data['type'],
+        ]);
+        
+        return new DatabaseMessage($data);
     }
 }
