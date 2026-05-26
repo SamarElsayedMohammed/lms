@@ -841,13 +841,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
         });
     });
 
-    // Wallet Funding Suite (Admin Contract - v1)
-    Route::prefix('v1/admin/wallet')->group(function (): void {
-        Route::get('/deposit-requests', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'indexDeposits']);
-        Route::get('/withdrawal-requests', [FinanceApiController::class, 'getAdminWithdrawalRequests']);
-        Route::put('/deposit-requests/{id}/status', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'updateDepositStatus']);
-        Route::put('/withdrawal-requests/{id}/status', [FinanceApiController::class, 'updateWithdrawalRequestStatusViaPath']);
-    });
+// Wallet Funding Suite (Admin Contract - v1) — must stay INSIDE auth:sanctum group
+Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function (): void {
+    Route::get('/deposit-requests', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'indexDeposits']);
+    Route::get('/withdrawal-requests', [FinanceApiController::class, 'getAdminWithdrawalRequests']);
+    Route::put('/deposit-requests/{id}/status', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'updateDepositStatus']);
+    Route::put('/withdrawal-requests/{id}/status', [FinanceApiController::class, 'updateWithdrawalRequestStatusViaPath']);
+});
 
     /********************************************************************************** */
 
