@@ -9,10 +9,11 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\PushesToFirebase;
 
 class CommissionPaidNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, PushesToFirebase;
 
     protected $commission;
 
@@ -87,6 +88,12 @@ class CommissionPaidNotification extends Notification implements ShouldQueue
      */
     public function toDatabase(object $notifiable): DatabaseMessage
     {
-        return new DatabaseMessage($this->toArray($notifiable));
+        $data = $this->toArray($notifiable);
+        $this->sendFcmNotification($notifiable, [
+            'title' => $data['title'],
+            'body' => $data['message'],
+            'type' => $data['type'],
+        ]);
+        return new DatabaseMessage($data);
     }
 }

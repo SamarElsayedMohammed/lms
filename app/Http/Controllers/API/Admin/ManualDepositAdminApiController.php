@@ -16,6 +16,11 @@ class ManualDepositAdminApiController extends AdminCrudApiController
 {
     private $methodFolder = 'manual_deposit_methods';
 
+    public function __construct()
+    {
+        $this->middleware('auth:sanctum');
+    }
+
     /**
      * Get all manual deposit methods
      */

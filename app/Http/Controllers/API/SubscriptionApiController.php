@@ -5,16 +5,19 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Models\SubscriptionPlan;
 use App\Models\Subscription;
+use App\Models\SubscriptionPlan;
+use App\Models\User;
+use App\Notifications\AdminNewSubscriptionRequestNotification;
 use App\Services\ApiResponseService;
+use App\Services\Payment\KashierCheckoutService;
 use App\Services\PricingService;
 use App\Services\SubscriptionService;
-use App\Services\Payment\KashierCheckoutService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 final class SubscriptionApiController extends Controller
@@ -299,6 +302,21 @@ final class SubscriptionApiController extends Controller
                         'discount_amount' => $discountAmount,
                         'paid_at' => null,
                     ]);
+
+                    // Notify all super-admins about the new manual subscription request
+                    try {
+                        $subscription->load('plan');
+                        $admins = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
+                        foreach ($admins as $admin) {
+                            $admin->notify(new AdminNewSubscriptionRequestNotification($subscription, $user));
+                        }
+                    } catch (\Throwable $e) {
+                        Log::error('SubscriptionApiController: Failed to notify admins of new manual subscription request', [
+                            'subscription_id' => $subscription->id,
+                            'user_id'         => $user->id,
+                            'error'           => $e->getMessage(),
+                        ]);
+                    }
 
                     return ApiResponseService::successResponse('تم إنشاء طلب الدفع بنجاح وجاري مراجعة الطلب من قبل الإدارة.', [
                         'requires_checkout' => false,

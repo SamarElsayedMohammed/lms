@@ -5,11 +5,13 @@ namespace App\Notifications;
 use App\Models\Subscription;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\PushesToFirebase;
 
 class ManualSubscriptionStatusNotification extends Notification
 {
-    use Queueable;
+    use Queueable, PushesToFirebase;
 
     protected $subscription;
 
@@ -81,5 +83,21 @@ class ManualSubscriptionStatusNotification extends Notification
             'status' => $status,
             'message' => $msg,
         ];
+    }
+
+    public function toDatabase(object $notifiable): DatabaseMessage
+    {
+        $data = $this->toArray($notifiable);
+        $title = $data['status'] === 'active' || $data['status'] === 'pending'
+            ? "تفعيل اشتراك: " . $data['plan_name']
+            : "رفض اشتراك: " . $data['plan_name'];
+
+        $this->sendFcmNotification($notifiable, [
+            'title' => $title,
+            'body' => $data['message'],
+            'type' => 'manual_subscription_status',
+        ]);
+        
+        return new DatabaseMessage($data);
     }
 }

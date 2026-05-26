@@ -5,11 +5,13 @@ namespace App\Notifications;
 use App\Models\ManualDeposit;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\PushesToFirebase;
 
 class ManualDepositStatusNotification extends Notification
 {
-    use Queueable;
+    use Queueable, PushesToFirebase;
 
     protected $deposit;
 
@@ -64,5 +66,19 @@ class ManualDepositStatusNotification extends Notification
             'status' => $this->deposit->status,
             'message' => "Your deposit of {$this->deposit->amount} EGP was {$this->deposit->status}.",
         ];
+    }
+
+    /**
+     * Get the database representation of the notification.
+     */
+    public function toDatabase(object $notifiable): DatabaseMessage
+    {
+        $data = $this->toArray($notifiable);
+        $this->sendFcmNotification($notifiable, [
+            'title' => 'Deposit Request ' . ucfirst($this->deposit->status),
+            'body' => $data['message'],
+            'type' => 'manual_deposit',
+        ]);
+        return new DatabaseMessage($data);
     }
 }

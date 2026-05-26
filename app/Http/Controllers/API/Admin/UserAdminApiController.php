@@ -26,7 +26,7 @@ class UserAdminApiController extends AdminCrudApiController
         $perPage = min((int) $request->input('per_page', 15), 100);
         $withTrashed = $request->boolean('with_trashed');
 
-        $query = User::with(['instructor_details', 'activeSubscription', 'roles'])
+        $query = User::with(['instructor_details', 'activeSubscription.plan', 'roles'])
             ->when($withTrashed, fn ($q) => $q->withTrashed())
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
@@ -34,14 +34,16 @@ class UserAdminApiController extends AdminCrudApiController
                     ->orWhere('mobile', 'like', "%{$search}%")
                     ->orWhere('slug', 'like', "%{$search}%");
             }))
-            ->when($subscriptionType, fn ($q) => $q->whereHas('subscriptions', fn ($sq) => $sq->where('status', 'active')->where('plan_type', $subscriptionType)));
+            ->when($subscriptionType, fn ($q) => $q->whereHas('subscriptions', fn ($sq) => $sq->where('status', 'active')->whereHas('plan', fn ($pq) => $pq->where('billing_cycle', $subscriptionType))));
 
         $users = $query->orderBy('id', 'desc')->paginate($perPage);
 
         $users->getCollection()->transform(function ($user) {
             $user->is_instructor = !empty($user->instructor_details);
             $user->instructor_status = $user->instructor_details->status ?? null;
-            $user->active_subscription_type = $user->activeSubscription ? ucfirst($user->activeSubscription->plan_type) : null;
+            $user->active_subscription_type = $user->activeSubscription
+                ? ucfirst($user->activeSubscription->plan->billing_cycle ?? 'unknown')
+                : null;
             return $user;
         });
 

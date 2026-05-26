@@ -5,11 +5,14 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\ManualDeposit;
 use App\Models\ManualDepositMethod;
+use App\Models\User;
+use App\Notifications\AdminNewManualDepositNotification;
 use App\Services\ApiResponseService;
 use App\Services\FileService;
 use App\Services\GeoLocationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class ManualDepositApiController extends Controller
@@ -78,6 +81,21 @@ class ManualDepositApiController extends Controller
                 'receipt' => $receiptPath,
                 'status' => 'pending',
             ]);
+
+            // Notify all super-admins about the new manual deposit request
+            try {
+                $deposit->load('method');
+                $admins = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
+                foreach ($admins as $admin) {
+                    $admin->notify(new AdminNewManualDepositNotification($deposit, $user));
+                }
+            } catch (\Throwable $e) {
+                Log::error('ManualDepositApiController: Failed to notify admins of new manual deposit request', [
+                    'deposit_id' => $deposit->id,
+                    'user_id'    => $user->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
 
             return ApiResponseService::successResponse('Deposit request submitted successfully. It will be processed after verification.', $deposit);
         } catch (\Exception $e) {

@@ -5,11 +5,13 @@ namespace App\Notifications;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\PushesToFirebase;
 
 class CertificateNotification extends Notification
 {
-    use Queueable;
+    use Queueable, PushesToFirebase;
 
     /**
      * Create a new notification instance.
@@ -26,7 +28,7 @@ class CertificateNotification extends Notification
      */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
     }
 
     /**
@@ -48,7 +50,22 @@ class CertificateNotification extends Notification
     public function toArray(object $notifiable): array
     {
         return [
-            //
+            'type' => 'certificate_issued',
+            'title' => 'Certificate Issued',
+            'message' => 'Congratulations! You have received a new certificate.',
         ];
+    }
+
+    public function toDatabase(object $notifiable): DatabaseMessage
+    {
+        $data = $this->toArray($notifiable);
+
+        $this->sendFcmNotification($notifiable, [
+            'title' => $data['title'],
+            'body' => $data['message'],
+            'type' => $data['type'],
+        ]);
+        
+        return new DatabaseMessage($data);
     }
 }

@@ -5,11 +5,13 @@ namespace App\Notifications;
 use App\Models\Subscription;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\PushesToFirebase;
 
 class SubscriptionExpiryNotification extends Notification
 {
-    use Queueable;
+    use Queueable, PushesToFirebase;
 
     protected $subscription;
     protected $daysRemaining;
@@ -62,6 +64,20 @@ class SubscriptionExpiryNotification extends Notification
             'days_remaining' => $this->daysRemaining,
             'expiry_date' => $this->subscription->ends_at->format('Y-m-d'),
             'message' => "Your {$this->subscription->plan->name} subscription expires in {$this->daysRemaining} days.",
+            'type' => 'subscription_expiry',
         ];
+    }
+
+    public function toDatabase(object $notifiable): DatabaseMessage
+    {
+        $data = $this->toArray($notifiable);
+
+        $this->sendFcmNotification($notifiable, [
+            'title' => 'Subscription Expiring Soon',
+            'body' => $data['message'],
+            'type' => $data['type'],
+        ]);
+        
+        return new DatabaseMessage($data);
     }
 }

@@ -5,11 +5,13 @@ namespace App\Notifications;
 use App\Models\Course;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\PushesToFirebase;
 
 class NewCourseNotification extends Notification
 {
-    use Queueable;
+    use Queueable, PushesToFirebase;
 
     protected $course;
 
@@ -45,5 +47,18 @@ class NewCourseNotification extends Notification
             'action_url' => '/courses/' . $this->course->slug,
             'type' => 'new_course'
         ];
+    }
+
+    public function toDatabase(object $notifiable): DatabaseMessage
+    {
+        $data = $this->toArray($notifiable);
+
+        $this->sendFcmNotification($notifiable, [
+            'title' => $data['title_ar'] ?? $data['title'],
+            'body' => $data['message_ar'] ?? $data['message'],
+            'type' => $data['type'],
+        ]);
+        
+        return new DatabaseMessage($data);
     }
 }

@@ -1,0 +1,36 @@
+{
+  "id": "e4f8d92a-3b02-491a-9fa5-f938c5b91a03",
+  "name": "LMS Environment",
+  "values": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api",
+      "enabled": true
+    },
+    {
+      "key": "student_token",
+      "value": "1|s9x2e118...",
+      "enabled": true
+    },
+    {
+      "key": "instructor_token",
+      "value": "4|i0y1f229...",
+      "enabled": true
+    },
+    {
+      "key": "admin_token",
+      "value": "9|a8z4c992...",
+      "enabled": true
+    },
+    {
+      "key": "course_id",
+      "value": "5",
+      "enabled": true
+    },
+    {
+      "key": "affiliate_code",
+      "value": "Samar98F",
+      "enabled": true
+    }
+  ]
+}
