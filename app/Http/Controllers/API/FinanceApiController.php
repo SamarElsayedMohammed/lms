@@ -653,8 +653,8 @@ class FinanceApiController extends Controller
 
             $user = Auth::user();
 
-            // Check if user is admin
-            if (!$user || !$user->is_admin) {
+            // Check if user is admin or has permission
+            if (!$user || (!$user->hasRole('Super Admin') && !$user->can('withdrawals-list'))) {
                 return ApiResponseService::errorResponse('Only admins can view withdrawal requests.', [], 403);
             }
 
@@ -758,8 +758,8 @@ class FinanceApiController extends Controller
 
             $user = Auth::user();
 
-            // Check if user is admin
-            if (!$user || !$user->is_admin) {
+            // Check if user is admin or has permission
+            if (!$user || (!$user->hasRole('Super Admin') && !$user->can('withdrawals-process') && !$user->can('withdrawals-edit'))) {
                 return ApiResponseService::errorResponse('Only admins can update withdrawal request status.', [], 403);
             }
 
@@ -853,8 +853,8 @@ class FinanceApiController extends Controller
 
             $user = Auth::user();
 
-            // Check if user is admin
-            if (!$user || !$user->is_admin) {
+            // Check if user is admin or has permission
+            if (!$user || (!$user->hasRole('Super Admin') && !$user->can('withdrawals-list'))) {
                 return ApiResponseService::errorResponse('Only admins can view withdrawal request details.', [], 403);
             }
 

@@ -254,4 +254,21 @@ final class User extends Authenticatable
     {
         return $this->hasMany(User::class, 'referred_by');
     }
+
+    /**
+     * Determine if the user is an admin.
+     */
+    public function getIsAdminAttribute(): bool
+    {
+        $adminRoles = [
+            'Super Admin',
+            'Admin',
+            'Supervisor',
+            'Staff',
+            'Accountant',
+            'Sales',
+            'Moderator'
+        ];
+        return $this->hasAnyRole($adminRoles, 'web');
+    }
 }
