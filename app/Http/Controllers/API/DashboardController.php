@@ -5,6 +5,8 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\Category;
+use App\Models\Commission;
+use App\Models\ContactMessage;
 use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment;
 use App\Models\Course\CourseChapter\Assignment\UserAssignmentSubmission;
@@ -21,6 +23,7 @@ use App\Models\Order;
 use App\Models\OrderCourse;
 use App\Models\PaymentTransaction;
 use App\Models\Rating;
+use App\Models\Subscription;
 use App\Models\User;
 use App\Models\WalletHistory;
 use App\Models\Wishlist;
@@ -77,6 +80,7 @@ class DashboardController extends Controller
                 'top_performers' => $this->getTopPerformers(),
                 'system_health' => $this->getSystemHealth(),
                 'subscription_stats' => $this->getSubscriptionStats(),
+                'monthly_financial_summary' => $this->getMonthlyFinancialSummary(),
                 'currency_symbol' => $currencySymbol,
             ];
 
@@ -107,6 +111,95 @@ class DashboardController extends Controller
                 [],
                 JSON_UNESCAPED_UNICODE,
             );
+        }
+    }
+
+    /**
+     * GET /api/dashboard-charts
+     *
+     * Lightweight endpoint that returns only the three chart datasets needed
+     * for the performance analytics chart (تحليل الأداء):
+     *   - revenue    → الإيرادات  (last 12 months revenue)
+     *   - enrollment → التسجيل    (last 12 months user registrations)
+     *   - courses    → الدورات    (last 12 months course enrollments)
+     *
+     * Response shape:
+     * {
+     *   "status": true,
+     *   "data": {
+     *     "revenue":    [ { "month": "Jun 2025", "value": 1200.0 }, ... ],
+     *     "enrollment": [ { "month": "Jun 2025", "value": 15 }, ... ],
+     *     "courses":    [ { "month": "Jun 2025", "value": 3 }, ... ]
+     *   }
+     * }
+     */
+    public function getChartsData(Request $request)
+    {
+        try {
+            $startDate = Carbon::now()->subMonths(11)->startOfMonth();
+            $endDate   = Carbon::now()->endOfMonth();
+
+            // ─── Revenue chart (إجمالي الإيرادات) ──────────────────────────────
+            $revenueRows = Order::where('status', 'completed')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->selectRaw('YEAR(created_at) as year, MONTH(created_at) as month, SUM(final_price) as total')
+                ->groupBy('year', 'month')
+                ->get()
+                ->keyBy(fn($r) => sprintf('%04d-%02d', $r->year, $r->month));
+
+            // ─── Enrollment chart (تسجيل مستخدمين جدد) ──────────────────────
+            $enrollmentRows = User::whereBetween('created_at', [$startDate, $endDate])
+                ->selectRaw('YEAR(created_at) as year, MONTH(created_at) as month, COUNT(*) as total')
+                ->groupBy('year', 'month')
+                ->get()
+                ->keyBy(fn($r) => sprintf('%04d-%02d', $r->year, $r->month));
+
+            // ─── Courses chart (تسجيلات الدورات) ─────────────────────────────
+            $coursesRows = OrderCourse::whereBetween('created_at', [$startDate, $endDate])
+                ->selectRaw('YEAR(created_at) as year, MONTH(created_at) as month, COUNT(*) as total')
+                ->groupBy('year', 'month')
+                ->get()
+                ->keyBy(fn($r) => sprintf('%04d-%02d', $r->year, $r->month));
+
+            // ─── Build 12-month series ─────────────────────────────────────────
+            $revenue    = [];
+            $enrollment = [];
+            $courses    = [];
+
+            for ($i = 11; $i >= 0; $i--) {
+                $date  = Carbon::now()->subMonths($i)->startOfMonth();
+                $key   = $date->format('Y-m');
+                $label = $date->format('M Y'); // e.g. "Jun 2025"
+
+                $revenue[]    = ['month' => $label, 'value' => (float) ($revenueRows->get($key)->total    ?? 0)];
+                $enrollment[] = ['month' => $label, 'value' => (int)   ($enrollmentRows->get($key)->total ?? 0)];
+                $courses[]    = ['month' => $label, 'value' => (int)   ($coursesRows->get($key)->total    ?? 0)];
+            }
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Chart data retrieved successfully',
+                'data'    => [
+                    // Tab 1: الإيرادات — revenue from completed orders
+                    'revenue'    => $revenue,
+                    // Tab 2: التسجيل — new user registrations
+                    'enrollment' => $enrollment,
+                    // Tab 3: الدورات — course enrollments (order_courses)
+                    'courses'    => $courses,
+
+                    // Meta
+                    'period'     => 'last_12_months',
+                    'from'       => $startDate->format('Y-m-d'),
+                    'to'         => $endDate->format('Y-m-d'),
+                ],
+            ], 200, [], JSON_UNESCAPED_UNICODE);
+
+        } catch (\Exception $e) {
+            Log::error('Dashboard Charts API Error: ' . $e->getMessage());
+            return response()->json([
+                'status'  => false,
+                'message' => 'Failed to load chart data: ' . $e->getMessage(),
+            ], 500, [], JSON_UNESCAPED_UNICODE);
         }
     }
 
@@ -484,6 +577,11 @@ class DashboardController extends Controller
             $totalHelpdeskQuestions = HelpdeskQuestion::count();
             $totalHelpdeskReplies = HelpdeskReply::count();
 
+            // Contact messages stats
+            $totalContactMessages = ContactMessage::count();
+            $pendingContactMessages = ContactMessage::where('status', 'new')->count();
+            $repliedContactMessages = ContactMessage::where('status', 'replied')->count();
+
             $activeDiscussions = CourseDiscussion::where('created_at', '>=', Carbon::now()->subDays(7))->count();
             $recentQuizAttempts = UserQuizAttempt::where('created_at', '>=', Carbon::now()->subDays(7))->count();
 
@@ -504,6 +602,10 @@ class DashboardController extends Controller
                 'support_stats' => [
                     'helpdesk_questions' => $totalHelpdeskQuestions,
                     'helpdesk_replies' => $totalHelpdeskReplies,
+                    // Contact & support messages
+                    'contact_messages' => $totalContactMessages,
+                    'pending_contact_messages' => $pendingContactMessages,
+                    'replied_contact_messages' => $repliedContactMessages,
                 ],
                 'engagement_trends' => $this->getEngagementTrends(),
             ];
@@ -530,15 +632,15 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get recent activities across the platform
+     * Get recent activities across the platform - returns exactly 6 items sorted by real time
      */
     private function getRecentActivities()
     {
         try {
             $activities = [];
 
-            // Recent user registrations
-            $recentUsers = User::latest()->limit(3)->get();
+            // Recent user registrations (fetch 4 as candidates)
+            $recentUsers = User::latest()->limit(4)->get();
             foreach ($recentUsers as $user) {
                 $activities[] = [
                     'type' => 'user_registration',
@@ -547,15 +649,13 @@ class DashboardController extends Controller
                     'title' => __('New User Registration'),
                     'description' => $user->name . ' ' . __('joined the platform'),
                     'time' => $this->getTimeAgo($user->created_at),
+                    'raw_time' => $user->created_at,
                     'link' => '/users/' . $user->id,
                 ];
             }
 
-            // Recent course creations
-            $recentCourses = Course::without('taxes')
-                ->latest()
-                ->limit(3)
-                ->get();
+            // Recent course creations (fetch 4 as candidates)
+            $recentCourses = Course::without('taxes')->latest()->limit(4)->get();
             foreach ($recentCourses as $course) {
                 $activities[] = [
                     'type' => 'course_creation',
@@ -564,17 +664,15 @@ class DashboardController extends Controller
                     'title' => __('New Course Created'),
                     'description' => '"' . $course->title . '" ' . __('was created'),
                     'time' => $this->getTimeAgo($course->created_at),
+                    'raw_time' => $course->created_at,
                     'link' => '/courses/' . $course->id,
                 ];
             }
 
-            // Recent orders
-            $recentOrders = Order::with('user')
-                ->latest()
-                ->limit(2)
-                ->get();
-
+            // Recent orders (fetch 4 as candidates)
+            $recentOrders = Order::with('user')->latest()->limit(4)->get();
             foreach ($recentOrders as $order) {
+                if (!$order->user) continue;
                 $activities[] = [
                     'type' => 'new_order',
                     'icon' => 'fas fa-shopping-cart',
@@ -582,12 +680,20 @@ class DashboardController extends Controller
                     'title' => __('New Order Placed'),
                     'description' => $order->user->name . ' ' . __('placed order #') . $order->order_number,
                     'time' => $this->getTimeAgo($order->created_at),
+                    'raw_time' => $order->created_at,
                     'link' => '/orders/' . $order->id,
                 ];
             }
 
-            // Sort by time and limit to 10
-            $activities = collect($activities)->take(10)->values();
+            // Sort by actual timestamp descending, take exactly 6, then remove raw_time
+            $activities = collect($activities)
+                ->sortByDesc('raw_time')
+                ->take(6)
+                ->map(function ($item) {
+                    unset($item['raw_time']);
+                    return $item;
+                })
+                ->values();
 
             return $activities;
         } catch (\Exception) {
@@ -1320,22 +1426,90 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get subscription statistics
+     * Get subscription statistics grouped by billing_cycle from the plans table
      */
     private function getSubscriptionStats()
     {
         try {
+            // Join subscriptions with subscription_plans to get billing_cycle
+            $stats = DB::table('subscriptions')
+                ->join('subscription_plans', 'subscriptions.plan_id', '=', 'subscription_plans.id')
+                ->where('subscriptions.status', 'active')
+                ->whereNull('subscriptions.deleted_at')
+                ->select('subscription_plans.billing_cycle', DB::raw('COUNT(*) as count'))
+                ->groupBy('subscription_plans.billing_cycle')
+                ->get()
+                ->keyBy('billing_cycle');
+
             return [
-                'monthly' => \App\Models\Subscription::where('status', 'active')->where('plan_type', 'monthly')->count(),
-                'quarterly' => \App\Models\Subscription::where('status', 'active')->where('plan_type', 'quarterly')->count(),
-                'annual' => \App\Models\Subscription::where('status', 'active')->where('plan_type', 'annual')->count(),
+                'monthly'    => (int) ($stats->get('monthly')->count ?? 0),
+                'quarterly'  => (int) ($stats->get('quarterly')->count ?? 0),
+                'semi_annual' => (int) ($stats->get('semi_annual')->count ?? 0),
+                'yearly'     => (int) ($stats->get('yearly')->count ?? 0),
+                'lifetime'   => (int) ($stats->get('lifetime')->count ?? 0),
+                'custom'     => (int) ($stats->get('custom')->count ?? 0),
+                'total_active' => (int) Subscription::where('status', 'active')->count(),
             ];
-        } catch (\Exception) {
+        } catch (\Exception $e) {
+            Log::error('Dashboard subscription stats error: ' . $e->getMessage());
             return [
-                'monthly' => 0,
-                'quarterly' => 0,
-                'annual' => 0,
+                'monthly'    => 0,
+                'quarterly'  => 0,
+                'semi_annual' => 0,
+                'yearly'     => 0,
+                'lifetime'   => 0,
+                'custom'     => 0,
+                'total_active' => 0,
             ];
+        }
+    }
+
+    /**
+     * Get monthly financial summary: last 6 months with sales, commission, net_profit
+     * الملخص المالي الشهري: آخر 6 أشهر
+     */
+    private function getMonthlyFinancialSummary(): array
+    {
+        try {
+            $data = [];
+
+            for ($i = 5; $i >= 0; $i--) {
+                $monthStart = Carbon::now()->subMonths($i)->startOfMonth();
+                $monthEnd   = Carbon::now()->subMonths($i)->endOfMonth();
+                $monthLabel = $monthStart->format('Y-m'); // e.g. "2026-01"
+                $monthName  = $monthStart->translatedFormat('F Y'); // e.g. "January 2026"
+
+                // Sales: sum of completed orders in this month
+                $sales = (float) Order::where('status', 'completed')
+                    ->whereBetween('created_at', [$monthStart, $monthEnd])
+                    ->sum('final_price');
+
+                // Commission: sum of admin_commission_amount from commissions table
+                $commission = (float) Commission::whereHas('order', function ($q) use ($monthStart, $monthEnd) {
+                    $q->whereBetween('created_at', [$monthStart, $monthEnd]);
+                })->sum('admin_commission_amount');
+
+                // Net profit = sales - total instructor commissions paid out
+                $instructorPayout = (float) Commission::whereHas('order', function ($q) use ($monthStart, $monthEnd) {
+                    $q->whereBetween('created_at', [$monthStart, $monthEnd]);
+                })->sum('instructor_commission_amount');
+
+                $netProfit = $sales - $instructorPayout;
+
+                $data[] = [
+                    'month'            => $monthLabel,
+                    'month_name'       => $monthName,
+                    'sales'            => round($sales, 2),
+                    'commission'       => round($commission, 2),
+                    'instructor_payout' => round($instructorPayout, 2),
+                    'net_profit'       => round($netProfit, 2),
+                ];
+            }
+
+            return $data;
+        } catch (\Exception $e) {
+            Log::error('Dashboard monthly financial summary error: ' . $e->getMessage());
+            return [];
         }
     }
 }

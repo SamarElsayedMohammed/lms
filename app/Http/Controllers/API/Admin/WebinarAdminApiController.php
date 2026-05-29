@@ -22,14 +22,65 @@ class WebinarAdminApiController extends AdminCrudApiController
         // If instructor, filter by instructor_id
         $query = Webinar::with('instructor:id,name');
         
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))) {
+        $isInstructor = Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'));
+        if ($isInstructor) {
             $query->where('instructor_id', Auth::id());
         }
 
         $perPage = min((int) $request->input('per_page', 15), 50);
         $webinars = $query->latest()->paginate($perPage);
 
-        return ApiResponseService::successResponse('Webinars retrieved successfully', $webinars);
+        // Calculate count statistics for cards/widgets
+        $statsQuery = Webinar::query();
+        if ($isInstructor) {
+            $statsQuery->where('instructor_id', Auth::id());
+        }
+
+        $totalWebinars = (clone $statsQuery)->count();
+        // Published (منشور): webinars with status 'scheduled' or 'live'
+        $publishedCount = (clone $statsQuery)->whereIn('status', ['scheduled', 'live'])->count();
+        // Draft (مسودة): default count is 0 as we do not have 'draft' in the schema, but we query just in case it is added
+        $draftCount = (clone $statsQuery)->where('status', 'draft')->count();
+        // Default (افتراضي): default count is 0 as we do not have 'default' in the schema, but we query just in case it is added
+        $defaultCount = (clone $statsQuery)->where('status', 'default')->count();
+
+        $stats = [
+            'total_webinars' => $totalWebinars,
+            'published_webinars' => $publishedCount,
+            'draft_webinars' => $draftCount,
+            'default_webinars' => $defaultCount,
+            
+            // Generic versions for flexibility
+            'total' => $totalWebinars,
+            'published' => $publishedCount,
+            'draft' => $draftCount,
+            'default' => $defaultCount,
+
+            'total_count' => $totalWebinars,
+            'published_count' => $publishedCount,
+            'draft_count' => $draftCount,
+            'default_count' => $defaultCount,
+        ];
+
+        $webinarsArray = $webinars->toArray();
+        $webinarsArray['stats'] = $stats;
+        $webinarsArray = array_merge($webinarsArray, $stats);
+
+        return ApiResponseService::successResponse(
+            'Webinars retrieved successfully',
+            $webinarsArray,
+            [
+                'stats' => $stats,
+                'total_webinars' => $totalWebinars,
+                'published_webinars' => $publishedCount,
+                'draft_webinars' => $draftCount,
+                'default_webinars' => $defaultCount,
+                'total' => $totalWebinars,
+                'published' => $publishedCount,
+                'draft' => $draftCount,
+                'default' => $defaultCount,
+            ]
+        );
     }
 
     /**

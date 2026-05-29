@@ -34,7 +34,23 @@ class FaqAdminApiController extends AdminCrudApiController
 
         $faqs = $query->orderBy('sequence')->orderBy('id', 'desc')->paginate($perPage);
 
-        return $this->jsonSuccess(__('FAQs retrieved'), $faqs);
+        // ── Stats (calculated on full dataset, ignoring current filters) ──
+        $stats = Faq::withTrashed()->selectRaw('
+            COUNT(CASE WHEN deleted_at IS NULL THEN 1 END)              as total,
+            COUNT(CASE WHEN deleted_at IS NULL AND is_active = 1 THEN 1 END) as active,
+            COUNT(CASE WHEN deleted_at IS NULL AND is_active = 0 THEN 1 END) as inactive,
+            COUNT(CASE WHEN deleted_at IS NOT NULL THEN 1 END)          as trashed
+        ')->first();
+
+        $data = $faqs->toArray();
+        $data['stats'] = [
+            'total'    => (int) $stats->total,
+            'active'   => (int) $stats->active,
+            'inactive' => (int) $stats->inactive,
+            'trashed'  => (int) $stats->trashed,
+        ];
+
+        return $this->jsonSuccess(__('FAQs retrieved'), $data);
     }
 
     public function show(int $id): JsonResponse
