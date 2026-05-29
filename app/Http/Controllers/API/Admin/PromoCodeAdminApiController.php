@@ -34,7 +34,23 @@ class PromoCodeAdminApiController extends AdminCrudApiController
 
         $promoCodes = $query->orderBy('id', 'desc')->paginate($perPage);
 
-        return $this->jsonSuccess(__('Promo codes retrieved'), $promoCodes);
+        // ── Stats (calculated on full dataset, ignoring current filters) ──
+        $stats = PromoCode::withTrashed()->selectRaw('
+            COUNT(CASE WHEN deleted_at IS NULL THEN 1 END)              as total,
+            COUNT(CASE WHEN deleted_at IS NULL AND status = 1 THEN 1 END) as active,
+            COUNT(CASE WHEN deleted_at IS NULL AND status = 0 THEN 1 END) as inactive,
+            COUNT(CASE WHEN deleted_at IS NOT NULL THEN 1 END)          as trashed
+        ')->first();
+
+        $data = $promoCodes->toArray();
+        $data['stats'] = [
+            'total'    => (int) $stats->total,
+            'active'   => (int) $stats->active,
+            'inactive' => (int) $stats->inactive,
+            'trashed'  => (int) $stats->trashed,
+        ];
+
+        return $this->jsonSuccess(__('Promo codes retrieved'), $data);
     }
 
     public function show(int $id): JsonResponse
