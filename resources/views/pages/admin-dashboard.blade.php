@@ -49,6 +49,75 @@
             min-height: 200px;
         }
     }
+
+    /* ===== PREMIUM ANALYTICS CHART ===== */
+    .analytics-card {
+        background: #111827;
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.07);
+        overflow: hidden;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .analytics-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 24px 0;
+    }
+    .analytics-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        letter-spacing: 0.02em;
+    }
+    .analytics-title .pulse-icon {
+        color: #ef4444;
+        font-size: 16px;
+        animation: pulseIcon 1.8s ease-in-out infinite;
+    }
+    @keyframes pulseIcon {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.6; transform: scale(1.2); }
+    }
+    .analytics-tabs {
+        display: flex;
+        gap: 4px;
+        background: rgba(255,255,255,0.05);
+        border-radius: 10px;
+        padding: 4px;
+    }
+    .analytics-tab {
+        padding: 6px 14px;
+        border-radius: 7px;
+        border: none;
+        background: transparent;
+        color: rgba(255,255,255,0.45);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+    }
+    .analytics-tab.active {
+        background: rgba(255,255,255,0.12);
+        color: #fff;
+        font-weight: 600;
+    }
+    .analytics-tab:hover:not(.active) {
+        color: rgba(255,255,255,0.75);
+    }
+    .analytics-chart-wrap {
+        padding: 12px 0 0;
+        position: relative;
+    }
+    #analyticsChart {
+        display: block;
+        width: 100% !important;
+    }
+    /* ===== END PREMIUM CHART ===== */
 </style>
 @endpush
 
@@ -131,29 +200,22 @@
 
         <!-- Charts Row -->
         <div class="row">
-            <div class="col-lg-8 col-md-12 col-12 col-sm-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h4> {{ __('Revenue & Enrollment Trends') }} </h4>
-                        <div class="card-header-action">
-                            <div class="btn-group chart-segmented-control" role="group">
-                                <button type="button" class="btn" onclick="switchChart('courses')"> {{ __('Courses') }} </button>
-                                <button type="button" class="btn" onclick="switchChart('enrollment')"> {{ __('Enrollment') }} </button>
-                                <button type="button" class="btn btn-primary" onclick="switchChart('revenue')"> {{ __('Revenue') }} </button>
-                            </div>
+            <div class="col-lg-8 col-md-12 col-12 col-sm-12 mb-4">
+                <!-- Premium Analytics Chart -->
+                <div class="analytics-card">
+                    <div class="analytics-card-header">
+                        <div class="analytics-title">
+                            <i class="fas fa-wave-square pulse-icon"></i>
+                            {{ __('تحليل الأداء') }}
+                        </div>
+                        <div class="analytics-tabs" id="analytics-tabs">
+                            <button class="analytics-tab active" data-type="revenue" onclick="switchAnalyticsChart('revenue', this)">{{ __('الإيرادات') }}</button>
+                            <button class="analytics-tab" data-type="enrollment" onclick="switchAnalyticsChart('enrollment', this)">{{ __('التسجيل') }}</button>
+                            <button class="analytics-tab" data-type="courses" onclick="switchAnalyticsChart('courses', this)">{{ __('الدورات') }}</button>
                         </div>
                     </div>
-                    <div class="card-body">
-                        <div class="chart-container">
-                            <canvas id="mainChart"></canvas>
-                        </div>
-                        <div class="statistic-details mt-sm-4">
-                            <div class="statistic-details-item">
-                                <div class="detail-value" id="chart-info"> {{ __('Monthly Revenue Trend (Last 12
-                                    Months)') }} </div>
-                                <div class="detail-name"> {{ __('Chart shows monthly data trends') }} </div>
-                            </div>
-                        </div>
+                    <div class="analytics-chart-wrap">
+                        <canvas id="analyticsChart" height="110"></canvas>
                     </div>
                 </div>
             </div>
@@ -676,7 +738,7 @@
 
     // Update charts
     function updateCharts() {
-        initializeMainChart();
+        buildAnalyticsChart(analyticsChartType);
         initializePaymentMethodsChart();
     }
 
@@ -808,28 +870,133 @@
         }
     }
 
-    // Switch chart type
-    function switchChart(type) {
-        currentChartType = type;
+    // ===== PREMIUM ANALYTICS CHART =====
+    let analyticsChart = null;
+    let analyticsChartType = 'revenue';
 
-        // Update button states
-        document.querySelectorAll('.btn-group .btn').forEach(btn => {
-            btn.classList.remove('btn-primary');
-            btn.classList.add('btn-secondary');
+    // Config per tab
+    const analyticsConfig = {
+        revenue: {
+            label: '{{ __("الإيرادات") }}',
+            color: '#10b981',          // emerald green
+            shadowColor: 'rgba(16,185,129,0.35)',
+            getData: (charts) => ({
+                labels: (charts.revenue_chart || []).map(i => i.month),
+                values: (charts.revenue_chart || []).map(i => i.revenue)
+            })
+        },
+        enrollment: {
+            label: '{{ __("التسجيل") }}',
+            color: '#6366f1',          // indigo
+            shadowColor: 'rgba(99,102,241,0.35)',
+            getData: (charts) => ({
+                labels: (charts.course_enrollment_chart || []).map(i => i.month),
+                values: (charts.course_enrollment_chart || []).map(i => i.enrollments)
+            })
+        },
+        courses: {
+            label: '{{ __("الدورات") }}',
+            color: '#f59e0b',          // amber
+            shadowColor: 'rgba(245,158,11,0.35)',
+            getData: (charts) => ({
+                labels: (charts.course_creation_chart || []).map(i => i.month),
+                values: (charts.course_creation_chart || []).map(i => i.courses)
+            })
+        }
+    };
+
+    function buildAnalyticsChart(type) {
+        const ctx = document.getElementById('analyticsChart');
+        if (!ctx) return;
+
+        const cfg = analyticsConfig[type];
+        const charts = dashboardData.monthly_charts || {};
+        const { labels, values } = cfg.getData(charts);
+
+        if (analyticsChart) { analyticsChart.destroy(); analyticsChart = null; }
+
+        // Build gradient fill
+        const chartCtx = ctx.getContext('2d');
+        const gradient = chartCtx.createLinearGradient(0, 0, 0, ctx.offsetHeight || 220);
+        gradient.addColorStop(0, cfg.color.replace(')', ', 0.28)').replace('rgb', 'rgba'));
+        gradient.addColorStop(1, 'rgba(0,0,0,0)');
+
+        analyticsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: cfg.label,
+                    data: values,
+                    borderColor: cfg.color,
+                    backgroundColor: gradient,
+                    borderWidth: 2.5,
+                    fill: true,
+                    tension: 0.42,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    pointHoverBackgroundColor: cfg.color,
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1f2937',
+                        titleColor: '#9ca3af',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderWidth: 1,
+                        padding: 12,
+                        cornerRadius: 10,
+                        callbacks: {
+                            label: (ctx) => ' ' + (cfg.label) + ': ' + ctx.parsed.y.toLocaleString()
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                        ticks: {
+                            color: 'rgba(255,255,255,0.35)',
+                            font: { size: 11 },
+                            maxRotation: 0,
+                            maxTicksLimit: 12
+                        },
+                        border: { display: false }
+                    },
+                    y: {
+                        position: 'left',
+                        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                        ticks: {
+                            color: 'rgba(255,255,255,0.35)',
+                            font: { size: 11 },
+                            maxTicksLimit: 6
+                        },
+                        border: { display: false }
+                    }
+                },
+                animation: { duration: 600, easing: 'easeInOutQuart' }
+            }
         });
-        event.target.classList.remove('btn-secondary');
-        event.target.classList.add('btn-primary');
+    }
 
-        // Update chart info
-        const chartInfoMap = {
-            'revenue': '{{ __("Monthly Revenue Trend (Last 12 Months)") }}',
-            'enrollment': '{{ __("Monthly Enrollment Trend (Last 12 Months)") }}',
-            'courses': '{{ __("Monthly Course Creation Trend (Last 12 Months)") }}'
-        };
-        document.getElementById('chart-info').textContent = chartInfoMap[type] || 'Chart Data';
+    function switchAnalyticsChart(type, btnEl) {
+        analyticsChartType = type;
+        // Update active tab
+        document.querySelectorAll('#analytics-tabs .analytics-tab').forEach(b => b.classList.remove('active'));
+        if (btnEl) btnEl.classList.add('active');
+        buildAnalyticsChart(type);
+    }
 
-        // Refresh chart
-        initializeMainChart();
+    // Switch chart type (legacy - keep for compatibility)
+    function switchChart(type) {
+        switchAnalyticsChart(type, document.querySelector('#analytics-tabs [data-type="'+type+'"]'));
     }
 
     // Update recent activities
@@ -975,5 +1142,6 @@
     // Make functions globally available
     window.refreshDashboard = refreshDashboard;
     window.switchChart = switchChart;
+    window.switchAnalyticsChart = switchAnalyticsChart;
 </script>
 @endpush

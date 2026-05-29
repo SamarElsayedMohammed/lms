@@ -199,6 +199,7 @@ Route::get('/hls/{uuid}/{path?}', [VideoStreamController::class, 'serve'])
     ->middleware('throttle:300,1');
 
 Route::get('dashboard-data', [\App\Http\Controllers\API\DashboardController::class, 'getDashboardData']);
+Route::get('dashboard-charts', [\App\Http\Controllers\API\DashboardController::class, 'getChartsData']);
 
 Route::middleware('auth:sanctum')->group(function (): void {
     /**
