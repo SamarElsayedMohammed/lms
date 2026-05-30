@@ -28,6 +28,8 @@ class Webinar extends Model
         'price',
         'max_attendees',
         'tags',
+        'is_published',
+        'is_featured',
     ];
 
     protected $casts = [
@@ -36,6 +38,8 @@ class Webinar extends Model
         'price' => 'decimal:2',
         'features' => 'array',
         'max_attendees' => 'integer',
+        'is_published' => 'boolean',
+        'is_featured' => 'boolean',
     ];
 
     // Accessor for spots left
