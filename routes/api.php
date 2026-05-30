@@ -789,9 +789,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::prefix('webinars')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'index']);
             Route::post('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'store']);
+            Route::get('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'show']);
             Route::put('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'update']);
+            Route::match(['put', 'patch'], '{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'update']);
             Route::delete('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'destroy']);
+            Route::post('{id}/change-status', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'updateStatus']);
+            Route::post('{id}/cancel', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'cancel']);
+            Route::post('{id}/toggle-publish', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'togglePublish']);
+            Route::post('{id}/toggle-featured', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'toggleFeatured']);
             Route::get('{id}/registrants', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'registrants']);
+            Route::get('{id}/registrants/export', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'exportRegistrants']);
         });
 
         // Popup Campaigns (Admin)
