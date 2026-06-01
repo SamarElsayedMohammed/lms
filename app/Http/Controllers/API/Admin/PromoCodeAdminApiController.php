@@ -66,6 +66,25 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         return $this->jsonSuccess(__('Promo code retrieved'), $promoCode);
     }
 
+    public function trashed(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('promo-codes-list');
+
+        $search = $request->input('search');
+        $perPage = min((int) $request->input('per_page', 15), 100);
+
+        $query = PromoCode::with(['creator', 'courses'])
+            ->onlyTrashed()
+            ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
+                $q->where('promo_code', 'like', "%{$search}%")->orWhere('message', 'like', "%{$search}%");
+            }));
+
+        $promoCodes = $query->orderBy('deleted_at', 'desc')->paginate($perPage);
+
+        return $this->jsonSuccess(__('Trashed promo codes retrieved'), $promoCodes);
+    }
+
     public function store(Request $request): JsonResponse
     {
         $this->ensureAdmin();

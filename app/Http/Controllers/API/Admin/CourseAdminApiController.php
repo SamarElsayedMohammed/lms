@@ -431,6 +431,32 @@ class CourseAdminApiController extends AdminCrudApiController
         return $this->jsonSuccess(__('Course retrieved'), $this->buildCourseResponse($course));
     }
 
+    public function students(Request $request, int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('courses-list');
+
+        $course = Course::withTrashed()->find($id);
+        if (!$course) {
+            return $this->jsonError(__('Course not found'), 404);
+        }
+
+        $query = $course->getActiveStudentsQuery()
+            ->select(['id', 'name', 'email', 'phone', 'created_at', 'type', 'is_active', 'profile_image'])
+            ->when($request->search, function ($q) use ($request) {
+                $q->where(function ($sq) use ($request) {
+                    $sq->where('name', 'like', "%{$request->search}%")
+                       ->orWhere('email', 'like', "%{$request->search}%")
+                       ->orWhere('phone', 'like', "%{$request->search}%");
+                });
+            });
+
+        $perPage = min((int) $request->input('per_page', 15), 100);
+        $students = $query->orderBy('id', 'desc')->paginate($perPage);
+
+        return $this->jsonSuccess(__('Course students retrieved'), $students);
+    }
+
     /**
      * Build a structured course response that separates curriculum_sections
      * (real chapters) from standalone_lessons (the hidden 'standalone' chapter).

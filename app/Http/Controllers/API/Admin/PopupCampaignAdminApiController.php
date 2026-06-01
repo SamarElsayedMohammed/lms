@@ -47,6 +47,17 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
             'is_active'      => 'boolean',
             'starts_at'      => 'nullable|date',
             'ends_at'        => 'nullable|date|after_or_equal:starts_at',
+            // Design & Appearance
+            'background_color'=> 'nullable|string|max:50',
+            'text_color'     => 'nullable|string|max:50',
+            'button_color'   => 'nullable|string|max:50',
+            'template_style' => 'nullable|string|in:modal,banner,slide-in',
+            // Targeting
+            'target_audience'=> 'nullable|string|max:50',
+            'device_type'    => 'nullable|string|in:all,desktop,mobile',
+            'display_pages'  => 'nullable|array',
+            'display_pages.*'=> 'string',
+            'delay_seconds'  => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -59,6 +70,8 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
                 'discount_value', 'discount_type',
                 'cta_url', 'cta_text',
                 'starts_at', 'ends_at', 'is_active',
+                'background_color', 'text_color', 'button_color', 'template_style',
+                'target_audience', 'device_type', 'display_pages', 'delay_seconds',
             ]);
 
             if ($request->hasFile('image')) {
@@ -71,6 +84,19 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to create campaign: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Show campaign details
+     */
+    public function show($id)
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('marketing-list');
+
+        $campaign = PopupCampaign::findOrFail($id);
+        
+        return ApiResponseService::successResponse('Campaign retrieved successfully', $campaign);
     }
 
     /**
@@ -95,6 +121,17 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
             'is_active'      => 'boolean',
             'starts_at'      => 'nullable|date',
             'ends_at'        => 'nullable|date|after_or_equal:starts_at',
+            // Design & Appearance
+            'background_color'=> 'nullable|string|max:50',
+            'text_color'     => 'nullable|string|max:50',
+            'button_color'   => 'nullable|string|max:50',
+            'template_style' => 'nullable|string|in:modal,banner,slide-in',
+            // Targeting
+            'target_audience'=> 'nullable|string|max:50',
+            'device_type'    => 'nullable|string|in:all,desktop,mobile',
+            'display_pages'  => 'nullable|array',
+            'display_pages.*'=> 'string',
+            'delay_seconds'  => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -107,6 +144,8 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
                 'discount_value', 'discount_type',
                 'cta_url', 'cta_text',
                 'starts_at', 'ends_at', 'is_active',
+                'background_color', 'text_color', 'button_color', 'template_style',
+                'target_audience', 'device_type', 'display_pages', 'delay_seconds',
             ]);
 
             if ($request->hasFile('image')) {
@@ -135,12 +174,36 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
 
         $campaign = PopupCampaign::findOrFail($id);
 
-        if ($campaign->image) {
-            FileService::delete($campaign->getRawOriginal('image'));
-        }
-
         $campaign->delete();
 
         return ApiResponseService::successResponse('Campaign deleted successfully');
+    }
+
+    /**
+     * List trashed campaigns
+     */
+    public function trashed(Request $request)
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('marketing-list');
+
+        $perPage = min((int) $request->input('per_page', 15), 50);
+        $campaigns = PopupCampaign::onlyTrashed()->latest('deleted_at')->paginate($perPage);
+
+        return ApiResponseService::successResponse('Trashed campaigns retrieved', $campaigns);
+    }
+
+    /**
+     * Restore trashed campaign
+     */
+    public function restore($id)
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('marketing-edit');
+
+        $campaign = PopupCampaign::onlyTrashed()->findOrFail($id);
+        $campaign->restore();
+
+        return ApiResponseService::successResponse('Campaign restored successfully', $campaign->fresh());
     }
 }
