@@ -4,22 +4,30 @@ namespace App\Http\Controllers\API\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\SubscriptionPlan;
+use App\Models\NotificationCampaign;
 use App\Services\ApiResponseService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Notification;
-use App\Notifications\ManualCustomNotification; // I will create this next
+use App\Notifications\ManualCustomNotification;
 use Illuminate\Support\Facades\Validator;
 
 class NotificationAdminApiController extends Controller
 {
+    /**
+     * Get list of sent notification campaigns
+     */
+    public function index()
+    {
+        $campaigns = NotificationCampaign::with('plan:id,name')->orderBy('created_at', 'desc')->get();
+        return ApiResponseService::successResponse('Notifications retrieved successfully', $campaigns);
+    }
+
     /**
      * Send bulk notification to users based on filters
      */
     public function sendBulkNotification(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'target_type' => 'required|in:all,by_plan,no_plan',
+            'target_type' => 'required|in:all,free_users,any_plan,by_plan,students,instructors',
             'plan_id' => 'required_if:target_type,by_plan|exists:subscription_plans,id',
             'title' => 'required|string|max:255',
             'message' => 'required|string',
@@ -32,17 +40,39 @@ class NotificationAdminApiController extends Controller
             return ApiResponseService::errorResponse('Validation failed', $validator->errors(), 422);
         }
 
-        $query = User::query()->where('role', '!=', 'admin');
+        // Exclude admins
+        $query = User::query()->whereDoesntHave('roles', function ($q) {
+            $q->whereIn('name', ['Super Admin', 'Admin', 'Supervisor', 'Staff']);
+        });
 
-        if ($request->target_type === 'by_plan') {
-            $query->whereHas('subscriptions', function($q) use ($request) {
-                $q->where('subscription_plan_id', $request->plan_id)
-                  ->where('status', 'active');
-            });
-        } elseif ($request->target_type === 'no_plan') {
-            $query->whereDoesntHave('subscriptions', function($q) {
-                $q->where('status', 'active');
-            });
+        switch ($request->target_type) {
+            case 'free_users':
+                $query->whereDoesntHave('subscriptions', function($q) {
+                    $q->where('status', 'active');
+                });
+                break;
+            case 'any_plan':
+                $query->whereHas('subscriptions', function($q) {
+                    $q->where('status', 'active');
+                });
+                break;
+            case 'by_plan':
+                $query->whereHas('subscriptions', function($q) use ($request) {
+                    $q->where('subscription_plan_id', $request->plan_id)
+                      ->where('status', 'active');
+                });
+                break;
+            case 'students':
+                // Assuming students are those without instructor/admin roles
+                $query->whereDoesntHave('roles', function($q) {
+                    $q->whereIn('name', ['Instructor']);
+                });
+                break;
+            case 'instructors':
+                $query->whereHas('roles', function($q) {
+                    $q->where('name', 'Instructor');
+                });
+                break;
         }
 
         $users = $query->get();
@@ -52,8 +82,16 @@ class NotificationAdminApiController extends Controller
             return ApiResponseService::errorResponse('No users found for the selected criteria');
         }
 
+        // Save campaign record
+        $campaign = NotificationCampaign::create([
+            'title' => $request->title,
+            'message' => $request->message,
+            'target_type' => $request->target_type,
+            'plan_id' => $request->target_type === 'by_plan' ? $request->plan_id : null,
+            'sent_count' => $count,
+        ]);
+
         // Send notifications
-        // Note: Using a queue is recommended for large numbers of users
         foreach ($users as $user) {
             $user->notify(new ManualCustomNotification([
                 'title' => $request->title,
@@ -65,6 +103,22 @@ class NotificationAdminApiController extends Controller
             ]));
         }
 
-        return ApiResponseService::successResponse("Notification sent successfully to {$count} users.");
+        return ApiResponseService::successResponse("Notification sent successfully to {$count} users.", $campaign);
+    }
+
+    /**
+     * Delete a notification campaign from the history
+     */
+    public function destroy($id)
+    {
+        $campaign = NotificationCampaign::find($id);
+        
+        if (!$campaign) {
+            return ApiResponseService::errorResponse('Notification not found', null, 404);
+        }
+
+        $campaign->delete();
+
+        return ApiResponseService::successResponse('Notification deleted successfully');
     }
 }

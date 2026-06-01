@@ -582,15 +582,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // Admin subscription plan management (T018)
     Route::prefix('admin/subscription-plans')->group(function (): void {
+        Route::get('/', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'store']);
+        Route::get('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'show']);
+        Route::put('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'update']);
+        Route::delete('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'destroy']);
+        Route::post('/{id}/restore', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'restore']);
+        Route::delete('/{id}/trash', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'trash']);
+
         Route::post('/{id}/toggle', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'toggleStatus']);
-        Route::put('/sort', function (\Illuminate\Http\Request $request) {
-            $plans = $request->validate(['plans' => 'required|array', 'plans.*.id' => 'required|exists:subscription_plans,id', 'plans.*.sort_order' => 'required|integer|min:0']);
-            foreach ($plans['plans'] as $item) {
-                \App\Models\SubscriptionPlan::where('id', $item['id'])->update(['sort_order' => $item['sort_order']]);
-            }
-            return response()->json(['success' => true, 'message' => 'Sort order updated']);
-        });
-        Route::post('/{id}/country-prices', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'updateCountryPrices']);
+        Route::put('/sort', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'updateSortOrder']);
     });
 
     // Admin approval management (T029)
@@ -617,8 +618,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::prefix('popup-campaigns')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'index']);
             Route::post('/', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'store']);
+            Route::get('/trashed', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'trashed']);
+            Route::get('/{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'show']);
             Route::put('/{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'update']);
             Route::delete('/{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'destroy']);
+            Route::put('/{id}/restore', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'restore']);
         });
         Route::get('commissions', [AffiliateController::class, 'allCommissions']);
         Route::get('stats', [AffiliateController::class, 'stats']);
@@ -644,6 +648,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('users/{id}/toggle-status', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'toggleStatus']);
         Route::post('users/{id}/assign-role', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'assignRole']);
 
+        // Certificates
+        Route::get('certificates', [\App\Http\Controllers\API\Admin\CourseCertificateAdminApiController::class, 'index']);
+        Route::post('certificates', [\App\Http\Controllers\API\Admin\CourseCertificateAdminApiController::class, 'store']);
+        Route::get('certificates/{id}', [\App\Http\Controllers\API\Admin\CourseCertificateAdminApiController::class, 'show']);
+        Route::put('certificates/{id}', [\App\Http\Controllers\API\Admin\CourseCertificateAdminApiController::class, 'update']);
+        Route::delete('certificates/{id}', [\App\Http\Controllers\API\Admin\CourseCertificateAdminApiController::class, 'destroy']);
+
         // Orders
         Route::get('orders', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'index']);
         Route::get('orders/{id}', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'show']);
@@ -660,6 +671,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Promo Codes
         Route::get('promo-codes', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'index']);
+        Route::get('promo-codes/trashed', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'trashed']);
         Route::get('promo-codes/{id}', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'show']);
         Route::post('promo-codes', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'store']);
         Route::put('promo-codes/{id}', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'update']);
@@ -705,9 +717,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('courses/{id}/update', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
 
         // Notifications
+        Route::get('notifications', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'index']);
         Route::post('notifications/send-bulk', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'sendBulkNotification']);
+        Route::delete('notifications/{id}', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'destroy']);
         Route::match(['put', 'patch'], 'courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
         Route::get('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'show']);
+        Route::get('courses/{id}/students', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'students']);
         Route::delete('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'destroy']);
 
         // [14] Course FAQs (Admin / Instructor)
@@ -805,8 +820,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::prefix('marketing/popups')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'index']);
             Route::post('/', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'store']);
+            Route::get('trashed', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'trashed']);
+            Route::get('{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'show']);
             Route::put('{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'update']);
             Route::delete('{id}', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'destroy']);
+            Route::put('{id}/restore', [\App\Http\Controllers\API\Admin\PopupCampaignAdminApiController::class, 'restore']);
         });
 
         // Marketing Pixels (Admin)

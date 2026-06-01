@@ -321,6 +321,19 @@ class Course extends Model
         })->get();
     }
 
+    public function getActiveStudentsQuery()
+    {
+        return User::where(function ($query) {
+            $query->whereHas('orders.orderCourses', function ($q) {
+                $q->where('course_id', $this->id)->whereHas('order', function ($oq) {
+                    $oq->where('status', 'completed');
+                });
+            })->orWhereHas('trackedCourses', function ($q) {
+                $q->where('courses.id', $this->id);
+            });
+        });
+    }
+
     public function views()
     {
         return $this->hasMany(\App\Models\CourseView::class);

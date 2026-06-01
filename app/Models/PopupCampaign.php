@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PopupCampaign extends Model
 {
+    use SoftDeletes;
     protected $fillable = [
         'title',
         'description',
@@ -19,6 +21,16 @@ class PopupCampaign extends Model
         'is_active',
         'starts_at',
         'ends_at',
+        // Design & Appearance
+        'background_color',
+        'text_color',
+        'button_color',
+        'template_style',
+        // Targeting
+        'target_audience',
+        'device_type',
+        'display_pages',
+        'delay_seconds',
     ];
 
     protected $casts = [
@@ -26,6 +38,8 @@ class PopupCampaign extends Model
         'starts_at'      => 'datetime',
         'ends_at'        => 'datetime',
         'discount_value' => 'float',
+        'display_pages'  => 'array',
+        'delay_seconds'  => 'integer',
     ];
 
     /**
