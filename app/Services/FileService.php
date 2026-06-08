@@ -27,15 +27,15 @@ class FileService
         if (in_array($ext, ['jpg', 'jpeg', 'png']) && self::imageExtensionAvailable()) {
             try {
                 $image = Image::make($requestFile)->encode(null, 60);
-                Storage::disk('public')->put($folder . '/' . $file_name, $image);
-                return $folder . '/' . $file_name;
+                Storage::disk('public')->put($folder . '/' . $file_name, (string) $image);
+                return ltrim($folder, '/') . '/' . $file_name;
             } catch (Exception $e) {
                 // Fallback to plain upload if Image fails (e.g. GD not available)
             }
         }
 
         $requestFile->storeAs($folder, $file_name, 'public');
-        return $folder . '/' . $file_name;
+        return ltrim($folder, '/') . '/' . $file_name;
     }
 
     /**
@@ -176,9 +176,11 @@ class FileService
             return url($path);
         }
 
-        // Return full URL - for public disk, path should be relative to storage/app/public
-        // Storage::url() will generate /storage/path format
-        return url('/storage/' . $path);
+        // Clean up the path and remove leading slashes to prevent double slashes
+        $cleanPath = ltrim($path, '/');
+        
+        // Use Storage::url which automatically handles the APP_URL and /storage/ prefix correctly
+        return Storage::disk('public')->url($cleanPath);
     }
 
     /**
