@@ -47,7 +47,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->references('id')->on('users')->onDelete('cascade');
             $table->string('firebase_id', 512);
-            $table->enum('type', ['google', 'email', 'phone']);
+            $table->enum('type', ['google', 'email', 'phone', 'apple']);
             $table->timestamps();
             $table->unique(['user_id', 'type']);
         });
@@ -55,7 +55,7 @@ return new class extends Migration
         Schema::create('user_fcm_tokens', static function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->references('id')->on('users')->onDelete('cascade')->onUpdate('cascade');
-            $table->enum('platform_type', ['Android', 'iOS'])->nullable();
+            $table->enum('platform_type', ['android', 'ios'])->nullable();
             $table->string('fcm_token');
             $table->timestamps();
             $table->unique('fcm_token');

@@ -42,11 +42,18 @@ class SendOrderNotifications implements ShouldQueue
 
             // 🔔 Send to User
             try {
-                $tokens = UserFcmToken::where('user_id', $this->user->id)->pluck('fcm_token');
+                $tokens = UserFcmToken::where('user_id', $this->user->id)
+                    ->select(['fcm_token', 'platform_type'])
+                    ->get();
                 Log::info('User tokens found', ['count' => $tokens->count()]);
-                foreach ($tokens as $token) {
-                    Log::debug('Sending FCM to user', ['token' => $token]);
-                    FirebaseHelper::send('android', $token, $fcmData, true);
+                foreach ($tokens as $tokenRow) {
+                    $platform = match (strtolower((string) $tokenRow->platform_type)) {
+                        'ios' => 'ios',
+                        'android' => 'android',
+                        default => 'android',
+                    };
+                    Log::debug('Sending FCM to user', ['token' => $tokenRow->fcm_token, 'platform' => $platform]);
+                    FirebaseHelper::send($platform, $tokenRow->fcm_token, $fcmData, true);
                 }
             } catch (\Throwable $e) {
                 Log::warning('Failed to send FCM to user', [
@@ -55,13 +62,20 @@ class SendOrderNotifications implements ShouldQueue
                 ]);
             }
 
-            // 🔔 Send to Admin
+            // 🔔 Send to Admin (user_id = 1)
             try {
-                $adminTokens = UserFcmToken::where('user_id', 1)->pluck('fcm_token');
+                $adminTokens = UserFcmToken::where('user_id', 1)
+                    ->select(['fcm_token', 'platform_type'])
+                    ->get();
                 Log::info('Admin tokens found', ['count' => $adminTokens->count()]);
-                foreach ($adminTokens as $token) {
-                    Log::debug('Sending FCM to admin', ['token' => $token]);
-                    FirebaseHelper::send('web', $token, $fcmData, true);
+                foreach ($adminTokens as $tokenRow) {
+                    $platform = match (strtolower((string) $tokenRow->platform_type)) {
+                        'ios' => 'ios',
+                        'android' => 'android',
+                        default => 'android',
+                    };
+                    Log::debug('Sending FCM to admin', ['token' => $tokenRow->fcm_token, 'platform' => $platform]);
+                    FirebaseHelper::send($platform, $tokenRow->fcm_token, $fcmData, true);
                 }
             } catch (\Throwable $e) {
                 Log::warning('Failed to send FCM to admin', [
@@ -79,11 +93,18 @@ class SendOrderNotifications implements ShouldQueue
                     ->unique();
                 Log::info('Instructors found', ['count' => $instructors->count()]);
                 foreach ($instructors as $instructor) {
-                    $tokens = UserFcmToken::where('user_id', $instructor->id)->pluck('fcm_token');
+                    $tokens = UserFcmToken::where('user_id', $instructor->id)
+                        ->select(['fcm_token', 'platform_type'])
+                        ->get();
                     Log::info('Instructor tokens', ['instructor_id' => $instructor->id, 'count' => $tokens->count()]);
-                    foreach ($tokens as $token) {
-                        Log::debug('Sending FCM to instructor', ['token' => $token]);
-                        FirebaseHelper::send('ios', $token, $fcmData, true);
+                    foreach ($tokens as $tokenRow) {
+                        $platform = match (strtolower((string) $tokenRow->platform_type)) {
+                            'ios' => 'ios',
+                            'android' => 'android',
+                            default => 'android',
+                        };
+                        Log::debug('Sending FCM to instructor', ['token' => $tokenRow->fcm_token, 'platform' => $platform]);
+                        FirebaseHelper::send($platform, $tokenRow->fcm_token, $fcmData, true);
                     }
                 }
             } catch (\Throwable $e) {
