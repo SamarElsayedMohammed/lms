@@ -72,6 +72,11 @@ class CourseAdminApiController extends AdminCrudApiController
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
             'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
+            'chatbot_enabled'               => 'nullable|boolean',
+            'chatbot_name'                  => 'nullable|string|max:100',
+            'chatbot_welcome_message'       => 'nullable|string|max:500',
+            'chatbot_system_prompt'         => 'nullable|string',
+            'chatbot_max_tokens'            => 'nullable|integer|min:10|max:4000',
         ]);
 
         if ($validator->fails()) {
@@ -164,6 +169,11 @@ class CourseAdminApiController extends AdminCrudApiController
                 'content_structure'  => $contentStructure,
                 'language_id'        => $languageId,
                 'is_featured'        => $request->boolean('is_featured'),
+                'chatbot_enabled'    => $request->boolean('chatbot_enabled'),
+                'chatbot_name'       => $request->input('chatbot_name'),
+                'chatbot_welcome_message' => $request->input('chatbot_welcome_message'),
+                'chatbot_system_prompt'   => $request->input('chatbot_system_prompt'),
+                'chatbot_max_tokens'      => $request->filled('chatbot_max_tokens') ? (int) $request->input('chatbot_max_tokens') : null,
             ]);
 
             // AI Knowledge Base file for course chatbot
@@ -595,6 +605,11 @@ class CourseAdminApiController extends AdminCrudApiController
             'is_featured'                   => 'nullable|boolean',
             'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
             'remove_ai_knowledge'           => 'nullable|boolean',
+            'chatbot_enabled'               => 'nullable|boolean',
+            'chatbot_name'                  => 'nullable|string|max:100',
+            'chatbot_welcome_message'       => 'nullable|string|max:500',
+            'chatbot_system_prompt'         => 'nullable|string',
+            'chatbot_max_tokens'            => 'nullable|integer|min:10|max:4000',
         ]);
 
         if ($validator->fails()) {
@@ -684,6 +699,11 @@ class CourseAdminApiController extends AdminCrudApiController
                 'intro_video_type'   => $introVideoType,
                 'content_structure'  => $contentStructure,
                 'is_featured'        => $request->has('is_featured') ? $request->boolean('is_featured') : $course->is_featured,
+                'chatbot_enabled'    => $request->has('chatbot_enabled') ? $request->boolean('chatbot_enabled') : $course->chatbot_enabled,
+                'chatbot_name'       => $request->input('chatbot_name', $course->chatbot_name),
+                'chatbot_welcome_message' => $request->input('chatbot_welcome_message', $course->chatbot_welcome_message),
+                'chatbot_system_prompt'   => $request->input('chatbot_system_prompt', $course->chatbot_system_prompt),
+                'chatbot_max_tokens'      => $request->filled('chatbot_max_tokens') ? (int) $request->input('chatbot_max_tokens') : $course->chatbot_max_tokens,
             ]);
 
             // AI Knowledge Base file for course chatbot

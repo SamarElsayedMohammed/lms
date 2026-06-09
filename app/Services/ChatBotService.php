@@ -109,17 +109,24 @@ class ChatBotService
      */
     public function processCourseMessage(string $message, Course $course, ?int $conversationId = null): array
     {
-        if (empty($course->ai_knowledge_content)) {
+        if (empty($course->ai_knowledge_content) || !$course->chatbot_enabled) {
             return [
-                'reply' => 'عذراً، لسه مفيش محتوى معرفي متاح للكورس ده. تواصل مع المدرب أو الدعم الفني. 🙏',
+                'reply' => 'عذراً، المساعد الذكي غير متاح لهذا الكورس حالياً. 🙏',
                 'type' => 'error',
             ];
         }
 
         $settings = $this->getChatbotSettings();
-        $botName = $settings['chatbot_name'] ?? 'سكيلزوا';
+        $botName = $course->chatbot_name ?: ($settings['chatbot_name'] ?? 'سكيلزوا');
+        $maxTokens = $course->chatbot_max_tokens ?: (int) ($settings['chatbot_max_tokens'] ?? 500);
 
         $systemPrompt = "أنت {$botName}، مساعد ذكي لكورس \"{$course->title}\" على منصة Skillso التعليمية.\n\n";
+        
+        if (!empty($course->chatbot_system_prompt)) {
+            $systemPrompt .= "=== تعليمات إضافية من المدرب ===\n";
+            $systemPrompt .= $course->chatbot_system_prompt . "\n\n";
+        }
+
         $systemPrompt .= "=== محتوى الكورس ===\n";
         $systemPrompt .= $course->ai_knowledge_content . "\n\n";
         $systemPrompt .= "=== تعليمات مهمة ===\n";
@@ -129,7 +136,6 @@ class ChatBotService
         $systemPrompt .= "- استخدم الإيموجي بشكل مناسب\n";
 
         try {
-            $maxTokens = (int) ($settings['chatbot_max_tokens'] ?? 500);
             $reply = $this->callAiApi($systemPrompt, $message, $maxTokens);
 
             // Manage Conversation

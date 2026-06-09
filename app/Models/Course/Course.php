@@ -51,6 +51,11 @@ class Course extends Model
         'is_featured',
         'ai_knowledge_file',
         'ai_knowledge_content',
+        'chatbot_enabled',
+        'chatbot_name',
+        'chatbot_welcome_message',
+        'chatbot_system_prompt',
+        'chatbot_max_tokens',
     ];
 
     protected $casts = [
@@ -63,6 +68,8 @@ class Course extends Model
         'discount_price' => 'decimal:2',
         'certificate_fee' => 'decimal:2',
         'is_featured' => 'boolean',
+        'chatbot_enabled' => 'boolean',
+        'chatbot_max_tokens' => 'integer',
     ];
 
     protected $appends = ['total_tax_percentage', 'display_price', 'display_discount_price', 'tax_amount'];

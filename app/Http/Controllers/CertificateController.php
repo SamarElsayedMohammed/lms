@@ -74,7 +74,13 @@ class CertificateController extends Controller
     }
 
     /**
-     * Generate and download certificate PDF for a course
+     * Generate and download certificate PDF for a course.
+     *
+     * Security:
+     * - Verifies the authenticated user is actually enrolled in this course.
+     * - Verifies course is completed + video progress = 100%.
+     * - Certificate generation is idempotent (firstOrCreate).
+     * - Rejects revoked certificates.
      */
     public function download(Request $request)
     {
@@ -91,11 +97,20 @@ class CertificateController extends Controller
             return ApiResponseService::errorResponse(__('User not authenticated.'), null, 401);
         }
 
-        $course_id = $request->input('course_id');
+        $course_id = (int) $request->input('course_id');
+
+        // 🔐 Security: verify the authenticated user owns an enrollment for this course
+        if (!CourseCertificate::userIsEnrolled($user->id, $course_id)) {
+            return ApiResponseService::errorResponse(
+                'You are not enrolled in this course.',
+                null,
+                403,
+            );
+        }
 
         if (!$this->isCourseCompleted($user->id, $course_id)) {
             return ApiResponseService::validationError(
-                'Course not completed. Please complete all lessons, quizzes, and assignments to generate certificate.',
+                'Course not completed. Please complete all lessons, quizzes, and assignments to generate a certificate.',
             );
         }
 
@@ -107,10 +122,24 @@ class CertificateController extends Controller
             );
         }
 
-        $certificate = CourseCertificate::firstOrCreate(['user_id' => $user->id, 'course_id' => $course_id], [
-            'certificate_number' => strtoupper(uniqid('CERT-')),
-            'issued_date' => now(),
-        ]);
+        // Idempotent certificate generation — never create duplicates
+        $certificate = CourseCertificate::firstOrCreate(
+            ['user_id' => $user->id, 'course_id' => $course_id],
+            [
+                'certificate_number' => CourseCertificate::generateCertificateNumber(),
+                'issued_date'        => now()->toDateString(),
+                'status'             => 'active',
+            ],
+        );
+
+        // 🔐 Reject revoked certificates
+        if ($certificate->isRevoked()) {
+            return ApiResponseService::errorResponse(
+                'Your certificate for this course has been revoked. Please contact support.',
+                null,
+                403,
+            );
+        }
 
         $courseCertificate = CourseCertificate::with(['user', 'course'])->findOrFail($certificate->id);
 
@@ -124,40 +153,39 @@ class CertificateController extends Controller
             return ApiResponseService::errorResponse('No active certificate template found.');
         }
 
-        // Generate HTML
+        // Generate HTML → PDF
         $html = $this->generateCertificateHtml($certificateTemplate, $courseCertificate);
 
-        // Prepare PDF dimensions
         $templateSettings = is_string($certificateTemplate->template_settings)
             ? json_decode($certificateTemplate->template_settings, true)
             : $certificateTemplate->template_settings;
 
-        $widthPx = $templateSettings['width'] ?? 800;
+        $widthPx  = $templateSettings['width']  ?? 800;
         $heightPx = $templateSettings['height'] ?? 600;
-        $widthMM = round($widthPx * 0.264583, 2);
+        $widthMM  = round($widthPx  * 0.264583, 2);
         $heightMM = round($heightPx * 0.264583, 2);
 
         $mpdf = new Mpdf([
-            'mode' => 'utf-8',
-            'format' => [$widthMM, $heightMM],
-            'margin_left' => 0,
-            'margin_right' => 0,
-            'margin_top' => 0,
-            'margin_bottom' => 0,
+            'mode'            => 'utf-8',
+            'format'          => [$widthMM, $heightMM],
+            'margin_left'     => 0,
+            'margin_right'    => 0,
+            'margin_top'      => 0,
+            'margin_bottom'   => 0,
             'autoScriptToLang' => true,
-            'autoLangToFont' => true,
+            'autoLangToFont'   => true,
         ]);
 
         $mpdf->WriteHTML($html);
 
         return response($mpdf->Output('', 'S'), 200, [
-            'Content-Type' => 'application/pdf',
+            'Content-Type'        => 'application/pdf',
             'Content-Disposition' => 'inline; filename="certificate.pdf"',
         ]);
     }
 
     /**
-     * Verify certificate by number (T089) - public, no auth
+     * Verify certificate by number — web view (public, no auth)
      */
     public function verify(string $number)
     {
@@ -167,15 +195,62 @@ class CertificateController extends Controller
 
         if (!$certificate) {
             return view('certificates.verify', [
-                'found' => false,
+                'found'       => false,
                 'certificate' => null,
             ]);
         }
 
         return view('certificates.verify', [
-            'found' => true,
+            'found'       => true,
             'certificate' => $certificate,
         ]);
+    }
+
+    /**
+     * Verify certificate via JSON API — returns only safe public fields.
+     *
+     * GET /api/certificate/verify?code=CERT-XXXX
+     *
+     * Never exposes: email, user_id, internal IDs, private metadata.
+     */
+    public function verifyApi(\Illuminate\Http\Request $request)
+    {
+        $code = trim((string) $request->input('code', ''));
+
+        if (empty($code)) {
+            return ApiResponseService::errorResponse('Verification code is required.', null, 422);
+        }
+
+        $certificate = CourseCertificate::with(['user', 'course'])
+            ->where('certificate_number', $code)
+            ->first();
+
+        if (!$certificate) {
+            return ApiResponseService::errorResponse(
+                'No certificate found with this verification code.',
+                null,
+                404,
+            );
+        }
+
+        // Return only safe public fields — no email, no user_id, no internal IDs
+        return ApiResponseService::successResponse('Certificate verified.', [
+            'certificate_number' => $certificate->certificate_number,
+            'status'             => $certificate->status,   // 'active' | 'revoked'
+            'issue_date'         => optional($certificate->issued_date)->format('Y-m-d'),
+            'student_name'       => $certificate->user->name ?? 'N/A',
+            'course_title'       => $certificate->course->title ?? 'N/A',
+            'is_valid'           => $certificate->isActive(),
+        ]);
+    }
+
+    /**
+     * Generate certificate HTML from admin-designed template.
+     * Public so admin controllers can reuse without code duplication.
+     */
+    public function generateCertificateHtmlPublic($template, $certificate): string
+    {
+        return $this->generateCertificateHtml($template, $certificate);
     }
 
     /**

@@ -345,7 +345,10 @@ class UserReportApiController extends Controller
     }
 
     /**
-     * Get all earned certificates for the user
+     * Get all earned certificates for the authenticated user.
+     *
+     * Returns only active certificates. Each item includes course_id
+     * so the frontend can send it to POST /certificate/course/download.
      */
     public function getUserCertificates(Request $request)
     {
@@ -361,13 +364,17 @@ class UserReportApiController extends Controller
                 ->get()
                 ->map(function ($cert) {
                     return [
-                        'id' => $cert->id,
+                        'id'                 => $cert->id,
                         'certificate_number' => $cert->certificate_number,
-                        'issued_date' => $cert->issued_date,
-                        'course_title' => $cert->course->title ?? 'N/A',
-                        'course_image' => $cert->course->thumbnail ?? null,
-                        'category' => $cert->course->category->name ?? 'N/A',
-                        'download_url' => url("/api/certificate/download/{$cert->certificate_number}"), // Assuming a download route exists or will be added
+                        'status'             => $cert->status,  // 'active' | 'revoked'
+                        'issued_date'        => $cert->issued_date?->format('Y-m-d'),
+                        'course_id'          => $cert->course_id,
+                        'course_title'       => $cert->course->title    ?? 'N/A',
+                        'course_image'       => $cert->course->thumbnail ?? null,
+                        'category'           => $cert->course->category->name ?? 'N/A',
+                        // Frontend sends course_id to: POST /api/certificate/course/download
+                        'can_download'       => $cert->isActive(),
+                        'verify_url'         => url("/api/certificate/verify?code={$cert->certificate_number}"),
                     ];
                 });
 

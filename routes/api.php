@@ -64,6 +64,7 @@ Route::post('admin-login', [ApiController::class, 'adminLogin']);
  */
 Route::prefix('chatbot')->group(function (): void {
     Route::get('/config', [\App\Http\Controllers\API\ChatbotApiController::class, 'getConfig']);
+    Route::get('/config/{courseId}', [\App\Http\Controllers\API\ChatbotApiController::class, 'getCourseConfig']);
     Route::post('/faq-answer', [\App\Http\Controllers\API\ChatbotApiController::class, 'getFaqAnswer']);
     Route::post('/message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendMessage'])
         ->middleware('throttle:30,1'); // Rate limit: 30 messages per minute
@@ -112,6 +113,9 @@ Route::get('faqs', [ApiController::class, 'getFaqs']); // Get FAQs (site-wide)
 Route::get('courses/{courseId}/faqs', [\App\Http\Controllers\API\CourseFaqPublicApiController::class, 'index']); // Get Course FAQs (public)
 Route::get('pages', [ApiController::class, 'getPages']); // Get Pages (with optional type and language_id filters)
 Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO Settings (with optional type, language_id, and language_code filters)
+
+// Public certificate verification — returns only safe fields, no auth needed
+Route::get('certificate/verify', [CertificateController::class, 'verifyApi']);
 
 Route::prefix('helpdesk')->group(function (): void {
     Route::get('groups', [HelpdeskApiController::class, 'groups']);
@@ -648,6 +652,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('users/{id}/toggle-status', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'toggleStatus']);
         Route::post('users/{id}/assign-role', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'assignRole']);
 
+        // User Devices (Admin) — view & revoke registered devices
+        Route::get('users/{userId}/devices', [\App\Http\Controllers\API\Admin\UserDeviceAdminApiController::class, 'index']);
+        Route::delete('users/{userId}/devices', [\App\Http\Controllers\API\Admin\UserDeviceAdminApiController::class, 'destroyAll']);
+        Route::delete('users/{userId}/devices/{deviceId}', [\App\Http\Controllers\API\Admin\UserDeviceAdminApiController::class, 'destroy']);
+
+
         // Certificates
         Route::get('certificates', [\App\Http\Controllers\API\Admin\CourseCertificateAdminApiController::class, 'index']);
         Route::post('certificates', [\App\Http\Controllers\API\Admin\CourseCertificateAdminApiController::class, 'store']);
@@ -706,6 +716,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Enrollments
         Route::get('enrollments', [\App\Http\Controllers\API\Admin\EnrollmentAdminApiController::class, 'index']);
         Route::get('enrollments/{id}', [\App\Http\Controllers\API\Admin\EnrollmentAdminApiController::class, 'show']);
+        // Admin: Download student certificate by enrollment_id
+        Route::get('enrollments/{enrollmentId}/certificate/download', [\App\Http\Controllers\API\Admin\AdminCertificateController::class, 'downloadByEnrollment']);
+
+        // Admin: Certificate revoke / restore
+        Route::post('certificates/{id}/revoke', [\App\Http\Controllers\API\Admin\AdminCertificateController::class, 'revoke']);
+        Route::post('certificates/{id}/restore', [\App\Http\Controllers\API\Admin\AdminCertificateController::class, 'restore']);
 
         // Courses
         Route::get('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'index']);

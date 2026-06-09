@@ -80,7 +80,7 @@ class NotificationService
                         ],
                     ],
                 ];
-                if ($platform->platform_type != 'Android') {
+                if (strtolower((string) $platform?->platform_type) !== 'android') {
                     $data['message']['notification'] = [
                         'title' => $title,
                         'body' => $message,

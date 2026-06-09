@@ -21,28 +21,47 @@ class UserDevice extends Model
 
     /**
      * Register (or verify) a device for the user.
-     * Returns true if the device is allowed, false if blocked.
+     *
+     * @param  int         $userId
+     * @param  string      $deviceType   web | android | ios | desktop
+     * @param  string      $deviceId     unique hardware/browser fingerprint
+     * @param  string|null $deviceName   e.g. "Samsung Galaxy S24"
+     * @param  int         $maxDevices   maximum simultaneous active devices allowed (default 3)
      */
-    public static function verifyDevice(int $userId, string $deviceType, string $deviceId, ?string $deviceName = null): array
-    {
+    public static function verifyDevice(
+        int    $userId,
+        string $deviceType,
+        string $deviceId,
+        ?string $deviceName = null,
+        int    $maxDevices = 3,
+    ): array {
+        // Check if this exact device is already registered for the user
         $existing = self::where('user_id', $userId)
-            ->where('device_type', $deviceType)
+            ->where('device_id', $deviceId)
             ->first();
 
         if ($existing) {
-            // A device of this type is already registered
-            if ($existing->device_id === $deviceId) {
-                // Same device — allowed
-                return ['allowed' => true];
+            // Known device — always allowed (refresh device_name if changed)
+            if ($deviceName && $existing->device_name !== $deviceName) {
+                $existing->update(['device_name' => $deviceName, 'device_type' => $deviceType]);
+            } else {
+                // Touch updated_at so it appears as "last seen"
+                $existing->touch();
             }
-            // Different device of same type — blocked
+            return ['allowed' => true];
+        }
+
+        // New device — check if the user has reached the limit
+        $deviceCount = self::where('user_id', $userId)->count();
+
+        if ($deviceCount >= $maxDevices) {
             return [
                 'allowed' => false,
-                'message' => "لقد تم تسجيل جهاز {$deviceType} آخر بالفعل. يمكنك تسجيل الدخول من جهاز واحد فقط لكل نوع. يرجى التواصل مع الدعم الفني لتغيير الجهاز.",
+                'message' => "لقد وصلت إلى الحد الأقصى المسموح به من الأجهزة ({$maxDevices} أجهزة). يرجى التواصل مع الدعم الفني لإدارة أجهزتك.",
             ];
         }
 
-        // No device of this type registered yet — register it
+        // Register the new device
         self::create([
             'user_id'     => $userId,
             'device_type' => $deviceType,

@@ -68,6 +68,49 @@ class ChatbotApiController extends Controller
     }
 
     /**
+     * Get chatbot configuration for a specific course
+     * Uses course-specific settings if available, falls back to global settings
+     */
+    public function getCourseConfig(int $courseId): JsonResponse
+    {
+        $course = Course::find($courseId);
+        
+        if (!$course || empty($course->ai_knowledge_content) || !$course->chatbot_enabled) {
+            return response()->json([
+                'status' => true,
+                'data' => [
+                    'enabled' => false,
+                ],
+            ], 200, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        $settings = CachingService::getSystemSettings([
+            'chatbot_name',
+            'chatbot_welcome_message',
+            'chatbot_position',
+            'chatbot_icon',
+        ]);
+
+        // Build icon URL
+        $iconUrl = null;
+        if (!empty($settings['chatbot_icon'])) {
+            $iconUrl = FileService::getFileUrl($settings['chatbot_icon']);
+        }
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'enabled' => true,
+                'name' => $course->chatbot_name ?: ($settings['chatbot_name'] ?? 'سكيلزوا'),
+                'welcome_message' => $course->chatbot_welcome_message ?: ($settings['chatbot_welcome_message'] ?? ''),
+                'position' => $settings['chatbot_position'] ?? 'bottom-right',
+                'icon' => $iconUrl,
+                'faqs' => [], // Courses typically don't have general FAQs
+            ],
+        ], 200, [], JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
      * Get a direct FAQ answer — no AI involved
      * User clicked a FAQ button
      */

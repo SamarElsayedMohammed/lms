@@ -62,6 +62,7 @@ class UserAdminApiController extends AdminCrudApiController
 
         $user->is_instructor = !empty($user->instructor_details);
         $user->instructor_status = $user->instructor_details->status ?? null;
+        $user->device_count = \App\Models\UserDevice::where('user_id', $id)->count();
 
         return $this->jsonSuccess(__('User retrieved'), $user);
     }
