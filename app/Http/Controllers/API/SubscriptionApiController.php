@@ -57,16 +57,25 @@ final class SubscriptionApiController extends Controller
                 return [
                     'id' => $plan->id,
                     'name' => $plan->name,
+                    'price' => (float) $plan->price,
+                    'currency_code' => 'EGP', // Base currency
+                    'old_price' => null, // Base old price
+                    'display_price' => $localized['price'],
+                    'display_currency' => $localized['currency_code'],
+                    'display_old_price' => $localized['old_price'],
+                    'display_symbol' => $localized['currency_symbol'],
+                    'resolved_country' => $countryCode,
+                    'resolved_currency' => $localized['currency_code'],
+                    'price_source' => $localized['price_source'],
+                    'can_subscribe' => $localized['can_subscribe'],
+                    'is_available' => $plan->is_active && $localized['can_subscribe'],
+                    // Legacy/Extra fields for backward compatibility
                     'slug' => $plan->slug,
                     'description' => $plan->description,
                     'billing_cycle' => $plan->billing_cycle,
                     'billing_cycle_label' => $plan->billing_cycle_label,
                     'duration_days' => $plan->getDurationDays(),
-                    'price' => (float) $plan->price,
                     'formatted_price' => $plan->formatted_price,
-                    'display_price' => $localized['price'],
-                    'display_currency' => $localized['currency_code'],
-                    'display_symbol' => $localized['currency_symbol'],
                     'features' => $plan->features,
                     'is_lifetime' => $plan->isLifetime(),
                 ];
@@ -83,7 +92,7 @@ final class SubscriptionApiController extends Controller
                     'from' => $paginator->firstItem(),
                     'to' => $paginator->lastItem(),
                 ],
-            ]);
+            ])->header('Cache-Control', 'private, no-store');
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve subscription plans: ' . $e->getMessage());
         }
@@ -177,11 +186,18 @@ final class SubscriptionApiController extends Controller
 
             $plan = SubscriptionPlan::findOrFail($request->plan_id);
 
-            if (!$plan->is_active) {
+            $countryCode = $this->pricingService->detectUserCountry($request);
+            if ($countryCode === '') {
+                $countryCode = 'EG';
+            }
+
+            $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
+
+            if (!$plan->is_active || !$countryPricing['can_subscribe']) {
                 return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
             }
 
-            $originalAmount = (float) $plan->price;
+            $originalAmount = (float) $countryPricing['price'];
             $discountAmount = 0;
             $appliedPromoCode = null;
 
@@ -189,24 +205,30 @@ final class SubscriptionApiController extends Controller
             if ($request->filled('promo_code')) {
                 $campaign = \App\Models\PopupCampaign::where('is_active', true)
                     ->where('promo_code', $request->promo_code)
-                    ->where(function ($q) {
-                        $q->whereNull('starts_at')->orWhere('starts_at', '<=', now());
-                    })
-                    ->where(function ($q) {
-                        $q->whereNull('ends_at')->orWhere('ends_at', '>=', now());
-                    })
                     ->first();
 
                 if (!$campaign) {
-                    return ApiResponseService::errorResponse('كود الخصم غير صالح أو منتهي الصلاحية.', [], 400);
+                    return ApiResponseService::validationError('كود الخصم غير صالح.');
                 }
 
-                // Calculate discount
+                // Expiry Check
+                if (
+                    ($campaign->starts_at && $campaign->starts_at > now()) ||
+                    ($campaign->ends_at && $campaign->ends_at < now())
+                ) {
+                    return ApiResponseService::validationError('كود الخصم منتهي الصلاحية أو لم يبدأ بعد.');
+                }
+
+                // In a fully featured system we'd check usage limits and plan restrictions here if they were added to PopupCampaign.
+                // For now we enforce currency compatibility.
                 if ($campaign->discount_type === 'percentage') {
                     $discountAmount = round($originalAmount * ($campaign->discount_value / 100), 2);
                 } else {
-                    // Fixed amount discount
-                    $discountAmount = min($campaign->discount_value, $originalAmount);
+                    // Fixed amount discount is typically in the base currency (EGP).
+                    // We must convert it to the user's resolved currency to ensure compatibility.
+                    $resolvedCurrency = $countryPricing['currency_code'] ?? 'EGP';
+                    $discountAmount = $this->pricingService->convertFromEgp($campaign->discount_value, $resolvedCurrency);
+                    $discountAmount = min($discountAmount, $originalAmount);
                 }
 
                 $appliedPromoCode = $campaign->promo_code;
@@ -228,6 +250,9 @@ final class SubscriptionApiController extends Controller
                 'promo_code' => $appliedPromoCode,
                 'original_amount' => $originalAmount,
                 'discount_amount' => $discountAmount,
+                'resolved_country' => $countryCode,
+                'currency_code' => $countryPricing['currency_code'] ?? 'EGP',
+                'price_source' => $countryPricing['price_source'] ?? 'default',
             ];
 
             // Full wallet payment: create subscription immediately
@@ -294,6 +319,9 @@ final class SubscriptionApiController extends Controller
                         'gateway_amount' => $gatewayAmount,
                         'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
                         'payment_method' => 'manual',
+                        'resolved_country' => $countryCode,
+                        'currency_code' => $countryPricing['currency_code'] ?? 'EGP',
+                        'price_source' => $countryPricing['price_source'] ?? 'default',
                         'manual_deposit_method_id' => $request->manual_deposit_method_id,
                         'receipt' => $receiptPath,
                         'transaction_id' => $request->transaction_id,
@@ -301,6 +329,8 @@ final class SubscriptionApiController extends Controller
                         'original_amount' => $appliedPromoCode ? $originalAmount : null,
                         'discount_amount' => $discountAmount,
                         'paid_at' => null,
+                        'tax' => 0,
+                        'final_amount' => $totalAmount,
                     ]);
 
                     // Notify all super-admins about the new manual subscription request
@@ -361,6 +391,9 @@ final class SubscriptionApiController extends Controller
                 'promo_code' => $appliedPromoCode,
                 'original_amount' => $originalAmount,
                 'discount_amount' => $discountAmount,
+                'resolved_country' => $countryCode,
+                'currency_code' => $countryPricing['currency_code'] ?? 'EGP',
+                'price_source' => $countryPricing['price_source'] ?? 'default',
             ], self::KASHIER_PENDING_TTL);
 
             return ApiResponseService::successResponse('يرجى إكمال الدفع عبر Kashier.', [

@@ -23,19 +23,13 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('subscription-plans-create');
 
-        $countryId = $this->subscriptionPlanService->resolveDefaultCountryId($request->input('currency'));
-        if ($countryId === null) {
-            return $this->jsonError(
-                __('No active country is configured. Add a country in admin.'),
-                422,
-            );
-        }
+        // No need for default country id anymore as prices are passed via country_prices payload
 
         try {
             $validated = $request->validated();
             $validated['status'] = $request->boolean('status', true);
 
-            $plan = $this->subscriptionPlanService->createFromPanelPayload($validated, $countryId);
+            $plan = $this->subscriptionPlanService->createFromPanelPayload($validated);
 
             return $this->jsonSuccess(
                 __('Subscription plan created successfully'),

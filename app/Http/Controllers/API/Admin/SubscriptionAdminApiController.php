@@ -23,6 +23,80 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     }
 
     /**
+     * Comprehensive Dashboard for All Subscriptions (Manual & Automatic)
+     * Returns statistics and a paginated list of subscriptions.
+     */
+    public function comprehensiveIndex(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        // --- 1. Calculate Statistics ---
+        
+        $totalSubscriptions = Subscription::count();
+        $activeSubscriptions = Subscription::where('status', Subscription::STATUS_ACTIVE)->count();
+        
+        // Total Revenue from completed payments
+        $totalRevenue = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)->sum('final_amount');
+        
+        // Split by payment method (manual vs others/auto)
+        // Assuming 'manual' is the specific string used for manual payments, and others like 'kashier', 'wallet', 'stripe' are automatic.
+        $manualPaymentsCount = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
+                                ->where('payment_method', 'manual')
+                                ->count();
+                                
+        $automaticPaymentsCount = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
+                                ->where('payment_method', '!=', 'manual')
+                                ->count();
+
+        $statistics = [
+            'total_subscriptions' => $totalSubscriptions,
+            'active_subscriptions' => $activeSubscriptions,
+            'total_revenue' => (float) $totalRevenue,
+            'manual_subscriptions_count' => $manualPaymentsCount,
+            'automatic_subscriptions_count' => $automaticPaymentsCount,
+        ];
+
+        // --- 2. Retrieve Paginated List ---
+        
+        $query = Subscription::with(['user:id,name,email,avatar', 'plan', 'payments' => function($q) {
+            $q->latest();
+        }]);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('payment_method')) {
+            $method = $request->payment_method;
+            if ($method === 'manual') {
+                $query->whereHas('payments', function ($q) {
+                    $q->where('payment_method', 'manual');
+                });
+            } else {
+                $query->whereHas('payments', function ($q) {
+                    $q->where('payment_method', '!=', 'manual');
+                });
+            }
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->whereHas('user', function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        $perPage = min((int) $request->input('per_page', 15), 100);
+        $subscriptions = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+        return ApiResponseService::successResponse('Subscriptions dashboard retrieved successfully', [
+            'statistics' => $statistics,
+            'subscriptions' => $subscriptions
+        ]);
+    }
+
+    /**
      * List subscriptions with optional status and search filters
      */
     public function index(Request $request): JsonResponse
