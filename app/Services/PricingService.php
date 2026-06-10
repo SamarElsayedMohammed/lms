@@ -19,29 +19,43 @@ final class PricingService
      * Get display price for a plan in the given country's currency.
      * Falls back to base EGP price if no country-specific price exists.
      *
-     * @return array{price: float, currency_code: string, currency_symbol: string}
+     * @return array{price: float, old_price: float|null, currency_code: string, currency_symbol: string, price_source: string, can_subscribe: boolean}
      */
     public function getPriceForCountry(SubscriptionPlan $plan, string $countryCode): array
     {
         $countryCode = strtoupper($countryCode);
 
-        $planPrice = SubscriptionPlanPrice::query()
-            ->join('countries', 'subscription_plan_prices.country_id', '=', 'countries.id')
-            ->where('subscription_plan_prices.plan_id', $plan->id)
-            ->where('countries.iso_code', $countryCode)
-            ->select('subscription_plan_prices.*', 'countries.currency_code')
+        // 1. Check for specific country override
+        $planPrice = SubscriptionPlanPrice::where('plan_id', $plan->id)
+            ->where('country_code', $countryCode)
             ->first();
 
         if ($planPrice !== null) {
             $currencyCode = $planPrice->currency_code ?? 'EGP';
+            
+            // If the country override is explicitly marked as inactive, disable subscriptions for this country
+            if (!$planPrice->is_active) {
+                return [
+                    'price' => (float) $planPrice->price,
+                    'old_price' => $planPrice->old_price ? (float) $planPrice->old_price : null,
+                    'currency_code' => $currencyCode,
+                    'currency_symbol' => $this->getCurrencySymbol($currencyCode),
+                    'price_source' => 'country_override',
+                    'can_subscribe' => false, // Explicitly blocked by inactive override
+                ];
+            }
+
             return [
                 'price' => (float) $planPrice->price,
+                'old_price' => $planPrice->old_price ? (float) $planPrice->old_price : null,
                 'currency_code' => $currencyCode,
                 'currency_symbol' => $this->getCurrencySymbol($currencyCode),
+                'price_source' => 'country_override',
+                'can_subscribe' => (bool) $planPrice->can_subscribe,
             ];
         }
 
-        // --- NEW Fallback: Auto-conversion using exchange rates ---
+        // 2. Fallback: Auto-conversion using exchange rates if supported currency exists
         if ($countryCode !== 'EG' && $countryCode !== '') {
             $currency = SupportedCurrency::where('country_code', $countryCode)
                 ->where('is_active', true)
@@ -55,18 +69,24 @@ final class PricingService
 
                     return [
                         'price' => round($priceLocal, 2),
+                        'old_price' => null,
                         'currency_code' => $currency->currency_code,
                         'currency_symbol' => $currency->currency_symbol,
+                        'price_source' => 'default',
+                        'can_subscribe' => true,
                     ];
                 }
             }
         }
 
-        // Final fallback: Base price in EGP
+        // 3. Final fallback: Base price in EGP
         return [
             'price' => (float) $plan->price,
+            'old_price' => null,
             'currency_code' => 'EGP',
             'currency_symbol' => CachingService::getSystemSettings('currency_symbol') ?: 'EGP',
+            'price_source' => 'default',
+            'can_subscribe' => true,
         ];
     }
 

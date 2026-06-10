@@ -32,6 +32,13 @@ final class StoreSubscriptionPlanPanelRequest extends FormRequest
             'commission_rate' => 'nullable|numeric|min:0',
             'features' => 'nullable|array',
             'features.*' => 'nullable|string|max:500',
+            'country_prices' => 'nullable|array',
+            'country_prices.*.country_code' => 'required|string|size:2',
+            'country_prices.*.currency_code' => 'required|string|size:3',
+            'country_prices.*.price' => 'required|numeric|min:0',
+            'country_prices.*.old_price' => 'nullable|numeric|min:0',
+            'country_prices.*.is_active' => 'nullable|boolean',
+            'country_prices.*.can_subscribe' => 'nullable|boolean',
         ];
     }
 }

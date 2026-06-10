@@ -36,52 +36,39 @@ final class SubscriptionPlanService
      *
      * @throws Throwable
      */
-    public function createFromPanelPayload(array $panel, int $countryId): SubscriptionPlan
+    public function createFromPanelPayload(array $panel, ?int $countryId = null): SubscriptionPlan
     {
         $sale = (float) $panel['price'];
         $old = isset($panel['old_price']) && $panel['old_price'] !== '' && $panel['old_price'] !== null
             ? (float) $panel['old_price'] : null;
-
-        if ($old !== null && $old > $sale) {
-            $listPrice = $old;
-            $offerPrice = $sale;
-        } else {
-            $listPrice = $sale;
-            $offerPrice = null;
-        }
 
         $canonical = [
             'name' => $panel['name'],
             'description' => $panel['description'] ?? null,
             'billing_cycle' => 'custom',
             'duration_days' => (int) $panel['duration'],
-            'price' => $listPrice,
+            'price' => $sale,
             'commission_type' => $panel['commission_type'] ?? 'percentage',
             'commission_rate' => $panel['commission_rate'] ?? 0,
             'features' => $panel['features'] ?? null,
             'sort_order' => 0,
-            'countries' => [
-                [
-                    'country_id' => $countryId,
-                    'price' => $listPrice,
-                    'offer_price' => $offerPrice,
-                ],
-            ],
+            'country_prices' => $panel['country_prices'] ?? [],
         ];
 
         return $this->createWithCountryPricing($canonical, (bool) ($panel['status'] ?? true));
     }
 
     /**
-     * @param  array<string, mixed>  $validated  Canonical plan fields including countries[]
+     * @param  array<string, mixed>  $validated  Canonical plan fields including country_prices[]
      *
      * @throws Throwable
      */
     public function createWithCountryPricing(array $validated, bool $isActive): SubscriptionPlan
     {
         return DB::transaction(function () use ($validated, $isActive): SubscriptionPlan {
-            $countriesData = $validated['countries'];
-            unset($validated['countries']);
+            $countriesData = $validated['country_prices'] ?? [];
+            unset($validated['country_prices']);
+            unset($validated['countries']); // In case of legacy data
 
             $validated['slug'] = $this->uniqueSlugForName($validated['name']);
             $validated['duration_days'] = $this->resolveDurationDays($validated);
@@ -96,10 +83,13 @@ final class SubscriptionPlanService
             foreach ($countriesData as $entry) {
                 SubscriptionPlanPrice::create([
                     'plan_id' => $plan->id,
-                    'country_id' => $entry['country_id'],
+                    'country_code' => $entry['country_code'],
+                    'currency_code' => $entry['currency_code'] ?? 'EGP',
                     'price' => $entry['price'],
-                    'offer_price' => (isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null)
-                        ? (float) $entry['offer_price'] : null,
+                    'old_price' => (isset($entry['old_price']) && $entry['old_price'] !== '' && $entry['old_price'] !== null)
+                        ? (float) $entry['old_price'] : null,
+                    'is_active' => $entry['is_active'] ?? true,
+                    'can_subscribe' => $entry['can_subscribe'] ?? true,
                 ]);
             }
 

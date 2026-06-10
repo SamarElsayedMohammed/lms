@@ -816,6 +816,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::post('{id}/reject', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'reject']);
         });
 
+        // Comprehensive Subscriptions (Admin)
+        Route::prefix('subscriptions')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'comprehensiveIndex']);
+        });
+
         // Webinars (Admin/Instructor)
         Route::prefix('webinars')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'index']);

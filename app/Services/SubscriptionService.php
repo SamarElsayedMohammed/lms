@@ -136,9 +136,14 @@ final class SubscriptionService
             'gateway_amount' => $gatewayAmount,
             'status' => SubscriptionPayment::STATUS_COMPLETED,
             'payment_method' => $paymentMethod ?? 'wallet',
+            'resolved_country' => $discountMeta['resolved_country'] ?? null,
+            'currency_code' => $discountMeta['currency_code'] ?? 'EGP',
+            'price_source' => $discountMeta['price_source'] ?? 'default',
             'promo_code' => $discountMeta['promo_code'] ?? null,
             'original_amount' => !empty($discountMeta['promo_code']) ? $totalAmount : null,
             'discount_amount' => $discountMeta['discount_amount'] ?? 0,
+            'tax' => 0,
+            'final_amount' => $paymentAmount,
             'paid_at' => now(),
         ]);
     }
@@ -222,6 +227,10 @@ final class SubscriptionService
                 'gateway_amount' => $gatewayAmount,
                 'status' => SubscriptionPayment::STATUS_COMPLETED,
                 'payment_method' => $paymentMethod ?? 'wallet',
+                'currency_code' => 'EGP', // Renewals currently don't dynamically recalculate country pricing, they use base plan price. In a full system we'd recalculate here too, but this handles the schema requirement.
+                'price_source' => 'default',
+                'tax' => 0,
+                'final_amount' => $totalAmount,
                 'paid_at' => now(),
             ]);
 

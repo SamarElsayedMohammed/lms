@@ -10,23 +10,33 @@ use Illuminate\Support\Facades\Log;
 final class GeoLocationService
 {
     /**
-     * Get country code from request (IP detection with user fallback)
+     * Get country code from request (Secure IP detection with signed proxy header support)
      */
     public function getCountryCodeFromRequest(Request $request): null|string
     {
-        // 1. Manual override for testing purposes
-        if ($request->has('test_country')) {
+        // 1. Manual override for testing purposes ONLY in non-production
+        if (!app()->environment('production') && $request->has('test_country')) {
             return strtoupper($request->query('test_country'));
         }
 
-        // 2. High Priority: Cloudflare Country Header
-        // This is 100% accurate if the site is behind Cloudflare
-        $cfCountry = $request->server('HTTP_CF_IPCOUNTRY');
-        if ($cfCountry && strlen($cfCountry) === 2 && $cfCountry !== 'XX' && $cfCountry !== 'T1') {
-            return strtoupper($cfCountry);
+        // 2. High Priority: Signed Internal Proxy Header (e.g. Next.js proxy)
+        $proxyCountry = $this->getSignedProxyCountry($request);
+        if ($proxyCountry) {
+            return $proxyCountry;
         }
 
-        // 3. Detect Real IP Address
+        // 3. Cloudflare Country Header (Only trusted if behind Cloudflare)
+        // Note: For production, ensure Cloudflare Authenticated Origin Pulls are enabled
+        // or configure trusted proxies in App\Http\Middleware\TrustProxies
+        $cfCountry = $request->server('HTTP_CF_IPCOUNTRY');
+        if ($cfCountry && strlen($cfCountry) === 2 && $cfCountry !== 'XX' && $cfCountry !== 'T1') {
+            // Check if request came through Cloudflare (simple check, robust check requires IP range validation)
+            if ($request->server('HTTP_CF_CONNECTING_IP')) {
+                return strtoupper($cfCountry);
+            }
+        }
+
+        // 4. Detect Real IP Address
         $ipAddress = $this->getRealIpAddress($request);
         
         // --- Debug Logging ---
@@ -46,7 +56,7 @@ final class GeoLocationService
             }
         }
 
-        // 4. Fallback to user's country code if IP detection fails
+        // 5. Fallback to user's country code if IP detection fails
         $authUser = auth('sanctum')->user();
         if ($authUser?->country_code) {
             return strtoupper($authUser->country_code);
@@ -56,32 +66,48 @@ final class GeoLocationService
     }
 
     /**
-     * Get real IP address from request (handles proxies and load balancers)
+     * Verify internal signed proxy headers
+     */
+    private function getSignedProxyCountry(Request $request): ?string
+    {
+        $country = $request->header('X-Skillso-Resolved-Country');
+        $signature = $request->header('X-Skillso-Country-Signature');
+        $timestamp = $request->header('X-Skillso-Country-Timestamp');
+
+        if (!$country || !$signature || !$timestamp) {
+            return null;
+        }
+
+        // Reject if older than 5 minutes
+        if (abs(time() - (int)$timestamp) > 300) {
+            Log::warning('Expired proxy country timestamp', ['timestamp' => $timestamp]);
+            return null;
+        }
+
+        $secret = config('app.proxy_secret', config('app.key')); // Fallback to app key if no specific secret
+        $expectedSignature = hash_hmac('sha256', $country . $timestamp, $secret);
+
+        if (!hash_equals($expectedSignature, $signature)) {
+            Log::warning('Invalid proxy country signature', [
+                'country' => $country,
+                'provided' => $signature,
+                'expected' => $expectedSignature
+            ]);
+            return null;
+        }
+
+        return strtoupper($country);
+    }
+
+    /**
+     * Get real IP address from request securely (strips user-controlled headers unless trusted)
      */
     public function getRealIpAddress(Request $request): null|string
     {
-        $ipHeaders = [
-            'HTTP_CF_CONNECTING_IP', // Cloudflare
-            'HTTP_X_REAL_IP', // Nginx proxy
-            'HTTP_X_FORWARDED_FOR', // Standard proxy header
-            'HTTP_X_FORWARDED', // Alternative proxy header
-            'HTTP_X_CLUSTER_CLIENT_IP', // Cluster
-            'HTTP_CLIENT_IP', // Some proxies
-        ];
-
-        foreach ($ipHeaders as $header) {
-            $ip = $request->server($header);
-            if ($ip) {
-                $ips = explode(',', $ip);
-                $ip = trim($ips[0]);
-
-                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                    return $ip;
-                }
-            }
-        }
-
+        // Laravel's $request->ip() already respects trusted proxies configured in TrustProxies middleware.
+        // It's safer to rely on it than manually parsing headers which can be spoofed.
         $ip = $request->ip();
+        
         if ($ip && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
             return $ip;
         }
