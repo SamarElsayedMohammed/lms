@@ -58,7 +58,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
         // --- 2. Retrieve Paginated List ---
         
-        $query = Subscription::with(['user:id,name,email,avatar', 'plan', 'payments' => function($q) {
+        $query = Subscription::with(['user:id,name,email,profile', 'plan', 'payments' => function($q) {
             $q->latest();
         }]);
 
