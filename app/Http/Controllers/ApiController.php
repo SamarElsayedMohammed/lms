@@ -624,6 +624,7 @@ class ApiController extends Controller
                 'instructor_details.social_medias.social_media',
                 'instructor_details.other_details.custom_form_field',
                 'instructor_details.other_details.custom_form_field_option',
+                'activeSubscription.plan',
             ])->first();
 
             if (empty($user)) {
@@ -641,6 +642,21 @@ class ApiController extends Controller
 
             // Convert wallet_balance to float to ensure it's returned as a number, not string
             $userData['wallet_balance'] = $user->wallet_balance ?? 0;
+
+            if ($user->activeSubscription) {
+                $userData['active_subscription_type'] = ucfirst($user->activeSubscription->plan->billing_cycle ?? 'unknown');
+                $userData['active_subscription_plan_name'] = $user->activeSubscription->plan->name ?? null;
+                if ($user->activeSubscription->ends_at) {
+                    $days = \Illuminate\Support\Carbon::now()->diffInDays($user->activeSubscription->ends_at, false);
+                    $userData['active_subscription_days_left'] = $days > 0 ? (int) $days : 0;
+                } else {
+                    $userData['active_subscription_days_left'] = 'Lifetime';
+                }
+            } else {
+                $userData['active_subscription_type'] = null;
+                $userData['active_subscription_plan_name'] = null;
+                $userData['active_subscription_days_left'] = null;
+            }
 
             ApiResponseService::successResponse('User details retrieved successfully', $userData);
         } catch (Throwable $th) {

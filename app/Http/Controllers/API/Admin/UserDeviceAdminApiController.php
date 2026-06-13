@@ -23,7 +23,7 @@ class UserDeviceAdminApiController extends Controller
      *
      * List all registered devices for a specific user.
      */
-    public function index(int $userId)
+    public function index($userId)
     {
         $this->requireAdminRole();
 
@@ -58,7 +58,7 @@ class UserDeviceAdminApiController extends Controller
      * Remove a specific device for a user.
      * After removal, the user can log in from a new device.
      */
-    public function destroy(int $userId, int $deviceId)
+    public function destroy($userId, $deviceId)
     {
         $this->requireAdminRole();
 
@@ -77,7 +77,7 @@ class UserDeviceAdminApiController extends Controller
      * Remove ALL devices for a user (full reset).
      * The user will need to re-authenticate on all their devices.
      */
-    public function destroyAll(int $userId)
+    public function destroyAll($userId)
     {
         $this->requireAdminRole();
 
