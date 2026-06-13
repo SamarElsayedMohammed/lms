@@ -55,7 +55,7 @@ class UserAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('users-list');
 
-        $user = User::with(['roles', 'instructor_details', 'activeSubscription'])->withTrashed()->find($id);
+        $user = User::with(['roles', 'instructor_details', 'activeSubscription.plan'])->withTrashed()->find($id);
         if (!$user) {
             return $this->jsonError(__('User not found'), 404);
         }
@@ -63,6 +63,21 @@ class UserAdminApiController extends AdminCrudApiController
         $user->is_instructor = !empty($user->instructor_details);
         $user->instructor_status = $user->instructor_details->status ?? null;
         $user->device_count = \App\Models\UserDevice::where('user_id', $id)->count();
+
+        if ($user->activeSubscription) {
+            $user->active_subscription_type = ucfirst($user->activeSubscription->plan->billing_cycle ?? 'unknown');
+            $user->active_subscription_plan_name = $user->activeSubscription->plan->name ?? null;
+            if ($user->activeSubscription->ends_at) {
+                $days = \Illuminate\Support\Carbon::now()->diffInDays($user->activeSubscription->ends_at, false);
+                $user->active_subscription_days_left = $days > 0 ? (int) $days : 0;
+            } else {
+                $user->active_subscription_days_left = 'Lifetime';
+            }
+        } else {
+            $user->active_subscription_type = null;
+            $user->active_subscription_plan_name = null;
+            $user->active_subscription_days_left = null;
+        }
 
         return $this->jsonSuccess(__('User retrieved'), $user);
     }
