@@ -117,6 +117,10 @@ final class SubscriptionApiController extends Controller
                 ->orderBy('starts_at', 'asc')
                 ->get();
 
+            if ($subscriptions->isEmpty()) {
+                return ApiResponseService::successResponse('No active subscription found', null);
+            }
+
             $hasAccess = $subscriptions->contains('status', Subscription::STATUS_ACTIVE);
             
             $formattedSubscriptions = $subscriptions->map(function ($subscription) {
@@ -134,14 +138,19 @@ final class SubscriptionApiController extends Controller
                         'billing_cycle' => $subscription->plan->billing_cycle,
                         'billing_cycle_label' => $subscription->plan->billing_cycle_label,
                     ],
+                    'plan_name' => $subscription->plan->name, // added for backward compatibility
                     'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
                     'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
                     'days_remaining' => $subscription->days_remaining,
                     'is_lifetime' => $subscription->isLifetime(),
-                    'auto_renew' => $subscription->auto_renew,
+                    'auto_renew' => (bool)$subscription->auto_renew,
                     'status' => $subscription->status,
                     'status_label' => $statusLabel,
                     'created_at' => $subscription->created_at->format('Y-m-d H:i:s'),
+                    'renewal_date' => $subscription->ends_at?->format('Y-m-d H:i:s'),
+                    'payment_method' => 'wallet', // default or from latest payment if needed
+                    'next_payment_amount' => (float)$subscription->plan->price,
+                    'currency' => \App\Services\HelperService::systemSettings('currency_code') ?: 'EGP',
                 ];
             });
 

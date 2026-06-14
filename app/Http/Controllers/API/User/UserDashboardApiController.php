@@ -40,7 +40,7 @@ class UserDashboardApiController extends Controller
             // 3. Wallet Balance
             $wallet = [
                 'balance' => round($user->wallet_balance ?? 0, 2),
-                'currency' => HelperService::systemSettings('currency_symbol') ?? 'EGP',
+                'currency' => HelperService::systemSettings('currency_code') ?: 'EGP',
             ];
 
             // 4. Recent Courses (Last accessed)
