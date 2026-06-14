@@ -67,6 +67,7 @@ class WalletApiController extends Controller
 
             $summary = [
                 'wallet_balance' => (float) $walletBalance,
+                'currency' => \App\Services\HelperService::systemSettings('currency_code') ?: 'EGP',
                 'total_credits' => (float) $totalCredits,
                 'total_debits' => (float) $totalDebits,
                 'total_withdrawals' => (float) $totalWithdrawals,
@@ -470,6 +471,7 @@ class WalletApiController extends Controller
             $formattedRequests = $withdrawalRequests->map(static fn($request) => [
                 'id' => $request->id,
                 'amount' => (float) $request->amount,
+                'currency' => \App\Services\HelperService::systemSettings('currency_code') ?: 'EGP',
                 'status' => $request->status,
                 'status_label' => ucfirst((string) $request->status),
                 'entry_type' => $request->entry_type ?? 'user',

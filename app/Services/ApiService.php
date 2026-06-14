@@ -59,6 +59,8 @@ class ApiService
             'currency_code',
             'currency_symbol',
         ]);
+        $settings['currency_code'] = !empty($settings['currency_code']) ? $settings['currency_code'] : 'EGP';
+        $settings['currency_symbol'] = !empty($settings['currency_symbol']) ? $settings['currency_symbol'] : 'ج.م';
         $settings['active_payment_settings'] = self::getActivePaymentDetails();
         return $settings;
     }
