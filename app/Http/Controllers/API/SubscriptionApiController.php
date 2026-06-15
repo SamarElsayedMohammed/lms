@@ -494,32 +494,132 @@ final class SubscriptionApiController extends Controller
             }
 
             $totalAmount = (float) $plan->price;
-            $walletAmount = 0;
-            $gatewayAmount = $totalAmount;
+            $split = $this->subscriptionService->walletAndGatewayPayment(
+                $user,
+                $plan,
+                $totalAmount,
+                $request->boolean('use_wallet')
+            );
+            $walletAmount = $split['wallet_amount'];
+            $gatewayAmount = $split['gateway_amount'];
 
-            if ($request->boolean('use_wallet') && $user->wallet_balance > 0) {
-                $walletAmount = min($user->wallet_balance, $totalAmount);
-                $gatewayAmount = $totalAmount - $walletAmount;
+            // Full wallet payment: renew immediately
+            if ($gatewayAmount <= 0) {
+                $subscription = $this->subscriptionService->renewWithPayment(
+                    $user,
+                    $subscription,
+                    $request->payment_method ?? 'wallet',
+                    $walletAmount,
+                    $gatewayAmount
+                );
+
+                return ApiResponseService::successResponse('تم تجديد الاشتراك بنجاح!', [
+                    'requires_checkout' => false,
+                    'subscription' => [
+                        'id' => $subscription->id,
+                        'plan_name' => $subscription->plan->name,
+                        'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
+                        'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
+                        'is_lifetime' => $subscription->isLifetime(),
+                        'status' => $subscription->status,
+                    ],
+                ]);
             }
 
-            $subscription = $this->subscriptionService->renewWithPayment(
-                $user,
-                $subscription,
-                $request->payment_method ?? 'wallet',
-                $walletAmount,
-                $gatewayAmount
-            );
+            // Manual payment flow
+            if ($request->payment_method === 'manual') {
+                $method = \App\Models\ManualDepositMethod::find($request->manual_deposit_method_id);
+                if (!$method || !$method->is_active) {
+                    return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
+                }
 
-            return ApiResponseService::successResponse('تم تجديد الاشتراك بنجاح!', [
-                'subscription' => [
-                    'id' => $subscription->id,
-                    'plan_name' => $subscription->plan->name,
-                    'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
-                    'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
-                    'is_lifetime' => $subscription->isLifetime(),
-                    'status' => $subscription->status,
+                try {
+                    $receiptPath = \App\Services\FileService::compressAndUpload(
+                        $request->file('receipt'),
+                        'subscriptions/receipts'
+                    );
+
+                    // For renewal, we create a pending payment record linked to the existing subscription
+                    // The subscription itself remains active until its expiry date. If approved, the expiry is extended.
+                    \App\Models\SubscriptionPayment::create([
+                        'subscription_id' => $subscription->id,
+                        'user_id' => $user->id,
+                        'amount' => $totalAmount,
+                        'wallet_amount' => $walletAmount,
+                        'gateway_amount' => $gatewayAmount,
+                        'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
+                        'payment_method' => 'manual',
+                        'currency_code' => 'EGP',
+                        'price_source' => 'default',
+                        'manual_deposit_method_id' => $request->manual_deposit_method_id,
+                        'receipt' => $receiptPath,
+                        'transaction_id' => $request->transaction_id,
+                        'paid_at' => null,
+                        'tax' => 0,
+                        'final_amount' => $totalAmount,
+                        'is_renewal' => true, // We should add this column or handle logic in admin approval
+                    ]);
+
+                    try {
+                        $admins = \App\Models\User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
+                        foreach ($admins as $admin) {
+                            $admin->notify(new \App\Notifications\AdminNewSubscriptionRequestNotification($subscription, $user));
+                        }
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::error('Failed to notify admins of manual renewal request', [
+                            'subscription_id' => $subscription->id,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+
+                    return ApiResponseService::successResponse('تم إنشاء طلب تجديد الاشتراك بنجاح وجاري مراجعة الإيصال من قبل الإدارة.', [
+                        'requires_checkout' => false,
+                        'subscription' => [
+                            'id' => $subscription->id,
+                            'plan_name' => $subscription->plan->name,
+                            'status' => $subscription->status, // It remains active until it expires naturally
+                        ],
+                        'payment' => [
+                            'total_amount' => $totalAmount,
+                            'wallet_amount' => $walletAmount,
+                            'gateway_amount' => $gatewayAmount,
+                            'payment_method' => 'manual',
+                        ]
+                    ]);
+                } catch (\Exception $e) {
+                    return ApiResponseService::errorResponse('فشل في إرسال طلب التجديد اليدوي: ' . $e->getMessage());
+                }
+            }
+
+            // Gateway payment required: create Kashier checkout
+            try {
+                $checkout = $this->kashierService->createCheckoutSession($plan, $user, $gatewayAmount);
+            } catch (\RuntimeException $e) {
+                return ApiResponseService::errorResponse(
+                    'بوابة الدفع غير مهيأة. يرجى التواصل مع الإدارة.',
+                    [],
+                    503
+                );
+            }
+
+            // Store pending wallet amount for webhook to apply on success
+            \Illuminate\Support\Facades\Cache::put('kashier_pending_' . $checkout['order_id'], [
+                'wallet_amount' => $walletAmount,
+                'plan_id' => $plan->id,
+                'user_id' => $user->id,
+            ], \App\Http\Controllers\API\SubscriptionApiController::KASHIER_PENDING_TTL);
+
+            return ApiResponseService::successResponse('يرجى إكمال عملية الدفع عبر Kashier.', [
+                'requires_checkout' => true,
+                'checkout_url' => $checkout['url'],
+                'order_id' => $checkout['order_id'],
+                'payment' => [
+                    'total_amount' => $totalAmount,
+                    'wallet_amount' => $walletAmount,
+                    'gateway_amount' => $gatewayAmount,
                 ],
             ]);
+
         } catch (\InvalidArgumentException $e) {
             return ApiResponseService::errorResponse($e->getMessage(), [], 400);
         } catch (\Throwable $e) {
