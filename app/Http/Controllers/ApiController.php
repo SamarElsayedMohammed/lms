@@ -1383,26 +1383,8 @@ class ApiController extends Controller
 
             // Get personal notifications (Laravel notifications table)
             if ($type === 'all' || $type === 'personal') {
-                // Query notifications table directly - get all notifications for this user
-                // First get all notifications regardless of notifiable_type to see what we have
-                $allUserNotifications = DB::table('notifications')->where('notifiable_id', $user->id)->get();
-
-                // Log for debugging
-                Log::info('All notifications for user', [
-                    'user_id' => $user->id,
-                    'total_count' => $allUserNotifications->count(),
-                    'notifications' => $allUserNotifications->map(static fn($n) => [
-                        'id' => $n->id,
-                        'type' => $n->type,
-                        'notifiable_type' => $n->notifiable_type,
-                        'notifiable_id' => $n->notifiable_id,
-                    ])->toArray(),
-                ]);
-
-                // Now filter by notifiable_type - match App\Models\User in any format
-                $personalNotificationsQuery = DB::table('notifications')
-                    ->where('notifiable_id', $user->id)
-                    ->where('notifiable_type', \App\Models\User::class); // Direct match as shown in database
+                // Get personal notifications via the Eloquent relationship
+                $personalNotificationsQuery = $user->notifications();
 
                 // Apply status filter
                 if ($status === 'read') {
@@ -1411,7 +1393,7 @@ class ApiController extends Controller
                     $personalNotificationsQuery->whereNull('read_at');
                 }
 
-                $personalNotificationsRaw = $personalNotificationsQuery->orderBy('created_at', 'desc')->get();
+                $personalNotificationsRaw = $personalNotificationsQuery->get();
 
                 // Log for debugging
                 Log::info('Personal notifications query result', [

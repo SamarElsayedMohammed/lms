@@ -603,6 +603,12 @@ class CourseApiController extends Controller
         $countryCode = $this->pricingService->getCountryCodeFromRequest($request);
         $totalTaxPercentage = Tax::getTotalTaxPercentageByCountry($countryCode);
 
+        // Check active subscription once to avoid N+1 queries
+        $hasActiveSubscription = false;
+        if (Auth::check()) {
+            $hasActiveSubscription = Auth::user()->activeSubscription()->exists();
+        }
+
         // Transform data
         $courses
             ->getCollection()
@@ -617,11 +623,11 @@ class CourseApiController extends Controller
                     : false;
 
                 $isEnrolled = Auth::check()
-                    ? OrderCourse::whereHas('order', static function ($query): void {
+                    ? (OrderCourse::whereHas('order', static function ($query): void {
                         $query->where('user_id', Auth::id())->where('status', 'completed');
                     })
                         ->where('course_id', $course->id)
-                        ->exists()
+                        ->exists() || $hasActiveSubscription)
                     : false;
 
                 // Calculate total course duration
@@ -677,7 +683,7 @@ class CourseApiController extends Controller
                     'total_duration' => $totalDuration, // in seconds
                     'total_duration_formatted' => $this->formatDuration($totalDuration),
                     'is_wishlisted' => $isWishlisted,
-                    'is_enrolled' => $isEnrolled && !in_array($course->id, $refundedCourseIds),
+                    'is_enrolled' => ($isEnrolled || $hasActiveSubscription) && !in_array($course->id, $refundedCourseIds),
                     // Currency specific fields (explicitly copied for clarity)
                     'currency_code' => $coursePricingData['currency_code'],
                     'currency_symbol' => $coursePricingData['currency_symbol'],
@@ -794,6 +800,13 @@ class CourseApiController extends Controller
             // [NEW LOGIC] Automatically grant access if course is free or user is the instructor
             if ($course->course_type === 'free' || ($user && $course->user_id == $user->id)) {
                 $isPurchased = true;
+            }
+
+            // [NEW LOGIC] Grant access if user has an active subscription
+            if ($user && !$isPurchased) {
+                if ($user->activeSubscription()->exists()) {
+                    $isPurchased = true;
+                }
             }
 
             // Get user's curriculum completion tracking data
