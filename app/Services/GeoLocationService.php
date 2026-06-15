@@ -54,6 +54,14 @@ final class GeoLocationService
             if ($countryCode) {
                 return $countryCode;
             }
+        } elseif (in_array($request->ip(), ['127.0.0.1', '::1'])) {
+            // If testing locally (localhost), the IP is 127.0.0.1 which is stripped.
+            // But the user might be using a VPN on their local machine.
+            // By passing an empty IP, the external API will return the country of the server's public IP (the VPN).
+            $countryCode = $this->getCountryCodeFromIp('');
+            if ($countryCode) {
+                return $countryCode;
+            }
         }
 
         // 5. Fallback to user's country code if IP detection fails
@@ -120,7 +128,7 @@ final class GeoLocationService
      */
     public function getCountryCodeFromIp(null|string $ipAddress): null|string
     {
-        if (!$ipAddress) {
+        if ($ipAddress === null) {
             return null;
         }
 
@@ -130,6 +138,7 @@ final class GeoLocationService
 
         try {
             if (
+                $ipAddress !== '' &&
                 filter_var($ipAddress, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)
                 === false
             ) {
@@ -158,7 +167,7 @@ final class GeoLocationService
      */
     private function fetchFromIpApiCo(string $ipAddress): null|string
     {
-        $url = "https://ipapi.co/{$ipAddress}/country/";
+        $url = $ipAddress ? "https://ipapi.co/{$ipAddress}/country/" : "https://ipapi.co/country/";
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -186,7 +195,7 @@ final class GeoLocationService
      */
     private function fetchFromIpApiCom(string $ipAddress): null|string
     {
-        $url = "http://ip-api.com/json/{$ipAddress}?fields=countryCode";
+        $url = $ipAddress ? "http://ip-api.com/json/{$ipAddress}?fields=countryCode" : "http://ip-api.com/json/?fields=countryCode";
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
