@@ -612,7 +612,7 @@ class CourseApiController extends Controller
         // Transform data
         $courses
             ->getCollection()
-            ->transform(function ($course) use ($totalTaxPercentage, $countryCode) {
+            ->transform(function ($course) use ($totalTaxPercentage, $countryCode, $hasActiveSubscription) {
                 $discountPercentage = 0;
                 if ($course->has_discount) {
                     $discountPercentage = round((($course->price - $course->discount_price) / $course->price) * 100, 2);
