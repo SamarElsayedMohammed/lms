@@ -56,6 +56,9 @@ class Course extends Model
         'chatbot_welcome_message',
         'chatbot_system_prompt',
         'chatbot_max_tokens',
+        'initial_views',
+        'initial_students',
+        'initial_rating',
     ];
 
     protected $casts = [
@@ -70,6 +73,9 @@ class Course extends Model
         'is_featured' => 'boolean',
         'chatbot_enabled' => 'boolean',
         'chatbot_max_tokens' => 'integer',
+        'initial_views' => 'integer',
+        'initial_students' => 'integer',
+        'initial_rating' => 'decimal:1',
     ];
 
     protected $appends = ['total_tax_percentage', 'display_price', 'display_discount_price', 'tax_amount'];

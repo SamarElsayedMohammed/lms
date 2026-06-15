@@ -77,6 +77,9 @@ class CourseAdminApiController extends AdminCrudApiController
             'chatbot_welcome_message'       => 'nullable|string|max:500',
             'chatbot_system_prompt'         => 'nullable|string',
             'chatbot_max_tokens'            => 'nullable|integer|min:10|max:4000',
+            'initial_views'                 => 'nullable|integer|min:0',
+            'initial_students'              => 'nullable|integer|min:0',
+            'initial_rating'                => 'nullable|numeric|min:0|max:5',
         ]);
 
         if ($validator->fails()) {
@@ -174,6 +177,9 @@ class CourseAdminApiController extends AdminCrudApiController
                 'chatbot_welcome_message' => $request->input('chatbot_welcome_message'),
                 'chatbot_system_prompt'   => $request->input('chatbot_system_prompt'),
                 'chatbot_max_tokens'      => $request->filled('chatbot_max_tokens') ? (int) $request->input('chatbot_max_tokens') : null,
+                'initial_views'           => $request->filled('initial_views') ? (int) $request->input('initial_views') : 0,
+                'initial_students'        => $request->filled('initial_students') ? (int) $request->input('initial_students') : 0,
+                'initial_rating'          => $request->filled('initial_rating') ? (float) $request->input('initial_rating') : 0,
             ]);
 
             // AI Knowledge Base file for course chatbot
@@ -610,6 +616,9 @@ class CourseAdminApiController extends AdminCrudApiController
             'chatbot_welcome_message'       => 'nullable|string|max:500',
             'chatbot_system_prompt'         => 'nullable|string',
             'chatbot_max_tokens'            => 'nullable|integer|min:10|max:4000',
+            'initial_views'                 => 'nullable|integer|min:0',
+            'initial_students'              => 'nullable|integer|min:0',
+            'initial_rating'                => 'nullable|numeric|min:0|max:5',
         ]);
 
         if ($validator->fails()) {
@@ -704,6 +713,9 @@ class CourseAdminApiController extends AdminCrudApiController
                 'chatbot_welcome_message' => $request->input('chatbot_welcome_message', $course->chatbot_welcome_message),
                 'chatbot_system_prompt'   => $request->input('chatbot_system_prompt', $course->chatbot_system_prompt),
                 'chatbot_max_tokens'      => $request->filled('chatbot_max_tokens') ? (int) $request->input('chatbot_max_tokens') : $course->chatbot_max_tokens,
+                'initial_views'           => $request->filled('initial_views') ? (int) $request->input('initial_views') : $course->initial_views,
+                'initial_students'        => $request->filled('initial_students') ? (int) $request->input('initial_students') : $course->initial_students,
+                'initial_rating'          => $request->filled('initial_rating') ? (float) $request->input('initial_rating') : $course->initial_rating,
             ]);
 
             // AI Knowledge Base file for course chatbot
