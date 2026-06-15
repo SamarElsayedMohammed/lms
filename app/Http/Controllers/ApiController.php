@@ -1297,22 +1297,45 @@ class ApiController extends Controller
 
             $notifications = collect();
 
-            $getNotificationIcon = static function ($type) {
+            $getNotificationIcon = static function (string $type): string {
                 return match ($type) {
-                    'course', 'new_course' => 'fa-book',
-                    'instructor', 'new_instructor' => 'fa-chalkboard-teacher',
-                    'team_invitation', 'team_member' => 'fa-users',
-                    'purchase', 'subscription', 'payment', 'wallet', 'order' => 'fa-credit-card',
-                    'message', 'chat', 'reply' => 'fa-envelope',
-                    'certificate' => 'fa-certificate',
-                    'exam', 'quiz' => 'fa-clipboard-list',
-                    'assignment', 'homework' => 'fa-file-alt',
-                    'live_class', 'webinar', 'zoom' => 'fa-video',
-                    'announcement', 'system', 'global' => 'fa-bullhorn',
-                    'promotion', 'offer', 'campaign' => 'fa-gift',
-                    'support', 'ticket' => 'fa-headset',
-                    'review', 'rating' => 'fa-star',
-                    default => 'fa-bell',
+                    // Courses & learning content
+                    'course', 'new_course'                                               => 'fa-book',
+                    'certificate', 'certificate_issued'                                  => 'fa-certificate',
+                    'exam', 'quiz'                                                       => 'fa-clipboard-list',
+                    'assignment', 'homework'                                             => 'fa-file-alt',
+                    // Instructors
+                    'instructor', 'new_instructor',
+                    'instructor_submission', 'instructor_status_update'                  => 'fa-chalkboard-teacher',
+                    // Team
+                    'team_invitation', 'team_member', 'team_invitation_response'         => 'fa-users',
+                    // Wallet & payments
+                    'wallet'                                                              => 'fa-wallet',
+                    'withdrawal'                                                          => 'fa-money-bill-wave',
+                    'commission_paid'                                                     => 'fa-coins',
+                    'purchase', 'payment', 'order',
+                    'manual_deposit', 'admin_new_manual_deposit'                         => 'fa-money-check-alt',
+                    // Subscriptions
+                    'subscription', 'manual_subscription_status',
+                    'admin_new_subscription_request'                                     => 'fa-id-card',
+                    'subscription_expiry'                                                 => 'fa-clock',
+                    // Messages
+                    'message', 'chat', 'reply'                                           => 'fa-envelope',
+                    // Webinars & live sessions
+                    'live_class', 'webinar', 'zoom',
+                    'webinar_registration', 'webinar_reminder'                           => 'fa-video',
+                    // Announcements & system
+                    'announcement', 'system', 'global', 'admin_manual'                  => 'fa-bullhorn',
+                    // Welcome
+                    'welcome'                                                             => 'fa-door-open',
+                    // Promotions
+                    'promotion', 'offer', 'campaign'                                     => 'fa-gift',
+                    // Support
+                    'support', 'ticket'                                                  => 'fa-headset',
+                    // Reviews
+                    'review', 'rating'                                                   => 'fa-star',
+                    // Fallback
+                    default                                                               => 'fa-bell',
                 };
             };
 
