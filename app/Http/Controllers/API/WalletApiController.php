@@ -47,6 +47,12 @@ class WalletApiController extends Controller
                 'completed',
             ])->sum('amount');
 
+            $pricingService = app(\App\Services\PricingService::class);
+            $countryCode = $pricingService->detectUserCountry($request);
+            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
+            $displayCurrency = $currencyObj ? $currencyObj->currency_code : 'EGP';
+            $displaySymbol = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
+
             // Get recent transactions (last 5)
             $recentTransactions = WalletHistory::where('user_id', $user->id)
                 ->orderBy('created_at', 'desc')
@@ -60,6 +66,9 @@ class WalletApiController extends Controller
                     'description' => $transaction->description,
                     'balance_before' => (float) $transaction->balance_before,
                     'balance_after' => (float) $transaction->balance_after,
+                    'local_amount' => $pricingService->convertFromEgp((float) $transaction->amount, $displayCurrency),
+                    'local_balance_before' => $pricingService->convertFromEgp((float) $transaction->balance_before, $displayCurrency),
+                    'local_balance_after' => $pricingService->convertFromEgp((float) $transaction->balance_after, $displayCurrency),
                     'created_at' => $transaction->created_at,
                     'created_at_formatted' => $transaction->created_at->format('Y-m-d H:i:s'),
                     'time_ago' => $transaction->created_at->diffForHumans(),
@@ -67,12 +76,19 @@ class WalletApiController extends Controller
 
             $summary = [
                 'wallet_balance' => (float) $walletBalance,
-                'currency' => \App\Services\HelperService::systemSettings('currency_code') ?: 'EGP',
+                'local_wallet_balance' => $pricingService->convertFromEgp((float) $walletBalance, $displayCurrency),
+                'currency' => $displayCurrency,
+                'currency_symbol' => $displaySymbol,
                 'total_credits' => (float) $totalCredits,
+                'local_total_credits' => $pricingService->convertFromEgp((float) $totalCredits, $displayCurrency),
                 'total_debits' => (float) $totalDebits,
+                'local_total_debits' => $pricingService->convertFromEgp((float) $totalDebits, $displayCurrency),
                 'total_withdrawals' => (float) $totalWithdrawals,
+                'local_total_withdrawals' => $pricingService->convertFromEgp((float) $totalWithdrawals, $displayCurrency),
                 'pending_withdrawals' => (float) $pendingWithdrawals,
+                'local_pending_withdrawals' => $pricingService->convertFromEgp((float) $pendingWithdrawals, $displayCurrency),
                 'available_for_withdrawal' => (float) max(0, $walletBalance - $pendingWithdrawals),
+                'local_available_for_withdrawal' => $pricingService->convertFromEgp((float) max(0, $walletBalance - $pendingWithdrawals), $displayCurrency),
                 'recent_transactions' => $recentTransactions,
             ];
 

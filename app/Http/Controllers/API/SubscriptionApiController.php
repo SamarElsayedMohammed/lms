@@ -132,13 +132,13 @@ final class SubscriptionApiController extends Controller
                 };
                 return [
                     'id' => $subscription->id,
-                    'plan' => [
+                    'plan' => $subscription->plan ? [
                         'id' => $subscription->plan->id,
                         'name' => $subscription->plan->name,
                         'billing_cycle' => $subscription->plan->billing_cycle,
                         'billing_cycle_label' => $subscription->plan->billing_cycle_label,
-                    ],
-                    'plan_name' => $subscription->plan->name, // added for backward compatibility
+                    ] : null,
+                    'plan_name' => $subscription->plan->name ?? 'Unknown Plan',
                     'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
                     'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
                     'days_remaining' => $subscription->days_remaining,
@@ -149,7 +149,7 @@ final class SubscriptionApiController extends Controller
                     'created_at' => $subscription->created_at->format('Y-m-d H:i:s'),
                     'renewal_date' => $subscription->ends_at?->format('Y-m-d H:i:s'),
                     'payment_method' => 'wallet', // default or from latest payment if needed
-                    'next_payment_amount' => (float)$subscription->plan->price,
+                    'next_payment_amount' => $subscription->plan ? (float)$subscription->plan->price : 0,
                     'currency' => \App\Services\HelperService::systemSettings('currency_code') ?: 'EGP',
                 ];
             });
