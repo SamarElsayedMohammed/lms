@@ -75,7 +75,7 @@ final class SubscriptionApiController extends Controller
                     'billing_cycle' => $plan->billing_cycle,
                     'billing_cycle_label' => $plan->billing_cycle_label,
                     'duration_days' => $plan->getDurationDays(),
-                    'formatted_price' => $plan->formatted_price,
+                    'formatted_price' => number_format((float) $localized['price'], 2) . ' ' . $localized['currency_symbol'],
                     'features' => $plan->features,
                     'is_lifetime' => $plan->isLifetime(),
                 ];
@@ -574,14 +574,27 @@ final class SubscriptionApiController extends Controller
             $perPage = $request->input('per_page', 10);
             $paginator = $this->subscriptionService->getPaymentHistory($user, $perPage);
 
+            $pricingService = app(\App\Services\PricingService::class);
+            $countryCode = $pricingService->detectUserCountry($request);
+            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
+            $displayCurrency = $currencyObj ? $currencyObj->currency_code : 'EGP';
+            $displaySymbol = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
+
             $formattedPayments = $paginator->getCollection()->map(fn($payment) => [
                 'id' => $payment->id,
                 'amount' => (float) $payment->amount,
+                'local_amount' => $pricingService->convertFromEgp((float) $payment->amount, $displayCurrency),
                 'wallet_amount' => (float) $payment->wallet_amount,
+                'local_wallet_amount' => $pricingService->convertFromEgp((float) $payment->wallet_amount, $displayCurrency),
                 'gateway_amount' => (float) $payment->gateway_amount,
+                'local_gateway_amount' => $pricingService->convertFromEgp((float) $payment->gateway_amount, $displayCurrency),
                 'promo_code' => $payment->promo_code,
                 'original_amount' => $payment->original_amount ? (float) $payment->original_amount : null,
+                'local_original_amount' => $payment->original_amount ? $pricingService->convertFromEgp((float) $payment->original_amount, $displayCurrency) : null,
                 'discount_amount' => (float) $payment->discount_amount,
+                'local_discount_amount' => $pricingService->convertFromEgp((float) $payment->discount_amount, $displayCurrency),
+                'currency' => $displayCurrency,
+                'currency_symbol' => $displaySymbol,
                 'status' => $payment->status,
                 'payment_method' => $payment->payment_method,
                 'transaction_id' => $payment->transaction_id,
@@ -603,6 +616,9 @@ final class SubscriptionApiController extends Controller
 
             return ApiResponseService::successResponse('Payment history retrieved successfully', [
                 'total_paid' => (float) $totalPaid,
+                'local_total_paid' => $pricingService->convertFromEgp((float) $totalPaid, $displayCurrency),
+                'currency' => $displayCurrency,
+                'currency_symbol' => $displaySymbol,
                 'transactions_count' => $transactionsCount,
                 'payments' => $formattedPayments,
                 'pagination' => [
