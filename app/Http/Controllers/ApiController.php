@@ -1297,7 +1297,8 @@ class ApiController extends Controller
 
             $notifications = collect();
 
-            $getNotificationIcon = static function (string $type): string {
+            $getNotificationIcon = static function ($type): string {
+                $type = is_string($type) ? $type : 'default';
                 return match ($type) {
                     // Courses & learning content
                     'course', 'new_course'                                               => 'fa-book',
@@ -1427,7 +1428,7 @@ class ApiController extends Controller
                             'id' => $personalNotificationsRaw->first()?->id,
                             'notifiable_type' => $personalNotificationsRaw->first()?->notifiable_type,
                             'notifiable_id' => $personalNotificationsRaw->first()?->notifiable_id,
-                            'data_preview' => substr((string) $personalNotificationsRaw->first()?->data, 0, 100),
+                            'data_preview' => substr(json_encode($personalNotificationsRaw->first()?->data ?? []), 0, 100),
                         ] : null,
                 ]);
 
@@ -1437,7 +1438,8 @@ class ApiController extends Controller
                         ? json_decode($notification->data, true)
                         : $notification->data;
                     $data = is_array($data) ? $data : [];
-                    $notificationType = $data['type'] ?? 'default';
+                    $rawType = $data['type'] ?? 'default';
+                    $notificationType = is_string($rawType) ? $rawType : 'default';
                     $typeId = $data['type_id'] ?? null;
                     $slug = null;
                     $instructorDetails = null;

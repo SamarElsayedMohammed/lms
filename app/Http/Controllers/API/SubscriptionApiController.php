@@ -9,6 +9,9 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Notifications\AdminNewSubscriptionRequestNotification;
+use App\Notifications\AdminSubscriptionRenewedNotification;
+use App\Notifications\ManualRenewalRequestedNotification;
+use App\Notifications\SubscriptionRenewedNotification;
 use App\Services\ApiResponseService;
 use App\Services\Payment\KashierCheckoutService;
 use App\Services\PricingService;
@@ -513,6 +516,29 @@ final class SubscriptionApiController extends Controller
                     $gatewayAmount
                 );
 
+                // Notify user and admins about successful renewal
+                try {
+                    $user->notify(new SubscriptionRenewedNotification($subscription, $walletAmount));
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send renewal notification to user', [
+                        'user_id' => $user->id,
+                        'subscription_id' => $subscription->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+
+                try {
+                    $admins = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
+                    foreach ($admins as $admin) {
+                        $admin->notify(new AdminSubscriptionRenewedNotification($subscription, $user, $walletAmount));
+                    }
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send renewal notification to admins', [
+                        'subscription_id' => $subscription->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+
                 return ApiResponseService::successResponse('تم تجديد الاشتراك بنجاح!', [
                     'requires_checkout' => false,
                     'subscription' => [
@@ -560,15 +586,27 @@ final class SubscriptionApiController extends Controller
                         'is_renewal' => true, // We should add this column or handle logic in admin approval
                     ]);
 
+                    // Notify admins about the new manual renewal request
                     try {
-                        $admins = \App\Models\User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
+                        $admins = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
                         foreach ($admins as $admin) {
-                            $admin->notify(new \App\Notifications\AdminNewSubscriptionRequestNotification($subscription, $user));
+                            $admin->notify(new AdminNewSubscriptionRequestNotification($subscription, $user));
                         }
                     } catch (\Throwable $e) {
-                        \Illuminate\Support\Facades\Log::error('Failed to notify admins of manual renewal request', [
+                        Log::error('Failed to notify admins of manual renewal request', [
                             'subscription_id' => $subscription->id,
-                            'error' => $e->getMessage()
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+
+                    // Notify user that their renewal request is under review
+                    try {
+                        $user->notify(new ManualRenewalRequestedNotification($subscription));
+                    } catch (\Throwable $e) {
+                        Log::error('Failed to send manual renewal pending notification to user', [
+                            'user_id' => $user->id,
+                            'subscription_id' => $subscription->id,
+                            'error' => $e->getMessage(),
                         ]);
                     }
 
