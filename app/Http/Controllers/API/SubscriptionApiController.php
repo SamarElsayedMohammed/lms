@@ -101,7 +101,7 @@ final class SubscriptionApiController extends Controller
     /**
      * Get current user's subscription status
      */
-    public function getMySubscription(): JsonResponse
+    public function getMySubscription(Request $request): JsonResponse
     {
         try {
             $user = Auth::user();
@@ -109,6 +109,12 @@ final class SubscriptionApiController extends Controller
             if (!$user) {
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
+
+            // Detect user country & resolve display currency
+            $countryCode     = $this->pricingService->detectUserCountry($request) ?: 'EG';
+            $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
+            $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
+            $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
 
             // Fetch all active, pending and pending approval subscriptions
             $subscriptions = Subscription::with('plan')
@@ -123,42 +129,53 @@ final class SubscriptionApiController extends Controller
 
             $hasAccess = $subscriptions->contains('status', Subscription::STATUS_ACTIVE);
             
-            $formattedSubscriptions = $subscriptions->map(function ($subscription) {
+            $formattedSubscriptions = $subscriptions->map(function ($subscription) use ($countryCode, $displayCurrency, $displaySymbol) {
                 $statusLabel = match($subscription->status) {
                     Subscription::STATUS_ACTIVE => 'Active',
                     Subscription::STATUS_PENDING => 'Pending (Queued)',
                     Subscription::STATUS_PENDING_APPROVAL => 'Pending Admin Approval',
                     default => ucfirst($subscription->status),
                 };
+
+                // Resolve next payment amount in user's local currency
+                $localizedPricing    = $subscription->plan
+                    ? $this->pricingService->getPriceForCountry($subscription->plan, $countryCode)
+                    : ['price' => 0, 'currency_code' => $displayCurrency, 'currency_symbol' => $displaySymbol];
+                $nextPaymentAmount   = (float) $localizedPricing['price'];
+                $nextPaymentCurrency = $localizedPricing['currency_code'];
+                $nextPaymentSymbol   = $localizedPricing['currency_symbol'];
+
                 return [
-                    'id' => $subscription->id,
+                    'id'                  => $subscription->id,
                     'plan' => $subscription->plan ? [
-                        'id' => $subscription->plan->id,
-                        'name' => $subscription->plan->name,
-                        'billing_cycle' => $subscription->plan->billing_cycle,
+                        'id'                => $subscription->plan->id,
+                        'name'              => $subscription->plan->name,
+                        'billing_cycle'     => $subscription->plan->billing_cycle,
                         'billing_cycle_label' => $subscription->plan->billing_cycle_label,
                     ] : null,
-                    'plan_name' => $subscription->plan->name ?? 'Unknown Plan',
-                    'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
-                    'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
-                    'days_remaining' => $subscription->days_remaining,
-                    'is_lifetime' => $subscription->isLifetime(),
-                    'auto_renew' => (bool)$subscription->auto_renew,
-                    'status' => $subscription->status,
-                    'status_label' => $statusLabel,
-                    'created_at' => $subscription->created_at->format('Y-m-d H:i:s'),
-                    'renewal_date' => $subscription->ends_at?->format('Y-m-d H:i:s'),
-                    'payment_method' => 'wallet', // default or from latest payment if needed
-                    'next_payment_amount' => $subscription->plan ? (float)$subscription->plan->price : 0,
-                    'currency' => \App\Services\HelperService::systemSettings('currency_code') ?: 'EGP',
+                    'plan_name'           => $subscription->plan->name ?? 'Unknown Plan',
+                    'starts_at'           => $subscription->starts_at->format('Y-m-d H:i:s'),
+                    'ends_at'             => $subscription->ends_at?->format('Y-m-d H:i:s'),
+                    'days_remaining'      => $subscription->days_remaining,
+                    'is_lifetime'         => $subscription->isLifetime(),
+                    'auto_renew'          => (bool) $subscription->auto_renew,
+                    'status'              => $subscription->status,
+                    'status_label'        => $statusLabel,
+                    'created_at'          => $subscription->created_at->format('Y-m-d H:i:s'),
+                    'renewal_date'        => $subscription->ends_at?->format('Y-m-d H:i:s'),
+                    'payment_method'      => 'wallet',
+                    'next_payment_amount' => $nextPaymentAmount,
+                    'currency'            => $nextPaymentCurrency,
+                    'currency_symbol'     => $nextPaymentSymbol,
                 ];
             });
 
             return ApiResponseService::successResponse('Subscription status retrieved successfully', [
-                'has_access' => $hasAccess,
-                'subscriptions' => $formattedSubscriptions,
-                // Backward compatibility for single subscription clients
-                'subscription' => $formattedSubscriptions->first() 
+                'has_access'      => $hasAccess,
+                'currency'        => $displayCurrency,
+                'currency_symbol' => $displaySymbol,
+                'subscriptions'   => $formattedSubscriptions,
+                'subscription'    => $formattedSubscriptions->first(),
             ]);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve subscription status: ' . $e->getMessage());
@@ -574,33 +591,33 @@ final class SubscriptionApiController extends Controller
             $perPage = $request->input('per_page', 10);
             $paginator = $this->subscriptionService->getPaymentHistory($user, $perPage);
 
-            $pricingService = app(\App\Services\PricingService::class);
-            $countryCode = $pricingService->detectUserCountry($request);
-            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
-            $displayCurrency = $currencyObj ? $currencyObj->currency_code : 'EGP';
-            $displaySymbol = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
+            // Detect user country & resolve display currency
+            $countryCode     = $this->pricingService->detectUserCountry($request) ?: 'EG';
+            $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
+            $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
+            $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
 
             $formattedPayments = $paginator->getCollection()->map(fn($payment) => [
-                'id' => $payment->id,
-                'amount' => (float) $payment->amount,
-                'local_amount' => $pricingService->convertFromEgp((float) $payment->amount, $displayCurrency),
-                'wallet_amount' => (float) $payment->wallet_amount,
-                'local_wallet_amount' => $pricingService->convertFromEgp((float) $payment->wallet_amount, $displayCurrency),
-                'gateway_amount' => (float) $payment->gateway_amount,
-                'local_gateway_amount' => $pricingService->convertFromEgp((float) $payment->gateway_amount, $displayCurrency),
-                'promo_code' => $payment->promo_code,
-                'original_amount' => $payment->original_amount ? (float) $payment->original_amount : null,
-                'local_original_amount' => $payment->original_amount ? $pricingService->convertFromEgp((float) $payment->original_amount, $displayCurrency) : null,
-                'discount_amount' => (float) $payment->discount_amount,
-                'local_discount_amount' => $pricingService->convertFromEgp((float) $payment->discount_amount, $displayCurrency),
-                'currency' => $displayCurrency,
-                'currency_symbol' => $displaySymbol,
-                'status' => $payment->status,
-                'payment_method' => $payment->payment_method,
-                'transaction_id' => $payment->transaction_id,
-                'paid_at' => $payment->paid_at?->format('Y-m-d H:i:s'),
+                'id'                   => $payment->id,
+                'amount'               => (float) $payment->amount,
+                'local_amount'         => $this->pricingService->convertFromEgp((float) $payment->amount, $displayCurrency),
+                'wallet_amount'        => (float) $payment->wallet_amount,
+                'local_wallet_amount'  => $this->pricingService->convertFromEgp((float) $payment->wallet_amount, $displayCurrency),
+                'gateway_amount'       => (float) $payment->gateway_amount,
+                'local_gateway_amount' => $this->pricingService->convertFromEgp((float) $payment->gateway_amount, $displayCurrency),
+                'promo_code'           => $payment->promo_code,
+                'original_amount'      => $payment->original_amount ? (float) $payment->original_amount : null,
+                'local_original_amount' => $payment->original_amount ? $this->pricingService->convertFromEgp((float) $payment->original_amount, $displayCurrency) : null,
+                'discount_amount'      => (float) $payment->discount_amount,
+                'local_discount_amount' => $this->pricingService->convertFromEgp((float) $payment->discount_amount, $displayCurrency),
+                'currency'             => $displayCurrency,
+                'currency_symbol'      => $displaySymbol,
+                'status'               => $payment->status,
+                'payment_method'       => $payment->payment_method,
+                'transaction_id'       => $payment->transaction_id,
+                'paid_at'              => $payment->paid_at?->format('Y-m-d H:i:s'),
                 'plan' => $payment->subscription?->plan ? [
-                    'name' => $payment->subscription->plan->name,
+                    'name'          => $payment->subscription->plan->name,
                     'billing_cycle' => $payment->subscription->plan->billing_cycle_label,
                 ] : null,
                 'created_at' => $payment->created_at->format('Y-m-d H:i:s'),
@@ -615,10 +632,10 @@ final class SubscriptionApiController extends Controller
                 ->count();
 
             return ApiResponseService::successResponse('Payment history retrieved successfully', [
-                'total_paid' => (float) $totalPaid,
-                'local_total_paid' => $pricingService->convertFromEgp((float) $totalPaid, $displayCurrency),
-                'currency' => $displayCurrency,
-                'currency_symbol' => $displaySymbol,
+                'total_paid'       => (float) $totalPaid,
+                'local_total_paid' => $this->pricingService->convertFromEgp((float) $totalPaid, $displayCurrency),
+                'currency'         => $displayCurrency,
+                'currency_symbol'  => $displaySymbol,
                 'transactions_count' => $transactionsCount,
                 'payments' => $formattedPayments,
                 'pagination' => [

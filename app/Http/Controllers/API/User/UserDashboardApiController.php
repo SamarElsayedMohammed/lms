@@ -12,6 +12,7 @@ use App\Models\WebinarRegistration;
 use App\Models\Wishlist;
 use App\Services\ApiResponseService;
 use App\Services\HelperService;
+use App\Services\PricingService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,6 +20,8 @@ use Illuminate\Support\Facades\DB;
 
 class UserDashboardApiController extends Controller
 {
+    public function __construct(private readonly PricingService $pricingService) {}
+
     /**
      * Get user dashboard data
      */
@@ -37,17 +40,18 @@ class UserDashboardApiController extends Controller
             // 2. Subscription Info
             $subscription = $this->getSubscriptionInfo($user);
 
-            $pricingService = app(\App\Services\PricingService::class);
-            $countryCode = $pricingService->detectUserCountry($request);
-            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
-            $displayCurrency = $currencyObj ? $currencyObj->currency_code : 'EGP';
-            $displaySymbol = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
+            // Detect user country & resolve display currency
+            $countryCode     = $this->pricingService->detectUserCountry($request) ?: 'EG';
+            $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
+            $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
+            $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
+            $walletBalance   = round($user->wallet_balance ?? 0, 2);
 
             // 3. Wallet Balance
             $wallet = [
-                'balance' => round($user->wallet_balance ?? 0, 2),
-                'local_balance' => $pricingService->convertFromEgp((float) ($user->wallet_balance ?? 0), $displayCurrency),
-                'currency' => $displayCurrency,
+                'balance'         => $walletBalance,
+                'local_balance'   => $this->pricingService->convertFromEgp($walletBalance, $displayCurrency),
+                'currency'        => $displayCurrency,
                 'currency_symbol' => $displaySymbol,
             ];
 
