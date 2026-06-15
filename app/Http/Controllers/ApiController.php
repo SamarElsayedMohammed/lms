@@ -1297,6 +1297,25 @@ class ApiController extends Controller
 
             $notifications = collect();
 
+            $getNotificationIcon = static function ($type) {
+                return match ($type) {
+                    'course', 'new_course' => 'fa-book',
+                    'instructor', 'new_instructor' => 'fa-chalkboard-teacher',
+                    'team_invitation', 'team_member' => 'fa-users',
+                    'purchase', 'subscription', 'payment', 'wallet', 'order' => 'fa-credit-card',
+                    'message', 'chat', 'reply' => 'fa-envelope',
+                    'certificate' => 'fa-certificate',
+                    'exam', 'quiz' => 'fa-clipboard-list',
+                    'assignment', 'homework' => 'fa-file-alt',
+                    'live_class', 'webinar', 'zoom' => 'fa-video',
+                    'announcement', 'system', 'global' => 'fa-bullhorn',
+                    'promotion', 'offer', 'campaign' => 'fa-gift',
+                    'support', 'ticket' => 'fa-headset',
+                    'review', 'rating' => 'fa-star',
+                    default => 'fa-bell',
+                };
+            };
+
             // Get global notifications (legacy_notifications table)
             if ($type === 'all' || $type === 'global') {
                 // Get all read notification IDs for this user
@@ -1310,7 +1329,7 @@ class ApiController extends Controller
                 $globalNotifications = \App\Models\Notification::where('date_sent', '>=', $userRegistrationDate)
                     ->orderBy('date_sent', 'desc')
                     ->get()
-                    ->map(static function ($notification) use ($readNotificationIds, $user) {
+                    ->map(static function ($notification) use ($readNotificationIds, $user, $getNotificationIcon) {
                         $slug = null;
 
                         // Get slug for course or instructor notification types
@@ -1341,6 +1360,7 @@ class ApiController extends Controller
                             'type_link' => $notification->type_link,
                             'slug' => $slug,
                             'image' => $notification->image,
+                            'icon' => $getNotificationIcon($notification->type),
                             'date_sent' => $notification->date_sent,
                             'date_sent_formatted' => $notification->date_sent->format('Y-m-d H:i:s'),
                             'time_ago' => $notification->date_sent->diffForHumans(),
@@ -1406,7 +1426,7 @@ class ApiController extends Controller
                         ] : null,
                 ]);
 
-                $personalNotifications = $personalNotificationsRaw->map(static function ($notification) {
+                $personalNotifications = $personalNotificationsRaw->map(static function ($notification) use ($getNotificationIcon) {
                     // Decode data if it's a string (JSON)
                     $data = is_string($notification->data)
                         ? json_decode($notification->data, true)
@@ -1488,6 +1508,7 @@ class ApiController extends Controller
                         'type_link' => $data['type_link'] ?? $data['link'] ?? null,
                         'slug' => $slug,
                         'image' => $data['image'] ?? null,
+                        'icon' => $getNotificationIcon($notificationType),
                         'date_sent' => $createdAt,
                         'date_sent_formatted' => $createdAt->format('Y-m-d H:i:s'),
                         'time_ago' => $createdAt->diffForHumans(),
@@ -1651,8 +1672,7 @@ class ApiController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'notification_id' => 'required|array',
-                'notification_id.*' => 'required|string',
+                'notification_id' => 'required',
             ]);
 
             if ($validator->fails()) {
@@ -1720,7 +1740,7 @@ class ApiController extends Controller
                 }
             }
 
-            $notificationIds = $request->notification_id;
+            $notificationIds = is_array($request->notification_id) ? $request->notification_id : [$request->notification_id];
             $markedCount = 0;
             $globalCount = 0;
             $errors = [];
@@ -1808,11 +1828,11 @@ class ApiController extends Controller
                 }
             }
 
-            $message = 'Notifications marked as read';
+            $message = 'تم تحديد الإشعارات كمقروءة';
             if ($markedCount > 0) {
-                $message = "{$markedCount} notification(s) marked as read";
+                $message = "تم تحديد {$markedCount} إشعار كمقروء";
             } elseif (count($errors) > 0) {
-                $message = 'No notifications were marked as read. ' . implode(' ', $errors);
+                $message = 'لم يتم تحديد أي إشعارات كمقروءة. ' . implode(' ', $errors);
             }
 
             $responseData = [
@@ -1926,9 +1946,9 @@ class ApiController extends Controller
             }
 
             $totalMarked = $personalMarkedCount + $globalMarkedCount;
-            $message = 'All notifications marked as read';
+            $message = 'تم تحديد جميع الإشعارات كمقروءة';
             if ($totalMarked > 0) {
-                $message = "{$totalMarked} notification(s) marked as read";
+                $message = "تم تحديد {$totalMarked} إشعار كمقروء";
             }
 
             return ApiResponseService::successResponse($message, [

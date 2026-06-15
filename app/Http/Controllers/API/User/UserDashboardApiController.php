@@ -37,10 +37,18 @@ class UserDashboardApiController extends Controller
             // 2. Subscription Info
             $subscription = $this->getSubscriptionInfo($user);
 
+            $pricingService = app(\App\Services\PricingService::class);
+            $countryCode = $pricingService->detectUserCountry($request);
+            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
+            $displayCurrency = $currencyObj ? $currencyObj->currency_code : 'EGP';
+            $displaySymbol = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
+
             // 3. Wallet Balance
             $wallet = [
                 'balance' => round($user->wallet_balance ?? 0, 2),
-                'currency' => HelperService::systemSettings('currency_code') ?: 'EGP',
+                'local_balance' => $pricingService->convertFromEgp((float) ($user->wallet_balance ?? 0), $displayCurrency),
+                'currency' => $displayCurrency,
+                'currency_symbol' => $displaySymbol,
             ];
 
             // 4. Recent Courses (Last accessed)
@@ -115,6 +123,7 @@ class UserDashboardApiController extends Controller
         $sub = Subscription::where('user_id', $user->id)
             ->active()
             ->with('plan')
+            ->latest('created_at')
             ->first();
 
         if (!$sub) {
