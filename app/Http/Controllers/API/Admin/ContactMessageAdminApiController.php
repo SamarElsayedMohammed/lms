@@ -7,6 +7,7 @@ namespace App\Http\Controllers\API\Admin;
 use App\Models\ContactMessage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 
 class ContactMessageAdminApiController extends AdminCrudApiController
@@ -90,5 +91,49 @@ class ContactMessageAdminApiController extends AdminCrudApiController
 
         $message->update(['status' => $request->status]);
         return $this->jsonSuccess(__('Status updated'), $message->fresh());
+    }
+
+    public function reply(Request $request, int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('contact-messages-edit');
+
+        $validator = Validator::make($request->all(), [
+            'reply_message' => 'required|string|min:5',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        $message = ContactMessage::find($id);
+        if (!$message) {
+            return $this->jsonError(__('Contact message not found'), 404);
+        }
+
+        try {
+            $appName = \App\Services\HelperService::systemSettings('app_name') ?? 'LMS';
+            $replyMessage = $request->reply_message;
+
+            Mail::send(
+                'emails.contact-reply',
+                [
+                    'contactMessage' => $message,
+                    'appName' => $appName,
+                    'replyMessage' => $replyMessage,
+                ],
+                function ($mail) use ($message, $appName) {
+                    $mail->to($message->email)
+                        ->subject("Reply to your inquiry - {$appName}");
+                }
+            );
+
+            // Automatically update status to replied
+            $message->update(['status' => 'replied']);
+
+            return $this->jsonSuccess(__('Reply sent successfully'), $message->fresh());
+        } catch (\Exception $e) {
+            return $this->jsonError(__('Failed to send reply: ') . $e->getMessage(), 500);
+        }
     }
 }

@@ -712,6 +712,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('contact-messages/{id}', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'show']);
         Route::put('contact-messages/{id}/read', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'markRead']);
         Route::put('contact-messages/{id}/status', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'updateStatus']);
+        Route::post('contact-messages/{id}/reply', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'reply']);
 
         // Enrollments
         Route::get('enrollments', [\App\Http\Controllers\API\Admin\EnrollmentAdminApiController::class, 'index']);
