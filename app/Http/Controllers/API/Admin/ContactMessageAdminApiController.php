@@ -112,15 +112,16 @@ class ContactMessageAdminApiController extends AdminCrudApiController
         }
 
         try {
-            $appName = \App\Services\HelperService::systemSettings('app_name') ?? 'LMS';
+            $appName      = \App\Services\HelperService::systemSettings('app_name') ?? 'LMS';
             $replyMessage = $request->reply_message;
 
+            // 1️⃣ Send email reply
             Mail::send(
                 'emails.contact-reply',
                 [
                     'contactMessage' => $message,
-                    'appName' => $appName,
-                    'replyMessage' => $replyMessage,
+                    'appName'        => $appName,
+                    'replyMessage'   => $replyMessage,
                 ],
                 function ($mail) use ($message, $appName) {
                     $mail->to($message->email)
@@ -128,8 +129,30 @@ class ContactMessageAdminApiController extends AdminCrudApiController
                 }
             );
 
-            // Automatically update status to replied
-            $message->update(['status' => 'replied']);
+            // 2️⃣ Send in-app + FCM notification to the user (only if logged-in user sent the message)
+            if ($message->user_id) {
+                $user = \App\Models\User::find($message->user_id);
+                if ($user) {
+                    try {
+                        $user->notify(new \App\Notifications\ContactReplyNotification(
+                            $message,
+                            $replyMessage,
+                            $appName,
+                        ));
+                    } catch (\Exception $e) {
+                        \Illuminate\Support\Facades\Log::warning(
+                            'ContactMessageAdminApiController: Failed to send in-app notification to user',
+                            ['user_id' => $user->id, 'error' => $e->getMessage()],
+                        );
+                    }
+                }
+            }
+
+            // 3️⃣ Update status to replied and save the reply message
+            $message->update([
+                'status' => 'replied',
+                'reply_message' => $replyMessage
+            ]);
 
             return $this->jsonSuccess(__('Reply sent successfully'), $message->fresh());
         } catch (\Exception $e) {

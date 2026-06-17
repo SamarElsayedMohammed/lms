@@ -61,6 +61,8 @@ final class SubscriptionPlanController extends Controller
             'is_active' => 'nullable|boolean',
             'countries' => 'required|array|min:1',
             'countries.*.country_id' => 'required|exists:countries,id,status,1',
+            'countries.*.country_code' => 'nullable|string|max:2',
+            'countries.*.currency_code' => 'nullable|string|max:3',
             'countries.*.price' => 'required|numeric|min:0',
             'countries.*.offer_price' => 'nullable|numeric|min:0',
         ];
@@ -118,6 +120,8 @@ final class SubscriptionPlanController extends Controller
                 SubscriptionPlanPrice::create([
                     'plan_id' => $plan->id,
                     'country_id' => $entry['country_id'],
+                    'country_code' => $entry['country_code'] ?? null,
+                    'currency_code' => $entry['currency_code'] ?? 'USD', // fallback to USD if not provided
                     'price' => $entry['price'],
                     'offer_price' => (isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null)
                     ? (float)$entry['offer_price'] : null,
@@ -168,6 +172,8 @@ final class SubscriptionPlanController extends Controller
             'is_active' => 'nullable|boolean',
             'countries' => 'required|array|min:1',
             'countries.*.country_id' => 'required|exists:countries,id,status,1',
+            'countries.*.country_code' => 'nullable|string|max:2',
+            'countries.*.currency_code' => 'nullable|string|max:3',
             'countries.*.price' => 'required|numeric|min:0',
             'countries.*.offer_price' => 'nullable|numeric|min:0',
         ];
@@ -234,6 +240,8 @@ final class SubscriptionPlanController extends Controller
                     'country_id' => $entry['country_id'],
                 ],
                 [
+                    'country_code' => $entry['country_code'] ?? null,
+                    'currency_code' => $entry['currency_code'] ?? 'USD', // fallback to USD if not provided
                     'price' => $entry['price'],
                     'offer_price' => (isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null)
                     ? (float)$entry['offer_price'] : null,

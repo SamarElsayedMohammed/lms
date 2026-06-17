@@ -179,6 +179,11 @@ class FileService
         // Clean up the path and remove leading slashes to prevent double slashes
         $cleanPath = ltrim($path, '/');
         
+        // If the path is a public asset (e.g. default settings images in public/assets)
+        if (str_starts_with($cleanPath, 'assets/')) {
+            return url($cleanPath);
+        }
+        
         // Use Storage::url which automatically handles the APP_URL and /storage/ prefix correctly
         return Storage::disk('public')->url($cleanPath);
     }

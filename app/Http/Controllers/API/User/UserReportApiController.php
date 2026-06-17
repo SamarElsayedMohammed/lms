@@ -211,7 +211,7 @@ class UserReportApiController extends Controller
                 'status' => $progress >= 100 ? 'completed' : ($progress > 0 ? 'in_progress' : 'not_started'),
                 'is_reviewed' => $hasReviewed,
                 'last_activity' => UserCurriculumTracking::where('user_id', $user->id)
-                    ->where('course_id', $course->id)
+                    ->whereHas('chapter', fn($q) => $q->where('course_id', $course->id))
                     ->latest('updated_at')
                     ->value('updated_at'),
             ];
@@ -224,7 +224,7 @@ class UserReportApiController extends Controller
     private function getQuizPerformanceReport(User $user)
     {
         $attempts = UserQuizAttempt::where('user_id', $user->id)
-            ->with(['quiz.course'])
+            ->with(['quiz.chapter.course'])
             ->get();
 
         $totalAttempts = $attempts->count();
@@ -239,7 +239,7 @@ class UserReportApiController extends Controller
             'recent_attempts' => $attempts->sortByDesc('created_at')->take(5)->map(function ($attempt) {
                 return [
                     'quiz_title' => $attempt->quiz->title ?? 'N/A',
-                    'course_title' => $attempt->quiz->course->title ?? 'N/A',
+                    'course_title' => $attempt->quiz->chapter->course->title ?? 'N/A',
                     'score' => $attempt->score,
                     'status' => $attempt->status,
                     'date' => $attempt->created_at->toDateTimeString(),
@@ -326,7 +326,7 @@ class UserReportApiController extends Controller
     private function getRecentActivities(User $user)
     {
         return UserCurriculumTracking::where('user_id', $user->id)
-            ->with(['course'])
+            ->with(['chapter.course'])
             ->latest('updated_at')
             ->limit(10)
             ->get()
@@ -338,7 +338,7 @@ class UserReportApiController extends Controller
 
                 return [
                     'activity' => 'Completed ' . $type,
-                    'course_title' => $track->course->title ?? 'N/A',
+                    'course_title' => $track->chapter->course->title ?? 'N/A',
                     'date' => $track->updated_at->toDateTimeString(),
                 ];
             });

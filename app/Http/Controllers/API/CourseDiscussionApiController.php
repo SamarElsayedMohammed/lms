@@ -178,12 +178,16 @@ class CourseDiscussionApiController extends Controller
             }
 
             $discussion = CourseDiscussion::create([
-                'status' => FeatureFlagService::isEnabled('comments_require_approval') ? 'pending' : 'approved',
+                'status' => 'pending', // Forced pending per admin request
                 'user_id' => Auth::id(),
                 'course_id' => $courseId,
                 'message' => $validated['message'],
                 'parent_id' => $validated['parent_id'] ?? null,
             ]);
+
+            // Notify admins
+            $admins = \App\Models\User::role(['Super Admin', 'Admin'])->get();
+            \Illuminate\Support\Facades\Notification::send($admins, new \App\Notifications\AdminNewReviewNotification($discussion, 'comment'));
 
             // Reload the discussion with relationships to match GET API format
             $discussion = CourseDiscussion::with(['user', 'replies.user'])->find($discussion->id);

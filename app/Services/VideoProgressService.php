@@ -5,11 +5,24 @@ namespace App\Services;
 use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\User;
+use App\Models\UserCurriculumTracking;
 use App\Models\VideoProgress;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class VideoProgressService
 {
+    /**
+     * Minimum watch percentage to consider a video lecture completed.
+     * Used consistently across the service and certificate checks.
+     */
+    public const COMPLETION_THRESHOLD = 100.0;
+
+    /**
+     * File types that are considered video lectures (require watch tracking).
+     */
+    private const VIDEO_FILE_TYPES = ['video', 'mp4', 'hls', 'stream', 'vimeo', 'youtube', 'embed', 'url'];
+
     public function __construct(
         private readonly FeatureFlagService $featureFlagService
     ) {}
@@ -34,12 +47,13 @@ class VideoProgressService
             ? round(($effectiveWatched / $totalSeconds) * 100, 2)
             : 0;
 
-        $isCompleted = $watchPercentage >= 85;
-        $completedAt = $isCompleted && ($existing === null || !$existing->is_completed)
+        $wasAlreadyCompleted = $existing !== null && $existing->is_completed;
+        $isCompleted = $watchPercentage >= self::COMPLETION_THRESHOLD;
+        $completedAt = $isCompleted && !$wasAlreadyCompleted
             ? now()
             : $existing?->completed_at;
 
-        return VideoProgress::updateOrCreate(
+        $progress = VideoProgress::updateOrCreate(
             [
                 'user_id' => $user->id,
                 'lecture_id' => $lecture->id,
@@ -53,6 +67,14 @@ class VideoProgressService
                 'completed_at' => $completedAt,
             ]
         );
+
+        // 🔄 Sync: when video is newly completed, mark lecture as completed
+        // in user_curriculum_trackings so both tables stay in sync.
+        if ($isCompleted && !$wasAlreadyCompleted && $lecture->course_chapter_id) {
+            $this->syncCurriculumTracking($user->id, $lecture);
+        }
+
+        return $progress;
     }
 
     /**
@@ -187,7 +209,38 @@ class VideoProgressService
 
     private function lectureHasVideo(CourseChapterLecture $lecture): bool
     {
-        return $lecture->file_type !== 'doc';
+        // Only types that actually stream/play video require watch-time tracking.
+        // Doc-type lectures (PDFs, text) are auto-counted as completed.
+        return in_array(strtolower((string) ($lecture->file_type ?? '')), self::VIDEO_FILE_TYPES, true);
+    }
+
+    /**
+     * Sync a completed video lecture into user_curriculum_trackings.
+     * Called automatically when video watch reaches COMPLETION_THRESHOLD.
+     */
+    private function syncCurriculumTracking(int $userId, CourseChapterLecture $lecture): void
+    {
+        try {
+            UserCurriculumTracking::updateOrCreate(
+                [
+                    'user_id'           => $userId,
+                    'course_chapter_id' => $lecture->course_chapter_id,
+                    'model_id'          => $lecture->id,
+                    'model_type'        => CourseChapterLecture::class,
+                ],
+                [
+                    'status'       => 'completed',
+                    'completed_at' => now(),
+                    'started_at'   => now(),
+                ]
+            );
+        } catch (\Throwable $e) {
+            Log::warning('VideoProgressService: failed to sync curriculum tracking', [
+                'user_id'    => $userId,
+                'lecture_id' => $lecture->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

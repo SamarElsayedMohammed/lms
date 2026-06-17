@@ -41,4 +41,21 @@ class CourseLectureVideo extends Model
 
         return sprintf('%02d:%02d', $minutes, $seconds);
     }
+
+    /**
+     * Get the full URL for the video
+     */
+    public function getUrlAttribute($value)
+    {
+        if (empty($value)) {
+            return null;
+        }
+        
+        // If it's an external URL (like Youtube/Vimeo), return it directly
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            return $value;
+        }
+
+        return \App\Services\FileService::getFileUrl($value);
+    }
 }

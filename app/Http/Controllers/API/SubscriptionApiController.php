@@ -123,7 +123,9 @@ final class SubscriptionApiController extends Controller
             $subscriptions = Subscription::with('plan')
                 ->where('user_id', $user->id)
                 ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
-                ->orderBy('starts_at', 'asc')
+                ->orderByRaw('ends_at IS NULL DESC')
+                ->orderByDesc('ends_at')
+                ->orderByDesc('id')
                 ->get();
 
             if ($subscriptions->isEmpty()) {
@@ -156,7 +158,7 @@ final class SubscriptionApiController extends Controller
                         'billing_cycle'     => $subscription->plan->billing_cycle,
                         'billing_cycle_label' => $subscription->plan->billing_cycle_label,
                     ] : null,
-                    'plan_name'           => $subscription->plan->name ?? 'Unknown Plan',
+                    'plan_name'           => $subscription->plan?->name ?? 'Unknown Plan',
                     'starts_at'           => $subscription->starts_at->format('Y-m-d H:i:s'),
                     'ends_at'             => $subscription->ends_at?->format('Y-m-d H:i:s'),
                     'days_remaining'      => $subscription->days_remaining,

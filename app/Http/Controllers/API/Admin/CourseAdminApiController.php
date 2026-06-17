@@ -319,6 +319,27 @@ class CourseAdminApiController extends AdminCrudApiController
 
         if ($contentFile) {
             $filePath = FileService::upload($contentFile, 'course-chapters/lectures');
+            $extension = strtolower($contentFile->getClientOriginalExtension());
+            $videoExtensions = ['mp4', 'avi', 'mov', 'webm', 'mkv', 'flv', 'wmv'];
+
+            // Auto-detect video duration
+            if (in_array($extension, $videoExtensions, true)) {
+                try {
+                    $getID3 = new \getID3();
+                    $fileInfo = $getID3->analyze($contentFile->getRealPath());
+                    $totalSeconds = (int) round($fileInfo['playtime_seconds'] ?? 0);
+
+                    if ($totalSeconds > 0) {
+                        $hours   = (int) floor($totalSeconds / 3600);
+                        $minutes = (int) floor(($totalSeconds % 3600) / 60);
+                        $seconds = (int) ($totalSeconds % 60);
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('Could not auto-detect video duration in admin API', [
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             return CourseChapterLecture::create([
                 'user_id'           => $userId,
@@ -889,5 +910,49 @@ class CourseAdminApiController extends AdminCrudApiController
 
         $course->delete();
         return $this->jsonSuccess(__('Course deleted'));
+    }
+
+    /**
+     * Completely remove AI chatbot settings and knowledge base from a course.
+     */
+    public function removeAiInfo(int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('courses-edit');
+
+        $course = Course::find($id);
+        if (!$course) {
+            return $this->jsonError(__('Course not found'), 404);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Delete associated knowledge base file if exists
+            if ($course->ai_knowledge_file) {
+                FileService::delete($course->ai_knowledge_file);
+            }
+
+            // Clear all chatbot and AI related fields
+            $course->update([
+                'chatbot_enabled'         => false,
+                'chatbot_name'            => null,
+                'chatbot_welcome_message' => null,
+                'chatbot_system_prompt'   => null,
+                'chatbot_max_tokens'      => null,
+                'ai_knowledge_file'       => null,
+                'ai_knowledge_content'    => null,
+            ]);
+
+            DB::commit();
+
+            return $this->jsonSuccess(
+                __('Course AI information removed successfully'),
+                $this->buildCourseResponse($course->fresh())
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return $this->jsonError(__('Failed to remove course AI info: ') . $e->getMessage(), 500);
+        }
     }
 }

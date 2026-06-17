@@ -127,7 +127,9 @@ class UserDashboardApiController extends Controller
         $sub = Subscription::where('user_id', $user->id)
             ->active()
             ->with('plan')
-            ->latest('created_at')
+            ->orderByRaw('ends_at IS NULL DESC') // Lifetime first
+            ->orderByDesc('ends_at')
+            ->orderByDesc('id')
             ->first();
 
         if (!$sub) {

@@ -35,4 +35,9 @@ Route::prefix('admin/webinars')->middleware('auth:sanctum')->group(function () {
 Route::post('affiliate/withdraw', [\App\Http\Controllers\API\AffiliateApiController::class, 'requestWithdrawal']);
 Route::get('admin/subscription-plans', [\App\Http\Controllers\API\SubscriptionApiController::class, 'getPlans']);
 Route::post('admin/subscription-plans', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'store']);
+Route::put('admin/subscription-plans/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
+Route::get('debug-subscriptions', function() {
+    return \App\Models\Subscription::with('user')->get();
+});
 Route::get('ref/{code}', [\App\Http\Controllers\API\AffiliateApiController::class, 'trackReferral'])->where('code', '[A-Za-z0-9]+');
+Route::post('refresh-token', [\App\Http\Controllers\ApiController::class, 'refreshToken'])->middleware('auth:api');

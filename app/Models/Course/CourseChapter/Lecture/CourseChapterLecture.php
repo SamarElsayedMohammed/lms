@@ -117,6 +117,26 @@ final class CourseChapterLecture extends Model
         return $this->hasMany(\App\Models\LectureAttachment::class, 'lecture_id')->orderBy('sort_order');
     }
 
+    public function videos(): HasMany
+    {
+        return $this->hasMany(\App\Models\CourseLectureVideo::class, 'course_chapter_lecture_id')->orderBy('order');
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(\App\Models\CourseLectureDocument::class, 'course_chapter_lecture_id')->orderBy('order');
+    }
+
+    public function quiz()
+    {
+        return $this->hasOne(\App\Models\CourseLectureQuiz::class, 'course_chapter_lecture_id');
+    }
+
+    public function assignment()
+    {
+        return $this->hasOne(\App\Models\CourseLectureAssignment::class, 'course_chapter_lecture_id');
+    }
+
     public function getDurationAttribute(): int
     {
         return ($this->hours * 3600) + ($this->minutes * 60) + $this->seconds;

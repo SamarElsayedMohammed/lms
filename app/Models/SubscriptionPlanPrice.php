@@ -11,10 +11,12 @@ class SubscriptionPlanPrice extends Model
 {
     protected $fillable = [
         'plan_id',
+        'country_id',
         'country_code',
         'currency_code',
         'price',
         'old_price',
+        'offer_price',
         'is_active',
         'can_subscribe',
     ];
@@ -22,6 +24,7 @@ class SubscriptionPlanPrice extends Model
     protected $casts = [
         'price' => 'float',
         'old_price' => 'float',
+        'offer_price' => 'float',
         'is_active' => 'boolean',
         'can_subscribe' => 'boolean',
     ];
@@ -31,5 +34,8 @@ class SubscriptionPlanPrice extends Model
         return $this->belongsTo(SubscriptionPlan::class , 'plan_id');
     }
 
-    // No country relationship since we use country_code directly
+    public function country(): BelongsTo
+    {
+        return $this->belongsTo(Country::class, 'country_id');
+    }
 }

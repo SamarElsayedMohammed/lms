@@ -243,9 +243,13 @@ class ApiController extends Controller
 
     private function createTokenWithMetadata($user, $name, Request $request)
     {
-        // Enforce single active session: revoke all existing tokens
-        $user->tokens()->delete();
+        // To prevent unbounded token growth, keep only the latest 10 tokens per user
+        $userTokensCount = $user->tokens()->count();
+        if ($userTokensCount >= 10) {
+            $user->tokens()->oldest()->take($userTokensCount - 9)->delete();
+        }
 
+        // Create the new token
         $tokenResult = $user->createToken($name);
         $token = $tokenResult->accessToken;
         $token->ip_address = $request->ip();
@@ -406,6 +410,28 @@ class ApiController extends Controller
             $token = $this->createTokenWithMetadata($user, $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
             ApiResponseService::successResponse('Login successful', $formattedUser);
+        } catch (Throwable $th) {
+            ApiResponseService::errorResponse(exception: $th);
+        }
+    }
+
+    public function refreshToken(Request $request)
+    {
+        try {
+            $user = Auth::user();
+
+            if (!$user) {
+                ApiResponseService::validationError('User not authenticated.');
+            }
+
+            // Revoke the current token that was used to authenticate this request
+            $request->user()->currentAccessToken()->delete();
+
+            // Create a new token for the user
+            $token = $this->createTokenWithMetadata($user, $user->name ?? 'refresh', $request);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
+
+            ApiResponseService::successResponse('Token refreshed successfully', $formattedUser);
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -2235,6 +2261,23 @@ class ApiController extends Controller
     }
 
     /**
+     * Get user's contact messages
+     */
+    public function userContactMessages(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Unauthenticated', 401);
+        }
+
+        $messages = \App\Models\ContactMessage::where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return ApiResponseService::successResponse('Contact messages retrieved successfully', $messages);
+    }
+
+    /**
      * Submit contact us form
      */
     public function submitContactForm(Request $request)
@@ -2242,36 +2285,60 @@ class ApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'first_name' => 'required|string|max:255',
-                'email' => 'required|email|max:255',
-                'message' => 'required|string|max:2000',
+                'email'      => 'required|email|max:255',
+                'message'    => 'required|string|max:2000',
             ]);
 
             if ($validator->fails()) {
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
+            // Detect authenticated user (optional — guests may also send)
+            $authUser = Auth::user();
+
             // Save to database
             $contactMessage = \App\Models\ContactMessage::create([
+                'user_id'    => $authUser?->id,
                 'first_name' => $request->first_name,
-                'email' => $request->email,
-                'message' => $request->message,
+                'email'      => $request->email,
+                'message'    => $request->message,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'status' => 'new',
+                'status'     => 'new',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
+            $appName = \App\Services\HelperService::systemSettings('app_name') ?? 'LMS';
+
+            // 🔔 Notify all admins (in-app + FCM push)
+            try {
+                $admins = \App\Models\User::where('is_admin', 1)
+                    ->where('is_active', 1)
+                    ->get();
+
+                foreach ($admins as $admin) {
+                    $admin->notify(new \App\Notifications\AdminNewContactMessageNotification(
+                        $contactMessage,
+                        $appName,
+                    ));
+                }
+            } catch (\Exception $e) {
+                Log::error('submitContactForm: Failed to notify admins', [
+                    'contact_message_id' => $contactMessage->id,
+                    'error'              => $e->getMessage(),
+                ]);
+            }
+
             // Send email notification to admin
             try {
                 $adminEmail = \App\Services\HelperService::systemSettings('admin_email') ?? 'admin@example.com';
-                $appName = \App\Services\HelperService::systemSettings('app_name') ?? 'LMS';
 
                 Mail::send(
                     'emails.contact-form',
                     [
                         'contactMessage' => $contactMessage,
-                        'appName' => $appName,
+                        'appName'        => $appName,
                     ],
                     static function ($message) use ($adminEmail, $appName, $contactMessage): void {
                         $message->to($adminEmail)->subject('New Contact Form Submission - ' . $appName)->replyTo(
@@ -2282,16 +2349,16 @@ class ApiController extends Controller
                 );
             } catch (\Exception $e) {
                 Log::error('Failed to send contact form email: ' . $e->getMessage());
-
                 // Don't fail the request if email fails
             }
 
             // Log the contact message
             Log::info('Contact form submission saved:', [
-                'id' => $contactMessage->id,
-                'first_name' => $contactMessage->first_name,
-                'email' => $contactMessage->email,
-                'ip_address' => $contactMessage->ip_address,
+                'id'           => $contactMessage->id,
+                'user_id'      => $contactMessage->user_id,
+                'first_name'   => $contactMessage->first_name,
+                'email'        => $contactMessage->email,
+                'ip_address'   => $contactMessage->ip_address,
                 'submitted_at' => $contactMessage->created_at,
             ]);
 

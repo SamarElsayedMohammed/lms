@@ -37,6 +37,24 @@ class CourseLectureDocument extends Model
      */
     public function getFileCountAttribute()
     {
-        return count($this->url);
+        return is_array($this->url) ? count($this->url) : 0;
+    }
+
+    /**
+     * Get the full URLs for the documents
+     */
+    public function getUrlAttribute($value)
+    {
+        $urls = json_decode((string)$value, true);
+        if (!is_array($urls)) {
+            return [];
+        }
+
+        return array_map(function($url) {
+            if (filter_var($url, FILTER_VALIDATE_URL)) {
+                return $url;
+            }
+            return \App\Services\FileService::getFileUrl($url);
+        }, $urls);
     }
 }

@@ -40,4 +40,59 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
             return $this->jsonError($e->getMessage(), 500);
         }
     }
+
+    public function update(StoreSubscriptionPlanPanelRequest $request, \App\Models\SubscriptionPlan $subscriptionPlan): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('subscription-plans-edit');
+
+        try {
+            $validated = $request->validated();
+            $validated['status'] = $request->boolean('status', true);
+
+            // Temporarily use create/delete strategy for country prices in service
+            $plan = DB::transaction(function () use ($subscriptionPlan, $validated) {
+                // Keep the ID and basic data, but update everything
+                $validated['slug'] = \Illuminate\Support\Str::slug($validated['name']);
+                if ($validated['slug'] === '') {
+                    $validated['slug'] = 'plan-' . \Illuminate\Support\Str::random(10);
+                }
+
+                $validated['duration_days'] = (int) $validated['duration'];
+                $validated['commission_type'] = $validated['commission_type'] ?? 'percentage';
+                $validated['commission_rate'] = $validated['commission_rate'] ?? 0;
+                $validated['is_active'] = $validated['status'];
+
+                $countryPrices = $validated['country_prices'] ?? [];
+                unset($validated['country_prices']);
+
+                $subscriptionPlan->update($validated);
+
+                // Delete old country prices and recreate
+                $subscriptionPlan->countryPrices()->delete();
+
+                foreach ($countryPrices as $entry) {
+                    \App\Models\SubscriptionPlanPrice::create([
+                        'plan_id' => $subscriptionPlan->id,
+                        'country_code' => $entry['country_code'],
+                        'currency_code' => $entry['currency_code'] ?? 'EGP',
+                        'price' => $entry['price'],
+                        'old_price' => (isset($entry['old_price']) && $entry['old_price'] !== '' && $entry['old_price'] !== null)
+                            ? (float) $entry['old_price'] : null,
+                        'is_active' => $entry['is_active'] ?? true,
+                        'can_subscribe' => $entry['can_subscribe'] ?? true,
+                    ]);
+                }
+
+                return $subscriptionPlan->fresh('countryPrices');
+            });
+
+            return $this->jsonSuccess(
+                __('Subscription plan updated successfully'),
+                new SubscriptionPlanAdminResource($plan)
+            );
+        } catch (Throwable $e) {
+            return $this->jsonError($e->getMessage(), 500);
+        }
+    }
 }

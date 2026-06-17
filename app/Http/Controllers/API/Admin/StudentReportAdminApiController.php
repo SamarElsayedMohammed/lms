@@ -97,7 +97,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             }
 
             $lastActivity = UserCurriculumTracking::where('user_id', $user->id)
-                ->where('course_id', $courseId)
+                ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId))
                 ->latest('updated_at')
                 ->value('updated_at');
 

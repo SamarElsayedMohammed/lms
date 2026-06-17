@@ -5292,14 +5292,56 @@ class CourseApiController extends Controller
                             ->where('status', 'publish') // Only published courses
                             ->where('approval_status', 'approved') // Only approved by admin
                             ->where('is_active', true); // Only active courses
-
-                        // Removed strict whereHas constraints - user has already purchased these courses
-                        // We'll filter out courses without proper instructor details in application logic if needed
                     },
                 ]);
 
             // Get all enrolled courses with their purchase dates
             $orders = $enrolledCoursesQuery->get();
+
+            // Also get tracked courses for subscribers
+            $hasActiveSubscription = false;
+            $user = \App\Models\User::find($userId);
+            if ($user && $user->activeSubscription()->exists()) {
+                $hasActiveSubscription = true;
+            }
+
+            $trackedCourses = collect();
+            if ($hasActiveSubscription) {
+                $trackedCourses = \App\Models\Course\UserCourseTrack::where('user_id', $userId)
+                    ->with(['course' => static function ($query): void {
+                        $query
+                            ->with([
+                                'category',
+                                'user',
+                                'taxes',
+                                'ratings.user',
+                                'chapters' => static function ($chapterQuery): void {
+                                    $chapterQuery
+                                        ->where('is_active', true)
+                                        ->with([
+                                            'lectures' => static function ($lectureQuery): void {
+                                                $lectureQuery->where('is_active', true);
+                                            },
+                                            'quizzes' => static function ($quizQuery): void {
+                                                $quizQuery->where('is_active', true);
+                                            },
+                                            'assignments' => static function ($assignmentQuery): void {
+                                                $assignmentQuery->where('is_active', true);
+                                            },
+                                            'resources' => static function ($resourceQuery): void {
+                                                $resourceQuery->where('is_active', true);
+                                            },
+                                        ]);
+                                },
+                            ])
+                            ->withAvg('ratings', 'rating')
+                            ->withCount('ratings')
+                            ->where('status', 'publish') // Only published courses
+                            ->where('approval_status', 'approved') // Only approved by admin
+                            ->where('is_active', true); // Only active courses
+                    }])
+                    ->get();
+            }
 
             // Build a collection with course and its last purchase date
             $enrolledCoursesWithPurchaseDate = collect();
@@ -5386,6 +5428,32 @@ class CourseApiController extends Controller
                             'course' => $orderCourse->course,
                             'purchase_date' => $purchaseDate,
                         ]);
+                    }
+                }
+            }
+
+            // Merge tracked courses for subscribers
+            if ($hasActiveSubscription) {
+                foreach ($trackedCourses as $track) {
+                    if (
+                        $track->course
+                        && $track->course->status == 'publish'
+                        && $track->course->approval_status == 'approved'
+                        && $track->course->is_active
+                        && $track->course->hasContent()
+                    ) {
+                        $courseId = $track->course->id;
+                        $existingIndex = $enrolledCoursesWithPurchaseDate->search(
+                            static fn($item) => $item['course_id'] == $courseId,
+                        );
+
+                        if ($existingIndex === false) {
+                            $enrolledCoursesWithPurchaseDate->push([
+                                'course_id' => $courseId,
+                                'course' => $track->course,
+                                'purchase_date' => Carbon::parse($track->updated_at),
+                            ]);
+                        }
                     }
                 }
             }
@@ -5787,11 +5855,18 @@ class CourseApiController extends Controller
             }
 
             if ($course->course_type === 'paid') {
-                // Check if user has purchased the course
+                // Check if user has purchased the course or has an active subscription
                 $purchased = UserCourseTrack::where('user_id', $userId)
                     ->where('course_id', $courseId)
                     ->whereNull('deleted_at')
                     ->exists();
+
+                if (!$purchased) {
+                    $user = \App\Models\User::find($userId);
+                    if ($user && $user->activeSubscription()->exists()) {
+                        $purchased = true;
+                    }
+                }
 
                 if (!$purchased) {
                     ApiResponseService::validationError('You must purchase this course before tracking progress.');
@@ -8760,8 +8835,12 @@ class CourseApiController extends Controller
                 'parent_id' => $discussion->id,
                 'message' => $request->message,
                 'is_instructor_reply' => true,
-                'status' => \App\Services\FeatureFlagService::isEnabled('comments_require_approval') ? 'pending' : 'approved',
+                'status' => 'pending', // Forced pending per admin request
             ]);
+
+            // Notify admins
+            $admins = \App\Models\User::role(['Super Admin', 'Admin'])->get();
+            \Illuminate\Support\Facades\Notification::send($admins, new \App\Notifications\AdminNewReviewNotification($reply, 'comment'));
 
             // Load the reply with user data
             $reply->load('user');
