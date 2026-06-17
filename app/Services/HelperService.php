@@ -845,23 +845,49 @@ class HelperService
                     $existingFile = $lectureData->getRawOriginal('file');
                 }
 
+                $uploadedFile = $request->lecture_file;
                 $lectureDataArray['file'] = FileService::replaceAndUpload(
-                    $request->lecture_file,
+                    $uploadedFile,
                     self::$lectureTypeFolder,
                     $existingFile,
                 );
-                $lectureDataArray['file_extension'] = $request->lecture_file->getClientOriginalExtension();
+                $lectureDataArray['file_extension'] = $uploadedFile->getClientOriginalExtension();
 
                 // Check if uploaded file is a video and set HLS status to pending
-                $extension = $request->lecture_file->getClientOriginalExtension();
+                $extension = $uploadedFile->getClientOriginalExtension();
                 $videoExtensions = ['mp4', 'avi', 'mov', 'webm', 'mkv', 'flv', 'wmv'];
 
                 if (in_array(strtolower($extension), $videoExtensions, true)) {
+                    // ✅ استخراج مدة الفيديو تلقائياً بـ getid3
+                    try {
+                        $getID3 = new \getID3();
+                        $fileInfo = $getID3->analyze($uploadedFile->getRealPath());
+                        $totalSeconds = (int) round($fileInfo['playtime_seconds'] ?? 0);
+
+                        if ($totalSeconds > 0) {
+                            $lectureDataArray['hours']   = (int) floor($totalSeconds / 3600);
+                            $lectureDataArray['minutes'] = (int) floor(($totalSeconds % 3600) / 60);
+                            $lectureDataArray['seconds'] = (int) ($totalSeconds % 60);
+
+                            Log::info('Video duration auto-detected', [
+                                'lecture_title' => $request->lecture_title,
+                                'total_seconds' => $totalSeconds,
+                                'hours'   => $lectureDataArray['hours'],
+                                'minutes' => $lectureDataArray['minutes'],
+                                'seconds' => $lectureDataArray['seconds'],
+                            ]);
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('Could not auto-detect video duration', [
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+
                     // Check HLS settings before queuing encoding
                     $hlsSettings = CachingService::getSystemSettings(['hls_auto_encode', 'hls_max_file_size_mb']);
                     $autoEncode = ($hlsSettings['hls_auto_encode'] ?? '1') === '1';
                     $maxFileSizeMb = (int) ($hlsSettings['hls_max_file_size_mb'] ?? 500);
-                    $fileSizeMb = $request->lecture_file->getSize() / (1024 * 1024);
+                    $fileSizeMb = $uploadedFile->getSize() / (1024 * 1024);
 
                     if ($autoEncode && $fileSizeMb <= $maxFileSizeMb) {
                         $lectureDataArray['hls_status'] = 'pending';
@@ -886,17 +912,18 @@ class HelperService
             }
         }
         $lectureDataArray = array_merge($lectureDataArray, [
-            'id' => $request->lecture_type_id ?? null,
-            'title' => $request->lecture_title,
-            'slug' => HelperService::generateUniqueSlug(CourseChapterLecture::class, $request->lecture_title),
+            'id'          => $request->lecture_type_id ?? null,
+            'title'       => $request->lecture_title,
+            'slug'        => HelperService::generateUniqueSlug(CourseChapterLecture::class, $request->lecture_title),
             'description' => $request->lecture_description,
-            'hours' => $request->lecture_hours,
-            'minutes' => $request->lecture_minutes,
-            'seconds' => $request->lecture_seconds,
-            'user_id' => Auth::user()?->id,
-            'is_active' => $request->is_active ?? 1,
+            // ✅ استخدم المدة المستخرجة تلقائياً (إن وُجدت)، وإلا ارجع للقيم اليدوية من الـ Request
+            'hours'       => $lectureDataArray['hours']   ?? $request->lecture_hours   ?? 0,
+            'minutes'     => $lectureDataArray['minutes'] ?? $request->lecture_minutes ?? 0,
+            'seconds'     => $lectureDataArray['seconds'] ?? $request->lecture_seconds ?? 0,
+            'user_id'     => Auth::user()?->id,
+            'is_active'   => $request->is_active ?? 1,
             'free_preview' => $request->has('lecture_free_preview') ? ($request->lecture_free_preview ? 1 : 0) : 0,
-            'is_free' => $request->has('lecture_is_free') ? ($request->lecture_is_free ? 1 : 0) : ($lectureData?->is_free ?? 0),
+            'is_free'      => $request->has('lecture_is_free') ? ($request->lecture_is_free ? 1 : 0) : ($lectureData?->is_free ?? 0),
             'course_chapter_id' => $chapterId,
         ]);
 

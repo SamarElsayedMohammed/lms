@@ -28,12 +28,13 @@ class NotificationAdminApiController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'target_type' => 'required|in:all,free_users,any_plan,by_plan,students,instructors',
-            'plan_id' => 'required_if:target_type,by_plan|exists:subscription_plans,id',
-            'title' => 'required|string|max:255',
-            'message' => 'required|string',
-            'title_ar' => 'nullable|string|max:255',
-            'message_ar' => 'nullable|string',
-            'action_url' => 'nullable|string',
+            'plan_id'     => 'required_if:target_type,by_plan|exists:subscription_plans,id',
+            'title'       => 'required|string|max:255',
+            'message'     => 'required|string',
+            'title_ar'    => 'nullable|string|max:255',
+            'message_ar'  => 'nullable|string',
+            'action_url'  => 'nullable|string',
+            'image'       => 'nullable|string|max:2048', // رابط URL للصورة
         ]);
 
         if ($validator->fails()) {
@@ -82,24 +83,29 @@ class NotificationAdminApiController extends Controller
             return ApiResponseService::errorResponse('No users found for the selected criteria');
         }
 
+        // رابط URL للصورة (نص مباشر بدون رفع ملف)
+        $imageUrl = $request->input('image'); // يمكن أن يكون null أو رابط URL
+
         // Save campaign record
         $campaign = NotificationCampaign::create([
-            'title' => $request->title,
-            'message' => $request->message,
+            'title'       => $request->title,
+            'message'     => $request->message,
             'target_type' => $request->target_type,
-            'plan_id' => $request->target_type === 'by_plan' ? $request->plan_id : null,
-            'sent_count' => $count,
+            'plan_id'     => $request->target_type === 'by_plan' ? $request->plan_id : null,
+            'sent_count'  => $count,
+            'image'       => $imageUrl,
         ]);
 
         // Send notifications
         foreach ($users as $user) {
             $user->notify(new ManualCustomNotification([
-                'title' => $request->title,
-                'message' => $request->message,
-                'title_ar' => $request->title_ar ?? $request->title,
+                'title'      => $request->title,
+                'message'    => $request->message,
+                'title_ar'   => $request->title_ar ?? $request->title,
                 'message_ar' => $request->message_ar ?? $request->message,
                 'action_url' => $request->action_url ?? '#',
-                'type' => 'admin_manual'
+                'image'      => $imageUrl,
+                'type'       => 'admin_manual'
             ]));
         }
 

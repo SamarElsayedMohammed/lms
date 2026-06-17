@@ -62,7 +62,7 @@ final class PricingService
                 ->first();
 
             if ($currency) {
-                $exchangeRate = (float) ($currency->exchange_rate_to_egp ?? 1.0);
+                $exchangeRate = (float) ($currency->active_exchange_rate ?? 1.0);
                 if ($exchangeRate > 0) {
                     $basePriceEgp = (float) ($plan->price ?? 0);
                     $priceLocal = $basePriceEgp / $exchangeRate;
@@ -113,11 +113,11 @@ final class PricingService
 
         $currency = SupportedCurrency::where('currency_code', $currencyCode)->first();
 
-        if ($currency === null || (float) $currency->exchange_rate_to_egp <= 0) {
+        if ($currency === null || (float) $currency->active_exchange_rate <= 0) {
             return $amount;
         }
 
-        return round($amount * (float) $currency->exchange_rate_to_egp, 2);
+        return round($amount * (float) $currency->active_exchange_rate, 2);
     }
 
     /**
@@ -133,11 +133,11 @@ final class PricingService
 
         $currency = SupportedCurrency::where('currency_code', $currencyCode)->first();
 
-        if ($currency === null || (float) $currency->exchange_rate_to_egp <= 0) {
+        if ($currency === null || (float) $currency->active_exchange_rate <= 0) {
             return $amount;
         }
 
-        return round($amount / (float) $currency->exchange_rate_to_egp, 2);
+        return round($amount / (float) $currency->active_exchange_rate, 2);
     }
 
     /**

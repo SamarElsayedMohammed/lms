@@ -13,6 +13,7 @@
         "endroid/qr-code": "^6.0",
         "google/apiclient": "2.15",
         "intervention/image": "^2.7",
+        "james-heinrich/getid3": "^1.9",
         "kreait/laravel-firebase": "^6.0",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",

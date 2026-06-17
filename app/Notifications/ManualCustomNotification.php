@@ -38,12 +38,13 @@ class ManualCustomNotification extends Notification
     public function toArray(object $notifiable): array
     {
         return [
-            'title' => $this->data['title'],
-            'title_ar' => $this->data['title_ar'] ?? $this->data['title'],
-            'message' => $this->data['message'],
+            'title'      => $this->data['title'],
+            'title_ar'   => $this->data['title_ar'] ?? $this->data['title'],
+            'message'    => $this->data['message'],
             'message_ar' => $this->data['message_ar'] ?? $this->data['message'],
             'action_url' => $this->data['action_url'] ?? '#',
-            'type' => $this->data['type'] ?? 'admin_manual'
+            'image'      => $this->data['image'] ?? null,
+            'type'       => $this->data['type'] ?? 'admin_manual'
         ];
     }
 
@@ -58,9 +59,10 @@ class ManualCustomNotification extends Notification
         try {
             $fcmData = [
                 'title' => $this->data['title'],
-                'body' => $this->data['message'],
-                'type' => $this->data['type'] ?? 'admin_manual',
-                'link' => $this->data['action_url'] ?? '#',
+                'body'  => $this->data['message'],
+                'type'  => $this->data['type'] ?? 'admin_manual',
+                'link'  => $this->data['action_url'] ?? '#',
+                'image' => $this->data['image'] ?? null,
             ];
 
             $tokens = UserFcmToken::where('user_id', $notifiable->id)

@@ -59,7 +59,7 @@ final class PricingCalculationService
             if ($currency) {
                 $currencyCode = $currency->currency_code;
                 $currencySymbol = $currency->currency_symbol;
-                $exchangeRate = (float) ($currency->exchange_rate_to_egp ?? 1.0);
+                $exchangeRate = (float) ($currency->active_exchange_rate ?? 1.0);
             }
         }
 
