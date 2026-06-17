@@ -213,7 +213,10 @@ final class Subscription extends Model
 
         $baseDate = $this->ends_at->isPast() ? now() : $this->ends_at;
         $this->ends_at = $baseDate->copy()->addDays($days);
-        $this->status = self::STATUS_ACTIVE;
+        
+        if ($this->status !== self::STATUS_PENDING) {
+            $this->status = self::STATUS_ACTIVE;
+        }
 
         return $this->save();
     }

@@ -45,12 +45,14 @@ class CurrencyAdminApiController extends AdminCrudApiController
         $this->checkPermission('settings-system-list');
 
         $validator = Validator::make($request->all(), [
-            'country_code' => 'required|string|size:2|unique:supported_currencies,country_code',
-            'country_name' => 'required|string|max:100',
-            'currency_code' => 'required|string|size:3',
-            'currency_symbol' => 'required|string|max:10',
-            'exchange_rate_to_egp' => 'required|numeric|gt:0',
-            'is_active' => 'nullable|boolean',
+            'country_code'                  => 'required|string|size:2|unique:supported_currencies,country_code',
+            'country_name'                  => 'required|string|max:100',
+            'currency_code'                 => 'required|string|size:3',
+            'currency_symbol'               => 'required|string|max:10',
+            'exchange_rate_to_egp'          => 'required|numeric|gt:0',
+            'manual_exchange_rate_to_egp'   => 'nullable|numeric|gt:0',
+            'use_manual_rate'               => 'nullable|boolean',
+            'is_active'                     => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -58,12 +60,14 @@ class CurrencyAdminApiController extends AdminCrudApiController
         }
 
         $currency = SupportedCurrency::create([
-            'country_code' => strtoupper($request->country_code),
-            'country_name' => $request->country_name,
-            'currency_code' => strtoupper($request->currency_code),
-            'currency_symbol' => $request->currency_symbol,
-            'exchange_rate_to_egp' => (float) $request->exchange_rate_to_egp,
-            'is_active' => $request->boolean('is_active', true),
+            'country_code'                 => strtoupper($request->country_code),
+            'country_name'                 => $request->country_name,
+            'currency_code'                => strtoupper($request->currency_code),
+            'currency_symbol'              => $request->currency_symbol,
+            'exchange_rate_to_egp'         => (float) $request->exchange_rate_to_egp,
+            'manual_exchange_rate_to_egp'  => $request->filled('manual_exchange_rate_to_egp') ? (float) $request->manual_exchange_rate_to_egp : null,
+            'use_manual_rate'              => $request->boolean('use_manual_rate', false),
+            'is_active'                    => $request->boolean('is_active', true),
         ]);
 
         return $this->jsonSuccess(__('Currency added successfully'), $currency, 201);
@@ -80,12 +84,14 @@ class CurrencyAdminApiController extends AdminCrudApiController
         }
 
         $validator = Validator::make($request->all(), [
-            'country_code' => 'sometimes|string|size:2|unique:supported_currencies,country_code,' . $id,
-            'country_name' => 'sometimes|string|max:100',
-            'currency_code' => 'sometimes|string|size:3',
-            'currency_symbol' => 'sometimes|string|max:10',
-            'exchange_rate_to_egp' => 'sometimes|numeric|gt:0',
-            'is_active' => 'nullable|boolean',
+            'country_code'                 => 'sometimes|string|size:2|unique:supported_currencies,country_code,' . $id,
+            'country_name'                 => 'sometimes|string|max:100',
+            'currency_code'                => 'sometimes|string|size:3',
+            'currency_symbol'              => 'sometimes|string|max:10',
+            'exchange_rate_to_egp'         => 'sometimes|numeric|gt:0',
+            'manual_exchange_rate_to_egp'  => 'nullable|numeric|gt:0',
+            'use_manual_rate'              => 'nullable|boolean',
+            'is_active'                    => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -98,6 +104,10 @@ class CurrencyAdminApiController extends AdminCrudApiController
         }
         if (isset($data['currency_code'])) {
             $data['currency_code'] = strtoupper($data['currency_code']);
+        }
+        // تأكد من معالجة قيمة السعر اليدوي بشكل صحيح
+        if (array_key_exists('manual_exchange_rate_to_egp', $data)) {
+            $data['manual_exchange_rate_to_egp'] = $data['manual_exchange_rate_to_egp'] ? (float) $data['manual_exchange_rate_to_egp'] : null;
         }
         $currency->update($data);
 

@@ -30,37 +30,52 @@ final class SubscriptionService
         array $discountMeta = []
     ): Subscription {
         return DB::transaction(function () use ($user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta) {
+            // Get the last subscription (Active or Pending) to properly stack at the very end
+            $lastSubscription = Subscription::forUser($user->id)
+                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING])
+                ->whereNotNull('ends_at')
+                ->orderByDesc('ends_at')
+                ->first();
+
             $existingSubscription = $this->getActiveSubscription($user);
             
             // 1. Same Plan Stacking (Extension)
-            if ($existingSubscription && $existingSubscription->plan_id === $plan->id && !$existingSubscription->isLifetime()) {
+            // If the last subscription in the queue is the same plan, extend it.
+            if ($lastSubscription && $lastSubscription->plan_id === $plan->id && !$lastSubscription->isLifetime()) {
                 $baseDays = $plan->getDurationDays();
                 if ($baseDays) {
-                    $existingSubscription->extend($baseDays);
+                    $lastSubscription->extend($baseDays);
                     
                     // Create payment record for the extension
-                    $this->createPaymentRecord($existingSubscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta);
+                    $this->createPaymentRecord($lastSubscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta);
                     
                     Log::info('Subscription extended (Stacked)', [
                         'user_id' => $user->id,
                         'plan_id' => $plan->id,
-                        'subscription_id' => $existingSubscription->id,
+                        'subscription_id' => $lastSubscription->id,
                     ]);
 
-                    return $existingSubscription;
+                    return $lastSubscription;
                 }
             }
 
-            // 2. Different Plan Stacking (Queuing)
+            // 2. Queuing (Different Plan, or no extension)
             $startsAt = now();
             $status = Subscription::STATUS_ACTIVE;
             $parentSubscriptionId = null;
 
-            if ($existingSubscription) {
-                // If user has an active subscription, the new one starts after it
-                $startsAt = $existingSubscription->ends_at ?? now();
+            if ($lastSubscription) {
+                // If user has an active or queued subscription, the new one starts after the very last one ends
+                $startsAt = $lastSubscription->ends_at ?? now();
                 $status = Subscription::STATUS_PENDING; // Mark as pending until it's time to start
-                $parentSubscriptionId = $existingSubscription->id;
+                $parentSubscriptionId = $lastSubscription->id;
+            } elseif ($existingSubscription) {
+                // Fallback for lifetime active subscriptions
+                $startsAt = $existingSubscription->ends_at ?? now();
+                if (!$existingSubscription->isLifetime()) {
+                    $status = Subscription::STATUS_PENDING;
+                    $parentSubscriptionId = $existingSubscription->id;
+                }
             }
 
             // Calculate dates
