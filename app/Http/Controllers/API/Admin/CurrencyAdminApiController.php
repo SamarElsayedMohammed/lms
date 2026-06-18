@@ -49,7 +49,7 @@ class CurrencyAdminApiController extends AdminCrudApiController
             'country_name'                  => 'required|string|max:100',
             'currency_code'                 => 'required|string|size:3',
             'currency_symbol'               => 'required|string|max:10',
-            'exchange_rate_to_egp'          => 'required|numeric|gt:0',
+            'exchange_rate_to_egp'          => 'nullable|numeric|gt:0',
             'manual_exchange_rate_to_egp'   => 'nullable|numeric|gt:0',
             'use_manual_rate'               => 'nullable|boolean',
             'is_active'                     => 'nullable|boolean',
@@ -64,11 +64,19 @@ class CurrencyAdminApiController extends AdminCrudApiController
             'country_name'                 => $request->country_name,
             'currency_code'                => strtoupper($request->currency_code),
             'currency_symbol'              => $request->currency_symbol,
-            'exchange_rate_to_egp'         => (float) $request->exchange_rate_to_egp,
+            'exchange_rate_to_egp'         => $request->filled('exchange_rate_to_egp') ? (float) $request->exchange_rate_to_egp : 1,
             'manual_exchange_rate_to_egp'  => $request->filled('manual_exchange_rate_to_egp') ? (float) $request->manual_exchange_rate_to_egp : null,
             'use_manual_rate'              => $request->boolean('use_manual_rate', false),
             'is_active'                    => $request->boolean('is_active', true),
         ]);
+
+        if (!$request->filled('exchange_rate_to_egp')) {
+            try {
+                \App\Jobs\UpdateExchangeRatesJob::dispatch();
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to dispatch UpdateExchangeRatesJob: ' . $e->getMessage());
+            }
+        }
 
         return $this->jsonSuccess(__('Currency added successfully'), $currency, 201);
     }

@@ -8,9 +8,11 @@ use App\Http\Requests\Admin\StoreCountryRequest;
 use App\Http\Requests\Admin\UpdateCountryRequest;
 use App\Http\Resources\Admin\CountryAdminResource;
 use App\Models\Country;
+use App\Models\SupportedCurrency;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class CountryAdminApiController extends AdminCrudApiController
 {
@@ -63,11 +65,48 @@ class CountryAdminApiController extends AdminCrudApiController
         $data['status'] = $request->boolean('status', true);
         $country = Country::create($data);
 
+        // أوتوماتيك: لو الدولة عندها عملة، ضيفها في supported_currencies واجيب سعرها من API
+        if (!empty($country->currency_code)) {
+            $this->autoCreateCurrencyForCountry($country);
+        }
+
         return $this->jsonSuccess(
             __('Country created successfully'),
             new CountryAdminResource($country),
             201,
         );
+    }
+
+    /**
+     * إذا الدولة ملهاش عملة في supported_currencies، يضيفها أوتوماتيك ويجيب سعر الصرف من API.
+     */
+    private function autoCreateCurrencyForCountry(Country $country): void
+    {
+        $countryCode = strtoupper(substr($country->iso_code, 0, 2));
+        $currencyCode = strtoupper($country->currency_code);
+
+        $alreadyExists = SupportedCurrency::where('country_code', $countryCode)->exists();
+        if ($alreadyExists) {
+            return; // موجودة أصلاً، مش محتاجين نضيفها
+        }
+
+        SupportedCurrency::create([
+            'country_code'        => $countryCode,
+            'country_name'        => $country->name_en ?? $country->name_ar ?? $countryCode,
+            'currency_code'       => $currencyCode,
+            'currency_symbol'     => $currencyCode,
+            'exchange_rate_to_egp' => 1, // مؤقت، هيتحدث أوتوماتيك من الـ Job
+            'use_manual_rate'     => false, // default: أوتوماتيك دايماً
+            'is_active'           => true,
+        ]);
+
+        // نادي على الـ Job عشان يجيب السعر الحقيقي من exchangerate-api.com
+        try {
+            \App\Jobs\UpdateExchangeRatesJob::dispatch();
+            Log::info("Currency auto-created for country [{$countryCode}] and rate-update job dispatched.");
+        } catch (\Exception $e) {
+            Log::error('Failed to dispatch UpdateExchangeRatesJob after country creation: ' . $e->getMessage());
+        }
     }
 
     public function update(UpdateCountryRequest $request, int $id): JsonResponse
