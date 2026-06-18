@@ -94,10 +94,15 @@ class ApiController extends Controller
     {
         try {
             // Base validation rules
+            // firebase_token is optional for web clients (device_type=web) that use Google OAuth flow
+            $isWebOAuth = ($request->device_type === 'web' || empty($request->device_type))
+                && in_array($request->type, ['google', 'apple'])
+                && empty($request->firebase_token);
+
             $validationRules = [
                 'type' => 'required|in:google,apple,email',
                 'platform_type' => 'nullable|in:android,ios',
-                'firebase_token' => 'required',
+                'firebase_token' => $isWebOAuth ? 'nullable' : 'required',
                 'mobile' => 'nullable|unique:users,mobile',
                 'device_type' => 'nullable|in:web,android,ios,desktop',
                 'device_id' => 'nullable|string|max:255',
@@ -113,8 +118,38 @@ class ApiController extends Controller
 
             ApiService::validateRequest($request, $validationRules);
 
-            $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
-            $firebaseId = $verifiedToken->claims()->get('sub');
+            // ── Resolve Firebase/OAuth identity ──────────────────────────────
+            $firebaseId = null;
+
+            if ($isWebOAuth && $request->type === 'google') {
+                // Web Google login: resolve via Socialite (no Firebase needed)
+                $accessToken = $request->input('access_token')
+                    ?? $request->input('provider_token')
+                    ?? $request->input('token');
+
+                if (empty($accessToken)) {
+                    ApiResponseService::validationError('access_token is required for web Google login.');
+                }
+
+                try {
+                    $socialUser = \Laravel\Socialite\Facades\Socialite::driver('google')->stateless()->userFromToken($accessToken);
+                    // Use Google UID as the stable identity key
+                    $firebaseId = 'google-oauth-' . $socialUser->getId();
+
+                    // Ensure email is set in request for downstream code
+                    if (empty($request->email) && $socialUser->getEmail()) {
+                        $request->merge(['email' => $socialUser->getEmail()]);
+                    }
+                    if (empty($request->name) && $socialUser->getName()) {
+                        $request->merge(['name' => $socialUser->getName()]);
+                    }
+                } catch (\Throwable $e) {
+                    ApiResponseService::validationError('Invalid Google access token: ' . $e->getMessage());
+                }
+            } else {
+                $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
+                $firebaseId = $verifiedToken->claims()->get('sub');
+            }
 
             $socialLogin = SocialLogin::where('firebase_id', $firebaseId)
                 ->where('type', $request->type)

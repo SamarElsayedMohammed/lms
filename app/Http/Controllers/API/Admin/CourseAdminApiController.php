@@ -41,9 +41,6 @@ class CourseAdminApiController extends AdminCrudApiController
             'short_description'             => 'nullable|string',
             'description'                   => 'nullable|string',
             'level'                         => 'nullable|in:beginner,intermediate,advanced',
-            'is_free'                       => 'nullable|boolean',
-            'price'                         => 'nullable|numeric|min:0',
-            'discount_price'                => 'nullable|numeric|min:0',
             'status'                        => 'nullable|in:draft,pending,publish',
             'instructor_id'                 => 'nullable|exists:users,id',
             'sequential_learning'           => 'nullable|boolean',
@@ -88,12 +85,10 @@ class CourseAdminApiController extends AdminCrudApiController
 
         // ── Build course data ───────────────────────────────────────
         $instructorId  = (int) ($request->input('instructor_id') ?? Auth::id());
-        $isFree        = $request->has('is_free') ? $request->boolean('is_free') : true;
-        $courseType     = $isFree ? 'free' : 'paid';
-        $price         = $courseType === 'paid' ? round((float) $request->input('price', 0), 2) : null;
-        $discountPrice = $courseType === 'paid' && $request->filled('discount_price')
-            ? round((float) $request->input('discount_price'), 2)
-            : null;
+        $isFree        = true;
+        $courseType    = 'free';
+        $price         = null;
+        $discountPrice = null;
         $status = $request->input('status', 'draft');
         if (!in_array($status, ['draft', 'pending', 'publish'], true)) {
             $status = 'draft';
@@ -600,9 +595,6 @@ class CourseAdminApiController extends AdminCrudApiController
             'short_description'             => 'nullable|string',
             'description'                   => 'nullable|string',
             'level'                         => 'nullable|in:beginner,intermediate,advanced',
-            'is_free'                       => 'nullable|boolean',
-            'price'                         => 'nullable|numeric|min:0',
-            'discount_price'                => 'nullable|numeric|min:0',
             'status'                        => 'nullable|in:draft,pending,publish',
             'instructor_id'                 => 'nullable|exists:users,id',
             'sequential_learning'           => 'nullable|boolean',
@@ -648,12 +640,10 @@ class CourseAdminApiController extends AdminCrudApiController
 
         // ── Build course data ───────────────────────────────────────
         $instructorId  = (int) ($request->input('instructor_id') ?? $course->user_id);
-        $isFree        = $request->has('is_free') ? $request->boolean('is_free') : (bool) $course->is_free;
-        $courseType    = $isFree ? 'free' : 'paid';
-        $price         = $courseType === 'paid' ? round((float) $request->input('price', $course->price ?? 0), 2) : null;
-        $discountPrice = $courseType === 'paid' && $request->filled('discount_price')
-            ? round((float) $request->input('discount_price'), 2)
-            : ($courseType === 'paid' ? $course->discount_price : null);
+        $isFree        = true;
+        $courseType    = 'free';
+        $price         = null;
+        $discountPrice = null;
 
         $status = $request->input('status', $course->status);
         if (!in_array($status, ['draft', 'pending', 'publish'], true)) {
