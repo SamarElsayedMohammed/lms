@@ -946,9 +946,16 @@ class CourseAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
+            $course->refresh()->load([
+                'user', 'category', 'tags', 'instructors', 'language', 'learnings', 'requirements',
+                'chapters' => fn ($q) => $q->orderBy('chapter_order'),
+                'chapters.lectures' => fn ($q) => $q->orderBy('chapter_order'),
+                'chapters.lectures.resources' => fn ($q) => $q->orderBy('order'),
+            ]);
+
             return $this->jsonSuccess(
                 __('Course AI information removed successfully'),
-                $this->buildCourseResponse($course->fresh())
+                $this->buildCourseResponse($course)
             );
         } catch (\Throwable $e) {
             DB::rollBack();
