@@ -51,6 +51,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('user-exists', [ApiController::class, 'userExists']);
 Route::post('user-signup', [ApiController::class, 'userSignup']);
 Route::post('user-login', [ApiController::class, 'userLogin']);
+Route::post('refresh-token', [ApiController::class, 'refreshToken'])->middleware('auth:api');
 Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin']);
 Route::post('mobile-login', [ApiController::class, 'mobileLogin']);
 Route::post('mobile-registration', [ApiController::class, 'mobileRegistration']);
@@ -248,6 +249,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('notifications/mark-read', [ApiController::class, 'markNotificationAsRead']); // Mark Notification as Read
     Route::post('notifications/mark-all-read', [ApiController::class, 'markAllNotificationsAsRead']); // Mark All Notifications as Read
     Route::post('delete-account', [ApiController::class, 'deleteAccount']); // Delete User Account
+    Route::get('contact-messages', [ApiController::class, 'userContactMessages']); // Get User Contact Messages
     Route::get('user-enrolled-courses', [CourseApiController::class, 'getUserEnrolledCourses']); // Get User Courses
     Route::get('my-learning', [CourseApiController::class, 'getMyLearning']); // Get My Learning Courses with Progress
     Route::get('user/dashboard', [\App\Http\Controllers\API\User\UserDashboardApiController::class, 'getDashboardData']); // User Dashboard API
@@ -732,6 +734,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('courses/{id}/reject', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'reject']);
         Route::put('courses/{id}/restore', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'restore']);
         Route::post('courses/{id}/update', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
+        Route::delete('courses/{id}/chatbot', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'removeAiInfo']);
 
         // Notifications
         Route::get('notifications', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'index']);

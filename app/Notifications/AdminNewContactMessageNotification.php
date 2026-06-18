@@ -1,0 +1,58 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Notifications;
+
+use App\Models\ContactMessage;
+use App\Traits\PushesToFirebase;
+use Illuminate\Bus\Queueable;
+use Illuminate\Notifications\Messages\DatabaseMessage;
+use Illuminate\Notifications\Notification;
+
+/**
+ * Sent to all admin users when a new contact-us message arrives.
+ * Channels: database (in-app) + Firebase FCM push.
+ */
+class AdminNewContactMessageNotification extends Notification
+{
+    use Queueable, PushesToFirebase;
+
+    public function __construct(
+        private readonly ContactMessage $contactMessage,
+        private readonly string $appName,
+    ) {}
+
+    public function via(object $notifiable): array
+    {
+        return ['database'];
+    }
+
+    public function toArray(object $notifiable): array
+    {
+        $senderName = $this->contactMessage->first_name;
+
+        return [
+            'type'               => 'admin_new_contact_message',
+            'title'              => 'رسالة تواصل جديدة',
+            'message'            => "المستخدم {$senderName} أرسل رسالة جديدة تحتاج للمراجعة.",
+            'contact_message_id' => $this->contactMessage->id,
+            'sender_name'        => $senderName,
+            'sender_email'       => $this->contactMessage->email,
+            'preview'            => mb_substr($this->contactMessage->message, 0, 100),
+        ];
+    }
+
+    public function toDatabase(object $notifiable): DatabaseMessage
+    {
+        $data = $this->toArray($notifiable);
+
+        $this->sendFcmNotification($notifiable, [
+            'title' => 'رسالة تواصل جديدة',
+            'body'  => "من: {$data['sender_name']} — {$data['preview']}",
+            'type'  => 'admin_new_contact_message',
+        ]);
+
+        return new DatabaseMessage($data);
+    }
+}

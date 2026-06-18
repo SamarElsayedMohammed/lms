@@ -536,10 +536,7 @@ class FinanceApiController extends Controller
 
             // Check if user is an approved instructor
             $instructor = Instructor::where('user_id', $user->id)->where('status', 'approved')->first();
-
-            if (!$instructor) {
-                return ApiResponseService::errorResponse('Only approved instructors can view wallet summary.', [], 403);
-            }
+            $isInstructor = (bool) $instructor;
 
             // Get wallet balance
             $walletBalance = $user->wallet_balance;

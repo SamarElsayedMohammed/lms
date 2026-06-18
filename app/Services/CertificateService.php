@@ -5,11 +5,21 @@ namespace App\Services;
 use App\Models\Certificate;
 use App\Models\Course\Course;
 use App\Models\User;
+use App\Services\VideoProgressService;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Facades\Image;
 
 class CertificateService
 {
+    /**
+     * Public API: check if user has completed the course.
+     * Used by CertificateController as single source of truth.
+     */
+    public function checkCourseCompletionStatus(int $userId, int $courseId): bool
+    {
+        return $this->checkCourseCompletionFromTracking($userId, $courseId);
+    }
+
     /**
      * Generate a certificate for course completion
      */

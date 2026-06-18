@@ -48,6 +48,10 @@ final class ApprovalController extends Controller
             'reviewed_at' => now(),
         ]);
 
+        if ($rating->user) {
+            $rating->user->notify(new \App\Notifications\ReviewStatusNotification($rating, 'rating', 'approved'));
+        }
+
         ResponseService::successResponse('Rating approved successfully.');
     }
 
@@ -65,6 +69,10 @@ final class ApprovalController extends Controller
             'reviewed_by' => Auth::id(),
             'reviewed_at' => now(),
         ]);
+
+        if ($rating->user) {
+            $rating->user->notify(new \App\Notifications\ReviewStatusNotification($rating, 'rating', 'rejected'));
+        }
 
         ResponseService::successResponse('Rating rejected.');
     }
@@ -105,6 +113,10 @@ final class ApprovalController extends Controller
             'reviewed_at' => now(),
         ]);
 
+        if ($comment->user) {
+            $comment->user->notify(new \App\Notifications\ReviewStatusNotification($comment, 'comment', 'approved'));
+        }
+
         ResponseService::successResponse('Comment approved successfully.');
     }
 
@@ -122,6 +134,10 @@ final class ApprovalController extends Controller
             'reviewed_by' => Auth::id(),
             'reviewed_at' => now(),
         ]);
+
+        if ($comment->user) {
+            $comment->user->notify(new \App\Notifications\ReviewStatusNotification($comment, 'comment', 'rejected'));
+        }
 
         ResponseService::successResponse('Comment rejected.');
     }

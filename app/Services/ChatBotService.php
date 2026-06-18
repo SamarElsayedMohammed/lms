@@ -196,6 +196,7 @@ class ChatBotService
             'chatbot_name',
             'chatbot_welcome_message',
             'chatbot_system_prompt',
+            'chatbot_subscriber_system_prompt',
             'chatbot_max_tokens',
             'chatbot_position',
             'chatbot_icon',
@@ -229,7 +230,11 @@ class ChatBotService
     private function buildSystemPrompt(array $settings, string $knowledgeContext): string
     {
         $botName = $settings['chatbot_name'] ?? 'سكيلزوا';
+        
         $adminPrompt = $settings['chatbot_system_prompt'] ?? '';
+        if (Auth::check() && !empty($settings['chatbot_subscriber_system_prompt'])) {
+            $adminPrompt = $settings['chatbot_subscriber_system_prompt'];
+        }
 
         $prompt = "أنت {$botName}، مساعد ذكي لمنصة Skillso التعليمية.\n\n";
 

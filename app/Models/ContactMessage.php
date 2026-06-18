@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -37,9 +38,11 @@ class ContactMessage extends Model
     use HasFactory;
 
     protected $fillable = [
+        'user_id',
         'first_name',
         'email',
         'message',
+        'reply_message',
         'ip_address',
         'user_agent',
         'status',
@@ -49,6 +52,22 @@ class ContactMessage extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    /**
+     * The registered user who sent this message (nullable for guests).
+     */
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Check if this message was sent by a registered user.
+     */
+    public function hasSenderAccount(): bool
+    {
+        return $this->user_id !== null;
+    }
 
     /**
      * Get the status options

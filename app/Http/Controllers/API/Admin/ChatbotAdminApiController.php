@@ -39,6 +39,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'chatbot_name',
             'chatbot_welcome_message',
             'chatbot_system_prompt',
+            'chatbot_subscriber_system_prompt',
             'chatbot_max_tokens',
             'chatbot_position',
             'chatbot_icon',
@@ -65,6 +66,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'chatbot_name' => 'nullable|string|max:100',
             'chatbot_welcome_message' => 'nullable|string|max:1000',
             'chatbot_system_prompt' => 'nullable|string|max:5000',
+            'chatbot_subscriber_system_prompt' => 'nullable|string|max:5000',
             'chatbot_max_tokens' => 'nullable|integer|min:100|max:2000',
             'chatbot_position' => 'nullable|string|in:bottom-right,bottom-left,top-right,top-left',
             'chatbot_icon' => 'nullable|image|mimes:jpg,jpeg,png,svg,webp,gif|max:2048',
@@ -82,6 +84,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
                 'chatbot_name',
                 'chatbot_welcome_message',
                 'chatbot_system_prompt',
+                'chatbot_subscriber_system_prompt',
                 'chatbot_max_tokens',
                 'chatbot_position',
             ];

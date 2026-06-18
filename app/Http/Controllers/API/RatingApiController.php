@@ -95,12 +95,18 @@ class RatingApiController extends Controller
             $values = [
                 'rating' => (int) $request->rating,
                 'review' => $request->review,
-                'status' => FeatureFlagService::isEnabled('ratings_require_approval') ? 'pending' : 'approved',
+                'status' => 'pending', // Forced pending per admin request
             ];
 
             $rating = Rating::updateOrCreate($attributes, $values);
 
-            return ApiResponseService::successResponse('Review saved successfully', [
+            // Notify admins
+            if ($rating->wasRecentlyCreated || $rating->status === 'pending') {
+                $admins = \App\Models\User::role(['Super Admin', 'Admin'])->get();
+                \Illuminate\Support\Facades\Notification::send($admins, new \App\Notifications\AdminNewReviewNotification($rating, 'rating'));
+            }
+
+            return ApiResponseService::successResponse('Review saved successfully and is pending admin approval.', [
                 'rating' => $rating,
                 'is_updated' => $rating->wasRecentlyCreated === false, // convenience flag
             ]);
