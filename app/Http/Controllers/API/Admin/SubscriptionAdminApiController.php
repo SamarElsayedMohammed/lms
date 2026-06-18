@@ -315,9 +315,11 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('subscription-plans-list');
 
-        $status   = $request->input('status', 'all');
-        $dateFrom = $request->input('date_from');
-        $dateTo   = $request->input('date_to');
+        $status        = $request->input('status', 'all');
+        $dateFrom      = $request->input('date_from');
+        $dateTo        = $request->input('date_to');
+        $paymentMethod = $request->input('payment_method');
+        $country       = $request->input('country');
 
         // ── جلب الإيرادات بالجنيه المصري لكل باقة ──
         $revenuePerPlanQuery = DB::table('subscription_payments')
@@ -334,6 +336,12 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         if ($dateTo) {
             $revenuePerPlanQuery->whereDate('subscriptions.created_at', '<=', $dateTo);
         }
+        if ($paymentMethod) {
+            $revenuePerPlanQuery->where('subscription_payments.payment_method', $paymentMethod);
+        }
+        if ($country) {
+            $revenuePerPlanQuery->where('subscription_payments.resolved_country', strtoupper($country));
+        }
 
         $revenuePerPlan = $revenuePerPlanQuery
             ->select('subscriptions.plan_id', DB::raw('SUM(subscription_payments.final_amount * ' . $this->getEgpExchangeRateSql() . ') as total_revenue_egp'))
@@ -345,26 +353,29 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             ->select('id', 'name', 'billing_cycle', 'duration_days', 'price', 'is_active', 'deleted_at')
             ->withCount([
                 // كل الاشتراكات
-                'subscriptions as total_subscribers' => function ($q) use ($status, $dateFrom, $dateTo) {
-                    $this->applySubscriptionFilters($q, $status, $dateFrom, $dateTo);
+                'subscriptions as total_subscribers' => function ($q) use ($status, $dateFrom, $dateTo, $paymentMethod, $country) {
+                    $this->applySubscriptionFilters($q, $status, $dateFrom, $dateTo, $paymentMethod, $country);
                 },
                 // مشتركين فاعلين فقط
-                'subscriptions as active_subscribers' => function ($q) use ($dateFrom, $dateTo) {
+                'subscriptions as active_subscribers' => function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
                     $q->where('status', Subscription::STATUS_ACTIVE)
                       ->where(function ($q) {
                           $q->whereNull('ends_at')->orWhere('ends_at', '>', now());
                       });
                     $this->applyDateFilters($q, $dateFrom, $dateTo);
+                    $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
                 },
                 // مشتركين منتهين
-                'subscriptions as expired_subscribers' => function ($q) use ($dateFrom, $dateTo) {
+                'subscriptions as expired_subscribers' => function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
                     $q->where('status', Subscription::STATUS_EXPIRED);
                     $this->applyDateFilters($q, $dateFrom, $dateTo);
+                    $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
                 },
                 // مشتركين ملغيين
-                'subscriptions as cancelled_subscribers' => function ($q) use ($dateFrom, $dateTo) {
+                'subscriptions as cancelled_subscribers' => function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
                     $q->where('status', Subscription::STATUS_CANCELLED);
                     $this->applyDateFilters($q, $dateFrom, $dateTo);
+                    $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
                 },
             ])
             ->orderByDesc('total_subscribers')
@@ -395,9 +406,11 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             'total_expired_subscribers' => $plans->sum('expired_subscribers'),
             'total_cancelled_subscribers' => $plans->sum('cancelled_subscribers'),
             'filters_applied' => array_filter([
-                'status'    => $status !== 'all' ? $status : null,
-                'date_from' => $dateFrom,
-                'date_to'   => $dateTo,
+                'status'         => $status !== 'all' ? $status : null,
+                'date_from'      => $dateFrom,
+                'date_to'        => $dateTo,
+                'payment_method' => $paymentMethod,
+                'country'        => $country ? strtoupper($country) : null,
             ]),
         ];
 
@@ -409,12 +422,13 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private function applySubscriptionFilters(\Illuminate\Database\Eloquent\Builder $q, string $status, ?string $dateFrom, ?string $dateTo): void
+    private function applySubscriptionFilters(\Illuminate\Database\Eloquent\Builder $q, string $status, ?string $dateFrom, ?string $dateTo, ?string $paymentMethod = null, ?string $country = null): void
     {
         if ($status !== 'all') {
             $q->where('status', $status);
         }
         $this->applyDateFilters($q, $dateFrom, $dateTo);
+        $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
     }
 
     private function applyDateFilters(\Illuminate\Database\Eloquent\Builder $q, ?string $dateFrom, ?string $dateTo): void
@@ -424,6 +438,20 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         }
         if ($dateTo) {
             $q->whereDate('created_at', '<=', $dateTo);
+        }
+    }
+
+    private function applyPaymentFiltersToSubscriptions(\Illuminate\Database\Eloquent\Builder $q, ?string $paymentMethod, ?string $country): void
+    {
+        if ($paymentMethod || $country) {
+            $q->whereHas('payments', function ($paymentQuery) use ($paymentMethod, $country) {
+                if ($paymentMethod) {
+                    $paymentQuery->where('payment_method', $paymentMethod);
+                }
+                if ($country) {
+                    $paymentQuery->where('resolved_country', strtoupper($country));
+                }
+            });
         }
     }
 
