@@ -73,6 +73,8 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
             ]
         );
 
+        \App\Models\SupportedCurrency::ensureCurrencyExists($request->input('country_code'));
+
         return $this->jsonSuccess(__('Country price saved'), $countryPrice->load('currency'));
     }
 
@@ -109,6 +111,7 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
                     'is_active' => true
                 ]
             );
+            \App\Models\SupportedCurrency::ensureCurrencyExists($priceData['country_code']);
         }
 
         return $this->jsonSuccess(__('Bulk prices updated'), $course->load('countryPrices.currency'));

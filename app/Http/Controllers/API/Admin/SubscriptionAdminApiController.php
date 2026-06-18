@@ -6,6 +6,7 @@ namespace App\Http\Controllers\API\Admin;
 
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
+use App\Models\SubscriptionPlan;
 use App\Services\ApiResponseService;
 use App\Services\AffiliateService;
 use App\Notifications\ManualSubscriptionStatusNotification;
@@ -35,8 +36,10 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         $totalSubscriptions = Subscription::count();
         $activeSubscriptions = Subscription::where('status', Subscription::STATUS_ACTIVE)->count();
         
-        // Total Revenue from completed payments
-        $totalRevenue = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)->sum('final_amount');
+        // Total Revenue from completed payments (Converted to EGP)
+        $totalRevenue = SubscriptionPayment::where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
+            ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+            ->sum(DB::raw('subscription_payments.final_amount * ' . $this->getEgpExchangeRateSql()));
         
         // Split by payment method (manual vs others/auto)
         // Assuming 'manual' is the specific string used for manual payments, and others like 'kashier', 'wallet', 'stripe' are automatic.
@@ -296,5 +299,136 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             DB::rollBack();
             return ApiResponseService::errorResponse('فشل في إتمام عملية الرفض: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Subscription Plan Report — عدد المشتركين لكل باقة
+     * Super Admin only.
+     *
+     * Query Params:
+     *  - date_from    (Y-m-d)   تصفية من تاريخ
+     *  - date_to      (Y-m-d)   تصفية إلى تاريخ
+     *  - status       active|expired|cancelled|pending|all   (default: all)
+     */
+    public function planReport(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('subscription-plans-list');
+
+        $status   = $request->input('status', 'all');
+        $dateFrom = $request->input('date_from');
+        $dateTo   = $request->input('date_to');
+
+        // ── جلب الإيرادات بالجنيه المصري لكل باقة ──
+        $revenuePerPlanQuery = DB::table('subscription_payments')
+            ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
+            ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+            ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED);
+
+        if ($status !== 'all') {
+            $revenuePerPlanQuery->where('subscriptions.status', $status);
+        }
+        if ($dateFrom) {
+            $revenuePerPlanQuery->whereDate('subscriptions.created_at', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $revenuePerPlanQuery->whereDate('subscriptions.created_at', '<=', $dateTo);
+        }
+
+        $revenuePerPlan = $revenuePerPlanQuery
+            ->select('subscriptions.plan_id', DB::raw('SUM(subscription_payments.final_amount * ' . $this->getEgpExchangeRateSql() . ') as total_revenue_egp'))
+            ->groupBy('subscriptions.plan_id')
+            ->pluck('total_revenue_egp', 'plan_id');
+
+        // ── شامل: كل الباقات حتى اللي عندها صفر مشتركين ──
+        $plans = SubscriptionPlan::withTrashed()
+            ->select('id', 'name', 'billing_cycle', 'duration_days', 'price', 'is_active', 'deleted_at')
+            ->withCount([
+                // كل الاشتراكات
+                'subscriptions as total_subscribers' => function ($q) use ($status, $dateFrom, $dateTo) {
+                    $this->applySubscriptionFilters($q, $status, $dateFrom, $dateTo);
+                },
+                // مشتركين فاعلين فقط
+                'subscriptions as active_subscribers' => function ($q) use ($dateFrom, $dateTo) {
+                    $q->where('status', Subscription::STATUS_ACTIVE)
+                      ->where(function ($q) {
+                          $q->whereNull('ends_at')->orWhere('ends_at', '>', now());
+                      });
+                    $this->applyDateFilters($q, $dateFrom, $dateTo);
+                },
+                // مشتركين منتهين
+                'subscriptions as expired_subscribers' => function ($q) use ($dateFrom, $dateTo) {
+                    $q->where('status', Subscription::STATUS_EXPIRED);
+                    $this->applyDateFilters($q, $dateFrom, $dateTo);
+                },
+                // مشتركين ملغيين
+                'subscriptions as cancelled_subscribers' => function ($q) use ($dateFrom, $dateTo) {
+                    $q->where('status', Subscription::STATUS_CANCELLED);
+                    $this->applyDateFilters($q, $dateFrom, $dateTo);
+                },
+            ])
+            ->orderByDesc('total_subscribers')
+            ->get()
+            ->map(function (SubscriptionPlan $plan) use ($revenuePerPlan) {
+                return [
+                    'plan_id'              => $plan->id,
+                    'plan_name'            => $plan->name,
+                    'billing_cycle'        => $plan->billing_cycle,
+                    'duration_days'        => $plan->duration_days,
+                    'price'                => (float) $plan->price, // السعر الافتراضي كمعلومة
+                    'is_active'            => (bool) $plan->is_active,
+                    'is_deleted'           => $plan->deleted_at !== null,
+                    'total_revenue_egp'    => (float) ($revenuePerPlan[$plan->id] ?? 0),
+                    'total_subscribers'    => (int) $plan->total_subscribers,
+                    'active_subscribers'   => (int) $plan->active_subscribers,
+                    'expired_subscribers'  => (int) $plan->expired_subscribers,
+                    'cancelled_subscribers' => (int) $plan->cancelled_subscribers,
+                ];
+            });
+
+        // ── ملخص إجمالي ──
+        $summary = [
+            'total_plans'               => $plans->count(),
+            'total_revenue_egp'         => $plans->sum('total_revenue_egp'),
+            'total_subscribers'         => $plans->sum('total_subscribers'),
+            'total_active_subscribers'  => $plans->sum('active_subscribers'),
+            'total_expired_subscribers' => $plans->sum('expired_subscribers'),
+            'total_cancelled_subscribers' => $plans->sum('cancelled_subscribers'),
+            'filters_applied' => array_filter([
+                'status'    => $status !== 'all' ? $status : null,
+                'date_from' => $dateFrom,
+                'date_to'   => $dateTo,
+            ]),
+        ];
+
+        return $this->jsonSuccess(__('Subscription plan report retrieved'), [
+            'summary' => $summary,
+            'plans'   => $plans,
+        ]);
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+
+    private function applySubscriptionFilters(\Illuminate\Database\Eloquent\Builder $q, string $status, ?string $dateFrom, ?string $dateTo): void
+    {
+        if ($status !== 'all') {
+            $q->where('status', $status);
+        }
+        $this->applyDateFilters($q, $dateFrom, $dateTo);
+    }
+
+    private function applyDateFilters(\Illuminate\Database\Eloquent\Builder $q, ?string $dateFrom, ?string $dateTo): void
+    {
+        if ($dateFrom) {
+            $q->whereDate('created_at', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $q->whereDate('created_at', '<=', $dateTo);
+        }
+    }
+
+    private function getEgpExchangeRateSql(): string
+    {
+        return 'COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)';
     }
 }

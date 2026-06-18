@@ -91,6 +91,7 @@ final class SubscriptionPlanService
                     'is_active' => $entry['is_active'] ?? true,
                     'can_subscribe' => $entry['can_subscribe'] ?? true,
                 ]);
+                \App\Models\SupportedCurrency::ensureCurrencyExists($entry['country_code'], $entry['currency_code'] ?? null);
             }
 
             return $plan->load('countryPrices');

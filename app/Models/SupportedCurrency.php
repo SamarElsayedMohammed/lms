@@ -33,11 +33,7 @@ class SupportedCurrency extends Model
         return $query->where('is_active', true);
     }
 
-    /**
-     * الدالة الذكية: ترجع السعر الصحيح بناءً على حالة التوجل.
-     * لو use_manual_rate = true والسعر اليدوي موجود، هترجع السعر اليدوي.
-     * لو لأ، هترجع السعر البنكي العادي.
-     */
+    
     public function getActiveExchangeRateAttribute(): float
     {
         if ($this->use_manual_rate && $this->manual_exchange_rate_to_egp > 0) {
@@ -45,5 +41,40 @@ class SupportedCurrency extends Model
         }
 
         return (float) ($this->exchange_rate_to_egp ?? 1.0);
+    }
+
+    public static function ensureCurrencyExists(string $countryCode, ?string $currencyCode = null): void
+    {
+        $country = \App\Models\Country::where('iso_code', $countryCode)->first();
+        if (!$country) {
+            return;
+        }
+
+        $currencyCode = $currencyCode ?? $country->currency_code;
+        if (!$currencyCode) {
+            return;
+        }
+
+        $currencyCode = strtoupper($currencyCode);
+        $countryCode = strtoupper(substr($countryCode, 0, 2));
+
+        $exists = self::where('country_code', $countryCode)->exists();
+        if (!$exists) {
+            self::create([
+                'country_code' => $countryCode,
+                'country_name' => $country->name_en ?? $country->name_ar ?? $countryCode,
+                'currency_code' => $currencyCode,
+                'currency_symbol' => $currencyCode,
+                'exchange_rate_to_egp' => 1,
+                'use_manual_rate' => false,
+                'is_active' => true,
+            ]);
+
+            try {
+                \App\Jobs\UpdateExchangeRatesJob::dispatch();
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to dispatch UpdateExchangeRatesJob: ' . $e->getMessage());
+            }
+        }
     }
 }
