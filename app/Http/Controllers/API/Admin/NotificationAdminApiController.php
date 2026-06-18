@@ -26,7 +26,7 @@ class NotificationAdminApiController extends Controller
      */
     public function sendBulkNotification(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $rules = [
             'target_type' => 'required|in:all,free_users,any_plan,by_plan,students,instructors',
             'plan_id'     => 'required_if:target_type,by_plan|exists:subscription_plans,id',
             'title'       => 'required|string|max:255',
@@ -34,8 +34,15 @@ class NotificationAdminApiController extends Controller
             'title_ar'    => 'nullable|string|max:255',
             'message_ar'  => 'nullable|string',
             'action_url'  => 'nullable|string',
-            'image'       => 'nullable|string|max:2048', // رابط URL للصورة
-        ]);
+        ];
+
+        if ($request->hasFile('image')) {
+            $rules['image'] = 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048';
+        } else {
+            $rules['image'] = 'nullable|string|max:2048';
+        }
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return ApiResponseService::errorResponse('Validation failed', $validator->errors(), 422);
@@ -83,8 +90,14 @@ class NotificationAdminApiController extends Controller
             return ApiResponseService::errorResponse('No users found for the selected criteria');
         }
 
-        // رابط URL للصورة (نص مباشر بدون رفع ملف)
-        $imageUrl = $request->input('image'); // يمكن أن يكون null أو رابط URL
+        // Handle image: upload if file, otherwise use string URL
+        $imageUrl = null;
+        if ($request->hasFile('image')) {
+            $path = \App\Services\FileService::upload($request->file('image'), 'notifications');
+            $imageUrl = \App\Services\FileService::getFileUrl($path);
+        } else {
+            $imageUrl = $request->input('image');
+        }
 
         // Save campaign record
         $campaign = NotificationCampaign::create([
