@@ -5305,10 +5305,8 @@ class CourseApiController extends Controller
                 $hasActiveSubscription = true;
             }
 
-            $trackedCourses = collect();
-            if ($hasActiveSubscription) {
-                $trackedCourses = \App\Models\Course\UserCourseTrack::where('user_id', $userId)
-                    ->with(['course' => static function ($query): void {
+            $trackedCourses = \App\Models\Course\UserCourseTrack::where('user_id', $userId)
+                ->with(['course' => static function ($query): void {
                         $query
                             ->with([
                                 'category',
@@ -5341,7 +5339,6 @@ class CourseApiController extends Controller
                             ->where('is_active', true); // Only active courses
                     }])
                     ->get();
-            }
 
             // Build a collection with course and its last purchase date
             $enrolledCoursesWithPurchaseDate = collect();
@@ -5432,28 +5429,26 @@ class CourseApiController extends Controller
                 }
             }
 
-            // Merge tracked courses for subscribers
-            if ($hasActiveSubscription) {
-                foreach ($trackedCourses as $track) {
-                    if (
-                        $track->course
-                        && $track->course->status == 'publish'
-                        && $track->course->approval_status == 'approved'
-                        && $track->course->is_active
-                        && $track->course->hasContent()
-                    ) {
-                        $courseId = $track->course->id;
-                        $existingIndex = $enrolledCoursesWithPurchaseDate->search(
-                            static fn($item) => $item['course_id'] == $courseId,
-                        );
+            // Merge tracked courses
+            foreach ($trackedCourses as $track) {
+                if (
+                    $track->course
+                    && $track->course->status == 'publish'
+                    && $track->course->approval_status == 'approved'
+                    && $track->course->is_active
+                    && $track->course->hasContent()
+                ) {
+                    $courseId = $track->course->id;
+                    $existingIndex = $enrolledCoursesWithPurchaseDate->search(
+                        static fn($item) => $item['course_id'] == $courseId,
+                    );
 
-                        if ($existingIndex === false) {
-                            $enrolledCoursesWithPurchaseDate->push([
-                                'course_id' => $courseId,
-                                'course' => $track->course,
-                                'purchase_date' => Carbon::parse($track->updated_at),
-                            ]);
-                        }
+                    if ($existingIndex === false) {
+                        $enrolledCoursesWithPurchaseDate->push([
+                            'course_id' => $courseId,
+                            'course' => $track->course,
+                            'purchase_date' => Carbon::parse($track->updated_at),
+                        ]);
                     }
                 }
             }
