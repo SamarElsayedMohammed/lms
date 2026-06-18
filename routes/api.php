@@ -51,7 +51,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('user-exists', [ApiController::class, 'userExists']);
 Route::post('user-signup', [ApiController::class, 'userSignup']);
 Route::post('user-login', [ApiController::class, 'userLogin']);
-Route::post('refresh-token', [ApiController::class, 'refreshToken'])->middleware('auth:api');
+Route::post('refresh-token', [ApiController::class, 'refreshToken'])->middleware('auth:sanctum');
 Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin']);
 Route::post('mobile-login', [ApiController::class, 'mobileLogin']);
 Route::post('mobile-registration', [ApiController::class, 'mobileRegistration']);

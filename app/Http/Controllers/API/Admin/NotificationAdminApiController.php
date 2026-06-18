@@ -83,8 +83,7 @@ class NotificationAdminApiController extends Controller
                 break;
         }
 
-        $users = $query->get();
-        $count = $users->count();
+        $count = $query->count();
 
         if ($count === 0) {
             return ApiResponseService::errorResponse('No users found for the selected criteria');
@@ -109,20 +108,22 @@ class NotificationAdminApiController extends Controller
             'image'       => $imageUrl,
         ]);
 
-        // Send notifications
-        foreach ($users as $user) {
-            $user->notify(new ManualCustomNotification([
-                'title'      => $request->title,
-                'message'    => $request->message,
-                'title_ar'   => $request->title_ar ?? $request->title,
-                'message_ar' => $request->message_ar ?? $request->message,
-                'action_url' => $request->action_url ?? '#',
-                'image'      => $imageUrl,
-                'type'       => 'admin_manual'
-            ]));
-        }
+        // Send notifications in chunks to avoid memory limits and speed up queue pushing
+        $notificationData = [
+            'title'      => $request->title,
+            'message'    => $request->message,
+            'title_ar'   => $request->title_ar ?? $request->title,
+            'message_ar' => $request->message_ar ?? $request->message,
+            'action_url' => $request->action_url ?? '#',
+            'image'      => $imageUrl,
+            'type'       => 'admin_manual'
+        ];
 
-        return ApiResponseService::successResponse("Notification sent successfully to {$count} users.", $campaign);
+        $query->chunk(200, function ($users) use ($notificationData) {
+            \Illuminate\Support\Facades\Notification::send($users, new ManualCustomNotification($notificationData));
+        });
+
+        return ApiResponseService::successResponse("Notification sent successfully to {$count} users. Processing in background.", $campaign);
     }
 
     /**

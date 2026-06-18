@@ -40,4 +40,4 @@ Route::get('debug-subscriptions', function() {
     return \App\Models\Subscription::with('user')->get();
 });
 Route::get('ref/{code}', [\App\Http\Controllers\API\AffiliateApiController::class, 'trackReferral'])->where('code', '[A-Za-z0-9]+');
-Route::post('refresh-token', [\App\Http\Controllers\ApiController::class, 'refreshToken'])->middleware('auth:api');
+Route::post('refresh-token', [\App\Http\Controllers\ApiController::class, 'refreshToken'])->middleware('auth:sanctum');

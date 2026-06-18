@@ -6,11 +6,12 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Helpers\FirebaseHelper;
 use App\Models\UserFcmToken;
 use Illuminate\Support\Facades\Log;
 
-class ManualCustomNotification extends Notification
+class ManualCustomNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
