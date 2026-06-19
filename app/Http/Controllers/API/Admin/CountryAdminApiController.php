@@ -62,6 +62,16 @@ class CountryAdminApiController extends AdminCrudApiController
         $this->checkPermission('countries-create');
 
         $data = $request->validated();
+
+        // ── معالجة مشكلة الفرونت إند: لو الـ currency_code مبعوت null ──
+        if (empty($data['currency_code'])) {
+            if (!empty($data['currency_name']) && strlen(trim($data['currency_name'])) === 3) {
+                $data['currency_code'] = strtoupper(trim($data['currency_name']));
+            } elseif (!empty($data['iso_code']) && strlen(trim($data['iso_code'])) >= 3) {
+                $data['currency_code'] = strtoupper(substr(trim($data['iso_code']), 0, 3));
+            }
+        }
+
         $data['status'] = $request->boolean('status', true);
         $country = Country::create($data);
 
@@ -120,11 +130,25 @@ class CountryAdminApiController extends AdminCrudApiController
         }
 
         $data = $request->validated();
+
+        // ── معالجة مشكلة الفرونت إند: لو الـ currency_code مبعوت null ──
+        if (empty($data['currency_code']) && empty($country->currency_code)) {
+            if (!empty($data['currency_name']) && strlen(trim($data['currency_name'])) === 3) {
+                $data['currency_code'] = strtoupper(trim($data['currency_name']));
+            } elseif (!empty($data['iso_code']) && strlen(trim($data['iso_code'])) >= 3) {
+                $data['currency_code'] = strtoupper(substr(trim($data['iso_code']), 0, 3));
+            }
+        }
+
         if ($request->has('status')) {
             $data['status'] = $request->boolean('status');
         }
 
         $country->update($data);
+
+        if (!empty($country->currency_code)) {
+            $this->autoCreateCurrencyForCountry($country);
+        }
 
         return $this->jsonSuccess(__('Country updated successfully'), new CountryAdminResource($country->fresh()));
     }
