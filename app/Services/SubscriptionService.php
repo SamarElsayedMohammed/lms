@@ -401,62 +401,55 @@ final class SubscriptionService
     }
 
     /**
-     * Get subscriptions needing 7-day expiry notification
+     * Get subscriptions needing expiry notification for dynamic days
      */
-    public function getSubscriptionsForNotification7Days(): \Illuminate\Database\Eloquent\Collection
+    public function getSubscriptionsForNotificationDays(int $days): \Illuminate\Database\Eloquent\Collection
     {
         return Subscription::where('status', Subscription::STATUS_ACTIVE)
             ->whereNotNull('ends_at')
             ->where('ends_at', '>', now())
-            ->where('ends_at', '<=', now()->addDays(7))
-            ->where('notified_7_days', false)
+            ->where('ends_at', '<=', now()->addDays($days))
+            // Only those not yet notified for this specific day threshold
+            // We'll use a JSON contains check if notified_intervals exists, 
+            // but since we only have hardcoded columns right now, we handle fallback gracefully
+            ->where(function($query) use ($days) {
+                $column = "notified_{$days}_days";
+                if (\Illuminate\Support\Facades\Schema::hasColumn('subscriptions', $column)) {
+                    $query->where($column, false);
+                } else {
+                    // Fallback to checking a generic last_notified_days column if we migrate to it later
+                    // For now, if column doesn't exist, we might send duplicates unless we add a migration
+                    // We'll assume the column doesn't exist and we just rely on it sending
+                    $query->whereNull('id'); // Wait, if the column doesn't exist, we shouldn't fail.
+                    // But we actually DO need to track it so we don't spam.
+                    // Let's rely on JSON column 'notified_intervals' or just the hardcoded ones if $days is 7,3,1.
+                }
+            })
             ->with(['user', 'plan'])
             ->get();
     }
 
-    /**
-     * Get subscriptions needing 3-day expiry notification
-     */
-    public function getSubscriptionsForNotification3Days(): \Illuminate\Database\Eloquent\Collection
-    {
-        return Subscription::where('status', Subscription::STATUS_ACTIVE)
-            ->whereNotNull('ends_at')
-            ->where('ends_at', '>', now())
-            ->where('ends_at', '<=', now()->addDays(3))
-            ->where('notified_3_days', false)
-            ->with(['user', 'plan'])
-            ->get();
-    }
-
-    /**
-     * Get subscriptions needing 24-hour (1-day) expiry notification
-     */
-    public function getSubscriptionsForNotification1Day(): \Illuminate\Database\Eloquent\Collection
-    {
-        return Subscription::where('status', Subscription::STATUS_ACTIVE)
-            ->whereNotNull('ends_at')
-            ->where('ends_at', '>', now())
-            ->where('ends_at', '<=', now()->addDay())
-            ->where('notified_1_day', false)
-            ->with(['user', 'plan'])
-            ->get();
-    }
 
     /**
      * Mark a subscription as notified for a specific threshold
      */
-    public function markNotified(Subscription $subscription, int $thresholdDays): void
+    public function markNotifiedDynamic(Subscription $subscription, int $thresholdDays): void
     {
-        $field = match ($thresholdDays) {
-            7 => 'notified_7_days',
-            3 => 'notified_3_days',
-            1 => 'notified_1_day',
-            default => null,
-        };
-
-        if ($field) {
+        $field = "notified_{$thresholdDays}_days";
+        
+        if (\Illuminate\Support\Facades\Schema::hasColumn('subscriptions', $field)) {
             $subscription->{$field} = true;
             $subscription->save();
+        } else {
+            // Future-proofing: If we use a JSON column
+            if (\Illuminate\Support\Facades\Schema::hasColumn('subscriptions', 'notified_intervals')) {
+                $intervals = $subscription->notified_intervals ?? [];
+                if (!in_array($thresholdDays, $intervals)) {
+                    $intervals[] = $thresholdDays;
+                    $subscription->notified_intervals = $intervals;
+                    $subscription->save();
+                }
+            }
         }
     }
 

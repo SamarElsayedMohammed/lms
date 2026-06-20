@@ -12,10 +12,11 @@ use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
+use App\Traits\ConfigurableNotification;
 
 class InstructorSubmissionNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, ConfigurableNotification;
 
     protected $instructor;
     protected $user;
@@ -34,10 +35,6 @@ class InstructorSubmissionNotification extends Notification implements ShouldQue
      *
      * @return array<int, string>
      */
-    public function via(object $notifiable): array
-    {
-        return ['database'];
-    }
 
     /**
      * Get the mail representation of the notification.

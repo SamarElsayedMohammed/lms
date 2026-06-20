@@ -8,10 +8,11 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\PushesToFirebase;
+use App\Traits\ConfigurableNotification;
 
 class CertificateNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     /**
      * Create a new notification instance.
@@ -26,10 +27,6 @@ class CertificateNotification extends Notification
      *
      * @return array<int, string>
      */
-    public function via(object $notifiable): array
-    {
-        return ['mail', 'database'];
-    }
 
     /**
      * Get the mail representation of the notification.

@@ -187,6 +187,9 @@ final class KashierController extends Controller
                 'transactionId' => $transactionId,
             ]);
 
+            // Attempt to save credit card token if available
+            $this->saveCreditCardIfPresent($user, $data);
+
             return $this->respond($request, 'OK', 200, true);
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: failed to create subscription', [
@@ -269,6 +272,10 @@ final class KashierController extends Controller
                 'user'
             );
             Log::info('Kashier webhook: wallet top-up completed', ['userId' => $userId, 'amount' => $amount]);
+            
+            // Attempt to save credit card token if available
+            $this->saveCreditCardIfPresent($user, $data);
+            
             return $this->respond($request, 'OK', 200, true);
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: wallet top-up failed', ['message' => $e->getMessage(), 'orderId' => $orderId]);
@@ -342,6 +349,10 @@ final class KashierController extends Controller
             $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
 
             Log::info('Kashier webhook: webinar payment completed', ['userId' => $userId, 'webinarId' => $webinarId]);
+            
+            // Attempt to save credit card token if available
+            $this->saveCreditCardIfPresent($user, $data);
+
             return $this->respond($request, 'OK', 200, true);
 
         } catch (\Throwable $e) {
@@ -375,5 +386,96 @@ final class KashierController extends Controller
         }
 
         return response($message, $statusCode);
+    }
+
+    /**
+     * Extracts and saves credit card token from the payment gateway response if present.
+     */
+    private function saveCreditCardIfPresent(User $user, array $data): void
+    {
+        try {
+            // Find card data in Kashier payload structure
+            $cardData = $data['cardData'] ?? $data['card_data'] ?? $data['card'] ?? null;
+            $token = $data['cardToken'] ?? $data['card_token'] ?? $data['token'] ?? null;
+
+            if (is_array($cardData)) {
+                $token = $token ?? $cardData['cardToken'] ?? $cardData['card_token'] ?? $cardData['token'] ?? null;
+                $maskedCard = $cardData['maskedCard'] ?? $cardData['masked_card'] ?? $cardData['cardNumber'] ?? '';
+                $cardHolderName = $cardData['cardHolderName'] ?? $cardData['card_holder_name'] ?? $cardData['cardHolder'] ?? '';
+                $expMonth = $cardData['expiryMonth'] ?? $cardData['exp_month'] ?? $cardData['expirationMonth'] ?? '';
+                $expYear = $cardData['expiryYear'] ?? $cardData['exp_year'] ?? $cardData['expirationYear'] ?? '';
+                $brand = $cardData['brand'] ?? $cardData['cardBrand'] ?? 'Unknown';
+            } else {
+                // Flat structure fallback
+                $maskedCard = $data['maskedCard'] ?? $data['masked_card'] ?? $data['cardNumber'] ?? '';
+                $cardHolderName = $data['cardHolderName'] ?? $data['card_holder_name'] ?? $data['cardHolder'] ?? '';
+                $expMonth = $data['expiryMonth'] ?? $data['exp_month'] ?? '';
+                $expYear = $data['expiryYear'] ?? $data['exp_year'] ?? '';
+                $brand = $data['brand'] ?? $data['cardBrand'] ?? 'Unknown';
+            }
+
+            if (!$token) {
+                // If there's no token, we cannot save it for future use securely
+                return;
+            }
+
+            // Extract the last 4 digits from the masked card
+            $lastFour = '0000';
+            if (preg_match('/(\d{4})$/', (string) $maskedCard, $matches)) {
+                $lastFour = $matches[1];
+            }
+
+            // Clean up month/year
+            $expMonth = str_pad((string) $expMonth, 2, '0', STR_PAD_LEFT);
+            $expYear = (string) $expYear;
+            if (strlen($expYear) == 2) {
+                $expYear = '20' . $expYear;
+            }
+
+            // Check if card already exists for this user by token or last four
+            $existingCard = $user->creditCards()->where('gateway_token', $token)
+                ->orWhere(function($query) use ($user, $lastFour, $expMonth, $expYear) {
+                    $query->where('user_id', $user->id)
+                          ->where('last_four_digits', $lastFour)
+                          ->where('exp_month', $expMonth)
+                          ->where('exp_year', $expYear);
+                })->first();
+
+            if ($existingCard) {
+                // If it exists, update token in case it changed, and make it default
+                $existingCard->update([
+                    'gateway_token' => $token,
+                    'is_default' => true
+                ]);
+                // Ensure others are not default
+                $user->creditCards()->where('id', '!=', $existingCard->id)->update(['is_default' => false]);
+                return;
+            }
+
+            // Ensure others are not default
+            $user->creditCards()->update(['is_default' => false]);
+
+            // Save the new card
+            $user->creditCards()->create([
+                'card_holder_name' => $cardHolderName,
+                'last_four_digits' => $lastFour,
+                'brand' => $brand,
+                'exp_month' => $expMonth,
+                'exp_year' => $expYear,
+                'gateway_token' => $token,
+                'is_default' => true,
+            ]);
+
+            Log::info('Kashier webhook: Successfully saved user credit card token', [
+                'user_id' => $user->id,
+                'last_four' => $lastFour
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::error('Kashier webhook: Failed to auto-save credit card', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

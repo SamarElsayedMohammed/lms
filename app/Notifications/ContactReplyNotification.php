@@ -9,6 +9,7 @@ use App\Traits\PushesToFirebase;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\ConfigurableNotification;
 
 /**
  * Sent to the registered user when the admin replies to their contact message.
@@ -16,18 +17,13 @@ use Illuminate\Notifications\Notification;
  */
 class ContactReplyNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     public function __construct(
         private readonly ContactMessage $contactMessage,
         private readonly string $replyMessage,
         private readonly string $appName,
     ) {}
-
-    public function via(object $notifiable): array
-    {
-        return ['database'];
-    }
 
     public function toArray(object $notifiable): array
     {

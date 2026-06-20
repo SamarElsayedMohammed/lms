@@ -131,7 +131,7 @@ class AffiliateService
             return $earnedDate->copy()->day(28);
         }
 
-        return $earnedDate->copy()->addMonth()->day(15);
+        return $earnedDate->copy()->addMonth()->day(14);
     }
 
     public function getAvailableBalance(User $user): float

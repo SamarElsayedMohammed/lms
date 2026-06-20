@@ -40,6 +40,7 @@ class CategoryAdminApiController extends AdminCrudApiController
             ->when(!$withTrashed, fn ($q) => $q->whereNull('deleted_at'))
             ->when($parentId === null || $parentId === '0' || $parentId === '', fn ($q) => $q->whereNull('parent_category_id'))
             ->when($parentId !== null && $parentId !== '0' && $parentId !== '', fn ($q) => $q->where('parent_category_id', $parentId))
+            ->when($request->has('is_featured'), fn ($q) => $q->where('is_featured', $request->boolean('is_featured')))
             ->when($search, fn ($q) => $q->where('name', 'like', "%{$search}%"));
 
         $categories = $query->orderBy('sequence')->orderBy('id')->paginate($perPage);
@@ -271,6 +272,35 @@ class CategoryAdminApiController extends AdminCrudApiController
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update order') . ': ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * POST /api/admin/categories/{id}/toggle-featured
+     * Toggle the featured status of a category
+     */
+    public function toggleFeatured(int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('categories-edit');
+
+        $category = Category::find($id);
+
+        if (!$category) {
+            return $this->jsonError(__('Category not found'), 404);
+        }
+
+        try {
+            $category->is_featured = !$category->is_featured;
+            $category->save();
+
+            $status = $category->is_featured ? __('Featured') : __('Unfeatured');
+            return $this->jsonSuccess(__("Category successfully marked as {$status}"), [
+                'id' => $category->id,
+                'is_featured' => $category->is_featured,
+            ]);
+        } catch (\Throwable $e) {
+            return $this->jsonError(__('Failed to toggle category featured status: ') . $e->getMessage(), 500);
         }
     }
 }

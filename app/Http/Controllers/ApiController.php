@@ -278,11 +278,9 @@ class ApiController extends Controller
 
     private function createTokenWithMetadata($user, $name, Request $request)
     {
-        // To prevent unbounded token growth, keep only the latest 10 tokens per user
-        $userTokensCount = $user->tokens()->count();
-        if ($userTokensCount >= 10) {
-            $user->tokens()->oldest()->take($userTokensCount - 9)->delete();
-        }
+        // Enforce single active session rule: delete all existing tokens for this user
+        // This logs out any other active device.
+        $user->tokens()->delete();
 
         // Create the new token
         $tokenResult = $user->createToken($name);
@@ -307,11 +305,15 @@ class ApiController extends Controller
             return null;
         }
 
+        // Determine max devices for this user
+        $maxDevices = $user->allowed_devices_count ?? (int) HelperService::systemSettings('default_device_limit', 3);
+
         $result = UserDevice::verifyDevice(
             $user->id,
             $deviceType,
             $deviceId,
-            $request->input('device_name')
+            $request->input('device_name'),
+            $maxDevices
         );
 
         if (!$result['allowed']) {
@@ -2414,6 +2416,7 @@ class ApiController extends Controller
                 'slug' => 'nullable|exists:categories,slug',
                 'get_subcategory' => 'nullable|boolean',
                 'get_parent_category' => 'nullable|boolean',
+                'is_featured' => 'nullable|boolean',
                 'per_page' => 'nullable|integer|min:1',
                 'page' => 'nullable|integer|min:1',
             ]);
@@ -2431,6 +2434,7 @@ class ApiController extends Controller
                 'status',
                 'slug',
                 'sequence',
+                'is_featured',
             )
                 ->withCount(['subcategories' => static function ($q): void {
                     $q->where('status', 1);
@@ -2492,6 +2496,10 @@ class ApiController extends Controller
                         }
                     } else {
                         $query->whereNull('parent_category_id');
+                    }
+
+                    if ($request->has('is_featured')) {
+                        $query->where('is_featured', $request->boolean('is_featured'));
                     }
                 })
                 ->orderByRaw('CASE WHEN sequence IS NULL THEN 1 ELSE 0 END')

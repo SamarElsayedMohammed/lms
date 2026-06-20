@@ -8,10 +8,11 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\PushesToFirebase;
+use App\Traits\ConfigurableNotification;
 
 class ManualDepositStatusNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     protected $deposit;
 
@@ -28,10 +29,6 @@ class ManualDepositStatusNotification extends Notification
      *
      * @return array<int, string>
      */
-    public function via(object $notifiable): array
-    {
-        return ['mail', 'database'];
-    }
 
     /**
      * Get the mail representation of the notification.

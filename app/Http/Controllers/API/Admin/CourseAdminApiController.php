@@ -952,4 +952,22 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Failed to remove course AI info: ') . $e->getMessage(), 500);
         }
     }
+    /**
+     * Toggle the featured status of a course.
+     */
+    public function toggleFeatured(int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('courses-edit');
+
+        $course = Course::find($id);
+        if (!$course) {
+            return $this->jsonError(__('Course not found'), 404);
+        }
+
+        $course->update(['is_featured' => !$course->is_featured]);
+
+        $status = $course->is_featured ? 'featured' : 'unfeatured';
+        return $this->jsonSuccess(__("Course {$status} successfully"), ['is_featured' => $course->is_featured]);
+    }
 }

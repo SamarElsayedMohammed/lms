@@ -10,21 +10,17 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Helpers\FirebaseHelper;
 use App\Models\UserFcmToken;
 use Illuminate\Support\Facades\Log;
+use App\Traits\ConfigurableNotification;
 
 class ManualCustomNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, ConfigurableNotification;
 
     protected $data;
 
     public function __construct(array $data)
     {
         $this->data = $data;
-    }
-
-    public function via(object $notifiable): array
-    {
-        return ['database', 'mail'];
     }
 
     public function toMail(object $notifiable): MailMessage

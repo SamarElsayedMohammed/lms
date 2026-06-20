@@ -31,7 +31,17 @@ class CheckSubscriptionExpiry extends Command
     {
         Log::info('Subscription expiry check started.');
 
+        // Get configured days or default to [15, 7, 3]
+        $daysConfig = \App\Services\CachingService::getSystemSettings('subscription_expiry_days');
         $expiryDays = [15, 7, 3];
+        
+        if (!empty($daysConfig)) {
+            // Split by comma, trim whitespace, remove empty values, convert to int
+            $expiryDays = array_map('intval', array_filter(array_map('trim', explode(',', $daysConfig))));
+            if (empty($expiryDays)) {
+                $expiryDays = [15, 7, 3];
+            }
+        }
 
         foreach ($expiryDays as $days) {
             $targetDate = Carbon::today()->addDays($days);

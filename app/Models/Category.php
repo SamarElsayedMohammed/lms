@@ -22,10 +22,12 @@ class Category extends Model
         'status',
         'parent_category_id',
         'sequence',
+        'is_featured',
     ];
 
     protected $casts = [
         'status' => 'boolean',
+        'is_featured' => 'boolean',
     ];
 
     protected $appends = ['has_subcategory', 'has_parent_category'];

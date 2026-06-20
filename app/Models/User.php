@@ -87,6 +87,7 @@ final class User extends Authenticatable
         'wallet_balance',
         'type',
         'referred_by',
+        'allowed_devices_count',
     ];
 
     /**
@@ -245,6 +246,14 @@ final class User extends Authenticatable
     public function referrer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'referred_by');
+    }
+
+    /**
+     * Get the user's credit cards.
+     */
+    public function creditCards(): HasMany
+    {
+        return $this->hasMany(UserCreditCard::class);
     }
 
     /**

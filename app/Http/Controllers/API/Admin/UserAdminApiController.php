@@ -63,6 +63,8 @@ class UserAdminApiController extends AdminCrudApiController
         $user->is_instructor = !empty($user->instructor_details);
         $user->instructor_status = $user->instructor_details->status ?? null;
         $user->device_count = \App\Models\UserDevice::where('user_id', $id)->count();
+        // allowed_devices_count is already on the model, but let's ensure it's exposed clearly
+        // (It's in $fillable and not in $hidden, so it will be returned naturally)
 
         if ($user->activeSubscription) {
             $user->active_subscription_type = ucfirst($user->activeSubscription->plan->billing_cycle ?? 'unknown');
@@ -99,6 +101,7 @@ class UserAdminApiController extends AdminCrudApiController
             'country_calling_code' => 'nullable|string|max:10',
             'country_code' => 'nullable|string|max:5',
             'is_active' => 'sometimes|boolean',
+            'allowed_devices_count' => 'nullable|integer|min:1',
         ]);
 
         if ($validator->fails()) {

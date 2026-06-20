@@ -8,21 +8,17 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\PushesToFirebase;
+use App\Traits\ConfigurableNotification;
 
 class WithdrawalStatusNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     protected $withdrawalRequest;
 
     public function __construct(WithdrawalRequest $withdrawalRequest)
     {
         $this->withdrawalRequest = $withdrawalRequest;
-    }
-
-    public function via(object $notifiable): array
-    {
-        return ['mail', 'database'];
     }
 
     public function toMail(object $notifiable): MailMessage

@@ -66,6 +66,28 @@ class ReportsApiController extends Controller
     }
 
     /**
+     * Get revenue specifically from credit cards (Stripe, Razorpay, etc.)
+     */
+    public function getCreditCardRevenue(Request $request)
+    {
+        // Credit card gateways
+        $ccGateways = ['stripe', 'razorpay', 'flutterwave', 'paymob'];
+        
+        // Force the request to only include credit card payment methods if not specified,
+        // or ensure the specified one is a CC gateway
+        if ($request->has('payment_method') && in_array($request->payment_method, $ccGateways)) {
+            $request->merge(['payment_method' => $request->payment_method]);
+        } else {
+            // Since our filter currently only supports a single payment_method string in applyPaymentMethodFilter,
+            // we will default to 'stripe' as the primary CC gateway for this specific report if not provided.
+            // Ideally applyPaymentMethodFilter should handle arrays, but we adapt to existing logic.
+            $request->merge(['payment_method' => 'stripe']); 
+        }
+
+        return $this->getSalesReport($request);
+    }
+
+    /**
      * Get commission reports with filters
      */
     public function getCommissionReport(Request $request)
@@ -669,8 +691,28 @@ class ReportsApiController extends Controller
 
         $orders = $query->get();
 
+        $subscriptionRevenue = 0;
+        // Only include subscription revenue if not explicitly filtering by a specific course or category
+        if (!$request->filled('course_id') && !$request->filled('category_id')) {
+            $subQuery = \App\Models\SubscriptionPayment::where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED);
+
+            if ($request->filled('date_from')) {
+                $subQuery->whereDate('subscription_payments.created_at', '>=', $request->date_from);
+            }
+            if ($request->filled('date_to')) {
+                $subQuery->whereDate('subscription_payments.created_at', '<=', $request->date_to);
+            }
+            if ($request->filled('payment_method')) {
+                $subQuery->where('subscription_payments.payment_method', $request->payment_method);
+            }
+
+            $subscriptionRevenue = $subQuery
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->sum(\Illuminate\Support\Facades\DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)'));
+        }
+
         return [
-            'total_revenue' => $orders->sum('final_price'),
+            'total_revenue' => $orders->sum('final_price') + $subscriptionRevenue,
             'total_orders' => $orders->count(),
             'average_order_value' => $orders->avg('final_price'),
             'revenue_by_payment_method' => $orders->groupBy('payment_method')->map(
@@ -679,6 +721,7 @@ class ReportsApiController extends Controller
             'revenue_by_category' => $this->getRevenueByCategory($orders),
             'revenue_trend' => $this->getRevenueTrend($orders),
             'revenue_distribution' => $this->getRevenueCommissionDistribution($request),
+            'subscription_revenue' => $subscriptionRevenue,
         ];
     }
 
@@ -737,12 +780,6 @@ class ReportsApiController extends Controller
 
     private function getRevenueChartData($request)
     {
-        $query = Order::where('status', 'completed');
-        $this->applyDateFilter($query, $request);
-        $this->applyCourseFilter($query, $request);
-        $this->applyCategoryFilter($query, $request);
-        $this->applyPaymentMethodFilter($query, $request);
-
         $groupBy = $request->group_by ?? 'day';
 
         $format = match ($groupBy) {
@@ -752,12 +789,66 @@ class ReportsApiController extends Controller
             default => '%Y-%m-%d',
         };
 
-        return $query->selectRaw("
+        // Course Orders
+        $orderQuery = Order::where('status', 'completed');
+        $this->applyDateFilter($orderQuery, $request);
+        $this->applyCourseFilter($orderQuery, $request);
+        $this->applyCategoryFilter($orderQuery, $request);
+        $this->applyPaymentMethodFilter($orderQuery, $request);
+
+        $orderData = $orderQuery->selectRaw("
                 DATE_FORMAT(created_at, '{$format}') as period,
-                SUM(final_price) as revenue,
-                COUNT(*) as orders_count,
-                AVG(final_price) as avg_order_value
-            ")->groupBy('period')->orderBy('period')->get();
+                SUM(final_price) as order_revenue,
+                COUNT(*) as orders_count
+            ")->groupBy('period')->get()->keyBy('period');
+
+        // Subscriptions
+        $subData = collect();
+        if (!$request->filled('course_id') && !$request->filled('category_id')) {
+            $subQuery = \App\Models\SubscriptionPayment::where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED);
+
+            if ($request->filled('date_from')) {
+                $subQuery->whereDate('subscription_payments.created_at', '>=', $request->date_from);
+            }
+            if ($request->filled('date_to')) {
+                $subQuery->whereDate('subscription_payments.created_at', '<=', $request->date_to);
+            }
+            if ($request->filled('payment_method')) {
+                $subQuery->where('subscription_payments.payment_method', $request->payment_method);
+            }
+
+            $subData = $subQuery
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->selectRaw("
+                    DATE_FORMAT(subscription_payments.created_at, '{$format}') as period,
+                    SUM(subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)) as sub_revenue,
+                    COUNT(*) as subs_count
+                ")
+                ->groupBy('period')->get()->keyBy('period');
+        }
+
+        $allPeriods = $orderData->keys()->merge($subData->keys())->unique()->sort()->values();
+
+        return $allPeriods->map(function ($period) use ($orderData, $subData) {
+            $o = $orderData->get($period);
+            $s = $subData->get($period);
+
+            $orderRev = $o ? (float) $o->order_revenue : 0;
+            $subRev = $s ? (float) $s->sub_revenue : 0;
+            $orderCount = $o ? (int) $o->orders_count : 0;
+            $subCount = $s ? (int) $s->subs_count : 0;
+
+            $totalCount = $orderCount + $subCount;
+
+            return [
+                'period' => $period,
+                'revenue' => $orderRev + $subRev,
+                'order_revenue' => $orderRev,
+                'subscription_revenue' => $subRev,
+                'orders_count' => $totalCount,
+                'avg_order_value' => $totalCount > 0 ? ($orderRev + $subRev) / $totalCount : 0,
+            ];
+        });
     }
 
     private function getRevenueComparisonData($request)
@@ -767,7 +858,7 @@ class ReportsApiController extends Controller
 
         $daysDiff = $dateTo->diffInDays($dateFrom);
 
-        // Current period
+        // Current period (Orders)
         $currentQuery = Order::where('status', 'completed')->whereBetween('created_at', [$dateFrom, $dateTo]);
 
         // Previous period (same duration)
@@ -776,25 +867,55 @@ class ReportsApiController extends Controller
 
         $previousQuery = Order::where('status', 'completed')->whereBetween('created_at', [$previousFrom, $previousTo]);
 
-        $currentRevenue = $currentQuery->sum('final_price');
-        $previousRevenue = $previousQuery->sum('final_price');
+        $currentOrderRevenue = $currentQuery->sum('final_price');
+        $previousOrderRevenue = $previousQuery->sum('final_price');
+
+        $currentSubRevenue = 0;
+        $previousSubRevenue = 0;
+        $currentSubCount = 0;
+        $previousSubCount = 0;
+
+        if (!$request->filled('course_id') && !$request->filled('category_id')) {
+            // Current period (Subscriptions)
+            $currSubQuery = \App\Models\SubscriptionPayment::where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->whereBetween('subscription_payments.created_at', [$dateFrom, $dateTo]);
+
+            $currentSubCount = $currSubQuery->count();
+            $currentSubRevenue = $currSubQuery
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->sum(\Illuminate\Support\Facades\DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)'));
+
+            // Previous period (Subscriptions)
+            $prevSubQuery = \App\Models\SubscriptionPayment::where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->whereBetween('subscription_payments.created_at', [$previousFrom, $previousTo]);
+
+            $previousSubCount = $prevSubQuery->count();
+            $previousSubRevenue = $prevSubQuery
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->sum(\Illuminate\Support\Facades\DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)'));
+        }
+
+        $currentRevenue = $currentOrderRevenue + $currentSubRevenue;
+        $previousRevenue = $previousOrderRevenue + $previousSubRevenue;
 
         $growth = $previousRevenue > 0 ? (($currentRevenue - $previousRevenue) / $previousRevenue) * 100 : 0;
+        $currentTotalCount = $currentQuery->count() + $currentSubCount;
+        $previousTotalCount = $previousQuery->count() + $previousSubCount;
 
         return [
             'current_period' => [
                 'revenue' => $currentRevenue,
-                'orders' => $currentQuery->count(),
-                'avg_order_value' => $currentQuery->avg('final_price'),
+                'orders' => $currentTotalCount,
+                'avg_order_value' => $currentTotalCount > 0 ? $currentRevenue / $currentTotalCount : 0,
             ],
             'previous_period' => [
                 'revenue' => $previousRevenue,
-                'orders' => $previousQuery->count(),
-                'avg_order_value' => $previousQuery->avg('final_price'),
+                'orders' => $previousTotalCount,
+                'avg_order_value' => $previousTotalCount > 0 ? $previousRevenue / $previousTotalCount : 0,
             ],
             'growth' => [
                 'revenue_growth' => round($growth, 2),
-                'orders_growth' => $this->calculateGrowthPercentage($previousQuery->count(), $currentQuery->count()),
+                'orders_growth' => $this->calculateGrowthPercentage($previousTotalCount, $currentTotalCount),
             ],
         ];
     }

@@ -10,6 +10,7 @@ use App\Traits\PushesToFirebase;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\ConfigurableNotification;
 
 /**
  * Sent to the user when their review/comment is approved or rejected.
@@ -17,18 +18,13 @@ use Illuminate\Notifications\Notification;
  */
 class ReviewStatusNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     public function __construct(
         private readonly Rating|CourseDiscussion $reviewItem,
         private readonly string $type = 'rating', // 'rating' or 'comment'
         private readonly string $status = 'approved', // 'approved' or 'rejected'
     ) {}
-
-    public function via(object $notifiable): array
-    {
-        return ['database'];
-    }
 
     public function toArray(object $notifiable): array
     {

@@ -238,6 +238,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
     /**
      * User APIs
      */
+    Route::get('user/credit-cards', [\App\Http\Controllers\API\UserCreditCardApiController::class, 'index']);
+    Route::post('user/credit-cards', [\App\Http\Controllers\API\UserCreditCardApiController::class, 'store']);
+    Route::put('user/credit-cards/{id}', [\App\Http\Controllers\API\UserCreditCardApiController::class, 'update']);
+    Route::delete('user/credit-cards/{id}', [\App\Http\Controllers\API\UserCreditCardApiController::class, 'destroy']);
+    Route::post('user/credit-cards/{id}/set-default', [\App\Http\Controllers\API\UserCreditCardApiController::class, 'setDefault']);
+    
     Route::get('get-assignments', [CourseChapterApiController::class, 'getAssignmentSubmissionHistory']); // Get Assignment Submission History
     Route::get('get-resources', [CourseApiController::class, 'getResources']); // Get Course Resources
     Route::post('instructor/update-details', [InstructorApiController::class, 'updateDetails']);
@@ -638,10 +644,15 @@ Route::middleware('auth:sanctum')->group(function (): void {
      * Admin Dashboard CRUD APIs
      */
     Route::prefix('admin')->group(function (): void {
+        // Notification Global Settings
+        Route::get('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'getSettings']);
+        Route::put('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'updateSettings']);
+
         // Categories
         Route::get('categories', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'index']);
         Route::post('categories', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'store']);
         Route::post('categories/reorder', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'reorder']);
+        Route::post('categories/{id}/toggle-featured', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'toggleFeatured']);
         Route::get('categories/{id}', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'show']);
         Route::put('categories/{id}', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'update']);
         Route::delete('categories/{id}', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'destroy']);
@@ -652,6 +663,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('users/{id}', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'show']);
         Route::put('users/{id}', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'update']);
         Route::post('users/{id}/toggle-status', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'toggleStatus']);
+
+        // Admin User Credit Cards Management
+        Route::get('users/{userId}/credit-cards', [\App\Http\Controllers\API\Admin\UserCreditCardAdminApiController::class, 'indexByUserId']);
+        Route::post('users/{userId}/credit-cards', [\App\Http\Controllers\API\Admin\UserCreditCardAdminApiController::class, 'storeForUser']);
+        Route::put('credit-cards/{id}', [\App\Http\Controllers\API\Admin\UserCreditCardAdminApiController::class, 'update']);
+        Route::delete('credit-cards/{id}', [\App\Http\Controllers\API\Admin\UserCreditCardAdminApiController::class, 'destroy']);
+        Route::post('credit-cards/{id}/set-default', [\App\Http\Controllers\API\Admin\UserCreditCardAdminApiController::class, 'setDefault']);
         Route::post('users/{id}/assign-role', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'assignRole']);
 
         // User Devices (Admin) — view & revoke registered devices
@@ -735,6 +753,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('courses/{id}/restore', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'restore']);
         Route::post('courses/{id}/update', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
         Route::delete('courses/{id}/chatbot', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'removeAiInfo']);
+        Route::post('courses/{id}/toggle-featured', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'toggleFeatured']);
 
         // Notifications
         Route::get('notifications', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'index']);
@@ -958,6 +977,7 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
         Route::get('instructor', [ReportsApiController::class, 'getInstructorReport']); // Instructor reports
         Route::get('enrollment', [ReportsApiController::class, 'getEnrollmentReport']); // Enrollment reports
         Route::get('revenue', [ReportsApiController::class, 'getRevenueReport']); // Revenue reports
+        Route::get('credit-cards-revenue', [ReportsApiController::class, 'getCreditCardRevenue']); // Credit Card Revenue
 
         // [8] Student Reports
         Route::get('students/completion-stats', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'completionStats']);

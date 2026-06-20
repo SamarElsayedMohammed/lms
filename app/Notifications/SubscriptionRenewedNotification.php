@@ -8,23 +8,19 @@ use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\PushesToFirebase;
+use App\Traits\ConfigurableNotification;
 
 /**
  * Notifies the subscriber when their subscription is successfully renewed (wallet / immediate payment).
  */
 class SubscriptionRenewedNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     public function __construct(
         protected Subscription $subscription,
         protected float $amountPaid = 0.0
     ) {}
-
-    public function via(object $notifiable): array
-    {
-        return ['mail', 'database'];
-    }
 
     public function toMail(object $notifiable): MailMessage
     {
