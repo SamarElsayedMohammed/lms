@@ -71,9 +71,15 @@ class StudentReportAdminApiController extends AdminCrudApiController
             return $this->jsonError('Student not found', 404);
         }
 
-        $enrolledCourseIds = OrderCourse::whereHas('order', function ($q) use ($user) {
+        $purchasedIds = OrderCourse::whereHas('order', function ($q) use ($user) {
             $q->where('user_id', $user->id)->where('status', 'completed');
         })->pluck('course_id')->unique()->toArray();
+
+        $trackedIds = UserCurriculumTracking::where('user_id', $user->id)
+            ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+            ->pluck('course_chapters.course_id')->unique()->toArray();
+
+        $enrolledCourseIds = array_unique(array_merge($purchasedIds, $trackedIds));
 
         $totalEnrolled   = count($enrolledCourseIds);
         $completedCourses = 0;
@@ -157,17 +163,28 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'all_completed' => 0,
         ];
 
-        $studentIds = User::whereHas('orders', fn ($q) => $q->where('status', 'completed'))->pluck('id');
+        $studentIds = User::where(function ($q) {
+            $q->whereHas('orders', fn ($oq) => $oq->where('status', 'completed'))
+              ->orWhereHas('subscriptions');
+        })->pluck('id');
+
         $totalCompletedCourseEnrollments = 0;
         $totalInProgressCourseEnrollments = 0;
         $courseCompletionCounts = [];
 
         foreach ($studentIds as $userId) {
-            $enrolledIds = OrderCourse::whereHas('order', fn ($q) => $q->where('user_id', $userId)->where('status', 'completed'))
+            $purchasedIds = OrderCourse::whereHas('order', fn ($q) => $q->where('user_id', $userId)->where('status', 'completed'))
                 ->pluck('course_id')
                 ->unique()
-                ->values()
-                ->all();
+                ->toArray();
+
+            $trackedIds = UserCurriculumTracking::where('user_id', $userId)
+                ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+                ->pluck('course_chapters.course_id')
+                ->unique()
+                ->toArray();
+
+            $enrolledIds = array_unique(array_merge($purchasedIds, $trackedIds));
 
             if ($enrolledIds === []) {
                 $brackets['no_courses']++;
@@ -214,11 +231,20 @@ class StudentReportAdminApiController extends AdminCrudApiController
             })
             ->values();
 
-        $trend = DB::table('order_courses as oc')
-            ->join('orders as o', 'oc.order_id', '=', 'o.id')
+        // Updated trend query to combine both order and subscription creations
+        $trendOrders = DB::table('orders as o')
             ->where('o.status', 'completed')
             ->where('o.created_at', '>=', Carbon::now()->subMonths(6))
-            ->selectRaw("DATE_FORMAT(o.created_at, '%Y-%m') as month, COUNT(DISTINCT o.user_id) as new_students")
+            ->selectRaw("DATE_FORMAT(o.created_at, '%Y-%m') as month, o.user_id");
+
+        $trendSubs = DB::table('subscriptions as s')
+            ->where('s.created_at', '>=', Carbon::now()->subMonths(6))
+            ->selectRaw("DATE_FORMAT(s.created_at, '%Y-%m') as month, s.user_id");
+
+        $combinedTrend = DB::table(DB::raw("({$trendOrders->union($trendSubs)->toSql()}) as combined"))
+            ->mergeBindings($trendOrders)
+            ->mergeBindings($trendSubs)
+            ->selectRaw("month, COUNT(DISTINCT user_id) as new_students")
             ->groupBy('month')
             ->orderBy('month')
             ->get();
@@ -230,7 +256,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'total_completed_course_enrollments' => $totalCompletedCourseEnrollments,
             'total_in_progress_course_enrollments' => $totalInProgressCourseEnrollments,
             'top_completed_courses' => $topCompletedCourses,
-            'monthly_enrollment_trend' => $trend,
+            'monthly_enrollment_trend' => $combinedTrend,
             'generated_at' => Carbon::now()->toDateTimeString(),
         ]);
     }
@@ -239,7 +265,10 @@ class StudentReportAdminApiController extends AdminCrudApiController
 
     private function getSummaryReport(Request $request): array
     {
-        $query = User::whereHas('orders', fn($q) => $q->where('status', 'completed'));
+        $query = User::where(function ($q) {
+            $q->whereHas('orders', fn($oq) => $oq->where('status', 'completed'))
+              ->orWhereHas('subscriptions');
+        });
 
         if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);
@@ -252,12 +281,18 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $students = $query->select('id', 'name', 'email', 'created_at')->paginate($perPage);
 
         $items = collect($students->items())->map(function ($user) {
-            $enrolledIds = OrderCourse::whereHas('order', fn($q) => $q->where('user_id', $user->id)->where('status', 'completed'))
+            $purchasedIds = OrderCourse::whereHas('order', fn($q) => $q->where('user_id', $user->id)->where('status', 'completed'))
                 ->pluck('course_id')->unique()->toArray();
+
+            $trackedIds = UserCurriculumTracking::where('user_id', $user->id)
+                ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+                ->pluck('course_chapters.course_id')->unique()->toArray();
+
+            $allCourseIds = array_unique(array_merge($purchasedIds, $trackedIds));
 
             $completed = 0;
             $inProgress = 0;
-            foreach ($enrolledIds as $courseId) {
+            foreach ($allCourseIds as $courseId) {
                 $progress = $this->calculateCourseProgress($user->id, $courseId);
                 if ($progress >= 100) {
                     $completed++;
@@ -266,19 +301,19 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 }
             }
 
-            $notStarted = max(0, count($enrolledIds) - $completed - $inProgress);
+            $notStarted = max(0, count($allCourseIds) - $completed - $inProgress);
 
             return [
                 'student_id'        => $user->id,
                 'name'              => $user->name,
                 'email'             => $user->email,
-                'total_enrolled'    => count($enrolledIds),
+                'total_enrolled'    => count($allCourseIds),
                 'completed_courses' => $completed,
                 'in_progress'       => $inProgress,
                 'not_started'       => $notStarted,
-                'open_courses'      => count($enrolledIds) - $completed,
-                'completion_rate'   => count($enrolledIds) > 0
-                    ? round(($completed / count($enrolledIds)) * 100, 2)
+                'open_courses'      => count($allCourseIds) - $completed,
+                'completion_rate'   => count($allCourseIds) > 0
+                    ? round(($completed / count($allCourseIds)) * 100, 2)
                     : 0,
                 'joined_at'         => $user->created_at?->toDateString(),
             ];
@@ -307,7 +342,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
     private function getDetailedReport(Request $request): array
     {
         // Returns per-course enrollment + completion detail per student
-        $query = DB::table('order_courses as oc')
+        $purchasedCourses = DB::table('order_courses as oc')
             ->join('orders as o', 'oc.order_id', '=', 'o.id')
             ->join('users as u', 'o.user_id', '=', 'u.id')
             ->join('courses as c', 'oc.course_id', '=', 'c.id')
@@ -318,21 +353,42 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 'o.created_at as enrolled_at'
             );
 
+        $trackedCourses = DB::table('user_curriculum_trackings as uct')
+            ->join('users as u', 'uct.user_id', '=', 'u.id')
+            ->join('course_chapters as ch', 'uct.course_chapter_id', '=', 'ch.id')
+            ->join('courses as c', 'ch.course_id', '=', 'c.id')
+            ->select(
+                'u.id as user_id', 'u.name as student_name', 'u.email',
+                'c.id as course_id', 'c.title as course_title',
+                'uct.created_at as enrolled_at'
+            );
+
+        $unionQuery = $purchasedCourses->union($trackedCourses);
+
+        $query = DB::table(DB::raw("({$unionQuery->toSql()}) as combined"))
+            ->mergeBindings($unionQuery)
+            ->select(
+                'user_id', 'student_name', 'email',
+                'course_id', 'course_title',
+                DB::raw('MIN(enrolled_at) as enrolled_at')
+            )
+            ->groupBy('user_id', 'student_name', 'email', 'course_id', 'course_title');
+
         if ($request->filled('course_id')) {
-            $query->where('oc.course_id', $request->course_id);
+            $query->where('course_id', $request->course_id);
         }
         if ($request->filled('date_from')) {
-            $query->whereDate('o.created_at', '>=', $request->date_from);
+            $query->whereDate('enrolled_at', '>=', $request->date_from);
         }
         if ($request->filled('date_to')) {
-            $query->whereDate('o.created_at', '<=', $request->date_to);
+            $query->whereDate('enrolled_at', '<=', $request->date_to);
         }
 
         $perPage  = min((int) $request->input('per_page', 20), 100);
-        $paginated = $query->orderByDesc('o.created_at')->paginate($perPage);
+        $paginated = $query->orderByDesc('enrolled_at')->paginate($perPage);
 
         $items = collect($paginated->items())->map(function ($row) {
-            $progress = $this->calculateCourseProgress($row->user_id, $row->course_id);
+            $progress = $this->calculateCourseProgress((int) $row->user_id, (int) $row->course_id);
             $status = 'not_started';
             if ($progress >= 100) {
                 $status = 'completed';
@@ -346,7 +402,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 'email'            => $row->email,
                 'course_id'        => $row->course_id,
                 'course_title'     => $row->course_title,
-                'enrolled_at'      => $row->enrolled_at,
+                'enrolled_at'      => Carbon::parse($row->enrolled_at)->toDateTimeString(),
                 'progress_percent' => round($progress, 2),
                 'status'           => $status,
             ];

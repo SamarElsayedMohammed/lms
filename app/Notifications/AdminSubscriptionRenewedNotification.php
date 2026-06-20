@@ -9,24 +9,20 @@ use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\PushesToFirebase;
+use App\Traits\ConfigurableNotification;
 
 /**
  * Notifies admins when a user successfully renews their subscription (immediate / wallet payment).
  */
 class AdminSubscriptionRenewedNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     public function __construct(
         protected Subscription $subscription,
         protected User $subscriber,
         protected float $amountPaid = 0.0
     ) {}
-
-    public function via(object $notifiable): array
-    {
-        return ['mail', 'database'];
-    }
 
     public function toMail(object $notifiable): MailMessage
     {

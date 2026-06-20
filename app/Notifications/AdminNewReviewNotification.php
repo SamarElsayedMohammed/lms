@@ -10,6 +10,7 @@ use App\Traits\PushesToFirebase;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\ConfigurableNotification;
 
 /**
  * Sent to all admin users when a new rating or comment arrives.
@@ -17,17 +18,12 @@ use Illuminate\Notifications\Notification;
  */
 class AdminNewReviewNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     public function __construct(
         private readonly Rating|CourseDiscussion $reviewItem,
         private readonly string $type = 'rating', // 'rating' or 'comment'
     ) {}
-
-    public function via(object $notifiable): array
-    {
-        return ['database'];
-    }
 
     public function toArray(object $notifiable): array
     {

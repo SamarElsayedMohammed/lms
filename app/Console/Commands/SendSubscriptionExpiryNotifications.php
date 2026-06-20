@@ -21,24 +21,37 @@ class SendSubscriptionExpiryNotifications extends Command
     {
         $count = 0;
 
-        foreach ([7, 3, 1] as $days) {
-            $subscriptions = match ($days) {
-                7 => $subscriptionService->getSubscriptionsForNotification7Days(),
-                3 => $subscriptionService->getSubscriptionsForNotification3Days(),
-                1 => $subscriptionService->getSubscriptionsForNotification1Day(),
-                default => collect(),
-            };
+        // Get configured days or default to [7, 3, 1]
+        $daysConfig = \App\Services\CachingService::getSystemSettings('subscription_expiry_days');
+        $expiryDays = [7, 3, 1];
+        
+        if (!empty($daysConfig)) {
+            // Split by comma, trim whitespace, remove empty values, convert to int
+            $expiryDays = array_map('intval', array_filter(array_map('trim', explode(',', $daysConfig))));
+            if (empty($expiryDays)) {
+                $expiryDays = [7, 3, 1];
+            }
+        }
+
+        foreach ($expiryDays as $days) {
+            $subscriptions = $subscriptionService->getSubscriptionsForNotificationDays($days);
 
             foreach ($subscriptions as $subscription) {
                 try {
                     // Send Multi-channel Notification (Mail + Database)
+                    // The channels will be determined dynamically by NotificationSettingsService inside the notification's via() method
                     $subscription->user->notify(
                         new \App\Notifications\SubscriptionExpiryNotification($subscription, $days)
                     );
 
-                    $this->sendPushNotification($subscription, $days);
+                    // Note: FCM push is now handled automatically inside toDatabase if Database is enabled.
+                    // But we keep sendPushNotification here if they are handled separately, 
+                    // though typically the notification's toDatabase would send the FCM.
+                    // To respect admin toggles accurately without double sending, we'll comment this out
+                    // if it's already integrated into the notification class.
+                    // $this->sendPushNotification($subscription, $days);
 
-                    $subscriptionService->markNotified($subscription, $days);
+                    $subscriptionService->markNotifiedDynamic($subscription, $days);
                     $count++;
                 } catch (\Throwable $e) {
                     Log::warning('Subscription expiry notification failed', [

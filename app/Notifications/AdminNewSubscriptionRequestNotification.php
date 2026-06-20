@@ -9,6 +9,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\PushesToFirebase;
+use App\Traits\ConfigurableNotification;
 
 /**
  * Notifies admin users when a new manual subscription payment request is submitted.
@@ -16,7 +17,7 @@ use App\Traits\PushesToFirebase;
  */
 class AdminNewSubscriptionRequestNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     protected Subscription $subscription;
     protected User $requestingUser;
@@ -30,10 +31,6 @@ class AdminNewSubscriptionRequestNotification extends Notification
     /**
      * Delivery channels.
      */
-    public function via(object $notifiable): array
-    {
-        return ['mail', 'database'];
-    }
 
     /**
      * Mail representation.

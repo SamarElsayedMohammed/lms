@@ -10,10 +10,11 @@ use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
+use App\Traits\ConfigurableNotification;
 
 class TeamInvitationNotification extends Notification
 {
-    use Queueable;
+    use Queueable, ConfigurableNotification;
 
     protected $instructor;
 

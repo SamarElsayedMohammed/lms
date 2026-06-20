@@ -8,6 +8,7 @@ use App\Http\Requests\Admin\StoreSubscriptionPlanPanelRequest;
 use App\Http\Resources\Admin\SubscriptionPlanAdminResource;
 use App\Services\SubscriptionPlanService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 final class SubscriptionPlanAdminApiController extends AdminCrudApiController

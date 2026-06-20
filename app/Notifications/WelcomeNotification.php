@@ -7,21 +7,17 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\PushesToFirebase;
+use App\Traits\ConfigurableNotification;
 
 class WelcomeNotification extends Notification
 {
-    use Queueable, PushesToFirebase;
+    use Queueable, PushesToFirebase, ConfigurableNotification;
 
     protected $user;
 
     public function __construct($user)
     {
         $this->user = $user;
-    }
-
-    public function via(object $notifiable): array
-    {
-        return ['mail', 'database'];
     }
 
     public function toMail(object $notifiable): MailMessage
