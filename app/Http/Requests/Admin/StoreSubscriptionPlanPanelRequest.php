@@ -33,6 +33,7 @@ final class StoreSubscriptionPlanPanelRequest extends FormRequest
             'features' => 'nullable|array',
             'features.*' => 'nullable|string|max:500',
             'country_prices' => 'nullable|array',
+            'country_prices.*.country_id' => 'required|integer|exists:countries,id',
             'country_prices.*.country_code' => 'required|string|size:2',
             'country_prices.*.currency_code' => 'required|string|size:3',
             'country_prices.*.price' => 'required|numeric|min:0',
