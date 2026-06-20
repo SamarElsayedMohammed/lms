@@ -75,6 +75,7 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
                 foreach ($countryPrices as $entry) {
                     \App\Models\SubscriptionPlanPrice::create([
                         'plan_id' => $subscriptionPlan->id,
+                        'country_id' => $entry['country_id'],
                         'country_code' => $entry['country_code'],
                         'currency_code' => $entry['currency_code'] ?? 'EGP',
                         'price' => $entry['price'],

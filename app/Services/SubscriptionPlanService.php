@@ -83,6 +83,7 @@ final class SubscriptionPlanService
             foreach ($countriesData as $entry) {
                 SubscriptionPlanPrice::create([
                     'plan_id' => $plan->id,
+                    'country_id' => $entry['country_id'],
                     'country_code' => $entry['country_code'],
                     'currency_code' => $entry['currency_code'] ?? 'EGP',
                     'price' => $entry['price'],
