@@ -46,7 +46,7 @@ final class AffiliateApiController extends Controller
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
         }
 
-        $user = Auth::user();
+        $user = Auth::guard('sanctum')->user() ?? Auth::user();
         if (!$user) {
             ApiResponseService::errorResponse('Authentication required.', null, 401);
         }
@@ -69,7 +69,7 @@ final class AffiliateApiController extends Controller
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
         }
 
-        $user = Auth::user();
+        $user = Auth::guard('sanctum')->user() ?? Auth::user();
         if (!$user) {
             ApiResponseService::errorResponse('Authentication required.', null, 401);
         }
@@ -107,7 +107,7 @@ final class AffiliateApiController extends Controller
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
         }
 
-        $user = Auth::user();
+        $user = Auth::guard('sanctum')->user() ?? Auth::user();
         if (!$user) {
             ApiResponseService::errorResponse('Authentication required.', null, 401);
         }
@@ -173,7 +173,7 @@ final class AffiliateApiController extends Controller
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
         }
 
-        $user = Auth::user();
+        $user = Auth::guard('sanctum')->user() ?? Auth::user();
         if (!$user) {
             ApiResponseService::errorResponse('Authentication required.', null, 401);
         }
@@ -221,7 +221,7 @@ final class AffiliateApiController extends Controller
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
         }
 
-        $user = Auth::user();
+        $user = Auth::guard('sanctum')->user() ?? Auth::user();
         if (!$user) {
             ApiResponseService::errorResponse('Authentication required.', null, 401);
         }
@@ -263,7 +263,7 @@ final class AffiliateApiController extends Controller
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
         }
 
-        $user = Auth::user();
+        $user = Auth::guard('sanctum')->user() ?? Auth::user();
         if (!$user) {
             ApiResponseService::errorResponse('Authentication required.', null, 401);
         }
@@ -313,7 +313,7 @@ final class AffiliateApiController extends Controller
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
         }
 
-        $user = Auth::user();
+        $user = Auth::guard('sanctum')->user() ?? Auth::user();
         if (!$user) {
             ApiResponseService::errorResponse('Authentication required.', null, 401);
         }
