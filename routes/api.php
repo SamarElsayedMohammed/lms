@@ -258,6 +258,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('contact-messages', [ApiController::class, 'userContactMessages']); // Get User Contact Messages
     Route::get('user-enrolled-courses', [CourseApiController::class, 'getUserEnrolledCourses']); // Get User Courses
     Route::get('my-learning', [CourseApiController::class, 'getMyLearning']); // Get My Learning Courses with Progress
+    Route::get('my-learning/{course_id}', [CourseApiController::class, 'getMyCourseProgressDetail']); // Get detailed progress for specific course
     Route::get('user/dashboard', [\App\Http\Controllers\API\User\UserDashboardApiController::class, 'getDashboardData']); // User Dashboard API
     Route::get('user/certificates', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getUserCertificates']); // User Certificates List
     Route::get('user/learning-stats', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getLearningStats']); // Student learning progress summary
@@ -689,6 +690,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('orders', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'index']);
         Route::get('orders/{id}', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'show']);
         Route::put('orders/{id}/status', [\App\Http\Controllers\API\Admin\OrderAdminApiController::class, 'updateStatus']);
+
+        // Course Progress Analytics
+        Route::get('courses/enrollment-overview', [\App\Http\Controllers\API\Admin\AdminCourseProgressController::class, 'getEnrollmentOverview']);
+        Route::get('courses/{course_id}/student-progress', [\App\Http\Controllers\API\Admin\AdminCourseProgressController::class, 'getCourseStudentProgress']);
+        Route::get('courses/{course_id}/students/{user_id}/details', [\App\Http\Controllers\API\Admin\AdminCourseProgressController::class, 'getStudentCourseDetails']);
 
         // FAQs
         Route::get('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'index']);

@@ -35,6 +35,7 @@ use App\Models\UserCurriculumTracking;
 use App\Models\Wishlist;
 use App\Services\ApiResponseService;
 use App\Services\CertificateService;
+use App\Services\CourseProgressService;
 use App\Services\EarningsService;
 use App\Services\FileService;
 use App\Services\HelperService;
@@ -64,6 +65,7 @@ class CourseApiController extends Controller
     public function __construct(
         private readonly PricingCalculationService $pricingService,
         private readonly EarningsService $earningsService,
+        private readonly CourseProgressService $progressService,
     ) {
         $this->uploadFolder = 'courses/thumbnail';
         $this->videoUploadFolder = 'courses/intro_video';
@@ -9326,5 +9328,41 @@ class CourseApiController extends Controller
         }
 
         return $childIds;
+    }
+
+    /**
+     * Get detailed progress for a specific course (user)
+     * GET /api/my-learning/{course_id}
+     */
+    public function getMyCourseProgressDetail(int $courseId): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            
+            if (!$user) {
+                return ApiResponseService::errorResponse('Authentication required.', [], 401);
+            }
+
+            // Check enrollment
+            $isEnrolled = OrderCourse::whereHas('order', function ($q) use ($user) {
+                $q->where('user_id', $user->id)->where('status', 'completed');
+            })->where('course_id', $courseId)->exists();
+
+            if (!$isEnrolled) {
+                return ApiResponseService::errorResponse('You are not enrolled in this course.', [], 403);
+            }
+
+            $details = $this->progressService->getDetailedProgress($user->id, $courseId);
+
+            return ApiResponseService::successResponse('Course progress retrieved successfully.', $details);
+
+        } catch (\Throwable $e) {
+            Log::error('Failed to get course progress details', [
+                'user_id' => Auth::id(),
+                'course_id' => $courseId,
+                'error' => $e->getMessage(),
+            ]);
+            return ApiResponseService::errorResponse('Failed to retrieve progress.', [], 500);
+        }
     }
 }

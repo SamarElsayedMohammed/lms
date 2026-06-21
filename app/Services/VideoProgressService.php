@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Events\CurriculumItemCompleted;
 use App\Models\Course\Course;
+use App\Models\Course\CourseChapter\CourseChapter;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\User;
 use App\Models\UserCurriculumTracking;
@@ -72,6 +74,12 @@ class VideoProgressService
         // in user_curriculum_trackings so both tables stay in sync.
         if ($isCompleted && !$wasAlreadyCompleted && $lecture->course_chapter_id) {
             $this->syncCurriculumTracking($user->id, $lecture);
+
+            // Dispatch event to update course progress
+            $chapter = CourseChapter::find($lecture->course_chapter_id);
+            if ($chapter) {
+                CurriculumItemCompleted::dispatch($user->id, $chapter->course_id);
+            }
         }
 
         return $progress;
