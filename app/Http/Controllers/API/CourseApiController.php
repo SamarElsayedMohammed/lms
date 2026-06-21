@@ -9343,8 +9343,9 @@ class CourseApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            // Check enrollment
-            $isEnrolled = OrderCourse::whereHas('order', function ($q) use ($user) {
+            // Check enrollment (via subscription or individual purchase)
+            $hasActiveSubscription = $user->activeSubscription()->exists();
+            $isEnrolled = $hasActiveSubscription || OrderCourse::whereHas('order', function ($q) use ($user) {
                 $q->where('user_id', $user->id)->where('status', 'completed');
             })->where('course_id', $courseId)->exists();
 
