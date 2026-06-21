@@ -316,31 +316,66 @@ class CourseProgressService
      */
     public function getAdminOverview(?string $search = null, ?string $status = null): array
     {
-        $query = DB::table('courses')
-            ->leftJoin('user_course_progress', 'courses.id', '=', 'user_course_progress.course_id')
-            ->select([
-                'courses.id as course_id',
-                'courses.name as course_name',
-                'courses.thumbnail',
-                'courses.status as course_status',
-                DB::raw('COUNT(DISTINCT user_course_progress.user_id) as total_students'),
-                DB::raw('SUM(CASE WHEN user_course_progress.status = "completed" THEN 1 ELSE 0 END) as completed_count'),
-                DB::raw('SUM(CASE WHEN user_course_progress.status = "in_progress" THEN 1 ELSE 0 END) as in_progress_count'),
-                DB::raw('SUM(CASE WHEN user_course_progress.status = "not_started" THEN 1 ELSE 0 END) as not_started_count'),
-                DB::raw('AVG(user_course_progress.progress_percentage) as avg_progress'),
-                DB::raw('MAX(user_course_progress.last_accessed_at) as last_activity'),
-            ])
-            ->groupBy('courses.id', 'courses.name', 'courses.thumbnail', 'courses.status');
+        try {
+            // Check if user_course_progress table exists and has data
+            $tableExists = DB::select("SHOW TABLES LIKE 'user_course_progress'");
+            
+            if (empty($tableExists)) {
+                // Fallback: Get courses without progress data
+                $query = DB::table('courses')
+                    ->select([
+                        'courses.id as course_id',
+                        'courses.title as course_name',
+                        'courses.thumbnail',
+                        DB::raw('0 as total_students'),
+                        DB::raw('0 as completed_count'),
+                        DB::raw('0 as in_progress_count'),
+                        DB::raw('0 as not_started_count'),
+                        DB::raw('0 as avg_progress'),
+                        DB::raw('NULL as last_activity'),
+                    ]);
 
-        if ($search) {
-            $query->where('courses.name', 'LIKE', "%{$search}%");
+                if ($search) {
+                    $query->where('courses.title', 'LIKE', "%{$search}%");
+                }
+
+                if ($status) {
+                    $query->where('courses.status', $status);
+                }
+
+                return $query->paginate(20)->toArray();
+            }
+
+            $query = DB::table('courses')
+                ->leftJoin('user_course_progress', 'courses.id', '=', 'user_course_progress.course_id')
+                ->select([
+                    'courses.id as course_id',
+                    'courses.title as course_name',
+                    'courses.thumbnail',
+                    DB::raw('COUNT(DISTINCT user_course_progress.user_id) as total_students'),
+                    DB::raw('SUM(CASE WHEN user_course_progress.status = "completed" THEN 1 ELSE 0 END) as completed_count'),
+                    DB::raw('SUM(CASE WHEN user_course_progress.status = "in_progress" THEN 1 ELSE 0 END) as in_progress_count'),
+                    DB::raw('SUM(CASE WHEN user_course_progress.status = "not_started" THEN 1 ELSE 0 END) as not_started_count'),
+                    DB::raw('AVG(user_course_progress.progress_percentage) as avg_progress'),
+                    DB::raw('MAX(user_course_progress.last_accessed_at) as last_activity'),
+                ])
+                ->groupBy('courses.id', 'courses.title', 'courses.thumbnail');
+
+            if ($search) {
+                $query->where('courses.title', 'LIKE', "%{$search}%");
+            }
+
+            if ($status) {
+                $query->where('courses.status', $status);
+            }
+
+            return $query->paginate(20)->toArray();
+        } catch (\Throwable $e) {
+            Log::error('Error in getAdminOverview: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
         }
-
-        if ($status) {
-            $query->where('courses.status', $status);
-        }
-
-        return $query->paginate(20)->toArray();
     }
 
     /**
@@ -348,20 +383,41 @@ class CourseProgressService
      */
     public function getAdminCourseStudentProgress(int $courseId, ?string $search = null, ?string $status = null): array
     {
-        $query = UserCourseProgress::where('course_id', $courseId)
-            ->with(['user:id,name,email,phone,avatar']);
+        try {
+            // Check if user_course_progress table exists
+            $tableExists = DB::select("SHOW TABLES LIKE 'user_course_progress'");
 
-        if ($search) {
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'LIKE', "%{$search}%")
-                  ->orWhere('email', 'LIKE', "%{$search}%");
-            });
+            if (empty($tableExists)) {
+                // Return empty paginated result
+                return [
+                    'data' => [],
+                    'current_page' => 1,
+                    'per_page' => 20,
+                    'total' => 0,
+                ];
+            }
+
+            $query = UserCourseProgress::where('course_id', $courseId)
+                ->with(['user:id,name,email,phone,avatar']);
+
+            if ($search) {
+                $query->whereHas('user', function ($q) use ($search) {
+                    $q->where('name', 'LIKE', "%{$search}%")
+                      ->orWhere('email', 'LIKE', "%{$search}%");
+                });
+            }
+
+            if ($status) {
+                $query->where('status', $status);
+            }
+
+            return $query->paginate(20)->toArray();
+        } catch (\Throwable $e) {
+            Log::error('Error in getAdminCourseStudentProgress: ' . $e->getMessage(), [
+                'course_id' => $courseId,
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
         }
-
-        if ($status) {
-            $query->where('status', $status);
-        }
-
-        return $query->paginate(20)->toArray();
     }
 }
