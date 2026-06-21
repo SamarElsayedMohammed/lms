@@ -174,6 +174,11 @@ final class User extends Authenticatable
         return $this->belongsToMany(Course::class, 'course_user_tracks')->withPivot('status')->withTimestamps();
     }
 
+    public function courseProgress(): HasMany
+    {
+        return $this->hasMany(UserCourseProgress::class, 'user_id');
+    }
+
     public function assignedRole(): BelongsTo
     {
         return $this->belongsTo(Role::class);
