@@ -383,20 +383,41 @@ class CourseProgressService
      */
     public function getAdminCourseStudentProgress(int $courseId, ?string $search = null, ?string $status = null): array
     {
-        $query = UserCourseProgress::where('course_id', $courseId)
-            ->with(['user:id,name,email,phone,avatar']);
+        try {
+            // Check if user_course_progress table exists
+            $tableExists = DB::select("SHOW TABLES LIKE 'user_course_progress'");
 
-        if ($search) {
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'LIKE', "%{$search}%")
-                  ->orWhere('email', 'LIKE', "%{$search}%");
-            });
+            if (empty($tableExists)) {
+                // Return empty paginated result
+                return [
+                    'data' => [],
+                    'current_page' => 1,
+                    'per_page' => 20,
+                    'total' => 0,
+                ];
+            }
+
+            $query = UserCourseProgress::where('course_id', $courseId)
+                ->with(['user:id,name,email,phone,avatar']);
+
+            if ($search) {
+                $query->whereHas('user', function ($q) use ($search) {
+                    $q->where('name', 'LIKE', "%{$search}%")
+                      ->orWhere('email', 'LIKE', "%{$search}%");
+                });
+            }
+
+            if ($status) {
+                $query->where('status', $status);
+            }
+
+            return $query->paginate(20)->toArray();
+        } catch (\Throwable $e) {
+            Log::error('Error in getAdminCourseStudentProgress: ' . $e->getMessage(), [
+                'course_id' => $courseId,
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
         }
-
-        if ($status) {
-            $query->where('status', $status);
-        }
-
-        return $query->paginate(20)->toArray();
     }
 }
