@@ -5635,36 +5635,121 @@ class CourseApiController extends Controller
                     // Get chapter IDs for progress tracking
                     $chapterIds = $courseWithChapters->chapters->pluck('id')->toArray();
 
+                    // Get all lecture IDs for video progress lookup
+                    $allLectureIds = $courseWithChapters->chapters->flatMap(
+                        fn($chapter) => $chapter->lectures->where('is_active', true)->pluck('id')
+                    )->toArray();
+
+                    // Fetch video progress for all lectures in one query
+                    $videoProgressMap = !empty($allLectureIds)
+                        ? DB::table('video_progress')
+                            ->where('user_id', $userId)
+                            ->whereIn('lecture_id', $allLectureIds)
+                            ->get()
+                            ->keyBy('lecture_id')
+                        : collect();
+
                     // Calculate completed curriculum items
                     $completedCurriculumItems = 0;
+                    $startedCurriculumItems = 0;
                     $completedChapters = 0;
                     $progressPercentage = 0;
                     $lastCompletedChapterId = null;
 
                     if (!empty($chapterIds)) {
-                        // Count completed curriculum items
-                        $completedCurriculumItems = UserCurriculumTracking::where('user_id', $userId)
+                        // Get curriculum tracking records
+                        $curriculumTrackingMap = UserCurriculumTracking::where('user_id', $userId)
                             ->whereIn('course_chapter_id', $chapterIds)
-                            ->where('status', 'completed')
-                            ->count();
+                            ->get()
+                            ->keyBy(fn($item) => $item->course_chapter_id . ':' . $item->model_type . ':' . $item->model_id);
 
                         // Calculate completed chapters (chapters where all items are completed)
                         foreach ($courseWithChapters->chapters as $chapter) {
+                            $activeLectures = $chapter->lectures->where('is_active', true);
+                            $activeQuizzes = $chapter->quizzes->where('is_active', true);
+                            $activeAssignments = $chapter->assignments->where('is_active', true);
+                            $activeResources = $chapter->resources->where('is_active', true);
+
                             $chapterTotalItems =
-                                $chapter->lectures->where('is_active', true)->count()
-                                + $chapter->quizzes->where('is_active', true)->count()
-                                + $chapter->assignments->where('is_active', true)->count()
-                                + $chapter->resources->where('is_active', true)->count();
+                                $activeLectures->count()
+                                + $activeQuizzes->count()
+                                + $activeAssignments->count()
+                                + $activeResources->count();
 
                             if ($chapterTotalItems > 0 && $chapter->is_active) {
-                                // Only calculate completion for active chapters
                                 $totalChapters++;
                                 $totalCurriculumItems += $chapterTotalItems;
 
-                                $chapterCompletedItems = UserCurriculumTracking::where('user_id', $userId)
-                                    ->where('course_chapter_id', $chapter->id)
-                                    ->where('status', 'completed')
-                                    ->count();
+                                $chapterCompletedItems = 0;
+                                $chapterStartedItems = 0;
+
+                                // Check lectures - use video_progress for accurate tracking
+                                foreach ($activeLectures as $lecture) {
+                                    $videoProgress = $videoProgressMap->get($lecture->id);
+                                    $trackKey = $chapter->id . ':' . CourseChapterLecture::class . ':' . $lecture->id;
+                                    $curriculumTrack = $curriculumTrackingMap->get($trackKey);
+
+                                    // Completed if video is 100% OR curriculum tracking says completed
+                                    $isCompleted = ($videoProgress && $videoProgress->is_completed)
+                                        || ($curriculumTrack && $curriculumTrack->status === 'completed');
+
+                                    // Started if watched any seconds
+                                    $isStarted = ($videoProgress && $videoProgress->watched_seconds > 0);
+
+                                    if ($isCompleted) {
+                                        $chapterCompletedItems++;
+                                        $completedCurriculumItems++;
+                                    }
+                                    if ($isStarted || $isCompleted) {
+                                        $chapterStartedItems++;
+                                        $startedCurriculumItems++;
+                                    }
+                                }
+
+                                // Check quizzes from curriculum tracking
+                                foreach ($activeQuizzes as $quiz) {
+                                    $trackKey = $chapter->id . ':' . \App\Models\Course\CourseChapter\Quiz\CourseChapterQuiz::class . ':' . $quiz->id;
+                                    $curriculumTrack = $curriculumTrackingMap->get($trackKey);
+                                    if ($curriculumTrack && $curriculumTrack->status === 'completed') {
+                                        $chapterCompletedItems++;
+                                        $completedCurriculumItems++;
+                                        $chapterStartedItems++;
+                                        $startedCurriculumItems++;
+                                    } elseif ($curriculumTrack) {
+                                        $chapterStartedItems++;
+                                        $startedCurriculumItems++;
+                                    }
+                                }
+
+                                // Check assignments from curriculum tracking
+                                foreach ($activeAssignments as $assignment) {
+                                    $trackKey = $chapter->id . ':' . \App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment::class . ':' . $assignment->id;
+                                    $curriculumTrack = $curriculumTrackingMap->get($trackKey);
+                                    if ($curriculumTrack && $curriculumTrack->status === 'completed') {
+                                        $chapterCompletedItems++;
+                                        $completedCurriculumItems++;
+                                        $chapterStartedItems++;
+                                        $startedCurriculumItems++;
+                                    } elseif ($curriculumTrack) {
+                                        $chapterStartedItems++;
+                                        $startedCurriculumItems++;
+                                    }
+                                }
+
+                                // Check resources from curriculum tracking
+                                foreach ($activeResources as $resource) {
+                                    $trackKey = $chapter->id . ':' . \App\Models\Course\CourseChapter\Resource\CourseChapterResource::class . ':' . $resource->id;
+                                    $curriculumTrack = $curriculumTrackingMap->get($trackKey);
+                                    if ($curriculumTrack && $curriculumTrack->status === 'completed') {
+                                        $chapterCompletedItems++;
+                                        $completedCurriculumItems++;
+                                        $chapterStartedItems++;
+                                        $startedCurriculumItems++;
+                                    } elseif ($curriculumTrack) {
+                                        $chapterStartedItems++;
+                                        $startedCurriculumItems++;
+                                    }
+                                }
 
                                 if ($chapterCompletedItems >= $chapterTotalItems) {
                                     $completedChapters++;
@@ -5673,9 +5758,9 @@ class CourseApiController extends Controller
                             }
                         }
 
-                        // Calculate progress percentage
-                        if ($totalChapters > 0) {
-                            $progressPercentage = round(($completedChapters / $totalChapters) * 100, 2);
+                        // Calculate progress percentage based on completed items (not chapters)
+                        if ($totalCurriculumItems > 0) {
+                            $progressPercentage = round(($completedCurriculumItems / $totalCurriculumItems) * 100, 2);
                         }
                     }
 
@@ -5767,8 +5852,9 @@ class CourseApiController extends Controller
                         'current_chapter_name' => $currentChapterName,
                         'total_curriculum_items' => $totalCurriculumItems,
                         'completed_curriculum_items' => $completedCurriculumItems,
+                        'started_curriculum_items' => $startedCurriculumItems,
                         'progress_percentage' => $progressPercentage,
-                        'progress_status' => $this->getProgressStatus($progressPercentage),
+                        'progress_status' => $this->getProgressStatusWithStarted($progressPercentage, $startedCurriculumItems),
                         // Refund information
                         'refund_enabled' => $refundEnabled,
                         'refund_period_days' => $refundPeriodDays,
@@ -5833,6 +5919,21 @@ class CourseApiController extends Controller
         } else {
             return 'completed';
         }
+    }
+
+    /**
+     * Get progress status considering both completion percentage and started items.
+     * This ensures users who have watched videos (even partially) show as "in_progress".
+     */
+    private function getProgressStatusWithStarted($percentage, $startedItems)
+    {
+        // If user has started any item but hasn't completed any (0%), show as "just_started"
+        if ($percentage == 0 && $startedItems > 0) {
+            return 'just_started';
+        }
+
+        // Otherwise use the standard progress status
+        return $this->getProgressStatus($percentage);
     }
 
     /**

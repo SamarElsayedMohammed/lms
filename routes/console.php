@@ -30,3 +30,6 @@ Schedule::command('subscriptions:handle-expired')->daily();
 Schedule::command('subscriptions:activate-queued')->hourly();
 Schedule::command('currencies:update-rates')->everyFourHours();
 Schedule::command('webinar:remind')->everyFifteenMinutes();
+
+// Telescope data pruning - keeps last 48 hours only
+Schedule::command('telescope:prune --hours=48')->daily();
