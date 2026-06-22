@@ -5455,6 +5455,53 @@ class CourseApiController extends Controller
                 }
             }
 
+            // Add subscription-based courses (all courses if user has active subscription)
+            if ($hasActiveSubscription) {
+                $subscriptionCourses = Course::with([
+                    'category',
+                    'user',
+                    'taxes',
+                    'ratings.user',
+                    'chapters' => static function ($chapterQuery): void {
+                        $chapterQuery
+                            ->where('is_active', true)
+                            ->with([
+                                'lectures' => static function ($lectureQuery): void {
+                                    $lectureQuery->where('is_active', true);
+                                },
+                                'quizzes' => static function ($quizQuery): void {
+                                    $quizQuery->where('is_active', true);
+                                },
+                                'assignments' => static function ($assignmentQuery): void {
+                                    $assignmentQuery->where('is_active', true);
+                                },
+                            ]);
+                    },
+                ])
+                    ->withAvg('ratings', 'rating')
+                    ->withCount('ratings')
+                    ->where('status', 'publish')
+                    ->where('approval_status', 'approved')
+                    ->where('is_active', true)
+                    ->whereHasContent()
+                    ->get();
+
+                foreach ($subscriptionCourses as $course) {
+                    $courseId = $course->id;
+                    $existingIndex = $enrolledCoursesWithPurchaseDate->search(
+                        static fn($item) => $item['course_id'] == $courseId,
+                    );
+
+                    if ($existingIndex === false) {
+                        $enrolledCoursesWithPurchaseDate->push([
+                            'course_id' => $courseId,
+                            'course' => $course,
+                            'purchase_date' => now(), // Use current time for subscription-based access
+                        ]);
+                    }
+                }
+            }
+
             // Sort by purchase date (most recent first) and extract courses
             $enrolledCourses = $enrolledCoursesWithPurchaseDate
                 ->sortByDesc('purchase_date')
