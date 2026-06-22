@@ -72,3 +72,30 @@ php artisan telescope:unpause
 **Database growing too large:**
 - Pruning is already configured: `Schedule::command('telescope:prune --hours=48')->daily()`
 - Or manually run: `php artisan telescope:prune --hours=24`
+
+**Local install shows errors after `telescope:install`:**
+
+1. **Permission denied on `storage/logs/laravel.log`**
+   ```bash
+   sudo chown -R $USER:www-data storage bootstrap/cache
+   sudo chmod -R 775 storage bootstrap/cache
+   ```
+
+2. **Could not resolve DB host (Coolify internal hostname)**
+   - Your local `.env` points to the VPS database host, which only works inside the server network.
+   - For local development, add to `.env`:
+     ```env
+     TELESCOPE_ENABLED=false
+     ```
+   - Then run migrations on the server after deploy:
+     ```bash
+     php artisan migrate --force
+     ```
+
+3. **Telescope installed successfully message but exit code 1**
+   - This is usually safe. The package files and migration were published.
+   - Verify:
+     ```bash
+     ls database/migrations/*telescope*
+     ls vendor/laravel/telescope
+     ```
