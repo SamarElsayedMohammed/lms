@@ -9,6 +9,7 @@ use App\Models\UserCourseProgress;
 use App\Models\UserCurriculumTracking;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class CourseProgressService
 {
@@ -147,19 +148,38 @@ class CourseProgressService
      */
     public function getDetailedProgress(int $userId, int $courseId): array
     {
-        $course = Course::with(['chapters.lectures', 'chapters.quizzes', 'chapters.assignments', 'chapters.resources'])
-            ->findOrFail($courseId);
+        try {
+            $course = Course::with(['chapters.lectures', 'chapters.quizzes', 'chapters.assignments'])
+                ->findOrFail($courseId);
+        } catch (\Throwable $e) {
+            Log::error('Error loading course with relationships: ' . $e->getMessage(), [
+                'course_id' => $courseId,
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
 
-        $tracking = UserCurriculumTracking::where('user_id', $userId)
-            ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId))
-            ->get()
-            ->keyBy(fn($item) => $item->model_type . ':' . $item->model_id);
+        try {
+            $tracking = UserCurriculumTracking::where('user_id', $userId)
+                ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId))
+                ->get()
+                ->keyBy(fn($item) => $item->model_type . ':' . $item->model_id);
+        } catch (\Throwable $e) {
+            Log::error('Error loading tracking: ' . $e->getMessage());
+            $tracking = collect();
+        }
 
-        $videoProgress = DB::table('video_progress')
-            ->where('user_id', $userId)
-            ->whereIn('lecture_id', $course->chapters->flatMap->lectures->pluck('id'))
-            ->get()
-            ->keyBy('lecture_id');
+        try {
+            $lectureIds = $course->chapters->flatMap->lectures->pluck('id')->toArray();
+            $videoProgress = DB::table('video_progress')
+                ->where('user_id', $userId)
+                ->whereIn('lecture_id', $lectureIds)
+                ->get()
+                ->keyBy('lecture_id');
+        } catch (\Throwable $e) {
+            Log::error('Error loading video progress: ' . $e->getMessage());
+            $videoProgress = collect();
+        }
 
         $chaptersData = [];
         $totalItems = 0;
