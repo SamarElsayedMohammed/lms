@@ -347,7 +347,7 @@ class CourseProgressService
                     'courses.status as course_status',
                 ])
                 ->selectRaw('(
-                    SELECT COUNT(DISTINCT oc.user_id)
+                    SELECT COUNT(DISTINCT o.user_id)
                     FROM order_courses oc
                     JOIN orders o ON oc.order_id = o.id
                     WHERE oc.course_id = courses.id
