@@ -333,53 +333,61 @@ class CourseProgressService
 
     /**
      * Get admin overview stats for all courses
+     * Calculates enrollment from OrderCourse (purchases) + active subscriptions
      */
     public function getAdminOverview(?string $search = null, ?string $status = null): array
     {
         try {
-            // Check if user_course_progress table exists and has data
-            $tableExists = DB::select("SHOW TABLES LIKE 'user_course_progress'");
-            
-            if (empty($tableExists)) {
-                // Fallback: Get courses without progress data
-                $query = DB::table('courses')
-                    ->select([
-                        'courses.id as course_id',
-                        'courses.title as course_name',
-                        'courses.thumbnail',
-                        DB::raw('0 as total_students'),
-                        DB::raw('0 as completed_count'),
-                        DB::raw('0 as in_progress_count'),
-                        DB::raw('0 as not_started_count'),
-                        DB::raw('0 as avg_progress'),
-                        DB::raw('NULL as last_activity'),
-                    ]);
-
-                if ($search) {
-                    $query->where('courses.title', 'LIKE', "%{$search}%");
-                }
-
-                if ($status) {
-                    $query->where('courses.status', $status);
-                }
-
-                return $query->paginate(20)->toArray();
-            }
-
+            // Build query for courses with enrollment stats
             $query = DB::table('courses')
-                ->leftJoin('user_course_progress', 'courses.id', '=', 'user_course_progress.course_id')
                 ->select([
                     'courses.id as course_id',
                     'courses.title as course_name',
                     'courses.thumbnail',
-                    DB::raw('COUNT(DISTINCT user_course_progress.user_id) as total_students'),
-                    DB::raw('SUM(CASE WHEN user_course_progress.status = "completed" THEN 1 ELSE 0 END) as completed_count'),
-                    DB::raw('SUM(CASE WHEN user_course_progress.status = "in_progress" THEN 1 ELSE 0 END) as in_progress_count'),
-                    DB::raw('SUM(CASE WHEN user_course_progress.status = "not_started" THEN 1 ELSE 0 END) as not_started_count'),
-                    DB::raw('AVG(user_course_progress.progress_percentage) as avg_progress'),
-                    DB::raw('MAX(user_course_progress.last_accessed_at) as last_activity'),
+                    'courses.status as course_status',
                 ])
-                ->groupBy('courses.id', 'courses.title', 'courses.thumbnail');
+                ->selectRaw('(
+                    SELECT COUNT(DISTINCT oc.user_id)
+                    FROM order_courses oc
+                    JOIN orders o ON oc.order_id = o.id
+                    WHERE oc.course_id = courses.id
+                    AND o.status = "completed"
+                ) as purchased_students')
+                ->selectRaw('(
+                    SELECT COUNT(DISTINCT s.user_id)
+                    FROM subscriptions s
+                    JOIN subscription_plans sp ON s.plan_id = sp.id
+                    WHERE s.status = "active"
+                    AND (s.ends_at IS NULL OR s.ends_at > NOW())
+                ) as subscription_students')
+                ->selectRaw('(
+                    SELECT COUNT(DISTINCT uct.user_id)
+                    FROM user_curriculum_trackings uct
+                    JOIN course_chapters cc ON uct.course_chapter_id = cc.id
+                    WHERE cc.course_id = courses.id
+                    AND uct.status = "completed"
+                ) as completed_students')
+                ->selectRaw('(
+                    SELECT COUNT(DISTINCT uct.user_id)
+                    FROM user_curriculum_trackings uct
+                    JOIN course_chapters cc ON uct.course_chapter_id = cc.id
+                    WHERE cc.course_id = courses.id
+                    AND uct.status = "in_progress"
+                ) as in_progress_students')
+                ->selectRaw('(
+                    SELECT COUNT(DISTINCT vp.user_id)
+                    FROM video_progress vp
+                    JOIN course_chapter_lectures ccl ON vp.lecture_id = ccl.id
+                    JOIN course_chapters cc ON ccl.course_chapter_id = cc.id
+                    WHERE cc.course_id = courses.id
+                ) as started_students')
+                ->selectRaw('(
+                    SELECT MAX(vp.updated_at)
+                    FROM video_progress vp
+                    JOIN course_chapter_lectures ccl ON vp.lecture_id = ccl.id
+                    JOIN course_chapters cc ON ccl.course_chapter_id = cc.id
+                    WHERE cc.course_id = courses.id
+                ) as last_activity');
 
             if ($search) {
                 $query->where('courses.title', 'LIKE', "%{$search}%");
@@ -389,12 +397,95 @@ class CourseProgressService
                 $query->where('courses.status', $status);
             }
 
-            return $query->paginate(20)->toArray();
+            $results = $query->paginate(20);
+
+            // Transform results to calculate total_students and format response
+            $data = collect($results->items())->map(function ($course) {
+                // Total students = purchased + subscription (subscription users can access all courses)
+                $purchased = (int) $course->purchased_students;
+                $subscription = (int) $course->subscription_students;
+                
+                // Note: A user might be counted in both (purchased + has subscription)
+                // For accurate count, we'd need to UNION the user IDs, but for overview:
+                $totalStudents = max($purchased, $subscription); // Approximation
+
+                // Progress distribution
+                $completed = (int) $course->completed_students;
+                $inProgress = (int) $course->in_progress_students;
+                $started = (int) $course->started_students;
+                
+                // Calculate not_started (started but no progress tracking)
+                $notStarted = max(0, $started - $completed - $inProgress);
+
+                // Calculate average progress (approximation based on video progress)
+                $avgProgress = $this->calculateCourseAvgProgress($course->course_id);
+
+                return [
+                    'course_id' => $course->course_id,
+                    'course_name' => $course->course_name,
+                    'thumbnail' => $course->thumbnail,
+                    'course_status' => $course->course_status,
+                    'total_students' => $totalStudents,
+                    'purchased_count' => $purchased,
+                    'subscription_count' => $subscription,
+                    'completed_count' => $completed,
+                    'in_progress_count' => $inProgress,
+                    'not_started_count' => $notStarted,
+                    'started_count' => $started,
+                    'avg_progress' => round($avgProgress, 2),
+                    'last_activity' => $course->last_activity,
+                ];
+            });
+
+            return [
+                'data' => $data->toArray(),
+                'current_page' => $results->currentPage(),
+                'per_page' => $results->perPage(),
+                'total' => $results->total(),
+                'last_page' => $results->lastPage(),
+            ];
         } catch (\Throwable $e) {
             Log::error('Error in getAdminOverview: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
+        }
+    }
+
+    /**
+     * Calculate average progress for a course
+     */
+    private function calculateCourseAvgProgress(int $courseId): float
+    {
+        try {
+            // Get total curriculum items for course
+            $totalItems = $this->getTotalItemsForCourse($courseId);
+            
+            if ($totalItems === 0) {
+                return 0;
+            }
+
+            // Get all users who have progress in this course
+            $userProgress = DB::table('user_curriculum_trackings')
+                ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+                ->where('course_chapters.course_id', $courseId)
+                ->select('user_curriculum_trackings.user_id')
+                ->selectRaw('COUNT(CASE WHEN user_curriculum_trackings.status = "completed" THEN 1 END) as completed')
+                ->groupBy('user_curriculum_trackings.user_id')
+                ->get();
+
+            if ($userProgress->isEmpty()) {
+                return 0;
+            }
+
+            $totalPercentage = $userProgress->sum(function ($user) use ($totalItems) {
+                return ($user->completed / $totalItems) * 100;
+            });
+
+            return $totalPercentage / $userProgress->count();
+        } catch (\Throwable $e) {
+            Log::error('Error calculating avg progress for course ' . $courseId . ': ' . $e->getMessage());
+            return 0;
         }
     }
 
