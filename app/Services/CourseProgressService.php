@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Models\Course;
+use App\Models\Course\Course;
 use App\Models\UserCourseProgress;
 use App\Models\UserCurriculumTracking;
 use Illuminate\Support\Facades\Cache;
