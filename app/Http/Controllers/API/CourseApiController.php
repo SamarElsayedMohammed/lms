@@ -9402,6 +9402,15 @@ class CourseApiController extends Controller
 
             $details = $this->progressService->getDetailedProgress($user->id, $courseId);
 
+            // Check if there was an error in the response
+            if (isset($details['error'])) {
+                return ApiResponseService::errorResponse(
+                    'Failed to retrieve progress: ' . $details['error'],
+                    ['debug' => $details['debug'] ?? null],
+                    500
+                );
+            }
+
             return ApiResponseService::successResponse('Course progress retrieved successfully.', $details);
 
         } catch (\Throwable $e) {
@@ -9409,8 +9418,19 @@ class CourseApiController extends Controller
                 'user_id' => Auth::id(),
                 'course_id' => $courseId,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
-            return ApiResponseService::errorResponse('Failed to retrieve progress.', [], 500);
+            return ApiResponseService::errorResponse(
+                'Failed to retrieve progress: ' . $e->getMessage(),
+                [
+                    'debug' => [
+                        'message' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                    ],
+                ],
+                500
+            );
         }
     }
 }

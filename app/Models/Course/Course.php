@@ -400,4 +400,29 @@ class Course extends Model
             })
             ->exists();
     }
+
+    /**
+     * Scope to filter courses that have at least one active chapter with content.
+     */
+    public function scopeWhereHasContent($query)
+    {
+        return $query->whereHas('chapters', static function ($chapterQuery): void {
+            $chapterQuery
+                ->where('is_active', true)
+                ->where(static function ($q): void {
+                    $q->whereHas('lectures', static function ($lectureQuery): void {
+                        $lectureQuery->where('is_active', true);
+                    })
+                    ->orWhereHas('quizzes', static function ($quizQuery): void {
+                        $quizQuery->where('is_active', true);
+                    })
+                    ->orWhereHas('assignments', static function ($assignmentQuery): void {
+                        $assignmentQuery->where('is_active', true);
+                    })
+                    ->orWhereHas('resources', static function ($resourceQuery): void {
+                        $resourceQuery->where('is_active', true);
+                    });
+                });
+        });
+    }
 }
