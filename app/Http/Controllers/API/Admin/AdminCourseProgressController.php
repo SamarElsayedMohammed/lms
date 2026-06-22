@@ -30,14 +30,34 @@ class AdminCourseProgressController extends Controller
 
             $overview = $this->progressService->getAdminOverview($search, $status);
 
+            // Check if there was an error in the service
+            if (isset($overview['error_detail'])) {
+                return ApiResponseService::errorResponse(
+                    'Failed to retrieve overview: ' . $overview['error_detail']['message'],
+                    ['debug' => $overview['error_detail']],
+                    500
+                );
+            }
+
             return ApiResponseService::successResponse('Enrollment overview retrieved successfully.', $overview);
 
         } catch (\Throwable $e) {
             Log::error('Failed to get enrollment overview', [
                 'admin_id' => Auth::id(),
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
-            return ApiResponseService::errorResponse('Failed to retrieve overview.', [], 500);
+            return ApiResponseService::errorResponse(
+                'Failed to retrieve overview: ' . $e->getMessage(),
+                [
+                    'debug' => [
+                        'message' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                    ],
+                ],
+                500
+            );
         }
     }
 

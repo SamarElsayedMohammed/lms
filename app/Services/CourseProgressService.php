@@ -448,7 +448,20 @@ class CourseProgressService
             Log::error('Error in getAdminOverview: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
-            throw $e;
+            // Return detailed error for debugging
+            return [
+                'error_detail' => [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'trace' => array_slice($e->getTrace(), 0, 5),
+                ],
+                'data' => [],
+                'current_page' => 1,
+                'per_page' => 20,
+                'total' => 0,
+                'last_page' => 1,
+            ];
         }
     }
 
