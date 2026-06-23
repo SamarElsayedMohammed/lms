@@ -351,32 +351,40 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         // ── شامل: كل الباقات حتى اللي عندها صفر مشتركين ──
         $plans = SubscriptionPlan::withTrashed()
             ->select('id', 'name', 'billing_cycle', 'duration_days', 'price', 'is_active', 'deleted_at')
-            ->withCount([
+            ->addSelect([
                 // كل الاشتراكات
-                'subscriptions as total_subscribers' => function ($q) use ($status, $dateFrom, $dateTo, $paymentMethod, $country) {
-                    $this->applySubscriptionFilters($q, $status, $dateFrom, $dateTo, $paymentMethod, $country);
-                },
+                'total_subscribers' => \App\Models\Subscription::selectRaw('COUNT(DISTINCT user_id)')
+                    ->whereColumn('plan_id', 'subscription_plans.id')
+                    ->where(function ($q) use ($status, $dateFrom, $dateTo, $paymentMethod, $country) {
+                        $this->applySubscriptionFilters($q, $status, $dateFrom, $dateTo, $paymentMethod, $country);
+                    }),
                 // مشتركين فاعلين فقط
-                'subscriptions as active_subscribers' => function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
-                    $q->where('status', Subscription::STATUS_ACTIVE)
-                      ->where(function ($q) {
-                          $q->whereNull('ends_at')->orWhere('ends_at', '>', now());
-                      });
-                    $this->applyDateFilters($q, $dateFrom, $dateTo);
-                    $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
-                },
+                'active_subscribers' => \App\Models\Subscription::selectRaw('COUNT(DISTINCT user_id)')
+                    ->whereColumn('plan_id', 'subscription_plans.id')
+                    ->where('status', \App\Models\Subscription::STATUS_ACTIVE)
+                    ->where(function ($q) {
+                        $q->whereNull('ends_at')->orWhere('ends_at', '>', now());
+                    })
+                    ->where(function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
+                        $this->applyDateFilters($q, $dateFrom, $dateTo);
+                        $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
+                    }),
                 // مشتركين منتهين
-                'subscriptions as expired_subscribers' => function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
-                    $q->where('status', Subscription::STATUS_EXPIRED);
-                    $this->applyDateFilters($q, $dateFrom, $dateTo);
-                    $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
-                },
+                'expired_subscribers' => \App\Models\Subscription::selectRaw('COUNT(DISTINCT user_id)')
+                    ->whereColumn('plan_id', 'subscription_plans.id')
+                    ->where('status', \App\Models\Subscription::STATUS_EXPIRED)
+                    ->where(function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
+                        $this->applyDateFilters($q, $dateFrom, $dateTo);
+                        $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
+                    }),
                 // مشتركين ملغيين
-                'subscriptions as cancelled_subscribers' => function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
-                    $q->where('status', Subscription::STATUS_CANCELLED);
-                    $this->applyDateFilters($q, $dateFrom, $dateTo);
-                    $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
-                },
+                'cancelled_subscribers' => \App\Models\Subscription::selectRaw('COUNT(DISTINCT user_id)')
+                    ->whereColumn('plan_id', 'subscription_plans.id')
+                    ->where('status', \App\Models\Subscription::STATUS_CANCELLED)
+                    ->where(function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
+                        $this->applyDateFilters($q, $dateFrom, $dateTo);
+                        $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
+                    }),
             ])
             ->orderByDesc('total_subscribers')
             ->get()
