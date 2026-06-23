@@ -427,32 +427,11 @@ class CourseChapterApiController extends Controller
             // Get user's curriculum completion tracking data
             $userCurriculumTracking = [];
             $isPurchased = false;
+            
             if ($user) {
-                // Check purchase for logged-in users
-                $latestOrderCourse = OrderCourse::whereHas('order', static function ($q) use ($user): void {
-                    $q->where('user_id', $user->id)->where('status', 'completed');
-                })
-                    ->where('course_id', $course->id)
-                    ->with('order')
-                    ->orderBy('created_at', 'desc')
-                    ->first();
-
-                if ($latestOrderCourse) {
-                    $latestOrderDate = $latestOrderCourse->order->created_at ?? $latestOrderCourse->created_at;
-
-                    $approvedRefund = RefundRequest::where('user_id', $user->id)
-                        ->where('course_id', $course->id)
-                        ->where('status', 'approved')
-                        ->orderBy('processed_at', 'desc')
-                        ->first();
-
-                    if ($approvedRefund && $approvedRefund->processed_at) {
-                        if ($latestOrderDate->gt($approvedRefund->processed_at)) {
-                            $isPurchased = true;
-                        }
-                    } else {
-                        $isPurchased = true;
-                    }
+                // Check active subscription
+                if ($user->activeSubscription()->exists()) {
+                    $isPurchased = true;
                 }
 
                 $chapterIds = $course->chapters->pluck('id')->toArray();

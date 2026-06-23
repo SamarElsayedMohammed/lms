@@ -624,13 +624,7 @@ class CourseApiController extends Controller
                     ? Wishlist::where('user_id', Auth::id())->where('course_id', $course->id)->exists()
                     : false;
 
-                $isEnrolled = Auth::check()
-                    ? (OrderCourse::whereHas('order', static function ($query): void {
-                        $query->where('user_id', Auth::id())->where('status', 'completed');
-                    })
-                        ->where('course_id', $course->id)
-                        ->exists() || $hasActiveSubscription)
-                    : false;
+                $isEnrolled = Auth::check() ? $hasActiveSubscription : false;
 
                 // Calculate total course duration
                 $totalDuration = 0;
@@ -760,55 +754,25 @@ class CourseApiController extends Controller
 
             $isPurchased = false;
             $isWishlist = false;
-            // Check purchase for logged-in users
+            $hasAccess = false;
+            $isSubscribed = false;
+            
+            // Check wishlist and subscription for logged-in users
             if ($user) {
-                // Get latest completed order for this course
-                $latestOrderCourse = OrderCourse::whereHas('order', static function ($q) use ($user): void {
-                    $q->where('user_id', $user->id)->where('status', 'completed');
-                })
-                    ->where('course_id', $course->id)
-                    ->with('order')
-                    ->orderBy('created_at', 'desc')
-                    ->first();
-
-                if ($latestOrderCourse) {
-                    $latestOrderDate = $latestOrderCourse->order->created_at ?? $latestOrderCourse->created_at;
-
-                    // Check if there's an approved refund for this course
-                    $approvedRefund = RefundRequest::where('user_id', $user->id)
-                        ->where('course_id', $course->id)
-                        ->where('status', 'approved')
-                        ->orderBy('processed_at', 'desc')
-                        ->first();
-
-                    if ($approvedRefund && $approvedRefund->processed_at) {
-                        // If latest order is after refund approval, user has repurchased
-                        if ($latestOrderDate->gt($approvedRefund->processed_at)) {
-                            $isPurchased = true;
-                        } else {
-                            // Latest order is before or same as refund approval
-                            $isPurchased = false;
-                        }
-                    } else {
-                        // No approved refund, so if order exists, it's purchased
-                        $isPurchased = true;
-                    }
-                }
-
-                // Check if course is in user's wishlist
                 $isWishlist = Wishlist::where('user_id', $user->id)->where('course_id', $course->id)->exists();
+                $isSubscribed = $user->activeSubscription()->exists();
             }
 
             // [NEW LOGIC] Automatically grant access if course is free or user is the instructor
             if ($course->course_type === 'free' || ($user && $course->user_id == $user->id)) {
+                $hasAccess = true;
                 $isPurchased = true;
             }
 
             // [NEW LOGIC] Grant access if user has an active subscription
-            if ($user && !$isPurchased) {
-                if ($user->activeSubscription()->exists()) {
-                    $isPurchased = true;
-                }
+            if ($user && $isSubscribed) {
+                $hasAccess = true;
+                $isPurchased = true;
             }
 
             // Get user's curriculum completion tracking data
@@ -1271,6 +1235,8 @@ class CourseApiController extends Controller
                 ...$coursePricingData,
                 'discount_percentage' => $discountPercentage,
                 'is_purchased' => $isPurchased,
+                'is_subscribed' => $isSubscribed,
+                'has_access' => $hasAccess,
                 'is_wishlist' => $isWishlist,
                 'has_ai_assistant' => !empty($course->getRawOriginal('ai_knowledge_content')),
                 'enroll_students' => ($course->order_courses_count ?? 0) + ($course->initial_students ?? 0),
