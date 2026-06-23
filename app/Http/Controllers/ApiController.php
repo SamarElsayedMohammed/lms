@@ -99,29 +99,65 @@ class ApiController extends Controller
                 && in_array($request->type, ['google', 'apple'])
                 && empty($request->firebase_token);
 
+            // firebase_token logic:
+            //   - google / apple  → always required (Firebase is the identity provider)
+            //   - email           → NEVER needed; user authenticates with email + password
+            //   - web OAuth path  → optional (handled via Socialite access_token)
+            $isEmailType  = ($request->type === 'email');
+            $isWebOAuth   = !$isEmailType
+                && ($request->device_type === 'web' || empty($request->device_type))
+                && in_array($request->type, ['google', 'apple'])
+                && empty($request->firebase_token);
+
             $validationRules = [
-                'type' => 'required|in:google,apple,email',
+                'type'          => 'required|in:google,apple,email',
                 'platform_type' => 'nullable|in:android,ios',
-                'firebase_token' => $isWebOAuth ? 'nullable' : 'required',
-                'mobile' => 'nullable|unique:users,mobile',
-                'device_type' => 'nullable|in:web,android,ios,desktop',
-                'device_id' => 'nullable|string|max:255',
-                'device_name' => 'nullable|string|max:255',
+                // email-type never sends firebase_token; google/apple always must
+                'firebase_token' => ($isEmailType || $isWebOAuth) ? 'nullable|string' : 'required|string',
+                'mobile'        => 'nullable|unique:users,mobile',
+                'device_type'   => 'nullable|in:web,android,ios,desktop',
+                'device_id'     => 'nullable|string|max:255',
+                'device_name'   => 'nullable|string|max:255',
             ];
 
-            // If type is email, password is required
-            if ($request->type === 'email') {
-                $validationRules['password'] = 'required|string|min:6';
+            // email-type requires password credentials
+            if ($isEmailType) {
+                $validationRules['password']         = 'required|string|min:6';
                 $validationRules['confirm_password'] = 'required|string|min:6|same:password';
-                $validationRules['email'] = 'required|email';
+                $validationRules['email']            = 'required|email';
             }
 
             ApiService::validateRequest($request, $validationRules);
 
-            // ── Resolve Firebase/OAuth identity ──────────────────────────────
+            // ── Resolve Firebase/OAuth/Email identity ────────────────────────
             $firebaseId = null;
 
-            if ($isWebOAuth && $request->type === 'google') {
+            if ($isEmailType) {
+                // ── Email / Password path — NO Firebase involved ─────────────
+                // Check if a user with this email already exists (signup = upsert)
+                $existingEmailUser = User::where('email', $request->email)
+                    ->withTrashed()
+                    ->role(config('constants.SYSTEM_ROLES.USER'))
+                    ->first();
+
+                if ($existingEmailUser && !$existingEmailUser->trashed()) {
+                    // User already exists → treat as login (return existing account)
+                    if (!Hash::check($request->password, $existingEmailUser->password ?? '')) {
+                        ApiResponseService::validationError('An account with this email already exists. Please log in instead.');
+                    }
+                    Auth::login($existingEmailUser);
+                    $auth = $existingEmailUser;
+
+                    $pair          = $this->createTokenPair($auth, $auth->name ?? '', $request);
+                    $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
+                    ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
+                    return; // handled
+                }
+
+                // New email user — no firebase_id needed, skip SocialLogin table
+                $firebaseId = null; // not used below for email type
+
+            } elseif ($isWebOAuth && $request->type === 'google') {
                 // Web Google login: resolve via Socialite (no Firebase needed)
                 $accessToken = $request->input('access_token')
                     ?? $request->input('provider_token')
@@ -146,26 +182,31 @@ class ApiController extends Controller
                 } catch (\Throwable $e) {
                     ApiResponseService::validationError('Invalid Google access token: ' . $e->getMessage());
                 }
+            } elseif ($isEmailType) {
+                // already handled above — this branch is unreachable
             } else {
                 $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
                 $firebaseId = $verifiedToken->claims()->get('sub');
             }
 
-            $socialLogin = SocialLogin::where('firebase_id', $firebaseId)
-                ->where('type', $request->type)
-                ->with('user', static function ($q): void {
-                    $q->withTrashed();
-                })
-                ->whereHas('user', static function ($q): void {
-                    $q->role(config('constants.SYSTEM_ROLES.USER'));
-                })
-                ->first();
+            $socialLogin = null;
+            if (!$isEmailType && $firebaseId) {
+                $socialLogin = SocialLogin::where('firebase_id', $firebaseId)
+                    ->where('type', $request->type)
+                    ->with('user', static function ($q): void {
+                        $q->withTrashed();
+                    })
+                    ->whereHas('user', static function ($q): void {
+                        $q->role(config('constants.SYSTEM_ROLES.USER'));
+                    })
+                    ->first();
+            }
 
-            if (!empty($socialLogin->user->deleted_at)) {
+            if (!$isEmailType && !empty($socialLogin?->user?->deleted_at)) {
                 ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
             }
 
-            if (empty($socialLogin)) {
+            if (!$isEmailType && empty($socialLogin)) {
                 DB::beginTransaction();
                 $unique['email'] = $request->email;
 
@@ -226,12 +267,16 @@ class ApiController extends Controller
                 }
 
                 $user = User::updateOrCreate($unique, $userData);
-                SocialLogin::updateOrCreate([
-                    'type' => $request->type,
-                    'user_id' => $user->id,
-                ], [
-                    'firebase_id' => $firebaseId,
-                ]);
+
+                // Only link Firebase SocialLogin for non-email types
+                if (!$isEmailType && $firebaseId) {
+                    SocialLogin::updateOrCreate([
+                        'type'    => $request->type,
+                        'user_id' => $user->id,
+                    ], [
+                        'firebase_id' => $firebaseId,
+                    ]);
+                }
                 $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
                 Auth::login($user);
                 $auth = User::find($user->id);
@@ -267,8 +312,8 @@ class ApiController extends Controller
                 ApiResponseService::validationError($deviceError);
             }
 
-            $token = $this->createTokenWithMetadata($auth, $auth->name ?? '', $request);
-            $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $token);
+            $pair          = $this->createTokenPair($auth, $auth->name ?? '', $request);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
         } catch (Throwable $th) {
             DB::rollBack();
@@ -276,19 +321,55 @@ class ApiController extends Controller
         }
     }
 
-    private function createTokenWithMetadata($user, $name, Request $request)
+    /**
+     * Issue a dual-token pair for a user:
+     *   - access_token  : short-lived (SANCTUM_ACCESS_TOKEN_LIFETIME minutes, default 60)
+     *   - refresh_token : long-lived  (SANCTUM_REFRESH_TOKEN_LIFETIME minutes, default 30 days)
+     *
+     * Both tokens are stored in personal_access_tokens with different
+     * token_type values and different expires_at timestamps.
+     *
+     * @return array{access: string, refresh: string}
+     */
+    private function createTokenPair($user, string $baseName, Request $request): array
     {
-        // Enforce single active session rule: delete all existing tokens for this user
-        // This logs out any other active device.
+        // Revoke ALL previous tokens (access + refresh) for this user so only
+        // one active session exists at a time (single-session policy).
         $user->tokens()->delete();
 
-        // Create the new token
-        $tokenResult = $user->createToken($name);
-        $token = $tokenResult->accessToken;
-        $token->ip_address = $request->ip();
-        $token->user_agent = $request->userAgent();
-        $token->save();
-        return $tokenResult->plainTextToken;
+        $accessMinutes  = (int) config('sanctum.access_token_lifetime',  60);
+        $refreshMinutes = (int) config('sanctum.refresh_token_lifetime', 43200);
+
+        // ── Issue access token ───────────────────────────────────────────────
+        $accessResult = $user->createToken($baseName, ['*'], now()->addMinutes($accessMinutes));
+        $accessToken  = $accessResult->accessToken;
+        $accessToken->token_type = 'access';
+        $accessToken->ip_address = $request->ip();
+        $accessToken->user_agent = $request->userAgent();
+        $accessToken->save();
+
+        // ── Issue refresh token ──────────────────────────────────────────────
+        $refreshResult = $user->createToken($baseName . '-refresh', ['*'], now()->addMinutes($refreshMinutes));
+        $refreshToken  = $refreshResult->accessToken;
+        $refreshToken->token_type = 'refresh';
+        $refreshToken->ip_address = $request->ip();
+        $refreshToken->user_agent = $request->userAgent();
+        $refreshToken->save();
+
+        return [
+            'access'  => $accessResult->plainTextToken,
+            'refresh' => $refreshResult->plainTextToken,
+        ];
+    }
+
+    /**
+     * @deprecated Use createTokenPair() instead.
+     * Kept for internal compatibility during transition — wraps createTokenPair.
+     */
+    private function createTokenWithMetadata($user, $name, Request $request): string
+    {
+        $pair = $this->createTokenPair($user, $name, $request);
+        return $pair['access'];
     }
 
     /**
@@ -326,75 +407,123 @@ class ApiController extends Controller
     public function userLogin(Request $request)
     {
         try {
-            // Base validation rules
+            $isEmailType = ($request->type === 'email');
+            $isWebOAuth  = !$isEmailType
+                && ($request->device_type === 'web' || empty($request->device_type))
+                && in_array($request->type, ['google', 'apple'])
+                && empty($request->firebase_token);
+
+            // Validation rules \u2014 firebase_token only required for google/apple
             $validationRules = [
-                'type' => 'required|in:google,apple,email',
+                'type'          => 'required|in:google,apple,email',
                 'platform_type' => 'nullable|in:android,ios',
-                'firebase_token' => 'required',
-                'device_type' => 'nullable|in:web,android,ios,desktop',
-                'device_id' => 'nullable|string|max:255',
-                'device_name' => 'nullable|string|max:255',
+                'firebase_token'=> ($isEmailType || $isWebOAuth) ? 'nullable|string' : 'required|string',
+                'device_type'   => 'nullable|in:web,android,ios,desktop',
+                'device_id'     => 'nullable|string|max:255',
+                'device_name'   => 'nullable|string|max:255',
             ];
 
-            // If type is email, password is required
-            if ($request->type === 'email') {
+            if ($isEmailType) {
                 $validationRules['password'] = 'required|string|min:6';
-                $validationRules['email'] = 'required|email';
+                $validationRules['email']    = 'required|email';
             }
 
             ApiService::validateRequest($request, $validationRules);
 
-            $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
-            $firebaseId = $verifiedToken->claims()->get('sub');
+            // \u2500\u2500 Email / Password path \u2014 no Firebase \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            if ($isEmailType) {
+                $user = User::withTrashed()
+                    ->role(config('constants.SYSTEM_ROLES.USER'))
+                    ->where('email', $request->email)
+                    ->first();
 
-            $socialLogin = SocialLogin::where('firebase_id', $firebaseId)
-                ->where('type', $request->type)
-                ->with('user', static function ($q): void {
-                    $q->withTrashed();
-                })
-                ->whereHas('user', static function ($q): void {
-                    $q->role(config('constants.SYSTEM_ROLES.USER'));
-                })
-                ->first();
+                if (!$user) {
+                    ApiResponseService::validationError('User not found. Please sign up first.');
+                }
 
-            if (empty($socialLogin)) {
-                ApiResponseService::validationError('User not found. Please sign up first.');
+                if ($user->trashed()) {
+                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                }
+
+                if (!Hash::check($request->password, $user->password ?? '')) {
+                    ApiResponseService::validationError('Invalid email or password.');
+                }
+
+                $auth = $user;
+
+            } else {
+                // \u2500\u2500 Firebase / Socialite path (google / apple) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+                $firebaseId = null;
+
+                if ($isWebOAuth && $request->type === 'google') {
+                    $accessToken = $request->input('access_token')
+                        ?? $request->input('provider_token')
+                        ?? $request->input('token');
+
+                    if (empty($accessToken)) {
+                        ApiResponseService::validationError('access_token is required for web Google login.');
+                    }
+
+                    try {
+                        $socialUser = \Laravel\Socialite\Facades\Socialite::driver('google')->stateless()->userFromToken($accessToken);
+                        $firebaseId = 'google-oauth-' . $socialUser->getId();
+                    } catch (\Throwable $e) {
+                        ApiResponseService::validationError('Invalid Google access token: ' . $e->getMessage());
+                    }
+                } else {
+                    $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
+                    $firebaseId    = $verifiedToken->claims()->get('sub');
+                }
+
+                $socialLogin = SocialLogin::where('firebase_id', $firebaseId)
+                    ->where('type', $request->type)
+                    ->with('user', static function ($q): void {
+                        $q->withTrashed();
+                    })
+                    ->whereHas('user', static function ($q): void {
+                        $q->role(config('constants.SYSTEM_ROLES.USER'));
+                    })
+                    ->first();
+
+                if (empty($socialLogin)) {
+                    ApiResponseService::validationError('User not found. Please sign up first.');
+                }
+
+                if (!empty($socialLogin->user->deleted_at)) {
+                    ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
+                }
+
+                Auth::login($socialLogin->user);
+                $auth = Auth::user();
             }
 
-            if (!empty($socialLogin->user->deleted_at)) {
-                ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
-            }
-
-            // Login flow (same as userSignup)
-            Auth::login($socialLogin->user);
-            $auth = Auth::user();
-
+            // \u2500\u2500 Shared post-auth logic \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
             if (!$auth->hasRole(config('constants.SYSTEM_ROLES.USER'))) {
                 ApiResponseService::validationError('Invalid Login Credentials');
             }
 
             if (!empty($request->fcm_id)) {
                 UserFcmToken::updateOrCreate(['fcm_token' => $request->fcm_id], [
-                    'user_id' => $auth?->id,
+                    'user_id'       => $auth->id,
                     'platform_type' => $request->platform_type,
-                    'created_at' => Carbon::now(),
-                    'updated_at' => Carbon::now(),
+                    'created_at'    => Carbon::now(),
+                    'updated_at'    => Carbon::now(),
                 ]);
             }
 
-            // Verify device limits
             $deviceError = $this->verifyDeviceLimits($auth, $request);
             if ($deviceError) {
                 ApiResponseService::validationError($deviceError);
             }
 
-            $token = $this->createTokenWithMetadata($auth, $auth->name ?? '', $request);
-            $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $token);
+            $pair          = $this->createTokenPair($auth, $auth->name ?? '', $request);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
     }
+
 
     public function mobileLogin(Request $request)
     {
@@ -443,9 +572,9 @@ class ApiController extends Controller
                 ApiResponseService::validationError($deviceError);
             }
 
-            // Generate new token
-            $token = $this->createTokenWithMetadata($user, $user->name ?? '', $request);
-            $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
+            // Generate new token pair
+            $pair          = $this->createTokenPair($user, $user->name ?? '', $request);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('Login successful', $formattedUser);
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
@@ -455,20 +584,49 @@ class ApiController extends Controller
     public function refreshToken(Request $request)
     {
         try {
-            $user = Auth::user();
+            // ── 1. Validate the incoming refresh token ────────────────────
+            // The frontend sends the refresh_token in the Authorization header
+            // AND optionally in the request body. Sanctum's auth:sanctum guard
+            // already authenticated the request using whichever was in the header.
+            $currentToken = $request->user()->currentAccessToken();
 
-            if (!$user) {
-                ApiResponseService::validationError('User not authenticated.');
+            // Ensure the token being used IS a refresh token, not an access token.
+            // This prevents access tokens from being used to obtain new token pairs.
+            if (($currentToken->token_type ?? 'access') !== 'refresh') {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Invalid token type. A refresh_token is required.',
+                ], 401);
             }
 
-            // Revoke the current token that was used to authenticate this request
-            $request->user()->currentAccessToken()->delete();
+            // Check the token has not expired (Sanctum checks expires_at automatically
+            // but we double-check for extra safety with a clear error message).
+            if ($currentToken->expires_at && $currentToken->expires_at->isPast()) {
+                $currentToken->delete();
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Refresh token has expired. Please log in again.',
+                ], 401);
+            }
 
-            // Create a new token for the user
-            $token = $this->createTokenWithMetadata($user, $user->name ?? 'refresh', $request);
-            $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
+            $user = $request->user();
 
-            ApiResponseService::successResponse('Token refreshed successfully', $formattedUser);
+            if (!$user) {
+                return response()->json(['status' => false, 'message' => 'Unauthenticated.'], 401);
+            }
+
+            // ── 2. Revoke old pair + issue new pair ───────────────────────
+            // createTokenPair() deletes ALL tokens first, then creates new pair.
+            $pair = $this->createTokenPair($user, $user->name ?? 'refresh', $request);
+
+            // ── 3. Return new token pair ──────────────────────────────────
+            return response()->json([
+                'status'        => true,
+                'message'       => 'Token refreshed successfully.',
+                'token'         => $pair['access'],
+                'refresh_token' => $pair['refresh'],
+                'expires_in'    => config('sanctum.access_token_lifetime', 60) * 60, // seconds
+            ]);
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -487,7 +645,7 @@ class ApiController extends Controller
                 'name' => 'required|string|max:255',
                 'fcm_id' => 'nullable|string',
                 'platform_type' => 'nullable|in:android,ios',
-                'firebase_token' => 'required',
+                'firebase_token' => 'nullable|string', // Optional: only used when phone OTP verification is done via Firebase
                 'email' => 'nullable|email',
                 'country_calling_code' => 'nullable|string|max:10',
                 'device_type' => 'nullable|in:web,android,ios,desktop',
@@ -495,8 +653,12 @@ class ApiController extends Controller
                 'device_name' => 'nullable|string|max:255',
             ]);
 
-            $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
-            $firebaseId = $verifiedToken->claims()->get('sub');
+            // Resolve firebase_id only when a token is provided (OTP-verified phone flow)
+            $firebaseId = null;
+            if (!empty($request->firebase_token)) {
+                $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
+                $firebaseId = $verifiedToken->claims()->get('sub');
+            }
 
             $existingUser = User::where('mobile', $request->mobile)->whereNull('deleted_at')->first();
 
@@ -546,20 +708,23 @@ class ApiController extends Controller
             }
             $user = User::create($userData);
 
-            $socialLogin = SocialLogin::where(['firebase_id' => $firebaseId, 'user_id' => $user->id])->where(
-                'type',
-                'phone',
-            )->first();
-            if (empty($socialLogin)) {
-                SocialLogin::create([
-                    'firebase_id' => $firebaseId,
-                    'user_id' => $user->id,
-                    'type' => 'phone',
-                ]);
-            } else {
-                $socialLogin->update([
-                    'firebase_id' => $firebaseId,
-                ]);
+            // Only link Firebase SocialLogin record when a firebase_token was provided
+            if (!empty($firebaseId)) {
+                $socialLogin = SocialLogin::where(['firebase_id' => $firebaseId, 'user_id' => $user->id])->where(
+                    'type',
+                    'phone',
+                )->first();
+                if (empty($socialLogin)) {
+                    SocialLogin::create([
+                        'firebase_id' => $firebaseId,
+                        'user_id' => $user->id,
+                        'type' => 'phone',
+                    ]);
+                } else {
+                    $socialLogin->update([
+                        'firebase_id' => $firebaseId,
+                    ]);
+                }
             }
             // Assign General User role
             $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
@@ -582,9 +747,9 @@ class ApiController extends Controller
                 ApiResponseService::validationError($deviceError);
             }
 
-            // Generate new token
-            $token = $this->createTokenWithMetadata($user, $user->name ?? '', $request);
-            $formattedUser = $this->formatUserWithRolesAndPermissions($user, $token);
+            // Generate new token pair
+            $pair          = $this->createTokenPair($user, $user->name ?? '', $request);
+            $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('Registration successful', $formattedUser);
         } catch (Throwable $th) {
             DB::rollBack();
@@ -667,10 +832,12 @@ class ApiController extends Controller
                 ApiResponseService::validationError($deviceError);
             }
 
-            $token = $this->createTokenWithMetadata($user, 'admin-dashboard', $request);
-            $userData = $user->toArray();
-            $userData['token'] = $token;
-            $userData['token_type'] = 'Bearer';
+            $pair          = $this->createTokenPair($user, 'admin-dashboard', $request);
+            $userData      = $user->toArray();
+            $userData['token']         = $pair['access'];
+            $userData['refresh_token'] = $pair['refresh'];
+            $userData['token_type']    = 'Bearer';
+            $userData['expires_in']    = config('sanctum.access_token_lifetime', 60) * 60; // seconds
 
             ApiResponseService::successResponse(__('Login successful'), $userData);
         } catch (Throwable $th) {
@@ -3457,23 +3624,29 @@ class ApiController extends Controller
      * @param string $token
      * @return array
      */
-    protected function formatUserWithRolesAndPermissions(User $user, string $token): array
+    protected function formatUserWithRolesAndPermissions(User $user, string $token, ?string $refreshToken = null): array
     {
-        $userData = $user->toArray();
+        $userData          = $user->toArray();
         $userData['token'] = $token;
+
+        // Include the refresh_token if one was issued (login / registration flows)
+        if ($refreshToken !== null) {
+            $userData['refresh_token'] = $refreshToken;
+            $userData['expires_in']    = config('sanctum.access_token_lifetime', 60) * 60; // seconds
+        }
 
         $userData['roles'] = $user->roles->map(function ($role) {
             return [
-                'id' => $role->id,
-                'name' => $role->name,
-                'guard_name' => $role->guard_name,
+                'id'          => $role->id,
+                'name'        => $role->name,
+                'guard_name'  => $role->guard_name,
                 'custom_role' => $role->custom_role,
             ];
         })->toArray();
 
         $userData['permissions'] = $user->getAllPermissions()->map(function ($permission) {
             return [
-                'id' => $permission->id,
+                'id'   => $permission->id,
                 'name' => $permission->name,
             ];
         })->toArray();

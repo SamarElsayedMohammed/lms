@@ -46,7 +46,26 @@ return [
      |
      */
 
+    // Global fallback expiration (null = never expire via Sanctum's built-in check).
+    // We manage expiration ourselves via the expires_at column on individual tokens.
     'expiration' => null,
+
+    /*
+     |--------------------------------------------------------------------------
+     | Token Lifetimes (in minutes)
+     |--------------------------------------------------------------------------
+     |
+     | These values are used by our dual-token auth system.
+     |
+     | ACCESS_TOKEN_LIFETIME  — short-lived; used for every API request
+     | REFRESH_TOKEN_LIFETIME — long-lived; used only to obtain a new token pair
+     |
+     | Defaults: 60 min access, 43 200 min (30 days) refresh.
+     | Override in .env: SANCTUM_ACCESS_TOKEN_LIFETIME / SANCTUM_REFRESH_TOKEN_LIFETIME
+     |
+     */
+    'access_token_lifetime'  => (int) env('SANCTUM_ACCESS_TOKEN_LIFETIME',  60),       // minutes
+    'refresh_token_lifetime' => (int) env('SANCTUM_REFRESH_TOKEN_LIFETIME', 43200),    // minutes (30 days)
     /*
      |--------------------------------------------------------------------------
      | Token Prefix

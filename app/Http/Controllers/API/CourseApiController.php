@@ -8101,8 +8101,10 @@ class CourseApiController extends Controller
                 return ApiResponseService::validationError('Course not found or not available');
             }
 
-            // Build query for ratings
-            $query = Rating::with(['user', 'rateable'])->where('rateable_type', Course::class);
+            // Build query for ratings — ONLY approved reviews are shown publicly
+            $query = Rating::with(['user', 'rateable'])
+                ->where('rateable_type', Course::class)
+                ->where('status', 'approved');
 
             // Filter by specific course if provided
             if ($isSpecificCourse) {
@@ -8130,9 +8132,12 @@ class CourseApiController extends Controller
                 default => $query->orderBy('created_at', 'desc'),
             };
 
-            // Get all ratings for statistics (only for specific course)
+            // Statistics MUST only count approved reviews — pending/rejected must not affect the average
             if ($isSpecificCourse) {
-                $allRatings = Rating::where('rateable_type', Course::class)->where('rateable_id', $course->id)->get();
+                $allRatings = Rating::where('rateable_type', Course::class)
+                    ->where('rateable_id', $course->id)
+                    ->where('status', 'approved') // ← approved only
+                    ->get();
 
                 // Calculate statistics
                 $totalReviews = $allRatings->count();

@@ -211,6 +211,7 @@ Route::middleware(OptionalAuth::class)->group(function (): void {
     Route::get('get-course', [CourseApiController::class, 'getCourse']);
     Route::get('get-course-chapters', [CourseChapterApiController::class, 'getCourseChapters']); // Get Course Chapters
     Route::get('get-course-reviews', [CourseApiController::class, 'getCourseReviews']); // Get Course Reviews
+    Route::post('course-reviews', [\App\Http\Controllers\API\RatingApiController::class, 'addRating']); // Submit Review (alias)
     Route::get('get-instructor-reviews', [CourseApiController::class, 'getInstructorReviews']); // Get Instructor Reviews
     Route::get('get-instructors', [InstructorApiController::class, 'getInstructors']); // Get Instructors (with optional auth)
     Route::get('get-instructor-details', [InstructorApiController::class, 'getInstructorDetails']); // Get Instructor Details by ID or Slug
@@ -640,11 +641,18 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('/sort', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'updateSortOrder']);
     });
 
-    // Admin approval management (T029)
+    // Admin approval management (T029) — legacy simple approve/reject
     Route::prefix('admin/reviews')->group(function (): void {
         Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingRatings']);
         Route::post('/{id}/approve', [\App\Http\Controllers\Admin\ApprovalController::class, 'approveRating']);
         Route::post('/{id}/reject', [\App\Http\Controllers\Admin\ApprovalController::class, 'rejectRating']);
+    });
+
+    // Admin Ratings CRUD API — used by Next.js dashboard (/api/admin/ratings)
+    Route::prefix('admin/ratings')->group(function (): void {
+        Route::get('/',     [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'index']);   // List all (paginated, searchable)
+        Route::put('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'update']);  // Approve / edit
+        Route::delete('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'destroy']); // Delete
     });
     Route::prefix('admin/comments')->group(function (): void {
         Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingComments']);

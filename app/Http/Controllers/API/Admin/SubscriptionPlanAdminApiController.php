@@ -79,10 +79,24 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
             $validated['status'] = $request->boolean('status', true);
 
             $plan = DB::transaction(function () use ($subscriptionPlan, $validated) {
-                // Generate slug from name
-                $validated['slug'] = Str::slug($validated['name']);
-                if ($validated['slug'] === '') {
-                    $validated['slug'] = 'plan-' . Str::random(10);
+                // Generate slug only if name changed
+                if ($validated['name'] !== $subscriptionPlan->name) {
+                    $baseSlug = Str::slug($validated['name']);
+                    if ($baseSlug === '') {
+                        $baseSlug = 'plan-' . Str::random(10);
+                    }
+                    $slug = $baseSlug;
+                    $counter = 1;
+                    while (DB::table('subscription_plans')
+                        ->where('slug', $slug)
+                        ->where('id', '!=', $subscriptionPlan->id)
+                        ->exists()) {
+                        $slug = $baseSlug . '-' . $counter;
+                        $counter++;
+                    }
+                    $validated['slug'] = $slug;
+                } else {
+                    $validated['slug'] = $subscriptionPlan->slug;
                 }
 
                 // Map duration to duration_days

@@ -34,9 +34,19 @@ final class StoreSubscriptionPlanPanelRequest extends FormRequest
      */
     public function rules(): array
     {
+        $plan = $this->route('subscription_plan') ?? $this->route('subscriptionPlan');
+        $planId = is_object($plan) ? $plan->id : $plan;
+
+        $nameRule = 'required|string|max:255';
+        if ($planId) {
+            $nameRule .= '|unique:subscription_plans,name,' . $planId;
+        } else {
+            $nameRule .= '|unique:subscription_plans,name';
+        }
+
         return [
             // Plan basic info
-            'name' => 'required|string|max:255',
+            'name' => $nameRule,
             'description' => 'nullable|string',
             'currency' => 'nullable|string|max:32',
             'duration' => 'required|numeric|min:1',
