@@ -137,4 +137,16 @@ class SubscriptionPricingSecurityTest extends TestCase
         // Ensure Kashier pending gets the SA price (150)
         $this->assertEquals(150, $response->json('data.payment.total_amount'));
     }
+
+    public function test_invalid_country_codes_are_skipped(): void
+    {
+        // XX is Cloudflare's "unknown" code - should be skipped
+        $response = $this->withHeaders([
+            'X-Vercel-IP-Country' => 'XX',
+        ])->getJson('/api/v1/subscription/plans');
+
+        $response->assertStatus(200);
+        // Should fallback to EG (default), not use XX
+        $this->assertEquals('EG', $response->json('data.detected_country'));
+    }
 }

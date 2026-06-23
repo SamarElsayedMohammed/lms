@@ -10,6 +10,24 @@ use Illuminate\Support\Facades\Log;
 final class GeoLocationService
 {
     /**
+     * Check if a country code is valid (2 alpha chars, not XX/T1)
+     */
+    private function isValidCountryCode(?string $code): bool
+    {
+        if ($code === null || $code === '') {
+            return false;
+        }
+
+        // Invalid special values from Cloudflare
+        if (in_array(strtoupper($code), ['XX', 'T1'])) {
+            return false;
+        }
+
+        // Must be exactly 2 alphabetic characters
+        return strlen($code) === 2 && ctype_alpha($code);
+    }
+
+    /**
      * Get country code from request (Secure IP detection with signed proxy header support)
      */
     public function getCountryCodeFromRequest(Request $request): null|string
