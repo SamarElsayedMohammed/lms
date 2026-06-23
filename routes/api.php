@@ -147,38 +147,37 @@ Route::prefix('subscription')->group(function (): void {
     });
 });
 
-// Debug endpoint to check geo headers and country detection (remove in production)
-Route::get('/debug/geo-headers', function (\Illuminate\Http\Request $request) {
-    $countryService = app(\App\Services\CountryDetectionService::class);
-    return response()->json($countryService->debug($request));
-});
+// Debug endpoints — local/staging only
+if (app()->environment('local', 'staging', 'development')) {
+    Route::get('/debug/geo-headers', function (\Illuminate\Http\Request $request) {
+        $countryService = app(\App\Services\CountryDetectionService::class);
+        return response()->json($countryService->debug($request));
+    });
 
-// RAW debug endpoint - shows EXACTLY what headers the backend received
-Route::get('/debug/raw-request', function (\Illuminate\Http\Request $request) {
-    // Geo-specific headers
-    $geoHeaders = [
-        'CF-IPCountry' => $request->header('CF-IPCountry'),
-        'X-User-Country' => $request->header('X-User-Country'),
-        'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
-        'X-Country' => $request->header('X-Country'),
-        'CF-Connecting-IP' => $request->header('CF-Connecting-IP'),
-        'X-Forwarded-For' => $request->header('X-Forwarded-For'),
-        'X-Real-IP' => $request->header('X-Real-IP'),
-    ];
+    Route::get('/debug/raw-request', function (\Illuminate\Http\Request $request) {
+        $geoHeaders = [
+            'CF-IPCountry' => $request->header('CF-IPCountry'),
+            'X-User-Country' => $request->header('X-User-Country'),
+            'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
+            'X-Country' => $request->header('X-Country'),
+            'CF-Connecting-IP' => $request->header('CF-Connecting-IP'),
+            'X-Forwarded-For' => $request->header('X-Forwarded-For'),
+            'X-Real-IP' => $request->header('X-Real-IP'),
+        ];
 
-    // All headers
-    $allHeaders = [];
-    foreach ($request->headers->all() as $key => $values) {
-        $allHeaders[$key] = is_array($values) && count($values) === 1 ? $values[0] : $values;
-    }
+        $allHeaders = [];
+        foreach ($request->headers->all() as $key => $values) {
+            $allHeaders[$key] = is_array($values) && count($values) === 1 ? $values[0] : $values;
+        }
 
-    return response()->json([
-        'timestamp' => now()->toIso8601String(),
-        'laravel_ip' => $request->ip(),
-        'geo_headers' => $geoHeaders,
-        'all_headers' => $allHeaders,
-    ]);
-});
+        return response()->json([
+            'timestamp' => now()->toIso8601String(),
+            'laravel_ip' => $request->ip(),
+            'geo_headers' => $geoHeaders,
+            'all_headers' => $allHeaders,
+        ]);
+    });
+}
 
 /**
  * Affiliate APIs
@@ -211,7 +210,6 @@ Route::middleware(OptionalAuth::class)->group(function (): void {
     Route::get('get-course', [CourseApiController::class, 'getCourse']);
     Route::get('get-course-chapters', [CourseChapterApiController::class, 'getCourseChapters']); // Get Course Chapters
     Route::get('get-course-reviews', [CourseApiController::class, 'getCourseReviews']); // Get Course Reviews
-    Route::post('course-reviews', [\App\Http\Controllers\API\RatingApiController::class, 'addRating']); // Submit Review (alias)
     Route::get('get-instructor-reviews', [CourseApiController::class, 'getInstructorReviews']); // Get Instructor Reviews
     Route::get('get-instructors', [InstructorApiController::class, 'getInstructors']); // Get Instructors (with optional auth)
     Route::get('get-instructor-details', [InstructorApiController::class, 'getInstructorDetails']); // Get Instructor Details by ID or Slug
@@ -241,6 +239,8 @@ Route::get('dashboard-data', [\App\Http\Controllers\API\DashboardController::cla
 Route::get('dashboard-charts', [\App\Http\Controllers\API\DashboardController::class, 'getChartsData']);
 
 Route::middleware('auth:sanctum')->group(function (): void {
+    Route::post('course-reviews', [\App\Http\Controllers\API\RatingApiController::class, 'addRating']);
+
     /**
      * HLS Video Streaming - Generate UUID token for authenticated users
      * Rate limited to 10 token generations per minute per user
