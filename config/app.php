@@ -50,6 +50,19 @@ return [
      */
 
     'demo_mode' => (int) env('DEMO_MODE', 0),
+
+    /*
+     |--------------------------------------------------------------------------
+     | Default Country
+     |--------------------------------------------------------------------------
+     |
+     | The default country code (ISO 3166-1 alpha-2) used when country detection
+     | fails. This is used by the CountryDetectionService as the final fallback.
+     |
+     */
+
+    'default_country' => env('DEFAULT_COUNTRY', 'EG'),
+
     /*
      |--------------------------------------------------------------------------
      | Application URL

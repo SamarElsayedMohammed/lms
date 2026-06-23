@@ -13,6 +13,7 @@ use App\Notifications\AdminSubscriptionRenewedNotification;
 use App\Notifications\ManualRenewalRequestedNotification;
 use App\Notifications\SubscriptionRenewedNotification;
 use App\Services\ApiResponseService;
+use App\Services\CountryDetectionService;
 use App\Services\Payment\KashierCheckoutService;
 use App\Services\PricingService;
 use App\Services\SubscriptionService;
@@ -30,7 +31,8 @@ final class SubscriptionApiController extends Controller
     public function __construct(
         private readonly SubscriptionService $subscriptionService,
         private readonly PricingService $pricingService,
-        private readonly KashierCheckoutService $kashierService
+        private readonly KashierCheckoutService $kashierService,
+        private readonly CountryDetectionService $countryDetectionService,
     ) {}
 
     /**
@@ -38,6 +40,13 @@ final class SubscriptionApiController extends Controller
      * Public endpoint - no auth required
      *
      * Query params: page (default 1), per_page (default 15, max 50)
+     *
+     * Country detection priority:
+     * 1. CF-IPCountry (Cloudflare)
+     * 2. X-User-Country (Frontend proxy)
+     * 3. X-Vercel-IP-Country (Vercel)
+     * 4. GeoIP lookup
+     * 5. Default (EG)
      */
     public function getPlans(Request $request): JsonResponse
     {
@@ -45,10 +54,8 @@ final class SubscriptionApiController extends Controller
             $perPage = min((int) $request->input('per_page', 15), 50);
             $perPage = max($perPage, 1);
 
-            $countryCode = $this->pricingService->detectUserCountry($request);
-            if ($countryCode === '') {
-                $countryCode = 'EG';
-            }
+            // Use the new CountryDetectionService for robust country detection
+            $countryCode = $this->countryDetectionService->detect($request);
 
             $paginator = SubscriptionPlan::active()
                 ->ordered()

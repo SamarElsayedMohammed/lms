@@ -147,10 +147,10 @@ Route::prefix('subscription')->group(function (): void {
     });
 });
 
-// Debug endpoint to check geo headers (remove in production)
+// Debug endpoint to check geo headers and country detection (remove in production)
 Route::get('/debug/geo-headers', function (\Illuminate\Http\Request $request) {
-    $geoService = app(\App\Services\GeoLocationService::class);
-    return response()->json($geoService->debugHeaders($request));
+    $countryService = app(\App\Services\CountryDetectionService::class);
+    return response()->json($countryService->debug($request));
 });
 
 /**
