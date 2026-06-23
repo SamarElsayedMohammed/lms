@@ -22,15 +22,28 @@ final class LectureProgressApiController extends Controller
     ) {}
 
     /**
-     * Update video watch progress.
+     * Update video watch progress using segment tracking.
      */
     public function updateProgress(Request $request, int $lectureId): JsonResponse
     {
-        $validated = $request->validate([
-            'watched_seconds' => 'required|integer|min:0',
-            'last_position' => 'required|integer|min:0',
-            'total_seconds' => 'required|integer|min:1',
-        ]);
+        // Support both old format (watched_seconds) and new format (newly_watched_segments)
+        $hasSegments = $request->has('newly_watched_segments');
+
+        if ($hasSegments) {
+            $validated = $request->validate([
+                'current_position' => 'required|integer|min:0',
+                'total_duration' => 'required|integer|min:1',
+                'newly_watched_segments' => 'required|array|max:' . VideoProgressService::MAX_SEGMENTS_PER_REQUEST,
+                'newly_watched_segments.*' => 'integer|min:0',
+            ]);
+        } else {
+            // Legacy format support
+            $validated = $request->validate([
+                'watched_seconds' => 'required|integer|min:0',
+                'last_position' => 'required|integer|min:0',
+                'total_seconds' => 'required|integer|min:1',
+            ]);
+        }
 
         $lecture = CourseChapterLecture::find($lectureId);
         if ($lecture === null) {
@@ -42,6 +55,30 @@ final class LectureProgressApiController extends Controller
             return $this->unauthorized();
         }
 
+        if ($hasSegments) {
+            // New segment-based tracking
+            $progress = $this->videoProgressService->updateSegmentProgress(
+                $user,
+                $lecture,
+                (int) $validated['current_position'],
+                (int) $validated['total_duration'],
+                $validated['newly_watched_segments']
+            );
+
+            return $this->ok(
+                data: [
+                    'watch_percentage' => (float) $progress->watch_percentage,
+                    'is_completed' => $progress->is_completed,
+                    'completed_segments' => $progress->completed_segments,
+                    'total_segments' => $progress->total_segments,
+                    'last_position' => $progress->last_position,
+                    'can_seek_to' => $this->videoProgressService->getMaxSeekablePosition($progress),
+                ],
+                message: 'Progress updated'
+            );
+        }
+
+        // Legacy format - use existing method
         $progress = $this->videoProgressService->updateProgress(
             $user,
             $lecture,
@@ -62,7 +99,7 @@ final class LectureProgressApiController extends Controller
     }
 
     /**
-     * Get video progress for a lecture.
+     * Get video progress for a lecture (with segment info).
      */
     public function getProgress(int $lectureId): JsonResponse
     {
@@ -76,7 +113,7 @@ final class LectureProgressApiController extends Controller
             return $this->unauthorized();
         }
 
-        $progress = $this->videoProgressService->getProgress($user, $lecture);
+        $progress = $this->videoProgressService->getProgressWithSeekInfo($user, $lecture);
 
         if ($progress === null) {
             return $this->ok(data: [
@@ -85,6 +122,11 @@ final class LectureProgressApiController extends Controller
                 'watch_percentage' => 0.0,
                 'last_position' => 0,
                 'is_completed' => false,
+                'watched_segments' => [],
+                'total_segments' => 0,
+                'completed_segments' => 0,
+                'can_seek_to' => 0,
+                'resume_from' => 0,
             ]);
         }
 
