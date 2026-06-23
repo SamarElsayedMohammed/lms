@@ -169,4 +169,15 @@ class SubscriptionPricingSecurityTest extends TestCase
         $response->assertStatus(200);
         $this->assertEquals('KW', $response->json('data.detected_country'));
     }
+
+    public function test_x_country_header_resolves_country(): void
+    {
+        $response = $this->withHeaders([
+            'X-Country' => 'SA',
+        ])->getJson('/api/v1/subscription/plans');
+
+        $response->assertStatus(200);
+        $this->assertEquals('SA', $response->json('data.detected_country'));
+        $this->assertEquals(150, $response->json('data.plans.0.display_price'));
+    }
 }

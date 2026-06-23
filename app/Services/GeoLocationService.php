@@ -42,6 +42,21 @@ final class GeoLocationService
     }
 
     /**
+     * Get country from generic proxy headers (X-User-Country, X-Country)
+     */
+    private function getGenericProxyCountry(Request $request): ?string
+    {
+        // Try X-User-Country first, then X-Country
+        $country = $request->header('X-User-Country') ?? $request->header('X-Country');
+
+        if ($this->isValidCountryCode($country)) {
+            return strtoupper($country);
+        }
+
+        return null;
+    }
+
+    /**
      * Get country code from request (Secure IP detection with signed proxy header support)
      */
     public function getCountryCodeFromRequest(Request $request): null|string
