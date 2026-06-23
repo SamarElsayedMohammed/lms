@@ -93,67 +93,90 @@ final class GeoLocationService
     }
 
     /**
-     * Get country code from request (Secure IP detection with signed proxy header support)
+     * Get country code from request (Secure IP detection with proxy header support)
+     *
+     * Priority order:
+     * 1. Test override (non-production)
+     * 2. Cloudflare CF-IPCountry (with CF-Connecting-IP validation)
+     * 3. Vercel X-Vercel-IP-Country
+     * 4. Generic proxy headers (X-User-Country, X-Country)
+     * 5. Signed internal proxy (X-Skillso-Resolved-Country)
+     * 6. IP-based geolocation
+     * 7. Authenticated user's country_code
      */
-    public function getCountryCodeFromRequest(Request $request): null|string
+    public function getCountryCodeFromRequest(Request $request): ?string
     {
         // 1. Manual override for testing purposes ONLY in non-production
         if (!app()->environment('production') && $request->has('test_country')) {
             return strtoupper($request->query('test_country'));
         }
 
-        // 2. High Priority: Signed Internal Proxy Header (e.g. Next.js proxy)
-        $proxyCountry = $this->getSignedProxyCountry($request);
-        if ($proxyCountry) {
-            return $proxyCountry;
+        // 2. Cloudflare CF-IPCountry (strict: requires CF-Connecting-IP)
+        $country = $this->getCloudflareCountry($request);
+        if ($country) {
+            $this->logCountryDetection($request, $country, 'cloudflare');
+            return $country;
         }
 
-        // 3. Cloudflare Country Header (Only trusted if behind Cloudflare)
-        // Note: For production, ensure Cloudflare Authenticated Origin Pulls are enabled
-        // or configure trusted proxies in App\Http\Middleware\TrustProxies
-        $cfCountry = $request->server('HTTP_CF_IPCOUNTRY');
-        if ($cfCountry && strlen($cfCountry) === 2 && $cfCountry !== 'XX' && $cfCountry !== 'T1') {
-            // Check if request came through Cloudflare (simple check, robust check requires IP range validation)
-            if ($request->server('HTTP_CF_CONNECTING_IP')) {
-                return strtoupper($cfCountry);
-            }
+        // 3. Vercel X-Vercel-IP-Country
+        $country = $this->getVercelCountry($request);
+        if ($country) {
+            $this->logCountryDetection($request, $country, 'vercel');
+            return $country;
         }
 
-        // 4. Detect Real IP Address
-        $ipAddress = $this->getRealIpAddress($request);
-        
-        // --- Debug Logging ---
-        if (config('app.debug')) {
-            Log::info('Detecting country for IP', [
-                'ip' => $ipAddress,
-                'cf_country' => $cfCountry,
-                'user_agent' => $request->userAgent(),
-                'headers' => collect($request->server())->filter(fn($v, $k) => str_starts_with($k, 'HTTP_'))->toArray()
-            ]);
+        // 4. Generic proxy headers (X-User-Country, X-Country)
+        $country = $this->getGenericProxyCountry($request);
+        if ($country) {
+            $this->logCountryDetection($request, $country, 'generic_proxy');
+            return $country;
         }
 
-        if ($ipAddress) {
-            $countryCode = $this->getCountryCodeFromIp($ipAddress);
-            if ($countryCode) {
-                return $countryCode;
-            }
-        } elseif (in_array($request->ip(), ['127.0.0.1', '::1'])) {
-            // If testing locally (localhost), the IP is 127.0.0.1 which is stripped.
-            // But the user might be using a VPN on their local machine.
-            // By passing an empty IP, the external API will return the country of the server's public IP (the VPN).
-            $countryCode = $this->getCountryCodeFromIp('');
-            if ($countryCode) {
-                return $countryCode;
-            }
+        // 5. Signed internal proxy (X-Skillso-Resolved-Country)
+        $country = $this->getSignedProxyCountry($request);
+        if ($country) {
+            $this->logCountryDetection($request, $country, 'signed_proxy');
+            return $country;
         }
 
-        // 5. Fallback to user's country code if IP detection fails
+        // 6. IP-based geolocation
+        $country = $this->getCountryFromIp($request);
+        if ($country) {
+            $this->logCountryDetection($request, $country, 'ip_lookup');
+            return $country;
+        }
+
+        // 7. Authenticated user's country_code
         $authUser = auth('sanctum')->user();
         if ($authUser?->country_code) {
-            return strtoupper($authUser->country_code);
+            $country = strtoupper($authUser->country_code);
+            $this->logCountryDetection($request, $country, 'user_profile');
+            return $country;
         }
 
         return null;
+    }
+
+    /**
+     * Log country detection for debugging
+     */
+    private function logCountryDetection(Request $request, string $country, string $source): void
+    {
+        if (config('app.debug')) {
+            Log::info('Country detected', [
+                'country' => $country,
+                'source' => $source,
+                'headers' => [
+                    'cf_ipcountry' => $request->header('CF-IPCountry'),
+                    'cf_connecting_ip' => $request->header('CF-Connecting-IP') ? 'present' : null,
+                    'vercel_ip_country' => $request->header('X-Vercel-IP-Country'),
+                    'x_user_country' => $request->header('X-User-Country'),
+                    'x_country' => $request->header('X-Country'),
+                    'skillso_country' => $request->header('X-Skillso-Resolved-Country'),
+                ],
+                'ip' => $request->ip(),
+            ]);
+        }
     }
 
     /**
