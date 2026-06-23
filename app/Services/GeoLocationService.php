@@ -28,6 +28,20 @@ final class GeoLocationService
     }
 
     /**
+     * Get country from Vercel X-Vercel-IP-Country header
+     */
+    private function getVercelCountry(Request $request): ?string
+    {
+        $country = $request->header('X-Vercel-IP-Country');
+
+        if ($this->isValidCountryCode($country)) {
+            return strtoupper($country);
+        }
+
+        return null;
+    }
+
+    /**
      * Get country code from request (Secure IP detection with signed proxy header support)
      */
     public function getCountryCodeFromRequest(Request $request): null|string

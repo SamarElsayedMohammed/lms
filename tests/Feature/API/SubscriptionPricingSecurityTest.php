@@ -149,4 +149,24 @@ class SubscriptionPricingSecurityTest extends TestCase
         // Should fallback to EG (default), not use XX
         $this->assertEquals('EG', $response->json('data.detected_country'));
     }
+
+    public function test_vercel_ip_country_header_resolves_country(): void
+    {
+        // Create a country price for KW
+        \App\Models\SubscriptionPlanPrice::create([
+            'plan_id' => $this->plan->id,
+            'country_code' => 'KW',
+            'currency_code' => 'KWD',
+            'price' => 10,
+            'is_active' => true,
+            'can_subscribe' => true,
+        ]);
+
+        $response = $this->withHeaders([
+            'X-Vercel-IP-Country' => 'KW',
+        ])->getJson('/api/v1/subscription/plans');
+
+        $response->assertStatus(200);
+        $this->assertEquals('KW', $response->json('data.detected_country'));
+    }
 }
