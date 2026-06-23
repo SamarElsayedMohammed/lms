@@ -147,38 +147,37 @@ Route::prefix('subscription')->group(function (): void {
     });
 });
 
-// Debug endpoint to check geo headers and country detection (remove in production)
-Route::get('/debug/geo-headers', function (\Illuminate\Http\Request $request) {
-    $countryService = app(\App\Services\CountryDetectionService::class);
-    return response()->json($countryService->debug($request));
-});
+// Debug endpoints — local/staging only
+if (app()->environment('local', 'staging', 'development')) {
+    Route::get('/debug/geo-headers', function (\Illuminate\Http\Request $request) {
+        $countryService = app(\App\Services\CountryDetectionService::class);
+        return response()->json($countryService->debug($request));
+    });
 
-// RAW debug endpoint - shows EXACTLY what headers the backend received
-Route::get('/debug/raw-request', function (\Illuminate\Http\Request $request) {
-    // Geo-specific headers
-    $geoHeaders = [
-        'CF-IPCountry' => $request->header('CF-IPCountry'),
-        'X-User-Country' => $request->header('X-User-Country'),
-        'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
-        'X-Country' => $request->header('X-Country'),
-        'CF-Connecting-IP' => $request->header('CF-Connecting-IP'),
-        'X-Forwarded-For' => $request->header('X-Forwarded-For'),
-        'X-Real-IP' => $request->header('X-Real-IP'),
-    ];
+    Route::get('/debug/raw-request', function (\Illuminate\Http\Request $request) {
+        $geoHeaders = [
+            'CF-IPCountry' => $request->header('CF-IPCountry'),
+            'X-User-Country' => $request->header('X-User-Country'),
+            'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
+            'X-Country' => $request->header('X-Country'),
+            'CF-Connecting-IP' => $request->header('CF-Connecting-IP'),
+            'X-Forwarded-For' => $request->header('X-Forwarded-For'),
+            'X-Real-IP' => $request->header('X-Real-IP'),
+        ];
 
-    // All headers
-    $allHeaders = [];
-    foreach ($request->headers->all() as $key => $values) {
-        $allHeaders[$key] = is_array($values) && count($values) === 1 ? $values[0] : $values;
-    }
+        $allHeaders = [];
+        foreach ($request->headers->all() as $key => $values) {
+            $allHeaders[$key] = is_array($values) && count($values) === 1 ? $values[0] : $values;
+        }
 
-    return response()->json([
-        'timestamp' => now()->toIso8601String(),
-        'laravel_ip' => $request->ip(),
-        'geo_headers' => $geoHeaders,
-        'all_headers' => $allHeaders,
-    ]);
-});
+        return response()->json([
+            'timestamp' => now()->toIso8601String(),
+            'laravel_ip' => $request->ip(),
+            'geo_headers' => $geoHeaders,
+            'all_headers' => $allHeaders,
+        ]);
+    });
+}
 
 /**
  * Affiliate APIs
@@ -240,6 +239,8 @@ Route::get('dashboard-data', [\App\Http\Controllers\API\DashboardController::cla
 Route::get('dashboard-charts', [\App\Http\Controllers\API\DashboardController::class, 'getChartsData']);
 
 Route::middleware('auth:sanctum')->group(function (): void {
+    Route::post('course-reviews', [\App\Http\Controllers\API\RatingApiController::class, 'addRating']);
+
     /**
      * HLS Video Streaming - Generate UUID token for authenticated users
      * Rate limited to 10 token generations per minute per user
@@ -640,11 +641,18 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('/sort', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'updateSortOrder']);
     });
 
-    // Admin approval management (T029)
+    // Admin approval management (T029) — legacy simple approve/reject
     Route::prefix('admin/reviews')->group(function (): void {
         Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingRatings']);
         Route::post('/{id}/approve', [\App\Http\Controllers\Admin\ApprovalController::class, 'approveRating']);
         Route::post('/{id}/reject', [\App\Http\Controllers\Admin\ApprovalController::class, 'rejectRating']);
+    });
+
+    // Admin Ratings CRUD API — used by Next.js dashboard (/api/admin/ratings)
+    Route::prefix('admin/ratings')->group(function (): void {
+        Route::get('/',     [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'index']);   // List all (paginated, searchable)
+        Route::put('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'update']);  // Approve / edit
+        Route::delete('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'destroy']); // Delete
     });
     Route::prefix('admin/comments')->group(function (): void {
         Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingComments']);
@@ -728,6 +736,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('courses/enrollment-overview', [\App\Http\Controllers\API\Admin\AdminCourseProgressController::class, 'getEnrollmentOverview']);
         Route::get('courses/{course_id}/student-progress', [\App\Http\Controllers\API\Admin\AdminCourseProgressController::class, 'getCourseStudentProgress']);
         Route::get('courses/{course_id}/students/{user_id}/details', [\App\Http\Controllers\API\Admin\AdminCourseProgressController::class, 'getStudentCourseDetails']);
+
+        // Student Tracking (Next.js admin dashboard)
+        Route::get('tracking', [\App\Http\Controllers\API\Admin\AdminTrackingApiController::class, 'index']);
 
         // FAQs
         Route::get('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'index']);

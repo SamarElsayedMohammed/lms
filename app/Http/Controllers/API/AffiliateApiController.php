@@ -28,13 +28,27 @@ final class AffiliateApiController extends Controller
      * Check if affiliate system is enabled.
      * Returns 404 when disabled.
      */
-    public function status(): never
+    public function status(Request $request): never
     {
         if (!$this->affiliateService->isEnabled()) {
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
         }
 
-        ApiResponseService::successResponse('OK', ['enabled' => true]);
+        $minAmountEgp = $this->affiliateService->getMinimumWithdrawalAmount();
+
+        // Convert min amount to user's local currency for the frontend
+        $countryCode    = $this->pricingService->detectUserCountry($request);
+        $currency       = $this->pricingService->getCurrencyForCountry($countryCode);
+        $displayCurrency = $currency ? $currency->currency_code : 'EGP';
+        $displaySymbol   = $currency ? $currency->currency_symbol : 'ج.م';
+
+        ApiResponseService::successResponse('OK', [
+            'enabled'                    => true,
+            'min_withdrawal_amount'      => (float) $minAmountEgp,
+            'min_withdrawal_amount_local'=> $this->pricingService->convertFromEgp((float) $minAmountEgp, $displayCurrency),
+            'currency'                   => $displayCurrency,
+            'currency_symbol'            => $displaySymbol,
+        ]);
     }
 
     /**
@@ -85,16 +99,20 @@ final class AffiliateApiController extends Controller
         $displayCurrency = $currency ? $currency->currency_code : 'EGP';
         $displaySymbol = $currency ? $currency->currency_symbol : 'ج.م';
         
+        $totalEarnings = AffiliateCommission::forAffiliate($user->id)->sum('amount');
+
         ApiResponseService::successResponse('OK', [
-            'available_balance' => (float) $availableEgp,
-            'pending_balance' => (float) $pendingEgp,
-            'local_available_balance' => $this->pricingService->convertFromEgp((float) $availableEgp, $displayCurrency),
-            'local_pending_balance' => $this->pricingService->convertFromEgp((float) $pendingEgp, $displayCurrency),
-            'currency' => $displayCurrency,
+            'available_balance'        => (float) $availableEgp,
+            'pending_balance'          => (float) $pendingEgp,
+            'total_earnings'           => (float) $totalEarnings,
+            'local_available_balance'  => $this->pricingService->convertFromEgp((float) $availableEgp, $displayCurrency),
+            'local_pending_balance'    => $this->pricingService->convertFromEgp((float) $pendingEgp, $displayCurrency),
+            'local_total_earnings'     => $this->pricingService->convertFromEgp((float) $totalEarnings, $displayCurrency),
+            'currency'         => $displayCurrency,
             'display_currency' => $displayCurrency,
-            'display_symbol' => $displaySymbol,
+            'display_symbol'   => $displaySymbol,
             'total_conversions' => $link->total_conversions,
-            'total_clicks' => $link->total_clicks,
+            'total_clicks'      => $link->total_clicks,
         ]);
     }
 
