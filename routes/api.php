@@ -737,6 +737,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('courses/{course_id}/student-progress', [\App\Http\Controllers\API\Admin\AdminCourseProgressController::class, 'getCourseStudentProgress']);
         Route::get('courses/{course_id}/students/{user_id}/details', [\App\Http\Controllers\API\Admin\AdminCourseProgressController::class, 'getStudentCourseDetails']);
 
+        // Student Tracking (Next.js admin dashboard)
+        Route::get('tracking', [\App\Http\Controllers\API\Admin\AdminTrackingApiController::class, 'index']);
+
         // FAQs
         Route::get('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'index']);
         Route::post('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'store']);
