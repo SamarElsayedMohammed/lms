@@ -19,12 +19,17 @@ class VideoProgress extends Model
         'watch_percentage',
         'is_completed',
         'completed_at',
+        'watched_segments',
+        'segment_size',
+        'total_segments',
+        'completed_segments',
     ];
 
     protected $casts = [
         'is_completed' => 'boolean',
         'completed_at' => 'datetime',
         'watch_percentage' => 'float',
+        'watched_segments' => 'array',
     ];
 
     public function user(): BelongsTo
@@ -50,5 +55,18 @@ class VideoProgress extends Model
     public function scopeCompleted($query)
     {
         return $query->where('is_completed', true);
+    }
+
+    /**
+     * Initialize watched segments array for a video duration.
+     *
+     * @param int $totalDuration Total video duration in seconds
+     * @param int $segmentSize Size of each segment in seconds
+     * @return array Array of zeros representing unwatched segments
+     */
+    public static function initializeSegments(int $totalDuration, int $segmentSize = 5): array
+    {
+        $totalSegments = (int) ceil($totalDuration / $segmentSize);
+        return array_fill(0, $totalSegments, 0);
     }
 }

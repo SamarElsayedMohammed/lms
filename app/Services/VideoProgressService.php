@@ -21,6 +21,16 @@ class VideoProgressService
     public const COMPLETION_THRESHOLD = 100.0;
 
     /**
+     * Default segment size for segment-based progress tracking.
+     */
+    public const DEFAULT_SEGMENT_SIZE = 5; // seconds
+
+    /**
+     * Maximum segments reportable per 15-second update (anti-cheat).
+     */
+    public const MAX_SEGMENTS_PER_REQUEST = 3;
+
+    /**
      * File types that are considered video lectures (require watch tracking).
      */
     private const VIDEO_FILE_TYPES = ['video', 'mp4', 'hls', 'stream', 'vimeo', 'youtube', 'embed', 'url'];
@@ -215,11 +225,168 @@ class VideoProgressService
         return true;
     }
 
+    /**
+     * Update progress using segment-based tracking.
+     *
+     * @param User $user
+     * @param CourseChapterLecture $lecture
+     * @param int $currentPosition Current playback position in seconds
+     * @param int $totalDuration Total video duration in seconds
+     * @param array $newlyWatchedSegments Array of segment indices that were newly watched
+     * @return VideoProgress
+     */
+    public function updateSegmentProgress(
+        User $user,
+        CourseChapterLecture $lecture,
+        int $currentPosition,
+        int $totalDuration,
+        array $newlyWatchedSegments
+    ): VideoProgress {
+        $progress = $this->getOrCreateSegmentProgress($user, $lecture, $totalDuration);
+
+        // Get existing watched segments or initialize
+        $watchedSegments = $progress->watched_segments ??
+            VideoProgress::initializeSegments($totalDuration, self::DEFAULT_SEGMENT_SIZE);
+
+        // Mark newly watched segments
+        foreach ($newlyWatchedSegments as $segmentIndex) {
+            if ($segmentIndex >= 0 && $segmentIndex < $progress->total_segments) {
+                $watchedSegments[$segmentIndex] = 1;
+            }
+        }
+
+        // Calculate progress
+        $completedSegments = array_sum($watchedSegments);
+        $watchPercentage = $progress->total_segments > 0
+            ? round(($completedSegments / $progress->total_segments) * 100, 2)
+            : 0;
+
+        // Check completion
+        $wasAlreadyCompleted = $progress->is_completed;
+        $isCompleted = $watchPercentage >= self::COMPLETION_THRESHOLD;
+        $completedAt = $isCompleted && !$wasAlreadyCompleted ? now() : $progress->completed_at;
+
+        // Also update legacy watched_seconds for backward compatibility
+        $watchedSeconds = $completedSegments * self::DEFAULT_SEGMENT_SIZE;
+
+        // Update record
+        $progress->update([
+            'watched_segments' => $watchedSegments,
+            'completed_segments' => $completedSegments,
+            'watch_percentage' => $watchPercentage,
+            'watched_seconds' => $watchedSeconds,
+            'last_position' => $currentPosition,
+            'is_completed' => $isCompleted,
+            'completed_at' => $completedAt,
+        ]);
+
+        // Sync curriculum tracking if newly completed
+        if ($isCompleted && !$wasAlreadyCompleted && $lecture->course_chapter_id) {
+            $this->syncCurriculumTracking($user->id, $lecture);
+
+            $chapter = CourseChapter::find($lecture->course_chapter_id);
+            if ($chapter) {
+                CurriculumItemCompleted::dispatch($user->id, $chapter->course_id);
+            }
+        }
+
+        return $progress->fresh();
+    }
+
+    /**
+     * Get maximum position user can seek to (highest continuously watched point from start).
+     *
+     * @param VideoProgress $progress
+     * @return int Maximum seekable position in seconds
+     */
+    public function getMaxSeekablePosition(VideoProgress $progress): int
+    {
+        // If completed, allow seeking anywhere
+        if ($progress->is_completed) {
+            return $progress->total_seconds;
+        }
+
+        $watchedSegments = $progress->watched_segments ?? [];
+        $maxContinuousIndex = 0;
+
+        // Find highest continuous watched segment from start
+        foreach ($watchedSegments as $index => $watched) {
+            if ($watched) {
+                $maxContinuousIndex = $index + 1;
+            } else {
+                break; // First unwatched segment breaks the chain
+            }
+        }
+
+        return $maxContinuousIndex * ($progress->segment_size ?? self::DEFAULT_SEGMENT_SIZE);
+    }
+
+    /**
+     * Get progress with seek information for API response.
+     *
+     * @param User $user
+     * @param CourseChapterLecture $lecture
+     * @return array|null
+     */
+    public function getProgressWithSeekInfo(User $user, CourseChapterLecture $lecture): ?array
+    {
+        $progress = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
+
+        if ($progress === null) {
+            return null;
+        }
+
+        return [
+            'watched_seconds' => $progress->watched_seconds,
+            'total_seconds' => $progress->total_seconds,
+            'last_position' => $progress->last_position,
+            'watch_percentage' => (float) $progress->watch_percentage,
+            'is_completed' => $progress->is_completed,
+            'watched_segments' => $progress->watched_segments ?? [],
+            'total_segments' => $progress->total_segments ?? 0,
+            'completed_segments' => $progress->completed_segments ?? 0,
+            'can_seek_to' => $this->getMaxSeekablePosition($progress),
+            'resume_from' => $progress->last_position,
+        ];
+    }
+
     private function lectureHasVideo(CourseChapterLecture $lecture): bool
     {
         // Only types that actually stream/play video require watch-time tracking.
         // Doc-type lectures (PDFs, text) are auto-counted as completed.
         return in_array(strtolower((string) ($lecture->file_type ?? '')), self::VIDEO_FILE_TYPES, true);
+    }
+
+    /**
+     * Get existing progress or create new with segment initialization.
+     */
+    private function getOrCreateSegmentProgress(
+        User $user,
+        CourseChapterLecture $lecture,
+        int $totalDuration
+    ): VideoProgress {
+        $progress = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
+
+        if ($progress === null) {
+            $totalSegments = (int) ceil($totalDuration / self::DEFAULT_SEGMENT_SIZE);
+            $watchedSegments = array_fill(0, $totalSegments, 0);
+
+            $progress = VideoProgress::create([
+                'user_id' => $user->id,
+                'lecture_id' => $lecture->id,
+                'watched_seconds' => 0,
+                'total_seconds' => $totalDuration,
+                'last_position' => 0,
+                'watch_percentage' => 0,
+                'is_completed' => false,
+                'watched_segments' => $watchedSegments,
+                'segment_size' => self::DEFAULT_SEGMENT_SIZE,
+                'total_segments' => $totalSegments,
+                'completed_segments' => 0,
+            ]);
+        }
+
+        return $progress;
     }
 
     /**
