@@ -57,6 +57,42 @@ final class GeoLocationService
     }
 
     /**
+     * Get country from Cloudflare CF-IPCountry header (requires CF-Connecting-IP)
+     */
+    private function getCloudflareCountry(Request $request): ?string
+    {
+        // Check both server and header methods for compatibility
+        $cfCountry = $request->header('CF-IPCountry') ?? $request->server('HTTP_CF_IPCOUNTRY');
+        $connectingIp = $request->header('CF-Connecting-IP') ?? $request->server('HTTP_CF_CONNECTING_IP');
+
+        // Only trust if CF-Connecting-IP is present (proves Cloudflare origin)
+        if ($connectingIp && $this->isValidCountryCode($cfCountry)) {
+            return strtoupper($cfCountry);
+        }
+
+        return null;
+    }
+
+    /**
+     * Get country from IP-based geolocation
+     */
+    private function getCountryFromIp(Request $request): ?string
+    {
+        $ipAddress = $this->getRealIpAddress($request);
+
+        if ($ipAddress) {
+            return $this->getCountryCodeFromIp($ipAddress);
+        }
+
+        // Localhost fallback
+        if (in_array($request->ip(), ['127.0.0.1', '::1'])) {
+            return $this->getCountryCodeFromIp('');
+        }
+
+        return null;
+    }
+
+    /**
      * Get country code from request (Secure IP detection with signed proxy header support)
      */
     public function getCountryCodeFromRequest(Request $request): null|string
