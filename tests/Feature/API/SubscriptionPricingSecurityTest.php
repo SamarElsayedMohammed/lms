@@ -137,4 +137,84 @@ class SubscriptionPricingSecurityTest extends TestCase
         // Ensure Kashier pending gets the SA price (150)
         $this->assertEquals(150, $response->json('data.payment.total_amount'));
     }
+
+    public function test_invalid_country_codes_are_skipped(): void
+    {
+        // XX is Cloudflare's "unknown" code - should be skipped
+        $response = $this->withHeaders([
+            'X-Vercel-IP-Country' => 'XX',
+        ])->getJson('/api/v1/subscription/plans');
+
+        $response->assertStatus(200);
+        // Should fallback to EG (default), not use XX
+        $this->assertEquals('EG', $response->json('data.detected_country'));
+    }
+
+    public function test_vercel_ip_country_header_resolves_country(): void
+    {
+        // Create a country price for KW
+        \App\Models\SubscriptionPlanPrice::create([
+            'plan_id' => $this->plan->id,
+            'country_code' => 'KW',
+            'currency_code' => 'KWD',
+            'price' => 10,
+            'is_active' => true,
+            'can_subscribe' => true,
+        ]);
+
+        $response = $this->withHeaders([
+            'X-Vercel-IP-Country' => 'KW',
+        ])->getJson('/api/v1/subscription/plans');
+
+        $response->assertStatus(200);
+        $this->assertEquals('KW', $response->json('data.detected_country'));
+    }
+
+    public function test_x_country_header_resolves_country(): void
+    {
+        $response = $this->withHeaders([
+            'X-Country' => 'SA',
+        ])->getJson('/api/v1/subscription/plans');
+
+        $response->assertStatus(200);
+        $this->assertEquals('SA', $response->json('data.detected_country'));
+        $this->assertEquals(150, $response->json('data.plans.0.display_price'));
+    }
+
+    public function test_cloudflare_takes_priority_over_vercel(): void
+    {
+        // When both CF-IPCountry (with CF-Connecting-IP) and X-Vercel-IP-Country are present,
+        // Cloudflare should win
+        $response = $this->withHeaders([
+            'CF-IPCountry' => 'SA',
+            'CF-Connecting-IP' => '1.2.3.4',
+            'X-Vercel-IP-Country' => 'AE',
+        ])->getJson('/api/v1/subscription/plans');
+
+        $response->assertStatus(200);
+        $this->assertEquals('SA', $response->json('data.detected_country'));
+    }
+
+    public function test_vercel_used_when_cloudflare_incomplete(): void
+    {
+        // When CF-IPCountry is present but CF-Connecting-IP is missing,
+        // fall through to Vercel
+        \App\Models\SubscriptionPlanPrice::create([
+            'plan_id' => $this->plan->id,
+            'country_code' => 'AE',
+            'currency_code' => 'AED',
+            'price' => 200,
+            'is_active' => true,
+            'can_subscribe' => true,
+        ]);
+
+        $response = $this->withHeaders([
+            'CF-IPCountry' => 'SA',
+            'X-Vercel-IP-Country' => 'AE',
+        ])->getJson('/api/v1/subscription/plans');
+
+        $response->assertStatus(200);
+        // AE because CF-IPCountry is not trusted without CF-Connecting-IP
+        $this->assertEquals('AE', $response->json('data.detected_country'));
+    }
 }
