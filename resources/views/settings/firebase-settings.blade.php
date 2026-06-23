@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title')
     {{ __('Firebase Settings') }}
@@ -19,7 +19,7 @@
                             <div class="col-lg-6 col-md-6 col-sm-12">
                                 <div class="form-group mandatory">
                                     <label for="firebase_project_id" class="form-label">{{ __('projectId') }}</label>
-                                    <input type="text" name="firebase_project_id" class="form-control" id="firebase_project_id" value="{{ $settings['firebase_project_id'] ?? '' }}" placeholder="{{ __('Firebase Project ID') }}" required>
+                                    <input type="text" name="firebase_project_id" class="form-control" id="firebase_project_id" value="{{ $settings['firebase_project_id'] ?? '' }}" placeholder="{{ __('Firebase Project ID') }}" readonly>
                                 </div>
                             </div>
 

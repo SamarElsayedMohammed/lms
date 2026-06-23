@@ -125,13 +125,7 @@ class SettingsController extends Controller
     public function updateFirebase(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'firebase_api_key' => 'required|string|max:255',
-            'firebase_auth_domain' => 'required|string|max:255',
-            'firebase_project_id' => 'required|string|max:255',
-            'firebase_storage_bucket' => 'required|string|max:255',
-            'firebase_messaging_sender_id' => 'required|string|max:255',
-            'firebase_app_id' => 'required|string|max:255',
-            'firebase_measurement_id' => 'required|string|max:255',
+            // Sensitive keys are now read-only and cannot be updated from the panel
             'firebase_service_file' => 'nullable|file|mimes:json|max:2048',
         ]);
 
@@ -140,8 +134,8 @@ class SettingsController extends Controller
         }
 
         try {
-            $data = $request->except(['_token', 'firebase_service_file']);
-
+            // Only extract non-sensitive data if any (none currently allowed)
+            $data = [];
             // Handle Firebase service account file
             if ($request->hasFile('firebase_service_file')) {
                 $file = $request->file('firebase_service_file');
