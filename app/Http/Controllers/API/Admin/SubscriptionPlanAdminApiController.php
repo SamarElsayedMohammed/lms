@@ -69,21 +69,29 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
 
                 $subscriptionPlan->update($validated);
 
-                // Delete old country prices and recreate
-                $subscriptionPlan->countryPrices()->delete();
+                // Remove old country prices that are not in the new payload
+                $submittedCountryIds = collect($countryPrices)->pluck('country_id')->toArray();
+                $subscriptionPlan->countryPrices()
+                    ->whereNotIn('country_id', $submittedCountryIds)
+                    ->forceDelete();
 
                 foreach ($countryPrices as $entry) {
-                    \App\Models\SubscriptionPlanPrice::create([
-                        'plan_id' => $subscriptionPlan->id,
-                        'country_id' => $entry['country_id'],
-                        'country_code' => $entry['country_code'],
-                        'currency_code' => $entry['currency_code'] ?? 'EGP',
-                        'price' => $entry['price'],
-                        'old_price' => (isset($entry['old_price']) && $entry['old_price'] !== '' && $entry['old_price'] !== null)
-                            ? (float) $entry['old_price'] : null,
-                        'is_active' => $entry['is_active'] ?? true,
-                        'can_subscribe' => $entry['can_subscribe'] ?? true,
-                    ]);
+                    \App\Models\SubscriptionPlanPrice::withTrashed()->updateOrCreate(
+                        [
+                            'plan_id' => $subscriptionPlan->id,
+                            'country_id' => $entry['country_id'],
+                        ],
+                        [
+                            'country_code' => $entry['country_code'],
+                            'currency_code' => $entry['currency_code'] ?? 'EGP',
+                            'price' => $entry['price'],
+                            'old_price' => (isset($entry['old_price']) && $entry['old_price'] !== '' && $entry['old_price'] !== null)
+                                ? (float) $entry['old_price'] : null,
+                            'is_active' => $entry['is_active'] ?? true,
+                            'can_subscribe' => $entry['can_subscribe'] ?? true,
+                            'deleted_at' => null, // Restore if it was soft deleted
+                        ]
+                    );
                     \App\Models\SupportedCurrency::ensureCurrencyExists($entry['country_code'], $entry['currency_code'] ?? null);
                 }
 

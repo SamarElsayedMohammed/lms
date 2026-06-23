@@ -460,13 +460,51 @@ class ReportsApiController extends Controller
     {
         $orders = $query->get();
 
+        $subscriptionPayments = collect();
+        $subscriptionRevenue = 0;
+        
+        if (!$request->filled('course_id') && !$request->filled('category_id')) {
+            $subQuery = \App\Models\SubscriptionPayment::query();
+            
+            if ($request->filled('date_from')) {
+                $subQuery->whereDate('subscription_payments.created_at', '>=', $request->date_from);
+            }
+            if ($request->filled('date_to')) {
+                $subQuery->whereDate('subscription_payments.created_at', '<=', $request->date_to);
+            }
+            if ($request->filled('payment_method')) {
+                $subQuery->where('subscription_payments.payment_method', $request->payment_method);
+            }
+            if ($request->filled('status')) {
+                if ($request->status === 'completed') {
+                    $subQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED);
+                } elseif ($request->status === 'pending') {
+                    $subQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_PENDING);
+                } elseif ($request->status === 'cancelled' || $request->status === 'failed') {
+                    $subQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_FAILED);
+                }
+            }
+
+            $subscriptionPayments = $subQuery->get();
+            
+            $completedSubsQuery = clone $subQuery;
+            $subscriptionRevenue = $completedSubsQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->sum(\Illuminate\Support\Facades\DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)'));
+        }
+
+        $allOrdersCount = $orders->count() + $subscriptionPayments->count();
+        $completedSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)->count();
+        $pendingSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_PENDING)->count();
+        $failedSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_FAILED)->count();
+
         return [
-            'total_orders' => $orders->count(),
-            'total_revenue' => $orders->sum('final_price'),
-            'average_order_value' => $orders->avg('final_price'),
-            'completed_orders' => $orders->where('status', 'completed')->count(),
-            'pending_orders' => $orders->where('status', 'pending')->count(),
-            'cancelled_orders' => $orders->where('status', 'cancelled')->count(),
+            'total_orders' => $allOrdersCount,
+            'total_revenue' => $orders->sum('final_price') + $subscriptionRevenue,
+            'average_order_value' => $allOrdersCount > 0 ? ($orders->sum('final_price') + $subscriptionRevenue) / $allOrdersCount : 0,
+            'completed_orders' => $orders->where('status', 'completed')->count() + $completedSubs,
+            'pending_orders' => $orders->where('status', 'pending')->count() + $pendingSubs,
+            'cancelled_orders' => $orders->where('status', 'cancelled')->count() + $failedSubs,
             'payment_methods' => $orders->groupBy('payment_method')->map->count(),
             'top_courses' => $this->getTopCoursesSales($orders),
             'recent_orders' => $orders->sortByDesc('created_at')->take(10)->values(),
