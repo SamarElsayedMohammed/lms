@@ -123,6 +123,29 @@ final class SubscriptionPlan extends Model
     }
 
     /**
+     * Accessor: Clean Name
+     * Ensures the raw plan name is returned without billing cycle labels like '(مدة مخصصة)'
+     */
+    protected function name(): Attribute
+    {
+        return Attribute::get(function ($value) {
+            if (!$value) {
+                return $value;
+            }
+            
+            $cleaned = $value;
+            // Remove common duration suffixes and their parenthesized versions
+            foreach (self::BILLING_CYCLES as $key => $label) {
+                $cleaned = preg_replace('/\s*\(' . preg_quote($label, '/') . '\)\s*/u', '', $cleaned);
+                // Only remove if it's at the end of the string to avoid stripping valid words in the middle
+                $cleaned = preg_replace('/\s*' . preg_quote($label, '/') . '\s*$/u', '', $cleaned);
+            }
+            
+            return trim($cleaned);
+        });
+    }
+
+    /**
      * Accessor: Formatted price
      */
     protected function formattedPrice(): Attribute
