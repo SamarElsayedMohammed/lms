@@ -153,6 +153,53 @@ Route::get('/debug/geo-headers', function (\Illuminate\Http\Request $request) {
     return response()->json($countryService->debug($request));
 });
 
+// RAW debug endpoint - shows EXACTLY what headers the backend received
+// Use this to verify what the frontend proxy is actually sending
+Route::get('/debug/raw-request', function (\Illuminate\Http\Request $request) {
+    // Get ALL headers as received
+    $allHeaders = [];
+    foreach ($request->headers->all() as $key => $values) {
+        $allHeaders[$key] = count($values) === 1 ? $values[0] : $values;
+    }
+
+    // Get all $_SERVER variables related to headers
+    $serverHeaders = [];
+    foreach ($_SERVER as $key => $value) {
+        if (str_starts_with($key, 'HTTP_') || in_array($key, ['REMOTE_ADDR', 'REQUEST_URI', 'REQUEST_METHOD'])) {
+            $serverHeaders[$key] = $value;
+        }
+    }
+
+    return response()->json([
+        'timestamp' => now()->toIso8601String(),
+        'message' => 'This shows EXACTLY what the backend received from the frontend proxy',
+        
+        // What Laravel sees
+        'laravel' => [
+            'request_ip' => $request->ip(),
+            'request_ips' => $request->ips(),
+            'is_from_trusted_proxy' => $request->isFromTrustedProxy(),
+        ],
+
+        // Geo-specific headers (what we're looking for)
+        'geo_headers' => [
+            'CF-IPCountry' => $request->header('CF-IPCountry'),
+            'X-User-Country' => $request->header('X-User-Country'),
+            'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
+            'X-Country' => $request->header('X-Country'),
+            'CF-Connecting-IP' => $request->header('CF-Connecting-IP'),
+            'X-Forwarded-For' => $request->header('X-Forwarded-For'),
+            'X-Real-IP' => $request->header('X-Real-IP'),
+        ],
+
+        // ALL headers received
+        'all_headers' => $allHeaders,
+
+        // Raw $_SERVER variables
+        'server_variables' => $serverHeaders,
+    ], 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+});
+
 /**
  * Affiliate APIs
  * Feature flag checked in controller; returns 404 when disabled.
