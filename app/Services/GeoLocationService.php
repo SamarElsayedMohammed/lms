@@ -97,12 +97,13 @@ final class GeoLocationService
      *
      * Priority order:
      * 1. Test override (non-production)
-     * 2. Cloudflare CF-IPCountry (with CF-Connecting-IP validation)
-     * 3. Vercel X-Vercel-IP-Country
-     * 4. Generic proxy headers (X-User-Country, X-Country)
-     * 5. Signed internal proxy (X-Skillso-Resolved-Country)
-     * 6. IP-based geolocation
-     * 7. Authenticated user's country_code
+     * 2. X-User-Country (Frontend proxy custom header - HIGHEST PRIORITY)
+     * 3. CF-IPCountry (Cloudflare - trusted from frontend proxy)
+     * 4. X-Vercel-IP-Country (Vercel)
+     * 5. X-Country (Generic proxy)
+     * 6. Signed internal proxy (X-Skillso-Resolved-Country)
+     * 7. IP-based geolocation (fallback)
+     * 8. Authenticated user's country_code
      */
     public function getCountryCodeFromRequest(Request $request): ?string
     {
@@ -111,42 +112,49 @@ final class GeoLocationService
             return strtoupper($request->query('test_country'));
         }
 
-        // 2. Cloudflare CF-IPCountry (strict: requires CF-Connecting-IP)
-        $country = $this->getCloudflareCountry($request);
-        if ($country) {
-            $this->logCountryDetection($request, $country, 'cloudflare');
-            return $country;
+        // 2. X-User-Country - Custom header from our frontend proxy (HIGHEST PRIORITY)
+        $country = $request->header('X-User-Country');
+        if ($this->isValidCountryCode($country)) {
+            $this->logCountryDetection($request, strtoupper($country), 'x_user_country');
+            return strtoupper($country);
         }
 
-        // 3. Vercel X-Vercel-IP-Country
+        // 3. CF-IPCountry - Cloudflare (trusted from frontend proxy, no CF-Connecting-IP required)
+        $country = $request->header('CF-IPCountry') ?? $request->server('HTTP_CF_IPCOUNTRY');
+        if ($this->isValidCountryCode($country)) {
+            $this->logCountryDetection($request, strtoupper($country), 'cloudflare');
+            return strtoupper($country);
+        }
+
+        // 4. X-Vercel-IP-Country - Vercel
         $country = $this->getVercelCountry($request);
         if ($country) {
             $this->logCountryDetection($request, $country, 'vercel');
             return $country;
         }
 
-        // 4. Generic proxy headers (X-User-Country, X-Country)
-        $country = $this->getGenericProxyCountry($request);
-        if ($country) {
-            $this->logCountryDetection($request, $country, 'generic_proxy');
-            return $country;
+        // 5. X-Country - Generic proxy header
+        $country = $request->header('X-Country');
+        if ($this->isValidCountryCode($country)) {
+            $this->logCountryDetection($request, strtoupper($country), 'x_country');
+            return strtoupper($country);
         }
 
-        // 5. Signed internal proxy (X-Skillso-Resolved-Country)
+        // 6. Signed internal proxy (X-Skillso-Resolved-Country)
         $country = $this->getSignedProxyCountry($request);
         if ($country) {
             $this->logCountryDetection($request, $country, 'signed_proxy');
             return $country;
         }
 
-        // 6. IP-based geolocation
+        // 7. IP-based geolocation (fallback)
         $country = $this->getCountryFromIp($request);
         if ($country) {
             $this->logCountryDetection($request, $country, 'ip_lookup');
             return $country;
         }
 
-        // 7. Authenticated user's country_code
+        // 8. Authenticated user's country_code
         $authUser = auth('sanctum')->user();
         if ($authUser?->country_code) {
             $country = strtoupper($authUser->country_code);
@@ -162,21 +170,49 @@ final class GeoLocationService
      */
     private function logCountryDetection(Request $request, string $country, string $source): void
     {
-        if (config('app.debug')) {
-            Log::info('Country detected', [
+        // Always log in non-production environments for easier debugging
+        if (config('app.debug') || !app()->environment('production')) {
+            Log::info('GeoLocationService: Country detected', [
                 'country' => $country,
                 'source' => $source,
                 'headers' => [
+                    'x_user_country' => $request->header('X-User-Country'),
                     'cf_ipcountry' => $request->header('CF-IPCountry'),
                     'cf_connecting_ip' => $request->header('CF-Connecting-IP') ? 'present' : null,
                     'vercel_ip_country' => $request->header('X-Vercel-IP-Country'),
-                    'x_user_country' => $request->header('X-User-Country'),
                     'x_country' => $request->header('X-Country'),
                     'skillso_country' => $request->header('X-Skillso-Resolved-Country'),
+                    'x_forwarded_for' => $request->header('X-Forwarded-For'),
                 ],
-                'ip' => $request->ip(),
+                'request_ip' => $request->ip(),
+                'server_remote_addr' => $request->server('REMOTE_ADDR'),
             ]);
         }
+    }
+
+    /**
+     * Debug method to see all received headers (for troubleshooting)
+     */
+    public function debugHeaders(Request $request): array
+    {
+        return [
+            'detected_country' => $this->getCountryCodeFromRequest($request),
+            'geo_headers' => [
+                'X-User-Country' => $request->header('X-User-Country'),
+                'CF-IPCountry' => $request->header('CF-IPCountry'),
+                'CF-Connecting-IP' => $request->header('CF-Connecting-IP') ? 'present' : null,
+                'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
+                'X-Country' => $request->header('X-Country'),
+                'X-Skillso-Resolved-Country' => $request->header('X-Skillso-Resolved-Country'),
+            ],
+            'ip_info' => [
+                'request_ip' => $request->ip(),
+                'x_forwarded_for' => $request->header('X-Forwarded-For'),
+                'x_real_ip' => $request->header('X-Real-IP'),
+                'remote_addr' => $request->server('REMOTE_ADDR'),
+            ],
+            'all_headers' => collect($request->headers->all())->map(fn($v) => $v[0] ?? $v)->toArray(),
+        ];
     }
 
     /**
