@@ -1,0 +1,328 @@
+{
+	"info": {
+		"_postman_id": "d13e3b7b-8321-4d3b-9a4f-561234567890",
+		"name": "Skillso Support Center API",
+		"description": "APIs for the two-way threaded Support Center for Skillso.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "User (Student) Support",
+			"item": [
+				{
+					"name": "Get My Contact Messages (Paginated)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{user_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/my-contact-messages?page=1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"my-contact-messages"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Message Thread (Full Conversation)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{user_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/my-contact-messages/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"my-contact-messages",
+								"1"
+							]
+						}
+					}
+				},
+				{
+					"name": "Reply to Contact Message",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{user_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"message\": \"This is a test reply from the user to the admin!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/my-contact-messages/1/reply",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"my-contact-messages",
+								"1",
+								"reply"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "User (Student) Notifications",
+			"item": [
+				{
+					"name": "Get Support Notifications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{user_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/support-notifications?page=1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"support-notifications"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Unread Notifications Count",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{user_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/support-notifications/unread-count",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"support-notifications",
+								"unread-count"
+							]
+						}
+					}
+				},
+				{
+					"name": "Mark Notification Read",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{user_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/support-notifications/1/read",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"support-notifications",
+								"1",
+								"read"
+							]
+						}
+					}
+				},
+				{
+					"name": "Mark All Notifications Read",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{user_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/support-notifications/read-all",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"support-notifications",
+								"read-all"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin Panel",
+			"item": [
+				{
+					"name": "Get Thread (Admin View)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/admin/contact-messages/1/thread",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"contact-messages",
+								"1",
+								"thread"
+							]
+						}
+					}
+				},
+				{
+					"name": "Reply to Thread (Admin)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"message\": \"Hello, this is an official reply from the Skillso Admin team.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/contact-messages/1/reply",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"contact-messages",
+								"1",
+								"reply"
+							]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://stage.skillso.net/api",
+			"type": "string"
+		},
+		{
+			"key": "user_token",
+			"value": "YOUR_USER_BEARER_TOKEN",
+			"type": "string"
+		},
+		{
+			"key": "admin_token",
+			"value": "YOUR_ADMIN_BEARER_TOKEN",
+			"type": "string"
+		}
+	]
+}
