@@ -16,8 +16,12 @@ final class PricingService
     ) {}
 
     /**
-     * Get display price for a plan in the given country's currency.
-     * Falls back to base EGP price if no country-specific price exists.
+     * Get display and checkout price for a plan in the given country's currency.
+     *
+     * Resolution order:
+     * 1. Country override row (subscription_plan_prices)
+     * 2. Egypt with no override → plan base price in EGP
+     * 3. Any other country with no override → plan usd_price in USD
      *
      * Prices are rounded up to the nearest whole number for frontend display.
      *
@@ -34,7 +38,7 @@ final class PricingService
 
         if ($planPrice !== null) {
             $currencyCode = $planPrice->currency_code ?? 'EGP';
-            
+
             // If the country override is explicitly marked as inactive, disable subscriptions for this country
             if (!$planPrice->is_active) {
                 return [
@@ -45,7 +49,7 @@ final class PricingService
                     'currency_code' => $currencyCode,
                     'currency_symbol' => $this->getCurrencySymbol($currencyCode),
                     'price_source' => 'country_override',
-                    'can_subscribe' => false, // Explicitly blocked by inactive override
+                    'can_subscribe' => false,
                 ];
             }
 
@@ -61,38 +65,28 @@ final class PricingService
             ];
         }
 
-        // 2. Fallback: Auto-conversion using exchange rates if supported currency exists
-        if ($countryCode !== 'EG' && $countryCode !== '') {
-            $currency = SupportedCurrency::where('country_code', $countryCode)
-                ->where('is_active', true)
-                ->first();
-
-            if ($currency) {
-                $exchangeRate = (float) ($currency->active_exchange_rate ?? 1.0);
-                if ($exchangeRate > 0) {
-                    $basePriceEgp = (float) ($plan->price ?? 0);
-                    $priceLocal = $basePriceEgp / $exchangeRate;
-
-                    return [
-                        'price' => $this->roundUpForDisplay($priceLocal),
-                        'old_price' => null,
-                        'currency_code' => $currency->currency_code,
-                        'currency_symbol' => $currency->currency_symbol,
-                        'price_source' => 'default',
-                        'can_subscribe' => true,
-                    ];
-                }
-            }
+        // 2. Egypt fallback: base EGP price stored on the plan
+        if ($countryCode === 'EG') {
+            return [
+                'price' => $this->roundUpForDisplay((float) $plan->price),
+                'old_price' => null,
+                'currency_code' => 'EGP',
+                'currency_symbol' => CachingService::getSystemSettings('currency_symbol') ?: 'EGP',
+                'price_source' => 'default',
+                'can_subscribe' => true,
+            ];
         }
 
-        // 3. Final fallback: Base price in EGP
+        // 3. International fallback: USD default price (not EGP base)
+        $usdPrice = $plan->usd_price;
+
         return [
-            'price' => $this->roundUpForDisplay((float) $plan->price),
+            'price' => $this->roundUpForDisplay((float) ($usdPrice ?? 0)),
             'old_price' => null,
-            'currency_code' => 'EGP',
-            'currency_symbol' => CachingService::getSystemSettings('currency_symbol') ?: 'EGP',
+            'currency_code' => 'USD',
+            'currency_symbol' => $this->getCurrencySymbol('USD'),
             'price_source' => 'default',
-            'can_subscribe' => true,
+            'can_subscribe' => $usdPrice !== null && (float) $usdPrice > 0,
         ];
     }
 

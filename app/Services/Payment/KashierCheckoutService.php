@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Kashier payment gateway integration for subscription checkout.
- * Egyptian payment gateway supporting EGP.
+ * Supports multi-currency checkout when a resolved currency is passed in.
  *
  * @see https://developers.kashier.io/
  */
@@ -36,13 +36,17 @@ final class KashierCheckoutService implements PaymentGatewayContract
      *
      * @return array{url: string, order_id: string, hash: string, amount: float, currency: string, merchant_id: string, mode: string}
      */
-    public function createCheckoutSession(SubscriptionPlan $plan, User $user, float $amount): array
-    {
+    public function createCheckoutSession(
+        SubscriptionPlan $plan,
+        User $user,
+        float $amount,
+        string $currency = 'EGP',
+    ): array {
         $config = $this->getConfig();
         $this->validateConfig($config);
 
         $orderId = 'sub_' . $plan->id . '_' . $user->id . '_' . time();
-        $currency = 'EGP';
+        $currency = strtoupper($currency);
         $amountFormatted = number_format((float) $amount, 2, '.', '');
 
         $hash = $this->generateOrderHash(

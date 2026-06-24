@@ -283,22 +283,21 @@ final class SubscriptionApiController extends Controller
 
             $plan = SubscriptionPlan::findOrFail($request->plan_id);
 
-            $countryCode = $this->pricingService->detectUserCountry($request);
-            if ($countryCode === '') {
-                $countryCode = 'EG';
-            }
+            $countryCode = $this->countryDetectionService->detect($request);
 
             // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
             Log::error('COUNTRY_RESOLVED [POST /subscription/subscribe]', [
                 'resolved_country'   => $countryCode,
-                'detection_service'  => 'PricingService::detectUserCountry() -> GeoLocationService',
+                'detection_service'  => 'CountryDetectionService::detect()',
                 'plan_id'            => $plan->id,
                 'plan_name'          => $plan->name,
                 'plan_base_price_egp'=> $plan->price,
+                'plan_usd_price'     => $plan->usd_price,
             ]);
             // ===== END TEMPORARY LOGGING =====
 
             $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
+            $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
 
             // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
             Log::error('PRICING_RESOLVED [POST /subscription/subscribe]', [
@@ -347,7 +346,6 @@ final class SubscriptionApiController extends Controller
                 } else {
                     // Fixed amount discount is typically in the base currency (EGP).
                     // We must convert it to the user's resolved currency to ensure compatibility.
-                    $resolvedCurrency = $countryPricing['currency_code'] ?? 'EGP';
                     $discountAmount = $this->pricingService->convertFromEgp($campaign->discount_value, $resolvedCurrency);
                     $discountAmount = min($discountAmount, $originalAmount);
                 }
@@ -371,14 +369,13 @@ final class SubscriptionApiController extends Controller
                 'user_id'           => $user->id,
                 'plan_id'           => $plan->id,
                 'resolved_country'  => $countryCode,
-                'currency_code'     => $countryPricing['currency_code'],
+                'currency_code'     => $resolvedCurrency,
                 'original_amount'   => $originalAmount,
                 'discount_amount'   => $discountAmount,
                 'total_amount'      => $totalAmount,
                 'wallet_amount'     => $walletAmount,
                 'gateway_amount'    => $gatewayAmount,
-                'gateway_currency'  => 'EGP (hardcoded in KashierCheckoutService)',
-                'note'              => 'gateway_amount is passed to Kashier but Kashier always charges in EGP',
+                'gateway_currency'  => $resolvedCurrency,
             ]);
             // ===== END TEMPORARY LOGGING =====
 
@@ -388,7 +385,7 @@ final class SubscriptionApiController extends Controller
                 'original_amount' => $originalAmount,
                 'discount_amount' => $discountAmount,
                 'resolved_country' => $countryCode,
-                'currency_code' => $countryPricing['currency_code'] ?? 'EGP',
+                'currency_code' => $resolvedCurrency,
                 'price_source' => $countryPricing['price_source'] ?? 'default',
             ];
 
@@ -457,7 +454,7 @@ final class SubscriptionApiController extends Controller
                         'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
                         'payment_method' => 'manual',
                         'resolved_country' => $countryCode,
-                        'currency_code' => $countryPricing['currency_code'] ?? 'EGP',
+                        'currency_code' => $resolvedCurrency,
                         'price_source' => $countryPricing['price_source'] ?? 'default',
                         'manual_deposit_method_id' => $request->manual_deposit_method_id,
                         'receipt' => $receiptPath,
@@ -511,7 +508,12 @@ final class SubscriptionApiController extends Controller
 
             // Gateway payment required: create Kashier checkout
             try {
-                $checkout = $this->kashierService->createCheckoutSession($plan, $user, $gatewayAmount);
+                $checkout = $this->kashierService->createCheckoutSession(
+                    $plan,
+                    $user,
+                    $gatewayAmount,
+                    $resolvedCurrency,
+                );
             } catch (\RuntimeException $e) {
                 return ApiResponseService::errorResponse(
                     'بوابة الدفع غير مهيأة. يرجى التواصل مع الإدارة.',
@@ -529,7 +531,7 @@ final class SubscriptionApiController extends Controller
                 'original_amount' => $originalAmount,
                 'discount_amount' => $discountAmount,
                 'resolved_country' => $countryCode,
-                'currency_code' => $countryPricing['currency_code'] ?? 'EGP',
+                'currency_code' => $resolvedCurrency,
                 'price_source' => $countryPricing['price_source'] ?? 'default',
             ], self::KASHIER_PENDING_TTL);
 
@@ -604,7 +606,15 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('اشتراك مدى الحياة لا يحتاج تجديداً.', [], 400);
             }
 
-            $totalAmount = (float) $plan->price;
+            $countryCode = $this->countryDetectionService->detect($request);
+            $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
+            $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
+
+            if (!$plan->is_active || !$countryPricing['can_subscribe']) {
+                return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
+            }
+
+            $totalAmount = (float) $countryPricing['price'];
             $split = $this->subscriptionService->walletAndGatewayPayment(
                 $user,
                 $plan,
@@ -683,8 +693,9 @@ final class SubscriptionApiController extends Controller
                         'gateway_amount' => $gatewayAmount,
                         'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
                         'payment_method' => 'manual',
-                        'currency_code' => 'EGP',
-                        'price_source' => 'default',
+                        'resolved_country' => $countryCode,
+                        'currency_code' => $resolvedCurrency,
+                        'price_source' => $countryPricing['price_source'] ?? 'default',
                         'manual_deposit_method_id' => $request->manual_deposit_method_id,
                         'receipt' => $receiptPath,
                         'transaction_id' => $request->transaction_id,
@@ -739,7 +750,12 @@ final class SubscriptionApiController extends Controller
 
             // Gateway payment required: create Kashier checkout
             try {
-                $checkout = $this->kashierService->createCheckoutSession($plan, $user, $gatewayAmount);
+                $checkout = $this->kashierService->createCheckoutSession(
+                    $plan,
+                    $user,
+                    $gatewayAmount,
+                    $resolvedCurrency,
+                );
             } catch (\RuntimeException $e) {
                 return ApiResponseService::errorResponse(
                     'بوابة الدفع غير مهيأة. يرجى التواصل مع الإدارة.',

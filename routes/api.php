@@ -289,7 +289,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('notifications/mark-read', [ApiController::class, 'markNotificationAsRead']); // Mark Notification as Read
     Route::post('notifications/mark-all-read', [ApiController::class, 'markAllNotificationsAsRead']); // Mark All Notifications as Read
     Route::post('delete-account', [ApiController::class, 'deleteAccount']); // Delete User Account
-    Route::get('contact-messages', [ApiController::class, 'userContactMessages']); // Get User Contact Messages
+        // Support Center APIs
+        Route::get('my-contact-messages', [ApiController::class, 'getMyContactMessages']);
+        Route::get('my-contact-messages/{id}', [ApiController::class, 'getContactMessageThread']);
+        Route::post('my-contact-messages/{id}/reply', [ApiController::class, 'replyContactMessage']);
+
+        // Notification APIs for Support Center
+        Route::get('support-notifications', [ApiController::class, 'getMyNotifications']);
+        Route::get('support-notifications/unread-count', [ApiController::class, 'getMyUnreadNotificationsCount']);
+        Route::post('support-notifications/{id}/read', [ApiController::class, 'markMyNotificationRead']);
+        Route::post('support-notifications/read-all', [ApiController::class, 'markAllMyNotificationsRead']);
     Route::get('user-enrolled-courses', [CourseApiController::class, 'getUserEnrolledCourses']); // Get User Courses
     Route::get('my-learning', [CourseApiController::class, 'getMyLearning']); // Get My Learning Courses with Progress
     Route::get('my-learning/{course_id}', [CourseApiController::class, 'getMyCourseProgressDetail']); // Get detailed progress for specific course
@@ -781,6 +790,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Contact Messages
         Route::get('contact-messages', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'index']);
         Route::get('contact-messages/{id}', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'show']);
+        Route::get('contact-messages/{id}/thread', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'thread']);
         Route::put('contact-messages/{id}/read', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'markRead']);
         Route::put('contact-messages/{id}/status', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'updateStatus']);
         Route::post('contact-messages/{id}/reply', [\App\Http\Controllers\API\Admin\ContactMessageAdminApiController::class, 'reply']);

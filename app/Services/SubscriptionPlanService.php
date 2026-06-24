@@ -56,6 +56,9 @@ final class SubscriptionPlanService
                     'duration_days' => $durationInput !== null ? (int) $durationInput : null,
                 ]),
                 'price' => (float) ($panel['price'] ?? $plan->price),
+                'usd_price' => array_key_exists('usd_price', $panel)
+                    ? ($panel['usd_price'] !== null && $panel['usd_price'] !== '' ? (float) $panel['usd_price'] : null)
+                    : $plan->usd_price,
                 'commission_type' => $panel['commission_type'] ?? $plan->commission_type ?? 'percentage',
                 'commission_rate' => $panel['commission_rate'] ?? $plan->commission_rate ?? 0,
                 'features' => $panel['features'] ?? null,
@@ -98,6 +101,8 @@ final class SubscriptionPlanService
             'billing_cycle' => $panel['billing_cycle'] ?? 'custom',
             'duration_days' => (int) ($panel['duration'] ?? $panel['duration_days'] ?? 30),
             'price' => $sale,
+            'usd_price' => isset($panel['usd_price']) && $panel['usd_price'] !== '' && $panel['usd_price'] !== null
+                ? (float) $panel['usd_price'] : null,
             'commission_type' => $panel['commission_type'] ?? 'percentage',
             'commission_rate' => $panel['commission_rate'] ?? 0,
             'features' => $panel['features'] ?? null,

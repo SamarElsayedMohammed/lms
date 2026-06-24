@@ -2469,20 +2469,163 @@ class ApiController extends Controller
     }
 
     /**
-     * Get user's contact messages
+     * Get user's support center conversations
      */
-    public function userContactMessages(Request $request)
+    public function getMyContactMessages(Request $request)
     {
         $user = Auth::user();
         if (!$user) {
             return ApiResponseService::errorResponse('Unauthenticated', 401);
         }
 
+        $perPage = (int) $request->input('per_page', 15);
+        
         $messages = \App\Models\ContactMessage::where('user_id', $user->id)
+            ->withCount(['replies as unread_count' => function ($query) {
+                $query->where('sender_type', 'admin')->where('is_read', false);
+            }])
             ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+
+        // Format for the frontend requirement
+        $formatted = $messages->map(function ($msg) {
+            // Get the last reply time or creation time
+            $lastReply = \App\Models\ContactMessageReply::where('contact_message_id', $msg->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+                
+            return [
+                'id' => $msg->id,
+                'subject' => \Illuminate\Support\Str::limit($msg->message, 50),
+                'status' => $msg->status,
+                'unread_count' => $msg->unread_count,
+                'created_at' => $msg->created_at,
+                'last_reply_at' => $lastReply ? $lastReply->created_at : clone $msg->created_at,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $formatted,
+            'pagination' => [
+                'current_page' => $messages->currentPage(),
+                'last_page' => $messages->lastPage(),
+                'total' => $messages->total(),
+            ]
+        ]);
+    }
+
+    /**
+     * Get a single conversation thread
+     */
+    public function getContactMessageThread(Request $request, $id)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Unauthenticated', 401);
+        }
+
+        $message = \App\Models\ContactMessage::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$message) {
+            return ApiResponseService::errorResponse('Conversation not found', 404);
+        }
+
+        // Mark unread admin replies as read
+        \App\Models\ContactMessageReply::where('contact_message_id', $message->id)
+            ->where('sender_type', 'admin')
+            ->where('is_read', false)
+            ->update(['is_read' => true]);
+
+        // Get replies
+        $replies = \App\Models\ContactMessageReply::where('contact_message_id', $message->id)
+            ->orderBy('created_at', 'asc')
             ->get();
 
-        return ApiResponseService::successResponse('Contact messages retrieved successfully', $messages);
+        $conversation = [];
+        
+        // Add the initial message as the first item in the conversation
+        $conversation[] = [
+            'id' => 0, // Using 0 or a virtual ID for the parent message
+            'sender' => 'user',
+            'message' => $message->message,
+            'created_at' => $message->created_at,
+        ];
+
+        // If there's a legacy reply_message on the parent, add it
+        if ($message->reply_message) {
+            $conversation[] = [
+                'id' => -1,
+                'sender' => 'admin',
+                'message' => $message->reply_message,
+                'created_at' => $message->updated_at,
+            ];
+        }
+
+        foreach ($replies as $reply) {
+            $conversation[] = [
+                'id' => $reply->id,
+                'sender' => $reply->sender_type,
+                'message' => $reply->message,
+                'created_at' => $reply->created_at,
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $message->id,
+                'subject' => \Illuminate\Support\Str::limit($message->message, 50),
+                'status' => $message->status,
+                'conversation' => $conversation,
+            ]
+        ]);
+    }
+
+    /**
+     * Reply to a conversation
+     */
+    public function replyContactMessage(Request $request, $id)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Unauthenticated', 401);
+        }
+
+        $message = \App\Models\ContactMessage::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$message) {
+            return ApiResponseService::errorResponse('Conversation not found', 404);
+        }
+
+        if (in_array($message->status, ['closed', 'completed'])) {
+            return ApiResponseService::errorResponse('Cannot reply to a closed conversation', 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'message' => 'required|string|min:2',
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors()->first());
+        }
+
+        \App\Models\ContactMessageReply::create([
+            'contact_message_id' => $message->id,
+            'user_id' => $user->id,
+            'sender_type' => 'user',
+            'message' => $request->message,
+        ]);
+
+        $message->update(['status' => 'waiting_admin']);
+
+        // Optional: Notify admin here
+
+        return response()->json(['success' => true]);
     }
 
     /**
@@ -3751,5 +3894,92 @@ class ApiController extends Controller
         } catch (\Throwable $th) {
             return ApiResponseService::errorResponse($th->getMessage());
         }
+    }
+
+    /**
+     * Get user's notifications
+     */
+    public function getMyNotifications(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Unauthenticated', 401);
+        }
+
+        $perPage = (int) $request->input('per_page', 15);
+        
+        $notifications = \App\Models\UserNotification::where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => $notifications->items(),
+            'pagination' => [
+                'current_page' => $notifications->currentPage(),
+                'last_page' => $notifications->lastPage(),
+                'total' => $notifications->total(),
+            ]
+        ]);
+    }
+
+    /**
+     * Get user's unread notifications count
+     */
+    public function getMyUnreadNotificationsCount(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Unauthenticated', 401);
+        }
+
+        $count = \App\Models\UserNotification::where('user_id', $user->id)
+            ->where('is_read', false)
+            ->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'unread_count' => $count
+            ]
+        ]);
+    }
+
+    /**
+     * Mark a single notification as read
+     */
+    public function markMyNotificationRead(Request $request, $id)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Unauthenticated', 401);
+        }
+
+        $notification = \App\Models\UserNotification::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if ($notification) {
+            $notification->update(['is_read' => true]);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Mark all notifications as read
+     */
+    public function markAllMyNotificationsRead(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Unauthenticated', 401);
+        }
+
+        \App\Models\UserNotification::where('user_id', $user->id)
+            ->where('is_read', false)
+            ->update(['is_read' => true]);
+
+        return response()->json(['success' => true]);
     }
 }
