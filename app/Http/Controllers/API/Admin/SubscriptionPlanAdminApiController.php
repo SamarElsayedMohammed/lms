@@ -6,10 +6,8 @@ namespace App\Http\Controllers\API\Admin;
 
 use App\Http\Requests\Admin\StoreSubscriptionPlanPanelRequest;
 use App\Http\Resources\Admin\SubscriptionPlanAdminResource;
-use App\Services\SubscriptionPlanPriceService;
 use App\Services\SubscriptionPlanService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -24,7 +22,6 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
 {
     public function __construct(
         private readonly SubscriptionPlanService $subscriptionPlanService,
-        private readonly SubscriptionPlanPriceService $priceService,
     ) {
         $this->middleware('auth:sanctum');
     }
@@ -75,41 +72,13 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
 
         try {
             $validated = $request->validated();
-            $validated['status'] = $request->boolean('status', true);
+            if (!$request->has('status') && $request->has('is_active')) {
+                $validated['status'] = $request->boolean('is_active');
+            } else {
+                $validated['status'] = $request->boolean('status', true);
+            }
 
-            $plan = DB::transaction(function () use ($subscriptionPlan, $validated) {
-                if ($validated['name'] !== $subscriptionPlan->name) {
-                    $validated['slug'] = $this->subscriptionPlanService->uniqueSlugForName(
-                        $validated['name'],
-                        $subscriptionPlan->id,
-                    );
-                } else {
-                    $validated['slug'] = $subscriptionPlan->slug;
-                }
-
-                // Map duration to duration_days
-                $validated['duration_days'] = (int) $validated['duration'];
-                $validated['commission_type'] = $validated['commission_type'] ?? 'percentage';
-                $validated['commission_rate'] = $validated['commission_rate'] ?? 0;
-                $validated['is_active'] = $validated['status'];
-
-                // Extract country prices before updating plan
-                $countryPrices = $validated['country_prices'] ?? [];
-                unset($validated['country_prices']);
-
-                // Update the plan
-                $subscriptionPlan->update($validated);
-
-                // Sync country prices using the dedicated service
-                // This ensures country_code and currency_code are always derived from the database
-                $this->priceService->syncCountryPrices(
-                    $subscriptionPlan,
-                    $countryPrices,
-                    removeOthers: true
-                );
-
-                return $subscriptionPlan->fresh('countryPrices');
-            });
+            $plan = $this->subscriptionPlanService->updateFromPanelPayload($subscriptionPlan, $validated);
 
             return $this->jsonSuccess(
                 __('Subscription plan updated successfully'),

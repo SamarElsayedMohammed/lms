@@ -21,8 +21,13 @@ final class SubscriptionPlanPriceAdminResource extends JsonResource
             'id' => $this->id,
             'plan_id' => $this->plan_id,
             'country_id' => $this->country_id,
+            'country_code' => $this->country_code,
+            'currency_code' => $this->currency_code,
             'price' => (float) $this->price,
+            'old_price' => $this->old_price !== null ? (float) $this->old_price : null,
             'offer_price' => $this->offer_price !== null ? (float) $this->offer_price : null,
+            'is_active' => (bool) $this->is_active,
+            'can_subscribe' => (bool) $this->can_subscribe,
         ];
     }
 }
