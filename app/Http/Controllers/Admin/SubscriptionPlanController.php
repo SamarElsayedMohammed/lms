@@ -65,8 +65,8 @@ final class SubscriptionPlanController extends Controller
             'is_active' => 'nullable|boolean',
             'countries' => 'required|array|min:1',
             'countries.*.country_id' => 'required|exists:countries,id,status,1',
-            'countries.*.country_code' => 'nullable|string|max:2',
-            'countries.*.currency_code' => 'nullable|string|max:3',
+            'countries.*.country_code' => 'nullable|string',
+            'countries.*.currency_code' => 'nullable|string|max:10',
             'countries.*.price' => 'required|numeric|min:0',
             'countries.*.offer_price' => 'nullable|numeric|min:0',
         ];
@@ -176,8 +176,8 @@ final class SubscriptionPlanController extends Controller
             'is_active' => 'nullable|boolean',
             'countries' => 'required|array|min:1',
             'countries.*.country_id' => 'required|exists:countries,id,status,1',
-            'countries.*.country_code' => 'nullable|string|max:2',
-            'countries.*.currency_code' => 'nullable|string|max:3',
+            'countries.*.country_code' => 'nullable|string',
+            'countries.*.currency_code' => 'nullable|string|max:10',
             'countries.*.price' => 'required|numeric|min:0',
             'countries.*.offer_price' => 'nullable|numeric|min:0',
         ];
