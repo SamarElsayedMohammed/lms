@@ -11,6 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Fix existing records to prevent data truncation before altering ENUM
+        \Illuminate\Support\Facades\DB::statement("UPDATE `contact_messages` SET `status` = 'new' WHERE `status` NOT IN ('new', 'replied', 'closed')");
+
         // Safe way to update an ENUM column without Doctrine DBAL issues
         \Illuminate\Support\Facades\DB::statement("ALTER TABLE `contact_messages` MODIFY COLUMN `status` ENUM('new', 'waiting_admin', 'replied', 'closed', 'completed', 'reopened') DEFAULT 'new'");
     }
