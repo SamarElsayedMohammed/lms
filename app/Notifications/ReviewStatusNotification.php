@@ -20,6 +20,8 @@ class ReviewStatusNotification extends Notification
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 
+    protected array $defaultChannels = ['database'];
+
     public function __construct(
         private readonly Rating|CourseDiscussion $reviewItem,
         private readonly string $type = 'rating', // 'rating' or 'comment'
