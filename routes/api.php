@@ -630,9 +630,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Admin subscription plan management (T018)
     Route::prefix('admin/subscription-plans')->group(function (): void {
         Route::get('/', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'index']);
-        Route::post('/', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'store']);
+        Route::post('/', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'store']);
         Route::get('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'show']);
-        Route::put('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'update']);
+        Route::put('/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
+        Route::patch('/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
         Route::delete('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'destroy']);
         Route::post('/{id}/restore', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'restore']);
         Route::delete('/{id}/trash', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'trash']);

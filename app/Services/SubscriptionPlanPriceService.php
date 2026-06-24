@@ -42,7 +42,7 @@ final class SubscriptionPlanPriceService
     ): array {
         if (empty($countryPrices)) {
             if ($removeOthers) {
-                $plan->countryPrices()->forceDelete();
+                $plan->countryPrices()->delete();
             }
             return [];
         }
@@ -63,7 +63,7 @@ final class SubscriptionPlanPriceService
             if ($removeOthers && !empty($processedCountryIds)) {
                 $plan->countryPrices()
                     ->whereNotIn('country_id', $processedCountryIds)
-                    ->forceDelete();
+                    ->delete();
             }
 
             return $results;
@@ -112,7 +112,7 @@ final class SubscriptionPlanPriceService
         $this->ensureCurrencyExists($countryCode, $currencyCode);
 
         // Create or update the price record
-        $price = SubscriptionPlanPrice::withTrashed()->updateOrCreate(
+        $price = SubscriptionPlanPrice::updateOrCreate(
             [
                 'plan_id' => $plan->id,
                 'country_id' => $country->id,
@@ -126,7 +126,6 @@ final class SubscriptionPlanPriceService
                     : null,
                 'is_active' => (bool) ($priceData['is_active'] ?? true),
                 'can_subscribe' => (bool) ($priceData['can_subscribe'] ?? true),
-                'deleted_at' => null, // Restore if it was soft deleted
             ]
         );
 
@@ -179,7 +178,7 @@ final class SubscriptionPlanPriceService
     {
         return $plan->countryPrices()
             ->where('country_id', $countryId)
-            ->forceDelete() > 0;
+            ->delete() > 0;
     }
 
     /**

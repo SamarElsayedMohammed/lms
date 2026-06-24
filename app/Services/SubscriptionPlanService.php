@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Country;
 use App\Models\SubscriptionPlan;
 use App\Models\SubscriptionPlanPrice;
+use App\Services\SubscriptionPlanPriceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -36,6 +37,55 @@ final class SubscriptionPlanService
      *
      * @throws Throwable
      */
+    public function updateFromPanelPayload(SubscriptionPlan $plan, array $panel): SubscriptionPlan
+    {
+        return DB::transaction(function () use ($plan, $panel): SubscriptionPlan {
+            $isActive = array_key_exists('status', $panel)
+                ? (bool) $panel['status']
+                : (bool) ($panel['is_active'] ?? $plan->is_active);
+
+            $billingCycle = $panel['billing_cycle'] ?? $plan->billing_cycle ?? 'custom';
+            $durationInput = $panel['duration'] ?? $panel['duration_days'] ?? $plan->duration_days;
+
+            $data = [
+                'name' => $panel['name'],
+                'description' => $panel['description'] ?? null,
+                'billing_cycle' => $billingCycle,
+                'duration_days' => $this->resolveDurationDays([
+                    'billing_cycle' => $billingCycle,
+                    'duration_days' => $durationInput !== null ? (int) $durationInput : null,
+                ]),
+                'price' => (float) ($panel['price'] ?? $plan->price),
+                'commission_type' => $panel['commission_type'] ?? $plan->commission_type ?? 'percentage',
+                'commission_rate' => $panel['commission_rate'] ?? $plan->commission_rate ?? 0,
+                'features' => $panel['features'] ?? null,
+                'sort_order' => isset($panel['sort_order']) ? (int) $panel['sort_order'] : ($plan->sort_order ?? 0),
+                'is_active' => $isActive,
+            ];
+
+            $currentRawName = $plan->getRawOriginal('name') ?? $plan->getAttributes()['name'] ?? '';
+            if ($data['name'] !== $currentRawName) {
+                $data['slug'] = $this->uniqueSlugForName($data['name'], $plan->id);
+            }
+
+            $countryPrices = $panel['country_prices'] ?? [];
+            $plan->update($data);
+
+            app(SubscriptionPlanPriceService::class)->syncCountryPrices(
+                $plan,
+                $countryPrices,
+                removeOthers: true,
+            );
+
+            return $plan->fresh('countryPrices');
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $panel  Validated panel payload (name, duration, price, etc.)
+     *
+     * @throws Throwable
+     */
     public function createFromPanelPayload(array $panel, ?int $countryId = null): SubscriptionPlan
     {
         $sale = (float) $panel['price'];
@@ -45,13 +95,13 @@ final class SubscriptionPlanService
         $canonical = [
             'name' => $panel['name'],
             'description' => $panel['description'] ?? null,
-            'billing_cycle' => 'custom',
-            'duration_days' => (int) $panel['duration'],
+            'billing_cycle' => $panel['billing_cycle'] ?? 'custom',
+            'duration_days' => (int) ($panel['duration'] ?? $panel['duration_days'] ?? 30),
             'price' => $sale,
             'commission_type' => $panel['commission_type'] ?? 'percentage',
             'commission_rate' => $panel['commission_rate'] ?? 0,
             'features' => $panel['features'] ?? null,
-            'sort_order' => 0,
+            'sort_order' => $panel['sort_order'] ?? 0,
             'country_prices' => $panel['country_prices'] ?? [],
         ];
 
