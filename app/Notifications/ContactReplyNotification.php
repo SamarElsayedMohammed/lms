@@ -19,6 +19,9 @@ class ContactReplyNotification extends Notification
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 
+    /** Email is sent separately in ContactMessageAdminApiController::reply(). */
+    protected array $defaultChannels = ['database'];
+
     public function __construct(
         private readonly ContactMessage $contactMessage,
         private readonly string $replyMessage,
