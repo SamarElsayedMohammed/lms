@@ -67,9 +67,9 @@ final class SubscriptionApiController extends Controller
                 return [
                     'id' => $plan->id,
                     'name' => $plan->name,
-                    'price' => (float) $plan->price,
-                    'currency_code' => 'EGP', // Base currency
-                    'old_price' => null, // Base old price
+                    'price' => $localized['price'],
+                    'currency_code' => $localized['currency_code'],
+                    'old_price' => $localized['old_price'],
                     'display_price' => $localized['price'],
                     'display_currency' => $localized['currency_code'],
                     'display_old_price' => $localized['old_price'],
@@ -85,7 +85,7 @@ final class SubscriptionApiController extends Controller
                     'billing_cycle' => $plan->billing_cycle,
                     'billing_cycle_label' => $plan->billing_cycle_label,
                     'duration_days' => $plan->getDurationDays(),
-                    'formatted_price' => number_format((float) $localized['price'], 2) . ' ' . $localized['currency_symbol'],
+                    'formatted_price' => number_format($localized['price'], 0) . ' ' . $localized['currency_symbol'],
                     'features' => $plan->features,
                     'is_lifetime' => $plan->isLifetime(),
                 ];

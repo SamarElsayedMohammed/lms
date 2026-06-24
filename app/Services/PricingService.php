@@ -19,7 +19,9 @@ final class PricingService
      * Get display price for a plan in the given country's currency.
      * Falls back to base EGP price if no country-specific price exists.
      *
-     * @return array{price: float, old_price: float|null, currency_code: string, currency_symbol: string, price_source: string, can_subscribe: boolean}
+     * Prices are rounded up to the nearest whole number for frontend display.
+     *
+     * @return array{price: int, old_price: int|null, currency_code: string, currency_symbol: string, price_source: string, can_subscribe: boolean}
      */
     public function getPriceForCountry(SubscriptionPlan $plan, string $countryCode): array
     {
@@ -36,8 +38,10 @@ final class PricingService
             // If the country override is explicitly marked as inactive, disable subscriptions for this country
             if (!$planPrice->is_active) {
                 return [
-                    'price' => (float) $planPrice->price,
-                    'old_price' => $planPrice->old_price ? (float) $planPrice->old_price : null,
+                    'price' => $this->roundUpForDisplay((float) $planPrice->price),
+                    'old_price' => $planPrice->old_price
+                        ? $this->roundUpForDisplay((float) $planPrice->old_price)
+                        : null,
                     'currency_code' => $currencyCode,
                     'currency_symbol' => $this->getCurrencySymbol($currencyCode),
                     'price_source' => 'country_override',
@@ -46,8 +50,10 @@ final class PricingService
             }
 
             return [
-                'price' => (float) $planPrice->price,
-                'old_price' => $planPrice->old_price ? (float) $planPrice->old_price : null,
+                'price' => $this->roundUpForDisplay((float) $planPrice->price),
+                'old_price' => $planPrice->old_price
+                    ? $this->roundUpForDisplay((float) $planPrice->old_price)
+                    : null,
                 'currency_code' => $currencyCode,
                 'currency_symbol' => $this->getCurrencySymbol($currencyCode),
                 'price_source' => 'country_override',
@@ -68,7 +74,7 @@ final class PricingService
                     $priceLocal = $basePriceEgp / $exchangeRate;
 
                     return [
-                        'price' => round($priceLocal, 2),
+                        'price' => $this->roundUpForDisplay($priceLocal),
                         'old_price' => null,
                         'currency_code' => $currency->currency_code,
                         'currency_symbol' => $currency->currency_symbol,
@@ -81,7 +87,7 @@ final class PricingService
 
         // 3. Final fallback: Base price in EGP
         return [
-            'price' => (float) $plan->price,
+            'price' => $this->roundUpForDisplay((float) $plan->price),
             'old_price' => null,
             'currency_code' => 'EGP',
             'currency_symbol' => CachingService::getSystemSettings('currency_symbol') ?: 'EGP',
@@ -155,5 +161,10 @@ final class PricingService
         $currency = SupportedCurrency::where('currency_code', strtoupper($currencyCode))->first();
 
         return $currency?->currency_symbol ?? $currencyCode;
+    }
+
+    private function roundUpForDisplay(float $price): int
+    {
+        return (int) ceil($price);
     }
 }

@@ -9,14 +9,18 @@ use App\Models\SubscriptionPlan;
 use App\Models\SubscriptionPlanPrice;
 use App\Models\Country;
 use App\Services\ResponseService;
+use App\Services\SubscriptionPlanService;
 use Exception;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 final class SubscriptionPlanController extends Controller
 {
+    public function __construct(
+        private readonly SubscriptionPlanService $subscriptionPlanService,
+    ) {
+    }
     public function index(Request $request)
     {
         ResponseService::noPermissionThenSendJson('subscription-plans-list');
@@ -49,7 +53,7 @@ final class SubscriptionPlanController extends Controller
         ResponseService::noPermissionThenSendJson('subscription-plans-create');
 
         $rules = [
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:subscription_plans,name',
             'description' => 'nullable|string',
             'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,yearly,lifetime,custom',
             'duration_days' => 'required_if:billing_cycle,custom|nullable|integer|min:1',
@@ -105,7 +109,7 @@ final class SubscriptionPlanController extends Controller
             DB::beginTransaction();
 
             $data = $validator->validated();
-            $data['slug'] = Str::slug($data['name']);
+            $data['slug'] = $this->subscriptionPlanService->uniqueSlugForName($data['name']);
             $data['duration_days'] = $this->resolveDurationDays($data);
             $data['commission_rate'] = $data['commission_rate'] ?? 0;
             $data['sort_order'] = $data['sort_order'] ?? 0;
@@ -160,7 +164,7 @@ final class SubscriptionPlanController extends Controller
         ResponseService::noPermissionThenSendJson('subscription-plans-edit');
 
         $rules = [
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:subscription_plans,name,' . $subscriptionPlan->id,
             'description' => 'nullable|string',
             'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,yearly,lifetime,custom',
             'duration_days' => 'required_if:billing_cycle,custom|nullable|integer|min:1',
@@ -216,7 +220,11 @@ final class SubscriptionPlanController extends Controller
             DB::beginTransaction();
 
             $data = $validator->validated();
-            $data['slug'] = Str::slug($data['name']);
+            if ($data['name'] !== $subscriptionPlan->name) {
+                $data['slug'] = $this->subscriptionPlanService->uniqueSlugForName($data['name'], $subscriptionPlan->id);
+            } else {
+                $data['slug'] = $subscriptionPlan->slug;
+            }
             $data['duration_days'] = $this->resolveDurationDays($data);
             $data['commission_rate'] = $data['commission_rate'] ?? 0;
             $data['sort_order'] = $data['sort_order'] ?? 0;

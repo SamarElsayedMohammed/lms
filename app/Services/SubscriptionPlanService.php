@@ -123,15 +123,26 @@ final class SubscriptionPlanService
         return SubscriptionPlan::CYCLE_DAYS[$data['billing_cycle']] ?? null;
     }
 
-    private function uniqueSlugForName(string $name): string
+    public function uniqueSlugForName(string $name, ?int $excludePlanId = null): string
     {
         $base = Str::slug($name);
         if ($base === '') {
             $base = 'plan-' . Str::lower(Str::random(10));
         }
+
         $slug = $base;
         $n = 0;
-        while (SubscriptionPlan::withTrashed()->where('slug', $slug)->exists()) {
+
+        while (true) {
+            $query = SubscriptionPlan::withTrashed()->where('slug', $slug);
+            if ($excludePlanId !== null) {
+                $query->where('id', '!=', $excludePlanId);
+            }
+
+            if (!$query->exists()) {
+                break;
+            }
+
             $slug = $base . '-' . ++$n;
         }
 
