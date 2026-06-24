@@ -88,4 +88,6 @@ Route::get('storage-link', static function () {
     return 'Storage link refreshed';
 });
 
-Route::get('logs', [\Rap2hpoutre\LaravelLogViewer\LogViewerController::class , 'index']);
+if (class_exists(\Rap2hpoutre\LaravelLogViewer\LogViewerController::class)) {
+    Route::get('logs', [\Rap2hpoutre\LaravelLogViewer\LogViewerController::class, 'index']);
+}
