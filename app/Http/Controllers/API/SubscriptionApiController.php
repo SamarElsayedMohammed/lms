@@ -54,8 +54,34 @@ final class SubscriptionApiController extends Controller
             $perPage = min((int) $request->input('per_page', 15), 50);
             $perPage = max($perPage, 1);
 
+            // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
+            Log::error('COUNTRY_HEADERS [GET /subscription/plans]', [
+                'all_headers' => $request->headers->all(),
+                'specific_country_headers' => [
+                    'cf-ipcountry'        => $request->header('CF-IPCountry'),
+                    'x-user-country'      => $request->header('X-User-Country'),
+                    'x-country'           => $request->header('X-Country'),
+                    'x-country-code'      => $request->header('X-Country-Code'),
+                    'x-vercel-ip-country' => $request->header('X-Vercel-IP-Country'),
+                    'country'             => $request->header('country'),
+                    'cf-connecting-ip'    => $request->header('CF-Connecting-IP'),
+                    'x-forwarded-for'     => $request->header('X-Forwarded-For'),
+                    'x-real-ip'           => $request->header('X-Real-IP'),
+                ],
+                'request_ip'  => $request->ip(),
+                'remote_addr' => $request->server('REMOTE_ADDR'),
+            ]);
+            // ===== END TEMPORARY LOGGING =====
+
             // Use the new CountryDetectionService for robust country detection
             $countryCode = $this->countryDetectionService->detect($request);
+
+            // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
+            Log::error('COUNTRY_RESOLVED [GET /subscription/plans]', [
+                'resolved_country' => $countryCode,
+                'detection_service' => 'CountryDetectionService::detect()',
+            ]);
+            // ===== END TEMPORARY LOGGING =====
 
             $paginator = SubscriptionPlan::active()
                 ->ordered()
@@ -63,6 +89,20 @@ final class SubscriptionApiController extends Controller
 
             $plans = $paginator->getCollection()->map(function ($plan) use ($countryCode) {
                 $localized = $this->pricingService->getPriceForCountry($plan, $countryCode);
+
+                // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
+                Log::error('PRICING_RESOLVED [GET /subscription/plans]', [
+                    'plan_id'        => $plan->id,
+                    'plan_name'      => $plan->name,
+                    'resolved_country'  => $countryCode,
+                    'price_source'   => $localized['price_source'],
+                    'price'          => $localized['price'],
+                    'currency_code'  => $localized['currency_code'],
+                    'currency_symbol'=> $localized['currency_symbol'],
+                    'old_price'      => $localized['old_price'],
+                    'can_subscribe'  => $localized['can_subscribe'],
+                ]);
+                // ===== END TEMPORARY LOGGING =====
 
                 return [
                     'id' => $plan->id,
@@ -199,6 +239,25 @@ final class SubscriptionApiController extends Controller
      */
     public function subscribe(Request $request): JsonResponse
     {
+        // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
+        Log::error('COUNTRY_HEADERS [POST /subscription/subscribe]', [
+            'all_headers' => $request->headers->all(),
+            'specific_country_headers' => [
+                'cf-ipcountry'        => $request->header('CF-IPCountry'),
+                'x-user-country'      => $request->header('X-User-Country'),
+                'x-country'           => $request->header('X-Country'),
+                'x-country-code'      => $request->header('X-Country-Code'),
+                'x-vercel-ip-country' => $request->header('X-Vercel-IP-Country'),
+                'country'             => $request->header('country'),
+                'cf-connecting-ip'    => $request->header('CF-Connecting-IP'),
+                'x-forwarded-for'     => $request->header('X-Forwarded-For'),
+                'x-real-ip'           => $request->header('X-Real-IP'),
+            ],
+            'request_ip'  => $request->ip(),
+            'remote_addr' => $request->server('REMOTE_ADDR'),
+        ]);
+        // ===== END TEMPORARY LOGGING =====
+
         try {
             $validator = Validator::make($request->all(), [
                 'plan_id' => 'required|exists:subscription_plans,id',
@@ -229,7 +288,31 @@ final class SubscriptionApiController extends Controller
                 $countryCode = 'EG';
             }
 
+            // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
+            Log::error('COUNTRY_RESOLVED [POST /subscription/subscribe]', [
+                'resolved_country'   => $countryCode,
+                'detection_service'  => 'PricingService::detectUserCountry() -> GeoLocationService',
+                'plan_id'            => $plan->id,
+                'plan_name'          => $plan->name,
+                'plan_base_price_egp'=> $plan->price,
+            ]);
+            // ===== END TEMPORARY LOGGING =====
+
             $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
+
+            // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
+            Log::error('PRICING_RESOLVED [POST /subscription/subscribe]', [
+                'plan_id'        => $plan->id,
+                'plan_name'      => $plan->name,
+                'resolved_country'  => $countryCode,
+                'price_source'   => $countryPricing['price_source'],
+                'price'          => $countryPricing['price'],
+                'currency_code'  => $countryPricing['currency_code'],
+                'currency_symbol'=> $countryPricing['currency_symbol'],
+                'old_price'      => $countryPricing['old_price'],
+                'can_subscribe'  => $countryPricing['can_subscribe'],
+            ]);
+            // ===== END TEMPORARY LOGGING =====
 
             if (!$plan->is_active || !$countryPricing['can_subscribe']) {
                 return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
@@ -282,6 +365,22 @@ final class SubscriptionApiController extends Controller
             );
             $walletAmount = $split['wallet_amount'];
             $gatewayAmount = $split['gateway_amount'];
+
+            // ===== TEMPORARY DIAGNOSTIC LOGGING (remove after audit) =====
+            Log::error('PAYMENT_SPLIT [POST /subscription/subscribe]', [
+                'user_id'           => $user->id,
+                'plan_id'           => $plan->id,
+                'resolved_country'  => $countryCode,
+                'currency_code'     => $countryPricing['currency_code'],
+                'original_amount'   => $originalAmount,
+                'discount_amount'   => $discountAmount,
+                'total_amount'      => $totalAmount,
+                'wallet_amount'     => $walletAmount,
+                'gateway_amount'    => $gatewayAmount,
+                'gateway_currency'  => 'EGP (hardcoded in KashierCheckoutService)',
+                'note'              => 'gateway_amount is passed to Kashier but Kashier always charges in EGP',
+            ]);
+            // ===== END TEMPORARY LOGGING =====
 
             // Build discount metadata for payment record
             $discountMeta = [
