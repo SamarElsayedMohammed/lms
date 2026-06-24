@@ -13,6 +13,8 @@ class NotificationCampaign extends Model
         'plan_id',
         'sent_count',
         'image',
+        'icon',
+        'icon_color',
     ];
 
     protected $appends = ['image_url'];
