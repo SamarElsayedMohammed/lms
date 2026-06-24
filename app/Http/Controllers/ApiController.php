@@ -953,7 +953,7 @@ class ApiController extends Controller
                 'email' => 'nullable|email|unique:users,email,' . Auth::id(),
                 'mobile' => 'nullable|string|max:20',
                 'country_calling_code' => 'nullable|string|max:10',
-                'country_code' => 'nullable|string|size:2',
+                'country_code' => 'nullable|string',
                 'profile' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
             ];
 
@@ -1605,21 +1605,23 @@ class ApiController extends Controller
                         }
 
                         return [
-                            'id' => $notification->id,
-                            'type' => 'global',
-                            'title' => $notification->title,
-                            'message' => $notification->message,
+                            'id'                => $notification->id,
+                            'type'              => 'global',
+                            'title'             => $notification->title,
+                            'message'           => $notification->message,
                             'notification_type' => $notification->type,
-                            'type_id' => $notification->type_id,
-                            'type_link' => $notification->type_link,
-                            'slug' => $slug,
-                            'image' => $notification->image,
-                            'icon' => $getNotificationIcon($notification->type),
-                            'date_sent' => $notification->date_sent,
+                            'type_id'           => $notification->type_id,
+                            'type_link'         => $notification->type_link,
+                            'slug'              => $slug,
+                            'image'             => $notification->image,
+                            'icon'              => $getNotificationIcon($notification->type),
+                            'icon_id'           => null,
+                            'icon_color'        => null,
+                            'date_sent'         => $notification->date_sent,
                             'date_sent_formatted' => $notification->date_sent->format('Y-m-d H:i:s'),
-                            'time_ago' => $notification->date_sent->diffForHumans(),
-                            'is_read' => $isRead,
-                            'read_at' => $readRecord ? $readRecord->read_at->format('Y-m-d H:i:s') : null,
+                            'time_ago'          => $notification->date_sent->diffForHumans(),
+                            'is_read'           => $isRead,
+                            'read_at'           => $readRecord ? $readRecord->read_at->format('Y-m-d H:i:s') : null,
                         ];
                     })
                     ->filter(static function ($notification) use ($status) {
@@ -1736,21 +1738,23 @@ class ApiController extends Controller
                         : null;
 
                     $response = [
-                        'id' => $notification->id,
-                        'type' => 'personal',
-                        'title' => $data['title'] ?? 'Notification',
-                        'message' => $data['message'] ?? $data['body'] ?? '',
+                        'id'                => $notification->id,
+                        'type'              => 'personal',
+                        'title'             => $data['title'] ?? 'Notification',
+                        'message'           => $data['message'] ?? $data['body'] ?? '',
                         'notification_type' => $notificationType,
-                        'type_id' => $typeId,
-                        'type_link' => $data['type_link'] ?? $data['link'] ?? null,
-                        'slug' => $slug,
-                        'image' => $data['image'] ?? null,
-                        'icon' => $getNotificationIcon($notificationType),
-                        'date_sent' => $createdAt,
+                        'type_id'           => $typeId,
+                        'type_link'         => $data['type_link'] ?? $data['link'] ?? null,
+                        'slug'              => $slug,
+                        'image'             => $data['image'] ?? null,
+                        'icon'              => $getNotificationIcon($notificationType),
+                        'icon_id'           => $data['icon'] ?? null,
+                        'icon_color'        => $data['icon_color'] ?? null,
+                        'date_sent'         => $createdAt,
                         'date_sent_formatted' => $createdAt->format('Y-m-d H:i:s'),
-                        'time_ago' => $createdAt->diffForHumans(),
-                        'is_read' => !is_null($readAt),
-                        'read_at' => $readAt ? $readAt->format('Y-m-d H:i:s') : null,
+                        'time_ago'          => $createdAt->diffForHumans(),
+                        'is_read'           => !is_null($readAt),
+                        'read_at'           => $readAt ? $readAt->format('Y-m-d H:i:s') : null,
                     ];
 
                     // Add instructor details and team members for team_invitation

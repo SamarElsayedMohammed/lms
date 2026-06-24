@@ -34,6 +34,8 @@ class NotificationAdminApiController extends Controller
             'title_ar'    => 'nullable|string|max:255',
             'message_ar'  => 'nullable|string',
             'action_url'  => 'nullable|string',
+            'icon'        => 'nullable|string|max:64',
+            'icon_color'  => 'nullable|string|max:16',
         ];
 
         if ($request->hasFile('image')) {
@@ -106,6 +108,8 @@ class NotificationAdminApiController extends Controller
             'plan_id'     => $request->target_type === 'by_plan' ? $request->plan_id : null,
             'sent_count'  => $count,
             'image'       => $imageUrl,
+            'icon'        => $request->input('icon'),
+            'icon_color'  => $request->input('icon_color'),
         ]);
 
         // Send notifications in chunks to avoid memory limits and speed up queue pushing
@@ -116,6 +120,8 @@ class NotificationAdminApiController extends Controller
             'message_ar' => $request->message_ar ?? $request->message,
             'action_url' => $request->action_url ?? '#',
             'image'      => $imageUrl,
+            'icon'       => $request->input('icon'),
+            'icon_color' => $request->input('icon_color'),
             'type'       => 'admin_manual'
         ];
 

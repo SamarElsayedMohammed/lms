@@ -41,6 +41,8 @@ class ManualCustomNotification extends Notification implements ShouldQueue
             'message_ar' => $this->data['message_ar'] ?? $this->data['message'],
             'action_url' => $this->data['action_url'] ?? '#',
             'image'      => $this->data['image'] ?? null,
+            'icon'       => $this->data['icon'] ?? null,
+            'icon_color' => $this->data['icon_color'] ?? null,
             'type'       => $this->data['type'] ?? 'admin_manual'
         ];
     }
@@ -55,11 +57,13 @@ class ManualCustomNotification extends Notification implements ShouldQueue
     {
         try {
             $fcmData = [
-                'title' => $this->data['title'],
-                'body'  => $this->data['message'],
-                'type'  => $this->data['type'] ?? 'admin_manual',
-                'link'  => $this->data['action_url'] ?? '#',
-                'image' => $this->data['image'] ?? null,
+                'title'      => $this->data['title'],
+                'body'       => $this->data['message'],
+                'type'       => $this->data['type'] ?? 'admin_manual',
+                'link'       => $this->data['action_url'] ?? '#',
+                'image'      => $this->data['image'] ?? null,
+                'icon'       => $this->data['icon'] ?? null,
+                'icon_color' => $this->data['icon_color'] ?? null,
             ];
 
             $tokens = UserFcmToken::where('user_id', $notifiable->id)
