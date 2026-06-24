@@ -60,7 +60,21 @@
             "@php artisan package:discover --ansi"
         ],
         "post-update-cmd": [
-            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+            "mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache || true",
+            "chmod -R 777 storage bootstrap/cache || true",
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force",
+            "@php artisan migrate --force",
+            "@php artisan storage:link",
+            "@php artisan optimize",
+            "chmod -R 777 storage bootstrap/cache || true"
+        ],
+        "post-install-cmd": [
+            "mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache || true",
+            "chmod -R 777 storage bootstrap/cache || true",
+            "@php artisan migrate --force",
+            "@php artisan storage:link",
+            "@php artisan optimize",
+            "chmod -R 777 storage bootstrap/cache || true"
         ],
         "post-root-package-install": [
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
