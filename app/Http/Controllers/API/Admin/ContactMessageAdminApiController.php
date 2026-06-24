@@ -132,7 +132,7 @@ class ContactMessageAdminApiController extends AdminCrudApiController
         $this->checkPermission('contact-messages-list');
 
         $validator = Validator::make($request->all(), [
-            'status' => 'required|in:new,read,replied,closed',
+            'status' => 'required|in:new,waiting_admin,replied,closed,completed,reopened',
         ]);
 
         if ($validator->fails()) {

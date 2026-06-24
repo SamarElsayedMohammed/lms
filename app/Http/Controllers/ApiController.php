@@ -2664,7 +2664,7 @@ class ApiController extends Controller
 
             // 🔔 Notify all admins (in-app + FCM push)
             try {
-                $admins = \App\Models\User::where('is_admin', 1)
+                $admins = \App\Models\User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN', 'Super Admin'))
                     ->where('is_active', 1)
                     ->get();
 
@@ -2683,7 +2683,10 @@ class ApiController extends Controller
 
             // Send email notification to admin
             try {
-                $adminEmail = \App\Services\HelperService::systemSettings('admin_email') ?? 'admin@example.com';
+                $adminEmail = \App\Services\HelperService::systemSettings('admin_email');
+                if (empty($adminEmail)) {
+                    $adminEmail = 'admin@example.com';
+                }
 
                 Mail::send(
                     'emails.contact-form',
