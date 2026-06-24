@@ -106,7 +106,7 @@ final class SubscriptionApiController extends Controller
                 ];
             });
 
-            return ApiResponseService::successResponse('Subscription plans retrieved successfully', [
+            $responseData = [
                 'plans' => $plans,
                 'detected_country' => $countryCode,
                 'pagination' => [
@@ -117,7 +117,16 @@ final class SubscriptionApiController extends Controller
                     'from' => $paginator->firstItem(),
                     'to' => $paginator->lastItem(),
                 ],
-            ])->header('Cache-Control', 'private, no-store');
+            ];
+
+            Log::info('Subscription Plans Payload Sent', [
+                'endpoint' => $request->path(),
+                'detected_country' => $countryCode,
+                'plans_count' => $plans->count(),
+                'response_data' => $responseData
+            ]);
+
+            return ApiResponseService::successResponse('Subscription plans retrieved successfully', $responseData)->header('Cache-Control', 'private, no-store');
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve subscription plans: ' . $e->getMessage());
         }
