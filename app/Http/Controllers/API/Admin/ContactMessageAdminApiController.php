@@ -57,6 +57,61 @@ class ContactMessageAdminApiController extends AdminCrudApiController
         return $this->jsonSuccess(__('Contact message retrieved'), $message);
     }
 
+    public function thread(int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('contact-messages-list');
+
+        $message = ContactMessage::find($id);
+        if (!$message) {
+            return $this->jsonError(__('Contact message not found'), 404);
+        }
+
+        // Get replies
+        $replies = \App\Models\ContactMessageReply::where('contact_message_id', $message->id)
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        $conversation = [];
+        
+        // Add the initial message as the first item in the conversation
+        $conversation[] = [
+            'id' => 0,
+            'sender' => 'user',
+            'message' => $message->message,
+            'created_at' => $message->created_at,
+        ];
+
+        // If there's a legacy reply_message on the parent, add it
+        if ($message->reply_message) {
+            $conversation[] = [
+                'id' => -1,
+                'sender' => 'admin',
+                'message' => $message->reply_message,
+                'created_at' => $message->updated_at,
+            ];
+        }
+
+        foreach ($replies as $reply) {
+            $conversation[] = [
+                'id' => $reply->id,
+                'sender' => $reply->sender_type,
+                'message' => $reply->message,
+                'created_at' => $reply->created_at,
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $message->id,
+                'subject' => \Illuminate\Support\Str::limit($message->message, 50),
+                'status' => $message->status,
+                'conversation' => $conversation,
+            ]
+        ]);
+    }
+
     public function markRead(int $id): JsonResponse
     {
         $this->ensureAdmin();
@@ -99,11 +154,24 @@ class ContactMessageAdminApiController extends AdminCrudApiController
         $this->checkPermission('contact-messages-edit');
 
         $validator = Validator::make($request->all(), [
-            'reply_message' => 'required|string|min:5',
+            'message' => 'required|string|min:2',
         ]);
 
         if ($validator->fails()) {
-            return $this->jsonError($validator->errors()->first(), 422);
+            // Check legacy reply_message as fallback for backward compatibility
+            if ($request->has('reply_message')) {
+                $validator = Validator::make($request->all(), [
+                    'reply_message' => 'required|string|min:2',
+                ]);
+                if ($validator->fails()) {
+                    return $this->jsonError($validator->errors()->first(), 422);
+                }
+                $replyMessage = $request->reply_message;
+            } else {
+                return $this->jsonError($validator->errors()->first(), 422);
+            }
+        } else {
+            $replyMessage = $request->message;
         }
 
         $message = ContactMessage::find($id);
@@ -113,9 +181,16 @@ class ContactMessageAdminApiController extends AdminCrudApiController
 
         try {
             $appName      = \App\Services\HelperService::systemSettings('app_name') ?? 'LMS';
-            $replyMessage = $request->reply_message;
 
-            // 1️⃣ Send email reply
+            // 1️⃣ Save the reply in contact_message_replies
+            \App\Models\ContactMessageReply::create([
+                'contact_message_id' => $message->id,
+                'admin_id' => auth()->id(),
+                'sender_type' => 'admin',
+                'message' => $replyMessage,
+            ]);
+
+            // 2️⃣ Send email reply
             Mail::send(
                 'emails.contact-reply',
                 [
@@ -129,8 +204,17 @@ class ContactMessageAdminApiController extends AdminCrudApiController
                 }
             );
 
-            // 2️⃣ Send in-app + FCM notification to the user (only if logged-in user sent the message)
+            // 3️⃣ Send in-app + FCM notification to the user (only if logged-in user sent the message)
             if ($message->user_id) {
+                // Create support_reply notification
+                \App\Models\UserNotification::create([
+                    'user_id' => $message->user_id,
+                    'type' => 'support_reply',
+                    'title' => 'تم الرد على رسالتك',
+                    'message' => 'قام فريق الدعم بالرد على استفسارك',
+                    'url' => '/contact-us?tab=conversations',
+                ]);
+
                 $user = \App\Models\User::find($message->user_id);
                 if ($user) {
                     try {
@@ -148,13 +232,13 @@ class ContactMessageAdminApiController extends AdminCrudApiController
                 }
             }
 
-            // 3️⃣ Update status to replied and save the reply message
+            // 4️⃣ Update status to replied
             $message->update([
                 'status' => 'replied',
-                'reply_message' => $replyMessage
+                // We don't overwrite the old reply_message field as we now use the replies table
             ]);
 
-            return $this->jsonSuccess(__('Reply sent successfully'), $message->fresh());
+            return response()->json(['success' => true]);
         } catch (\Exception $e) {
             return $this->jsonError(__('Failed to send reply: ') . $e->getMessage(), 500);
         }

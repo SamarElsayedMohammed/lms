@@ -87,6 +87,7 @@ final class StoreSubscriptionPlanPanelRequest extends FormRequest
             'duration' => 'required|numeric|min:1',
             'duration_days' => 'nullable|integer|min:1',
             'price' => 'required|numeric|min:0',
+            'usd_price' => 'nullable|numeric|min:0',
             'old_price' => 'nullable|numeric|min:0',
             'status' => 'nullable|boolean',
             'is_active' => 'nullable|boolean',

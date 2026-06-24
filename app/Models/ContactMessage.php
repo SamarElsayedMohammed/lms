@@ -76,9 +76,11 @@ class ContactMessage extends Model
     {
         return [
             'new' => 'New',
-            'read' => 'Read',
+            'waiting_admin' => 'Waiting Admin',
             'replied' => 'Replied',
             'closed' => 'Closed',
+            'completed' => 'Completed',
+            'reopened' => 'Reopened',
         ];
     }
 
@@ -145,5 +147,13 @@ class ContactMessage extends Model
     public function markAsClosed()
     {
         $this->update(['status' => 'closed']);
+    }
+
+    /**
+     * Get the replies for the message.
+     */
+    public function replies()
+    {
+        return $this->hasMany(ContactMessageReply::class);
     }
 }

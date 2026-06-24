@@ -27,6 +27,7 @@ final class SubscriptionPlanAdminResource extends JsonResource
             'duration_days' => $this->duration_days,
             'duration' => (string) ($this->duration_days ?? $this->getDurationDays() ?? ''),
             'price' => (float) $this->price,
+            'usd_price' => $this->usd_price !== null ? (float) $this->usd_price : null,
             'commission_type' => $this->commission_type ?? 'percentage',
             'commission_rate' => (float) $this->commission_rate,
             'features' => $this->features,
