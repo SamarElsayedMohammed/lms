@@ -773,34 +773,71 @@ class CourseChapterApiController extends Controller
             // Get all chapters for the course
             $chapters = CourseChapter::where('course_id', $courseId)
                 ->where('is_active', true)
-                ->with(['lectures', 'quizzes', 'assignments', 'resources'])
+                ->with([
+                    'lectures' => static function ($q) { $q->where('is_active', 1); },
+                    'quizzes' => static function ($q) { $q->where('is_active', 1); },
+                    'assignments' => static function ($q) { $q->where('is_active', 1); },
+                    'resources' => static function ($q) { $q->where('is_active', 1); }
+                ])
                 ->orderBy('chapter_order')
                 ->get();
 
-            // Get user's tracking data
-            $userTracking = UserCourseChapterTrack::where('user_id', $userId)
+            // Get user's chapter tracking data
+            $userChapterTracking = UserCourseChapterTrack::where('user_id', $userId)
                 ->whereIn('course_chapter_id', $chapters->pluck('id'))
                 ->get()
                 ->keyBy('course_chapter_id');
 
+            // Get user's curriculum tracking data
+            $userCurriculumTracking = UserCurriculumTracking::where('user_id', $userId)
+                ->whereIn('course_chapter_id', $chapters->pluck('id'))
+                ->where('status', 'completed')
+                ->get()
+                ->groupBy('course_chapter_id');
+
             $progressData = [];
             $totalChapters = $chapters->count();
             $completedChapters = 0;
+            $totalCourseContent = 0;
+            $totalCompletedContent = 0;
 
             foreach ($chapters as $chapter) {
-                $tracking = $userTracking->get($chapter->id);
-                $isCompleted = $tracking && $tracking->status === 'completed';
-
-                if ($isCompleted) {
-                    $completedChapters++;
-                }
-
                 // Calculate content progress within chapter
                 $totalContent =
                     $chapter->lectures->count()
                     + $chapter->quizzes->count()
                     + $chapter->assignments->count()
                     + $chapter->resources->count();
+
+                $totalCourseContent += $totalContent;
+
+                // Completed content for this chapter
+                $chapterCompletedItems = 0;
+                if ($userCurriculumTracking->has($chapter->id)) {
+                     $chapterCompletedItems = $userCurriculumTracking->get($chapter->id)->count();
+                }
+
+                $totalCompletedContent += $chapterCompletedItems;
+
+                $tracking = $userChapterTracking->get($chapter->id);
+                $isCompleted = false;
+
+                if ($totalContent > 0 && $chapterCompletedItems >= $totalContent) {
+                    $isCompleted = true;
+                    // Automatically update chapter tracking to completed if fully done
+                    if (!$tracking || $tracking->status !== 'completed') {
+                        $tracking = UserCourseChapterTrack::updateOrCreate(
+                            ['course_chapter_id' => $chapter->id, 'user_id' => $userId],
+                            ['status' => 'completed', 'completed_at' => now()]
+                        );
+                    }
+                } else if ($tracking && $tracking->status === 'completed') {
+                    $isCompleted = true;
+                }
+
+                if ($isCompleted) {
+                    $completedChapters++;
+                }
 
                 $progressData[] = [
                     'chapter_id' => $chapter->id,
@@ -810,6 +847,7 @@ class CourseChapterApiController extends Controller
                     'is_completed' => $isCompleted,
                     'completed_at' => $tracking ? $tracking->completed_at : null,
                     'total_content' => $totalContent,
+                    'completed_content' => $chapterCompletedItems,
                     'lectures_count' => $chapter->lectures->count(),
                     'quizzes_count' => $chapter->quizzes->count(),
                     'assignments_count' => $chapter->assignments->count(),
@@ -817,11 +855,19 @@ class CourseChapterApiController extends Controller
                 ];
             }
 
-            $overallProgress = $totalChapters > 0 ? round(($completedChapters / $totalChapters) * 100, 2) : 0;
+            // Overall progress based on content items rather than just chapters
+            $overallProgress = $totalCourseContent > 0 ? round(($totalCompletedContent / $totalCourseContent) * 100, 2) : 0;
+            
+            // Fallback for courses with no content but chapters
+            if ($totalCourseContent == 0 && $totalChapters > 0) {
+                 $overallProgress = round(($completedChapters / $totalChapters) * 100, 2);
+            }
 
             $response = [
                 'course_id' => $courseId,
                 'overall_progress' => $overallProgress,
+                'total_content' => $totalCourseContent,
+                'completed_content' => $totalCompletedContent,
                 'total_chapters' => $totalChapters,
                 'completed_chapters' => $completedChapters,
                 'remaining_chapters' => $totalChapters - $completedChapters,
@@ -2054,13 +2100,44 @@ class CourseChapterApiController extends Controller
                 return ApiResponseService::errorResponse('Course not found.');
             }
 
-            // Check if user is enrolled (through orders -> order_courses)
-            $isEnrolled = \App\Models\Order::where('user_id', $userId)
-                ->whereHas('orderCourses', static function ($query) use ($courseId): void {
-                    $query->where('course_id', $courseId);
-                })
-                ->where('status', 'completed')
-                ->exists();
+            // Check if user has access to the course
+            $isEnrolled = false;
+            
+            // 1. Is course free or user is instructor?
+            if ($course->course_type === 'free' || $course->user_id === $userId) {
+                $isEnrolled = true;
+            }
+            
+            // 2. Has active subscription?
+            if (!$isEnrolled && Auth::user()?->activeSubscription()->exists()) {
+                $isEnrolled = true;
+            }
+            
+            // 3. Has UserCourseTrack (manual enrollment, etc.)
+            if (!$isEnrolled && \App\Models\Course\UserCourseTrack::where('user_id', $userId)->where('course_id', $courseId)->exists()) {
+                $isEnrolled = true;
+            }
+            
+            // 4. Has completed order (not refunded)
+            if (!$isEnrolled) {
+                $hasCompletedOrder = \App\Models\Order::where('user_id', $userId)
+                    ->whereHas('orderCourses', static function ($query) use ($courseId): void {
+                        $query->where('course_id', $courseId);
+                    })
+                    ->where('status', 'completed')
+                    ->exists();
+                
+                if ($hasCompletedOrder) {
+                    $isRefunded = \App\Models\RefundRequest::where('user_id', $userId)
+                        ->where('course_id', $courseId)
+                        ->where('status', 'approved')
+                        ->exists();
+                    
+                    if (!$isRefunded) {
+                        $isEnrolled = true;
+                    }
+                }
+            }
 
             if (!$isEnrolled) {
                 return ApiResponseService::errorResponse('You are not enrolled in this course.');
