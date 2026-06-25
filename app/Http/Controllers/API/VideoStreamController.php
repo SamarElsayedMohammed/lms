@@ -33,63 +33,27 @@ final class VideoStreamController extends Controller
     ) {}
 
     /**
-     * Generate UUID token for HLS streaming
+     * Resolve playable video for an authenticated user (HLS, direct file, or YouTube).
      */
     public function stream(int|string $lectureId): JsonResponse
     {
-        $courseChapterLecture = CourseChapterLecture::findOrFail($lectureId);
+        $courseChapterLecture = CourseChapterLecture::query()
+            ->with('chapter.course')
+            ->findOrFail($lectureId);
 
         try {
-            // 1. Check if user is authenticated
             $user = Auth::user();
             if ($user === null) {
                 return $this->unauthorized();
             }
 
-            // 2. Check if lecture has HLS version
-            if (!$courseChapterLecture->hasHls()) {
-                $message = match ($courseChapterLecture->hls_status) {
-                    'pending' => 'Video is queued for processing',
-                    'processing' => 'Video is currently being processed',
-                    'failed' => 'Video encoding failed: '
-                        . ($courseChapterLecture->hls_error_message ?? 'Unknown error'),
-                    default => 'HLS video not available',
-                };
-
-                $responseData = [
-                    'hls_status' => $courseChapterLecture->hls_status,
-                    'has_hls' => false,
-                ];
-
-                // If HLS failed due to missing requirements (FFmpeg/proc_open), provide the original file URL
-                // so the client can fall back to direct video streaming
-                $errorMessage = $courseChapterLecture->hls_error_message ?? '';
-                $isHlsUnavailable =
-                    $courseChapterLecture->hls_status === 'failed'
-                    && (
-                        str_contains($errorMessage, 'HLS encoding unavailable')
-                        || str_contains($errorMessage, 'FFmpeg not installed')
-                        || str_contains($errorMessage, 'proc_open')
-                    );
-
-                if ($isHlsUnavailable && $courseChapterLecture->type === 'file') {
-                    $responseData['use_direct_video'] = true;
-                    $responseData['message'] = 'Please use the direct video URL from the lecture data';
-                }
-
-                return $this->unprocessableEntity($message, $responseData);
-            }
-
-            // 3. Check if it's a free preview
             $isFreePreview = (bool) $courseChapterLecture->free_preview;
 
-            // 4. Verify content access (free lecture/course OR subscription; skip if free preview)
             if (!$isFreePreview) {
                 if (!$this->contentAccessService->canAccessLecture($user, $courseChapterLecture)) {
                     return $this->forbidden('Subscription required');
                 }
 
-                // 4b. Sequential unlock: require 85% of previous lesson when feature enabled
                 if ($this->featureFlagService->isEnabled('video_progress_enforcement', true)) {
                     if (!$this->videoProgressService->canAccessNextLesson($user, $courseChapterLecture)) {
                         return $this->forbidden('Complete the previous lesson first (85% required)');
@@ -97,37 +61,144 @@ final class VideoStreamController extends Controller
                 }
             }
 
-            // 5. Generate UUID token
-            $uuid = Str::uuid()->toString();
+            if ($courseChapterLecture->hasHls()) {
+                return $this->grantHlsStream($courseChapterLecture, $user, $isFreePreview);
+            }
 
-            // 6. Store token in cache with metadata
-            Cache::put(
-                "hls_token:{$uuid}",
-                json_encode([
-                    'lecture_id' => $courseChapterLecture->id,
-                    'user_id' => $user->id,
-                    'is_free_preview' => $isFreePreview,
-                    'created_at' => now()->timestamp,
-                ]),
-                self::TOKEN_EXPIRY_SECONDS,
-            );
+            if ($courseChapterLecture->type === 'youtube_url') {
+                return $this->grantExternalVideoStream(
+                    $courseChapterLecture,
+                    'yt',
+                    $courseChapterLecture->youtube_url,
+                    $isFreePreview,
+                );
+            }
 
-            // 7. Return UUID-based manifest URL
-            return $this->ok(
-                data: [
-                    'manifest_url' => url("/api/hls/{$uuid}"),
-                    'type' => 'hls',
-                    'lecture_id' => $courseChapterLecture->id,
-                    'lecture_title' => $courseChapterLecture->title,
-                    'duration' => $courseChapterLecture->duration,
-                    'expires_in_seconds' => self::TOKEN_EXPIRY_SECONDS,
-                    'is_free_preview' => $isFreePreview,
-                ],
-                message: 'Video access granted',
-            );
+            if ($this->isDirectVideoFile($courseChapterLecture)) {
+                return $this->grantExternalVideoStream(
+                    $courseChapterLecture,
+                    'video',
+                    $courseChapterLecture->file,
+                    $isFreePreview,
+                );
+            }
+
+            return $this->buildUnavailableStreamResponse($courseChapterLecture);
         } catch (\Throwable $e) {
             return $this->serverError('Failed to access video stream', exception: $e);
         }
+    }
+
+    private function grantHlsStream(
+        CourseChapterLecture $lecture,
+        \App\Models\User $user,
+        bool $isFreePreview,
+    ): JsonResponse {
+        $uuid = Str::uuid()->toString();
+
+        Cache::put(
+            "hls_token:{$uuid}",
+            json_encode([
+                'lecture_id' => $lecture->id,
+                'user_id' => $user->id,
+                'is_free_preview' => $isFreePreview,
+                'created_at' => now()->timestamp,
+            ]),
+            self::TOKEN_EXPIRY_SECONDS,
+        );
+
+        return $this->ok(
+            data: [
+                'manifest_url' => url("/api/hls/{$uuid}"),
+                'type' => 'hls',
+                'file_type' => 'hls',
+                'lecture_id' => $lecture->id,
+                'lecture_title' => $lecture->title,
+                'duration' => $lecture->duration,
+                'expires_in_seconds' => self::TOKEN_EXPIRY_SECONDS,
+                'is_free_preview' => $isFreePreview,
+                'has_hls' => true,
+            ],
+            message: 'Video access granted',
+        );
+    }
+
+    private function grantExternalVideoStream(
+        CourseChapterLecture $lecture,
+        string $type,
+        null|string $videoUrl,
+        bool $isFreePreview,
+    ): JsonResponse {
+        if ($videoUrl === null || $videoUrl === '') {
+            return $this->unprocessableEntity('Video URL not available', [
+                'type' => $type,
+                'file_type' => $type,
+                'has_hls' => false,
+                'lecture_id' => $lecture->id,
+            ]);
+        }
+
+        return $this->ok(
+            data: [
+                'type' => $type,
+                'file_type' => $type,
+                'video_url' => $videoUrl,
+                'file_url' => $videoUrl,
+                'lecture_id' => $lecture->id,
+                'lecture_title' => $lecture->title,
+                'duration' => $lecture->duration,
+                'is_free_preview' => $isFreePreview,
+                'has_hls' => false,
+            ],
+            message: 'Video access granted',
+        );
+    }
+
+    private function buildUnavailableStreamResponse(CourseChapterLecture $lecture): JsonResponse
+    {
+        $message = match ($lecture->hls_status) {
+            'pending' => 'Video is queued for processing',
+            'processing' => 'Video is currently being processed',
+            'failed' => 'Video encoding failed: ' . ($lecture->hls_error_message ?? 'Unknown error'),
+            default => 'HLS video not available',
+        };
+
+        $responseData = [
+            'hls_status' => $lecture->hls_status,
+            'has_hls' => false,
+            'file_type' => $lecture->file_type,
+            'lecture_id' => $lecture->id,
+        ];
+
+        $errorMessage = $lecture->hls_error_message ?? '';
+        $isHlsUnavailable =
+            $lecture->hls_status === 'failed'
+            && (
+                str_contains($errorMessage, 'HLS encoding unavailable')
+                || str_contains($errorMessage, 'FFmpeg not installed')
+                || str_contains($errorMessage, 'proc_open')
+            );
+
+        if ($isHlsUnavailable && $this->isDirectVideoFile($lecture)) {
+            $responseData['use_direct_video'] = true;
+            $responseData['video_url'] = $lecture->file;
+            $responseData['file_url'] = $lecture->file;
+            $responseData['type'] = 'video';
+            $message = 'Please use the direct video URL from the lecture data';
+        }
+
+        return $this->unprocessableEntity($message, $responseData);
+    }
+
+    private function isDirectVideoFile(CourseChapterLecture $lecture): bool
+    {
+        if ($lecture->type !== 'file') {
+            return false;
+        }
+
+        $videoExtensions = ['mp4', 'avi', 'mov', 'webm', 'mkv', 'flv', 'wmv', 'm4v', '3gp', '3g2'];
+
+        return in_array(strtolower($lecture->file_extension ?? ''), $videoExtensions, true);
     }
 
     /**
