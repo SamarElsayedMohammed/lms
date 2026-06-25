@@ -66,10 +66,12 @@ final class VideoStreamController extends Controller
             }
 
             if ($courseChapterLecture->type === 'youtube_url') {
+                $videoUrl = $courseChapterLecture->youtube_url;
+                $videoType = $this->detectExternalVideoType($videoUrl);
                 return $this->grantExternalVideoStream(
                     $courseChapterLecture,
-                    'yt',
-                    $courseChapterLecture->youtube_url,
+                    $videoType,
+                    $videoUrl,
                     $isFreePreview,
                 );
             }
@@ -131,27 +133,33 @@ final class VideoStreamController extends Controller
     ): JsonResponse {
         if ($videoUrl === null || $videoUrl === '') {
             return $this->unprocessableEntity('Video URL not available', [
-                'type' => $type,
-                'file_type' => $type,
-                'has_hls' => false,
+                'type'       => $type,
+                'file_type'  => $type,
+                'has_hls'    => false,
                 'lecture_id' => $lecture->id,
             ]);
         }
 
-        return $this->ok(
-            data: [
-                'type' => $type,
-                'file_type' => $type,
-                'video_url' => $videoUrl,
-                'file_url' => $videoUrl,
-                'lecture_id' => $lecture->id,
-                'lecture_title' => $lecture->title,
-                'duration' => $lecture->duration,
-                'is_free_preview' => $isFreePreview,
-                'has_hls' => false,
-            ],
-            message: 'Video access granted',
-        );
+        $data = [
+            'type'         => $type,
+            'file_type'    => $type,
+            'video_url'    => $videoUrl,
+            'file_url'     => $videoUrl,
+            'lecture_id'   => $lecture->id,
+            'lecture_title'=> $lecture->title,
+            'duration'     => $lecture->duration,
+            'is_free_preview' => $isFreePreview,
+            'has_hls'      => false,
+        ];
+
+        // For Bunny.net videos, extract video ID for frontend progress tracking
+        if ($type === 'bunny') {
+            $bunnyVideoId = $this->extractBunnyVideoId($videoUrl);
+            $data['bunny_video_id'] = $bunnyVideoId;
+            $data['progress_tracking'] = 'bunny_webhook'; // frontend hint
+        }
+
+        return $this->ok(data: $data, message: 'Video access granted');
     }
 
     private function buildUnavailableStreamResponse(CourseChapterLecture $lecture): JsonResponse
@@ -200,6 +208,54 @@ final class VideoStreamController extends Controller
 
         return in_array(strtolower($lecture->file_extension ?? ''), $videoExtensions, true);
     }
+
+    /**
+     * Detect the type of external video from its URL.
+     * Returns: 'bunny' | 'yt'
+     */
+    private function detectExternalVideoType(?string $url): string
+    {
+        if ($url === null || $url === '') {
+            return 'yt';
+        }
+
+        // Bunny.net domains
+        $bunnyDomains = [
+            'mediadelivery.net',
+            'iframe.mediadelivery.net',
+            'b-cdn.net',
+            'bunnycdn.com',
+        ];
+
+        $parsedHost = parse_url($url, PHP_URL_HOST) ?? '';
+        foreach ($bunnyDomains as $domain) {
+            if (str_contains($parsedHost, $domain)) {
+                return 'bunny';
+            }
+        }
+
+        return 'yt';
+    }
+
+    /**
+     * Extract Bunny.net video ID from embed URL.
+     * e.g. https://iframe.mediadelivery.net/embed/423625/ed69b38c-94b7-4195-970b-6ded05193a44
+     *      → 'ed69b38c-94b7-4195-970b-6ded05193a44'
+     */
+    private function extractBunnyVideoId(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+
+        // Match UUID pattern at end of path
+        if (preg_match('/\/embed\/\d+\/([a-f0-9\-]{36})/i', $url, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
+    }
+
 
     /**
      * Serve HLS files (manifest, playlists, segments) with UUID validation
