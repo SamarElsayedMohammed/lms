@@ -6,13 +6,19 @@ namespace App\Services;
 
 use App\Models\SocialLogin;
 use App\Models\User;
+use App\Services\Mail\BrevoTransactionalMailService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\View;
 
 final class EmailPasswordResetService
 {
+    public function __construct(
+        private readonly BrevoTransactionalMailService $brevoMailService,
+    ) {}
+
     public const OTP_LENGTH = 6;
 
     public const OTP_EXPIRY_MINUTES = 15;
@@ -60,37 +66,93 @@ final class EmailPasswordResetService
         }
 
         $appName = HelperService::systemSettings('app_name') ?? config('app.name');
+        $subject = __('Password reset code') . ' - ' . $appName;
+        $html = View::make('emails.password-reset-otp', [
+            'user' => $user,
+            'otp' => $otp,
+            'appName' => $appName,
+            'expiryMinutes' => self::OTP_EXPIRY_MINUTES,
+        ])->render();
 
         try {
-            Mail::send(
-                'emails.password-reset-otp',
-                [
-                    'user' => $user,
-                    'otp' => $otp,
-                    'appName' => $appName,
-                    'expiryMinutes' => self::OTP_EXPIRY_MINUTES,
-                ],
-                static function ($mail) use ($user, $appName): void {
-                    $mail->to($user->email)
-                        ->subject(__('Password reset code') . ' - ' . $appName);
-                },
-            );
+            if ($this->brevoMailService->isConfigured()) {
+                $result = $this->brevoMailService->sendHtml(
+                    (string) $user->email,
+                    (string) ($user->name ?? ''),
+                    $subject,
+                    $html,
+                );
+
+                Log::info('Password reset OTP email sent via Brevo API', [
+                    'user_id' => $user->id,
+                    'to' => $this->maskEmail((string) $user->email),
+                    'from' => config('mail.from.address'),
+                    'message_id' => $result['message_id'],
+                ]);
+            } else {
+                $this->sendViaSmtp($user, $otp, $appName, $subject, $mailDriver);
+            }
         } catch (\Throwable $e) {
             Log::error('Password reset OTP email failed to send', [
                 'user_id' => $user->id,
+                'to' => $this->maskEmail((string) $user->email),
+                'from' => config('mail.from.address'),
                 'mail_driver' => $mailDriver,
+                'brevo_api' => $this->brevoMailService->isConfigured(),
                 'error' => $e->getMessage(),
             ]);
 
             throw $e;
         }
 
-        Log::info('Password reset OTP email sent', [
+        return $otp;
+    }
+
+    private function sendViaSmtp(User $user, string $otp, string $appName, string $subject, string $mailDriver): void
+    {
+        $fromAddress = (string) config('mail.from.address', '');
+
+        if ($fromAddress === '' || $fromAddress === 'hello@example.com') {
+            Log::warning('MAIL_FROM_ADDRESS is not configured for production email delivery', [
+                'user_id' => $user->id,
+            ]);
+        }
+
+        Mail::send(
+            'emails.password-reset-otp',
+            [
+                'user' => $user,
+                'otp' => $otp,
+                'appName' => $appName,
+                'expiryMinutes' => self::OTP_EXPIRY_MINUTES,
+            ],
+            static function ($mail) use ($user, $subject, $fromAddress, $appName): void {
+                if ($fromAddress !== '' && $fromAddress !== 'hello@example.com') {
+                    $mail->from($fromAddress, (string) config('mail.from.name', $appName));
+                }
+
+                $mail->to($user->email)->subject($subject);
+            },
+        );
+
+        Log::info('Password reset OTP email sent via SMTP', [
             'user_id' => $user->id,
+            'to' => $this->maskEmail((string) $user->email),
+            'from' => $fromAddress,
             'mail_driver' => $mailDriver,
         ]);
+    }
 
-        return $otp;
+    private function maskEmail(string $email): string
+    {
+        if (!str_contains($email, '@')) {
+            return '***';
+        }
+
+        [$local, $domain] = explode('@', $email, 2);
+        $visible = substr($local, 0, min(2, strlen($local)));
+
+        return $visible . '***@' . $domain;
     }
 
     public function verifyOtp(string $email, string $code): bool
