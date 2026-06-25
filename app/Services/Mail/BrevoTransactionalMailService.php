@@ -9,13 +9,17 @@ use RuntimeException;
 
 final class BrevoTransactionalMailService
 {
+    public function __construct(
+        private readonly MailFromResolver $mailFromResolver,
+    ) {}
+
     public function isConfigured(): bool
     {
         return trim((string) config('services.brevo.api_key', '')) !== '';
     }
 
     /**
-     * @return array{message_id: string|null}
+     * @return array{message_id: string|null, from: string}
      */
     public function sendHtml(string $toEmail, string $toName, string $subject, string $html): array
     {
@@ -25,14 +29,7 @@ final class BrevoTransactionalMailService
             throw new RuntimeException('Brevo API key is not configured (BREVO_API_KEY).');
         }
 
-        $fromAddress = trim((string) config('mail.from.address', ''));
-        $fromName = trim((string) config('mail.from.name', ''));
-
-        if ($fromAddress === '' || $fromAddress === 'hello@example.com') {
-            throw new RuntimeException(
-                'MAIL_FROM_ADDRESS must be a verified sender in Brevo (not hello@example.com).',
-            );
-        }
+        $from = $this->mailFromResolver->resolve();
 
         $response = Http::timeout(20)
             ->withHeaders([
@@ -42,8 +39,8 @@ final class BrevoTransactionalMailService
             ])
             ->post('https://api.brevo.com/v3/smtp/email', [
                 'sender' => [
-                    'name' => $fromName !== '' ? $fromName : $fromAddress,
-                    'email' => $fromAddress,
+                    'name' => $from['name'],
+                    'email' => $from['address'],
                 ],
                 'to' => [
                     [
@@ -66,6 +63,7 @@ final class BrevoTransactionalMailService
 
         return [
             'message_id' => isset($payload['messageId']) ? (string) $payload['messageId'] : null,
+            'from' => $from['address'],
         ];
     }
 }
