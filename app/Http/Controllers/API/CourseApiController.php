@@ -40,6 +40,7 @@ use App\Services\EarningsService;
 use App\Services\FileService;
 use App\Services\HelperService;
 use App\Services\PricingCalculationService;
+use App\Services\UserEnrollmentService;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Encryption\Encrypter;
@@ -5156,40 +5157,43 @@ class CourseApiController extends Controller
     public function getUserEnrolledCourses(Request $request)
     {
         try {
-            $courses = UserCourseTrack::where('user_id', Auth::user()?->id)->with(['course' =>
-                static function ($query): void {
-                    $query
-                        ->with([
-                            'chapters' => static function ($chapterQuery): void {
-                                $chapterQuery
-                                    ->where('is_active', true)
-                                    ->with(['lectures', 'quizzes', 'assignments', 'resources']);
-                            },
-                        ])
-                        ->where('is_active', true) // Only active courses
-                        ->where('status', 'publish') // Only published courses
-                        ->where('approval_status', 'approved') // Only approved courses
-                        ->whereHas('chapters', static function ($chapterQuery): void {
-                            $chapterQuery
-                                ->where('is_active', true)
-                                ->where(static function ($curriculumQuery): void {
-                                    $curriculumQuery
-                                        ->whereHas('lectures', static function ($lectureQuery): void {
-                                            $lectureQuery->where('is_active', true);
-                                        })
-                                        ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                            $quizQuery->where('is_active', true);
-                                        })
-                                        ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                            $assignmentQuery->where('is_active', true);
-                                        })
-                                        ->orWhereHas('resources', static function ($resourceQuery): void {
-                                            $resourceQuery->where('is_active', true);
-                                        });
-                                });
-                        });
-                }])->get();
-            ApiResponseService::successResponse('User Courses retrieved successfully', $courses);
+            $userId = (int) Auth::id();
+            $enrollmentService = app(UserEnrollmentService::class);
+
+            $enrolled = $enrollmentService->resolveEnrolledCourses(
+                $userId,
+                static fn ($query) => $enrollmentService->applyUserEnrolledCoursesEagerLoad($query),
+            );
+
+            $tracks = UserCourseTrack::query()
+                ->where('user_id', $userId)
+                ->whereIn('course_id', $enrolled->pluck('course_id'))
+                ->get()
+                ->keyBy('course_id');
+
+            $payload = $enrolled->map(static function (array $item) use ($tracks, $userId) {
+                $track = $tracks->get($item['course_id']);
+
+                if ($track !== null) {
+                    $track->setRelation('course', $item['course']);
+
+                    return $track;
+                }
+
+                return [
+                    'id' => null,
+                    'user_id' => $userId,
+                    'course_id' => $item['course_id'],
+                    'status' => 'in_progress',
+                    'completed_at' => null,
+                    'created_at' => $item['purchase_date'],
+                    'updated_at' => $item['purchase_date'],
+                    'course' => $item['course'],
+                    'enrollment_source' => $item['source'],
+                ];
+            })->values();
+
+            ApiResponseService::successResponse('User Courses retrieved successfully', $payload);
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getUserCourses Method');
             ApiResponseService::errorResponse();
@@ -5224,256 +5228,19 @@ class CourseApiController extends Controller
             $refundEnabled = HelperService::systemSettings('refund_enabled') == 1;
             $refundPeriodDays = (int) HelperService::systemSettings('refund_period_days') ?? 7;
 
-            // Get enrolled courses through orders
-            // Load all order courses first, then filter in application logic
-            $enrolledCoursesQuery = Order::where('user_id', $userId)
-                ->where('status', 'completed')
-                ->with([
-                    'orderCourses.course' => static function ($query): void {
-                        $query
-                            ->with([
-                                'category',
-                                'user',
-                                'taxes',
-                                'ratings.user',
-                                'chapters' => static function ($chapterQuery): void {
-                                    $chapterQuery
-                                        ->where('is_active', true)
-                                        ->with([
-                                            'lectures' => static function ($lectureQuery): void {
-                                                $lectureQuery->where('is_active', true);
-                                            },
-                                            'quizzes' => static function ($quizQuery): void {
-                                                $quizQuery->where('is_active', true);
-                                            },
-                                            'assignments' => static function ($assignmentQuery): void {
-                                                $assignmentQuery->where('is_active', true);
-                                            },
-                                            'resources' => static function ($resourceQuery): void {
-                                                $resourceQuery->where('is_active', true);
-                                            },
-                                        ]);
-                                },
-                            ])
-                            ->withAvg('ratings', 'rating')
-                            ->withCount('ratings')
-                            ->where('status', 'publish') // Only published courses
-                            ->where('approval_status', 'approved') // Only approved by admin
-                            ->where('is_active', true); // Only active courses
-                    },
-                ]);
-
-            // Get all enrolled courses with their purchase dates
-            $orders = $enrolledCoursesQuery->get();
-
-            // Also get tracked courses for subscribers
-            $hasActiveSubscription = false;
-            $user = \App\Models\User::find($userId);
-            if ($user && $user->activeSubscription()->exists()) {
-                $hasActiveSubscription = true;
-            }
-
-            $trackedCourses = \App\Models\Course\UserCourseTrack::where('user_id', $userId)
-                ->with(['course' => static function ($query): void {
-                        $query
-                            ->with([
-                                'category',
-                                'user',
-                                'taxes',
-                                'ratings.user',
-                                'chapters' => static function ($chapterQuery): void {
-                                    $chapterQuery
-                                        ->where('is_active', true)
-                                        ->with([
-                                            'lectures' => static function ($lectureQuery): void {
-                                                $lectureQuery->where('is_active', true);
-                                            },
-                                            'quizzes' => static function ($quizQuery): void {
-                                                $quizQuery->where('is_active', true);
-                                            },
-                                            'assignments' => static function ($assignmentQuery): void {
-                                                $assignmentQuery->where('is_active', true);
-                                            },
-                                            'resources' => static function ($resourceQuery): void {
-                                                $resourceQuery->where('is_active', true);
-                                            },
-                                        ]);
-                                },
-                            ])
-                            ->withAvg('ratings', 'rating')
-                            ->withCount('ratings')
-                            ->where('status', 'publish') // Only published courses
-                            ->where('approval_status', 'approved') // Only approved by admin
-                            ->where('is_active', true); // Only active courses
-                    }])
-                    ->get();
-
-            // Build a collection with course and its last purchase date
-            $enrolledCoursesWithPurchaseDate = collect();
-
-            // Get refunded courses with their order IDs and refund approval dates
-            // RefundRequest -> transaction_id -> Transaction -> order_id
-            // Map: course_id => [order_id => refund_approval_date]
-            $refundedCoursesByOrder = DB::table('refund_requests')
-                ->join('transactions', 'refund_requests.transaction_id', '=', 'transactions.id')
-                ->where('refund_requests.user_id', $userId)
-                ->where('refund_requests.status', 'approved')
-                ->whereNotNull('refund_requests.transaction_id')
-                ->whereNotNull('transactions.order_id')
-                ->select(
-                    'refund_requests.course_id',
-                    'transactions.order_id',
-                    'refund_requests.processed_at',
-                    'refund_requests.created_at',
+            $enrollmentService = app(UserEnrollmentService::class);
+            $enrolledCoursesWithPurchaseDate = $enrollmentService
+                ->resolveEnrolledCourses(
+                    (int) $userId,
+                    static fn ($query) => $enrollmentService->applyMyLearningCourseEagerLoad($query),
                 )
-                ->get()
-                ->groupBy('course_id')
-                ->map(static fn($refunds) => $refunds->mapWithKeys(static function ($refund) {
-                    $orderId = (int) $refund->order_id;
-                    $refundDate = $refund->processed_at ?? $refund->created_at;
-
-                    return [$orderId => Carbon::parse($refundDate)];
-                }));
-
-            foreach ($orders as $order) {
-                $orderId = (int) $order->id;
-                $orderDate = Carbon::parse($order->created_at);
-
-                foreach ($order->orderCourses as $orderCourse) {
-                    // Check if course exists and is valid (published, approved, active, with content)
-                    if (
-                        !(
-                            $orderCourse->course
-                            && $orderCourse->course->status == 'publish'
-                            && $orderCourse->course->approval_status == 'approved'
-                            && $orderCourse->course->is_active
-                            && $orderCourse->course->hasContent()
-                        )
-                    ) {
-                        continue;
-                    }
-
-                    $courseId = $orderCourse->course->id;
-
-                    // Check if this specific course in this order has been refunded
-                    $courseRefunds = $refundedCoursesByOrder->get($courseId);
-                    if ($courseRefunds) {
-                        $refundDate = $courseRefunds->get($orderId);
-                        if ($refundDate) {
-                            // This course in this order has been refunded
-                            // Only exclude if order date is before or equal to refund date
-                            // If order date is after refund date, it means user repurchased
-                            if ($orderDate->lte($refundDate)) {
-                                continue; // Skip this course as it was refunded in this order
-                            }
-                        }
-                    }
-
-                    $purchaseDate = $orderDate;
-
-                    // Find existing entry index
-                    $existingIndex = $enrolledCoursesWithPurchaseDate->search(
-                        static fn($item) => $item['course_id'] == $courseId,
-                    );
-
-                    if ($existingIndex !== false) {
-                        // Update if this purchase is more recent
-                        $existing = $enrolledCoursesWithPurchaseDate[$existingIndex];
-                        if ($purchaseDate->gt($existing['purchase_date'])) {
-                            $enrolledCoursesWithPurchaseDate[$existingIndex] = [
-                                'course_id' => $courseId,
-                                'course' => $orderCourse->course,
-                                'purchase_date' => $purchaseDate,
-                            ];
-                        }
-                    } else {
-                        // Add new course with purchase date
-                        $enrolledCoursesWithPurchaseDate->push([
-                            'course_id' => $courseId,
-                            'course' => $orderCourse->course,
-                            'purchase_date' => $purchaseDate,
-                        ]);
-                    }
-                }
-            }
-
-            // Merge tracked courses
-            foreach ($trackedCourses as $track) {
-                if (
-                    $track->course
-                    && $track->course->status == 'publish'
-                    && $track->course->approval_status == 'approved'
-                    && $track->course->is_active
-                    && $track->course->hasContent()
-                ) {
-                    $courseId = $track->course->id;
-                    $existingIndex = $enrolledCoursesWithPurchaseDate->search(
-                        static fn($item) => $item['course_id'] == $courseId,
-                    );
-
-                    if ($existingIndex === false) {
-                        $enrolledCoursesWithPurchaseDate->push([
-                            'course_id' => $courseId,
-                            'course' => $track->course,
-                            'purchase_date' => Carbon::parse($track->updated_at),
-                        ]);
-                    }
-                }
-            }
-
-            // Add subscription-based courses (all courses if user has active subscription)
-            if ($hasActiveSubscription) {
-                $subscriptionCourses = Course::with([
-                    'category',
-                    'user',
-                    'taxes',
-                    'ratings.user',
-                    'chapters' => static function ($chapterQuery): void {
-                        $chapterQuery
-                            ->where('is_active', true)
-                            ->with([
-                                'lectures' => static function ($lectureQuery): void {
-                                    $lectureQuery->where('is_active', true);
-                                },
-                                'quizzes' => static function ($quizQuery): void {
-                                    $quizQuery->where('is_active', true);
-                                },
-                                'assignments' => static function ($assignmentQuery): void {
-                                    $assignmentQuery->where('is_active', true);
-                                },
-                            ]);
-                    },
-                ])
-                    ->withAvg('ratings', 'rating')
-                    ->withCount('ratings')
-                    ->where('status', 'publish')
-                    ->where('approval_status', 'approved')
-                    ->where('is_active', true)
-                    ->whereHasContent()
-                    ->get();
-
-                foreach ($subscriptionCourses as $course) {
-                    $courseId = $course->id;
-                    $existingIndex = $enrolledCoursesWithPurchaseDate->search(
-                        static fn($item) => $item['course_id'] == $courseId,
-                    );
-
-                    if ($existingIndex === false) {
-                        $enrolledCoursesWithPurchaseDate->push([
-                            'course_id' => $courseId,
-                            'course' => $course,
-                            'purchase_date' => now(), // Use current time for subscription-based access
-                        ]);
-                    }
-                }
-            }
-
-            // Sort by purchase date (most recent first) and extract courses
-            $enrolledCourses = $enrolledCoursesWithPurchaseDate
                 ->sortByDesc('purchase_date')
+                ->values();
+
+            $enrolledCourses = $enrolledCoursesWithPurchaseDate
                 ->pluck('course')
                 ->filter()
-                ->values(); // Remove null courses
+                ->values();
 
             // Apply filters
             if ($request->filled('search')) {

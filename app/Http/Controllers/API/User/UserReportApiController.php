@@ -99,9 +99,14 @@ class UserReportApiController extends Controller
     private function getLearningSummary(User $user)
     {
         // Enrolled courses (completed orders)
-        $enrolledCourseIds = OrderCourse::whereHas('order', function ($q) use ($user) {
+        $orderCourseIds = OrderCourse::whereHas('order', function ($q) use ($user) {
             $q->where('user_id', $user->id)->where('status', 'completed');
-        })->pluck('course_id')->unique()->toArray();
+        })->pluck('course_id')->toArray();
+
+        // Courses from progress tracking (started via subscription or free)
+        $progressCourseIds = \App\Models\UserCourseProgress::where('user_id', $user->id)->pluck('course_id')->toArray();
+
+        $enrolledCourseIds = array_unique(array_merge($orderCourseIds, $progressCourseIds));
 
         $totalEnrolled = count($enrolledCourseIds);
         
@@ -186,14 +191,21 @@ class UserReportApiController extends Controller
      */
     private function getEnrolledCoursesReport(User $user)
     {
-        $orderCourses = OrderCourse::whereHas('order', function ($q) use ($user) {
+        // Enrolled courses (completed orders)
+        $orderCourseIds = OrderCourse::whereHas('order', function ($q) use ($user) {
             $q->where('user_id', $user->id)->where('status', 'completed');
-        })->with(['course.category', 'course.user'])->get();
+        })->pluck('course_id')->toArray();
 
-        return $orderCourses->map(function ($oc) use ($user) {
-            $course = $oc->course;
-            if (!$course) return null;
+        // Courses from progress tracking
+        $progressCourseIds = \App\Models\UserCourseProgress::where('user_id', $user->id)->pluck('course_id')->toArray();
 
+        $allCourseIds = array_unique(array_merge($orderCourseIds, $progressCourseIds));
+
+        $courses = Course::whereIn('id', $allCourseIds)
+            ->with(['category', 'user'])
+            ->get();
+
+        return $courses->map(function ($course) use ($user) {
             $progress = $this->calculateCourseProgress($user->id, $course->id);
             
             $hasReviewed = Rating::where('user_id', $user->id)
@@ -201,12 +213,23 @@ class UserReportApiController extends Controller
                 ->where('rateable_type', Course::class)
                 ->exists();
 
+            $orderCourse = OrderCourse::where('course_id', $course->id)
+                ->whereHas('order', function($q) use ($user) {
+                    $q->where('user_id', $user->id)->where('status', 'completed');
+                })->first();
+
+            $progressRecord = \App\Models\UserCourseProgress::where('course_id', $course->id)
+                ->where('user_id', $user->id)->first();
+            
+            $enrolledAt = $orderCourse ? $orderCourse->created_at->toDateTimeString() : 
+                          ($progressRecord ? $progressRecord->created_at->toDateTimeString() : null);
+
             return [
                 'course_id' => $course->id,
                 'title' => $course->title,
                 'category' => $course->category->name ?? 'N/A',
                 'instructor' => $course->user->name ?? 'N/A',
-                'enrolled_at' => $oc->created_at->toDateTimeString(),
+                'enrolled_at' => $enrolledAt,
                 'progress_percentage' => round($progress, 2),
                 'status' => $progress >= 100 ? 'completed' : ($progress > 0 ? 'in_progress' : 'not_started'),
                 'is_reviewed' => $hasReviewed,

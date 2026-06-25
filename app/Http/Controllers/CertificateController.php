@@ -215,7 +215,7 @@ class CertificateController extends Controller
      */
     public function verifyApi(\Illuminate\Http\Request $request)
     {
-        $code = trim((string) $request->input('code', ''));
+        $code = trim((string) ($request->input('code') ?: $request->input('certificate_number') ?: ''));
 
         if (empty($code)) {
             return ApiResponseService::errorResponse('Verification code is required.', null, 422);
