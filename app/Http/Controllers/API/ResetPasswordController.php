@@ -9,6 +9,7 @@ use App\Services\ApiResponseService;
 use App\Services\ApiService;
 use App\Services\EmailPasswordResetService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 final class ResetPasswordController extends Controller
@@ -30,6 +31,10 @@ final class ResetPasswordController extends Controller
 
             if ($user !== null) {
                 $this->emailPasswordResetService->sendOtp($user);
+            } else {
+                Log::info('Password reset requested for unknown or ineligible email', [
+                    'email' => strtolower(trim((string) $request->email)),
+                ]);
             }
 
             ApiResponseService::successResponse(self::GENERIC_FORGOT_MESSAGE);
