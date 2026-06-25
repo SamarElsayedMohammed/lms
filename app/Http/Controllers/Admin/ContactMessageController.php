@@ -171,7 +171,7 @@ final class ContactMessageController extends Controller
         ResponseService::noPermissionThenSendJson('contact-messages-edit');
 
         $validated = $request->validate([
-            'status' => 'required|in:new,read,replied,closed',
+            'status' => 'required|in:new,read,waiting_admin,replied,closed,completed,reopened',
         ]);
 
         $message = ContactMessage::findOrFail($id);

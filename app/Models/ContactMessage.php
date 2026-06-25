@@ -76,6 +76,7 @@ class ContactMessage extends Model
     {
         return [
             'new' => 'New',
+            'read' => 'Read',
             'waiting_admin' => 'Waiting Admin',
             'replied' => 'Replied',
             'closed' => 'Closed',
@@ -102,11 +103,19 @@ class ContactMessage extends Model
     }
 
     /**
-     * Scope for read messages
+     * Scope for read messages (admin viewed, not yet replied)
      */
     public function scopeRead($query)
     {
         return $query->where('status', 'read');
+    }
+
+    /**
+     * Scope for waiting_admin messages
+     */
+    public function scopeWaitingAdmin($query)
+    {
+        return $query->where('status', 'waiting_admin');
     }
 
     /**
@@ -126,11 +135,13 @@ class ContactMessage extends Model
     }
 
     /**
-     * Mark as read
+     * Mark as read (admin viewed, awaiting reply)
      */
-    public function markAsRead()
+    public function markAsRead(): void
     {
-        $this->update(['status' => 'read']);
+        if ($this->status === 'new') {
+            $this->update(['status' => 'read']);
+        }
     }
 
     /**

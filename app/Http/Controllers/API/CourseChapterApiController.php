@@ -527,7 +527,7 @@ class CourseChapterApiController extends Controller
             }
 
             // Format the response with complete curriculum data
-            $formattedChapters = $chapters->map(static function ($chapter) use ($isItemCompleted, $user) {
+            $formattedChapters = $chapters->map(static function ($chapter) use ($isItemCompleted, $user, $isPurchased) {
                 // Combine all content types and sort by chapter_order
                 $allContent = collect();
 
@@ -602,6 +602,7 @@ class CourseChapterApiController extends Controller
                     $chapter,
                     $isItemCompleted,
                     $user,
+                    $isPurchased,
                 ) {
                     // Get assignment submission status for the user
                     $submissionStatus = null;
