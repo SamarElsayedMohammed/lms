@@ -14,7 +14,7 @@ class CertificateApiController extends Controller
      */
     public function verifyPublic(Request $request)
     {
-        $code = $request->query('code');
+        $code = $request->query('code') ?? $request->query('certificate_number');
 
         if (!$code) {
             return ApiResponseService::validationError('The code query parameter is required.');
