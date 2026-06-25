@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\SocialLogin;
 use App\Models\User;
 use App\Services\Mail\BrevoTransactionalMailService;
+use App\Services\Mail\MailFromResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,7 @@ final class EmailPasswordResetService
 {
     public function __construct(
         private readonly BrevoTransactionalMailService $brevoMailService,
+        private readonly MailFromResolver $mailFromResolver,
     ) {}
 
     public const OTP_LENGTH = 6;
@@ -75,6 +77,8 @@ final class EmailPasswordResetService
         ])->render();
 
         try {
+            $from = $this->mailFromResolver->resolve();
+
             if ($this->brevoMailService->isConfigured()) {
                 $result = $this->brevoMailService->sendHtml(
                     (string) $user->email,
@@ -86,17 +90,17 @@ final class EmailPasswordResetService
                 Log::info('Password reset OTP email sent via Brevo API', [
                     'user_id' => $user->id,
                     'to' => $this->maskEmail((string) $user->email),
-                    'from' => config('mail.from.address'),
+                    'from' => $result['from'],
                     'message_id' => $result['message_id'],
                 ]);
             } else {
-                $this->sendViaSmtp($user, $otp, $appName, $subject, $mailDriver);
+                $this->sendViaSmtp($user, $otp, $from, $subject, $mailDriver);
             }
         } catch (\Throwable $e) {
             Log::error('Password reset OTP email failed to send', [
                 'user_id' => $user->id,
                 'to' => $this->maskEmail((string) $user->email),
-                'from' => config('mail.from.address'),
+                'from' => $this->mailFromResolver->address() ?: null,
                 'mail_driver' => $mailDriver,
                 'brevo_api' => $this->brevoMailService->isConfigured(),
                 'error' => $e->getMessage(),
@@ -108,37 +112,30 @@ final class EmailPasswordResetService
         return $otp;
     }
 
-    private function sendViaSmtp(User $user, string $otp, string $appName, string $subject, string $mailDriver): void
+    /**
+     * @param array{address: string, name: string} $from
+     */
+    private function sendViaSmtp(User $user, string $otp, array $from, string $subject, string $mailDriver): void
     {
-        $fromAddress = (string) config('mail.from.address', '');
-
-        if ($fromAddress === '' || $fromAddress === 'hello@example.com') {
-            Log::warning('MAIL_FROM_ADDRESS is not configured for production email delivery', [
-                'user_id' => $user->id,
-            ]);
-        }
-
         Mail::send(
             'emails.password-reset-otp',
             [
                 'user' => $user,
                 'otp' => $otp,
-                'appName' => $appName,
+                'appName' => $from['name'],
                 'expiryMinutes' => self::OTP_EXPIRY_MINUTES,
             ],
-            static function ($mail) use ($user, $subject, $fromAddress, $appName): void {
-                if ($fromAddress !== '' && $fromAddress !== 'hello@example.com') {
-                    $mail->from($fromAddress, (string) config('mail.from.name', $appName));
-                }
-
-                $mail->to($user->email)->subject($subject);
+            static function ($mail) use ($user, $subject, $from): void {
+                $mail->from($from['address'], $from['name'])
+                    ->to($user->email)
+                    ->subject($subject);
             },
         );
 
         Log::info('Password reset OTP email sent via SMTP', [
             'user_id' => $user->id,
             'to' => $this->maskEmail((string) $user->email),
-            'from' => $fromAddress,
+            'from' => $from['address'],
             'mail_driver' => $mailDriver,
         ]);
     }
