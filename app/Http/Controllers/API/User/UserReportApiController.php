@@ -17,6 +17,7 @@ use App\Models\UserCurriculumTracking;
 use App\Models\Webinar;
 use App\Models\WebinarRegistration;
 use App\Services\ApiResponseService;
+use App\Services\UserEnrollmentService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -98,18 +99,12 @@ class UserReportApiController extends Controller
      */
     private function getLearningSummary(User $user)
     {
-        // Enrolled courses (completed orders)
-        $orderCourseIds = OrderCourse::whereHas('order', function ($q) use ($user) {
-            $q->where('user_id', $user->id)->where('status', 'completed');
-        })->pluck('course_id')->toArray();
-
-        // Courses from progress tracking (started via subscription or free)
-        $progressCourseIds = \App\Models\UserCourseProgress::where('user_id', $user->id)->pluck('course_id')->toArray();
-
-        $enrolledCourseIds = array_unique(array_merge($orderCourseIds, $progressCourseIds));
+        // Use UserEnrollmentService to resolve all sources (orders, tracks, subscription)
+        $enrollmentService = app(UserEnrollmentService::class);
+        $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+        $enrolledCourseIds = $enrolled->pluck('course_id')->toArray();
 
         $totalEnrolled = count($enrolledCourseIds);
-        
         $completedCoursesCount = 0;
         $inProgressCoursesCount = 0;
         $totalProgress = 0;
@@ -132,11 +127,11 @@ class UserReportApiController extends Controller
 
         return [
             'total_enrolled_courses' => $totalEnrolled,
-            'completed_courses' => $completedCoursesCount,
-            'in_progress_courses' => $inProgressCoursesCount,
-            'average_progress' => round($avgProgress, 2),
-            'total_certificates' => $certificatesCount,
-            'learning_hours' => $this->calculateLearningHours($user->id),
+            'completed_courses'      => $completedCoursesCount,
+            'in_progress_courses'    => $inProgressCoursesCount,
+            'average_progress'       => round($avgProgress, 2),
+            'total_certificates'     => $certificatesCount,
+            'learning_hours'         => $this->calculateLearningHours($user->id),
         ];
     }
 
@@ -191,49 +186,35 @@ class UserReportApiController extends Controller
      */
     private function getEnrolledCoursesReport(User $user)
     {
-        // Enrolled courses (completed orders)
-        $orderCourseIds = OrderCourse::whereHas('order', function ($q) use ($user) {
-            $q->where('user_id', $user->id)->where('status', 'completed');
-        })->pluck('course_id')->toArray();
+        // Use UserEnrollmentService to resolve all sources (orders, tracks, subscription)
+        $enrollmentService = app(UserEnrollmentService::class);
+        $enrolled = $enrollmentService->resolveEnrolledCourses(
+            (int) $user->id,
+            static fn ($query) => $query->with(['category', 'user'])
+        );
 
-        // Courses from progress tracking
-        $progressCourseIds = \App\Models\UserCourseProgress::where('user_id', $user->id)->pluck('course_id')->toArray();
+        return $enrolled->map(function ($item) use ($user) {
+            $course = $item['course'];
+            if (!$course) return null;
 
-        $allCourseIds = array_unique(array_merge($orderCourseIds, $progressCourseIds));
-
-        $courses = Course::whereIn('id', $allCourseIds)
-            ->with(['category', 'user'])
-            ->get();
-
-        return $courses->map(function ($course) use ($user) {
             $progress = $this->calculateCourseProgress($user->id, $course->id);
-            
+
             $hasReviewed = Rating::where('user_id', $user->id)
                 ->where('rateable_id', $course->id)
                 ->where('rateable_type', Course::class)
                 ->exists();
 
-            $orderCourse = OrderCourse::where('course_id', $course->id)
-                ->whereHas('order', function($q) use ($user) {
-                    $q->where('user_id', $user->id)->where('status', 'completed');
-                })->first();
-
-            $progressRecord = \App\Models\UserCourseProgress::where('course_id', $course->id)
-                ->where('user_id', $user->id)->first();
-            
-            $enrolledAt = $orderCourse ? $orderCourse->created_at->toDateTimeString() : 
-                          ($progressRecord ? $progressRecord->created_at->toDateTimeString() : null);
-
             return [
-                'course_id' => $course->id,
-                'title' => $course->title,
-                'category' => $course->category->name ?? 'N/A',
-                'instructor' => $course->user->name ?? 'N/A',
-                'enrolled_at' => $enrolledAt,
-                'progress_percentage' => round($progress, 2),
-                'status' => $progress >= 100 ? 'completed' : ($progress > 0 ? 'in_progress' : 'not_started'),
-                'is_reviewed' => $hasReviewed,
-                'last_activity' => UserCurriculumTracking::where('user_id', $user->id)
+                'course_id'          => $course->id,
+                'title'              => $course->title,
+                'category'           => $course->category->name ?? 'N/A',
+                'instructor'         => $course->user->name ?? 'N/A',
+                'enrolled_at'        => $item['purchase_date']->toDateTimeString(),
+                'enrollment_source'  => $item['source'],
+                'progress_percentage'=> round($progress, 2),
+                'status'             => $progress >= 100 ? 'completed' : ($progress > 0 ? 'in_progress' : 'not_started'),
+                'is_reviewed'        => $hasReviewed,
+                'last_activity'      => UserCurriculumTracking::where('user_id', $user->id)
                     ->whereHas('chapter', fn($q) => $q->where('course_id', $course->id))
                     ->latest('updated_at')
                     ->value('updated_at'),
