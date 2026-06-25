@@ -13,6 +13,7 @@ use App\Models\Wishlist;
 use App\Services\ApiResponseService;
 use App\Services\HelperService;
 use App\Services\PricingService;
+use App\Services\UserEnrollmentService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -89,12 +90,12 @@ class UserDashboardApiController extends Controller
      */
     private function getStatsOverview($user)
     {
-        $enrolledCourseIds = OrderCourse::whereHas('order', function ($q) use ($user) {
-            $q->where('user_id', $user->id)->where('status', 'completed');
-        })->pluck('course_id')->unique()->toArray();
+        // Use UserEnrollmentService to resolve all sources (orders, tracks, subscription)
+        $enrollmentService = app(UserEnrollmentService::class);
+        $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+        $enrolledCourseIds = $enrolled->pluck('course_id')->toArray();
 
         $totalEnrolled = count($enrolledCourseIds);
-        
         $completedCount = 0;
         $inProgressCount = 0;
 
@@ -111,11 +112,11 @@ class UserDashboardApiController extends Controller
         $wishlistCount = Wishlist::where('user_id', $user->id)->count();
 
         return [
-            'enrolled_courses' => $totalEnrolled,
-            'in_progress' => $inProgressCount,
+            'enrolled_courses'  => $totalEnrolled,
+            'in_progress'       => $inProgressCount,
             'completed_courses' => $completedCount,
-            'certificates' => $certificatesCount,
-            'wishlist_count' => $wishlistCount,
+            'certificates'      => $certificatesCount,
+            'wishlist_count'    => $wishlistCount,
         ];
     }
 
