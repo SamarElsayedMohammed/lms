@@ -206,7 +206,7 @@ class ApiController extends Controller
                 ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
             }
 
-            if (!$isEmailType && empty($socialLogin)) {
+            if ($isEmailType || empty($socialLogin)) {
                 DB::beginTransaction();
                 $unique['email'] = $request->email;
 

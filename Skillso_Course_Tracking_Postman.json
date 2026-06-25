@@ -1,0 +1,765 @@
+{
+  "info": {
+    "name": "Skillso — Courses & Tracking",
+    "description": "Postman collection for course browsing, student progress tracking (video/curriculum/quiz), and admin course-tracking dashboards.\n\nVariables:\n- base_url: Laravel API root (e.g. https://your-backend.com)\n- user_token: Student Bearer token (Sanctum)\n- admin_token: Admin Bearer token (Sanctum)\n- course_id, chapter_id, lecture_id, user_id: IDs for path/query params",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://toogowgo4ckks8cok84o4c4w.187.77.77.216.sslip.io" },
+    { "key": "user_token", "value": "" },
+    { "key": "admin_token", "value": "" },
+    { "key": "course_id", "value": "1" },
+    { "key": "chapter_id", "value": "1" },
+    { "key": "lecture_id", "value": "1" },
+    { "key": "user_id", "value": "1" },
+    { "key": "quiz_id", "value": "1" },
+    { "key": "attempt_id", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "1. Public — Courses",
+      "description": "Browse courses without login (OptionalAuth — token optional).",
+      "item": [
+        {
+          "name": "List Courses",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/get-courses?page=1&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "get-courses"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "per_page", "value": "15" },
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "category_id", "value": "", "disabled": true },
+                { "key": "level", "value": "", "disabled": true }
+              ]
+            },
+            "description": "GET /api/get-courses — paginated course catalog."
+          }
+        },
+        {
+          "name": "Get Course Details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/get-course?course_id={{course_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "get-course"],
+              "query": [{ "key": "course_id", "value": "{{course_id}}" }]
+            },
+            "description": "GET /api/get-course?course_id= — single course with full details."
+          }
+        },
+        {
+          "name": "Get Course Chapters",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/get-course-chapters?course_id={{course_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "get-course-chapters"],
+              "query": [{ "key": "course_id", "value": "{{course_id}}" }]
+            },
+            "description": "GET /api/get-course-chapters?course_id= — curriculum structure (chapters, lectures, quizzes…)."
+          }
+        },
+        {
+          "name": "Get Course Reviews",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/get-course-reviews?course_id={{course_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "get-course-reviews"],
+              "query": [{ "key": "course_id", "value": "{{course_id}}" }]
+            }
+          }
+        },
+        {
+          "name": "Get Course FAQs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/courses/{{course_id}}/faqs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "courses", "{{course_id}}", "faqs"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Student — My Learning",
+      "description": "Authenticated student views enrolled courses and overall progress.",
+      "item": [
+        {
+          "name": "My Learning (Enrolled Courses + Progress)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/my-learning?page=1&per_page=15&progress_status=all",
+              "host": ["{{base_url}}"],
+              "path": ["api", "my-learning"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "per_page", "value": "15" },
+                { "key": "progress_status", "value": "all", "description": "all | in_progress | completed" },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            },
+            "description": "GET /api/my-learning — all enrolled courses with progress summary."
+          }
+        },
+        {
+          "name": "My Course Progress Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/my-learning/{{course_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "my-learning", "{{course_id}}"]
+            },
+            "description": "GET /api/my-learning/{course_id} — chapter-by-chapter detailed progress for one course."
+          }
+        },
+        {
+          "name": "User Enrolled Courses",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/user-enrolled-courses",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user-enrolled-courses"]
+            }
+          }
+        },
+        {
+          "name": "Learning Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/user/learning-stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "learning-stats"]
+            },
+            "description": "GET /api/user/learning-stats — student learning summary."
+          }
+        },
+        {
+          "name": "Comprehensive User Report",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/comprehensive",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "comprehensive"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Student — Video Progress",
+      "description": "Segment-based video tracking (100% watch rule). See docs/frontend-video-progress-integration.md",
+      "item": [
+        {
+          "name": "Get Video Stream Token",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/video/{{lecture_id}}/stream",
+              "host": ["{{base_url}}"],
+              "path": ["api", "video", "{{lecture_id}}", "stream"]
+            },
+            "description": "GET /api/video/{lectureId}/stream — HLS stream UUID token (throttled 10/min)."
+          }
+        },
+        {
+          "name": "Get Lecture Video Progress",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/lecture/{{lecture_id}}/progress",
+              "host": ["{{base_url}}"],
+              "path": ["api", "lecture", "{{lecture_id}}", "progress"]
+            },
+            "description": "GET /api/lecture/{lectureId}/progress — watch_percentage, segments, resume_from, can_seek_to."
+          }
+        },
+        {
+          "name": "Update Lecture Video Progress (Segments)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_position\": 127,\n  \"total_duration\": 300,\n  \"newly_watched_segments\": [25, 26, 27]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/lecture/{{lecture_id}}/progress",
+              "host": ["{{base_url}}"],
+              "path": ["api", "lecture", "{{lecture_id}}", "progress"]
+            },
+            "description": "POST /api/lecture/{lectureId}/progress — send every ~15s. Max 3 segments per request."
+          }
+        },
+        {
+          "name": "Get Course Video Progress (All Lectures)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/course/{{course_id}}/progress",
+              "host": ["{{base_url}}"],
+              "path": ["api", "course", "{{course_id}}", "progress"]
+            },
+            "description": "GET /api/course/{courseId}/progress — aggregated video progress for all lectures in course."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Student — Curriculum Tracking",
+      "description": "Track course/chapter/item completion. Data feeds admin dashboards via user_curriculum_trackings + user_course_progress.",
+      "item": [
+        {
+          "name": "Start / Update Course Tracking",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"course_id\": {{course_id}},\n  \"status\": \"in_progress\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/track/course",
+              "host": ["{{base_url}}"],
+              "path": ["api", "track", "course"]
+            },
+            "description": "POST /api/track/course — status: started | in_progress | completed"
+          }
+        },
+        {
+          "name": "Track Chapter Progress",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"course_chapter_id\": {{chapter_id}},\n  \"status\": \"in_progress\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/track/course-chapter",
+              "host": ["{{base_url}}"],
+              "path": ["api", "track", "course-chapter"]
+            },
+            "description": "POST /api/track/course-chapter"
+          }
+        },
+        {
+          "name": "Get Curriculum Progress (by Course)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/curriculum/progress?course_id={{course_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "curriculum", "progress"],
+              "query": [{ "key": "course_id", "value": "{{course_id}}" }]
+            },
+            "description": "GET /api/curriculum/progress?course_id= — chapter-level progress."
+          }
+        },
+        {
+          "name": "Get Chapter Curriculum Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/curriculum/chapter-details?course_chapter_id={{chapter_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "curriculum", "chapter-details"],
+              "query": [{ "key": "course_chapter_id", "value": "{{chapter_id}}" }]
+            },
+            "description": "GET /api/curriculum/chapter-details?course_chapter_id= — items + completion status per chapter."
+          }
+        },
+        {
+          "name": "Mark Curriculum Item Completed",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"course_chapter_id\": {{chapter_id}},\n  \"model_id\": {{lecture_id}},\n  \"model_type\": \"lecture\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/curriculum/mark-completed",
+              "host": ["{{base_url}}"],
+              "path": ["api", "curriculum", "mark-completed"]
+            },
+            "description": "POST /api/curriculum/mark-completed — model_type: lecture | quiz | assignment | document"
+          }
+        },
+        {
+          "name": "Get Detailed Curriculum Tracking",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/curriculum/detailed-tracking?course_id={{course_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "curriculum", "detailed-tracking"],
+              "query": [
+                { "key": "course_id", "value": "{{course_id}}" },
+                { "key": "course_chapter_id", "value": "{{chapter_id}}", "disabled": true },
+                { "key": "model_type", "value": "lecture", "disabled": true },
+                { "key": "status", "value": "completed", "disabled": true }
+              ]
+            },
+            "description": "GET /api/curriculum/detailed-tracking — all tracked items grouped by chapter."
+          }
+        },
+        {
+          "name": "Get Current (Last Completed) Curriculum",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/curriculum/current",
+              "host": ["{{base_url}}"],
+              "path": ["api", "curriculum", "current"]
+            },
+            "description": "GET /api/curriculum/current — resume point (last completed item)."
+          }
+        },
+        {
+          "name": "Check Course Completion (Certificate Eligibility)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/curriculum/course-completion?course_id={{course_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "curriculum", "course-completion"],
+              "query": [{ "key": "course_id", "value": "{{course_id}}" }]
+            },
+            "description": "GET /api/curriculum/course-completion?course_id="
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Student — Quiz Tracking",
+      "item": [
+        {
+          "name": "Start Quiz Attempt",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"course_chapter_quiz_id\": {{quiz_id}},\n  \"total_time\": 600\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/quiz/start",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quiz", "start"]
+            }
+          }
+        },
+        {
+          "name": "Submit Quiz Answer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quiz_question_id\": 1,\n  \"quiz_option_id\": 1,\n  \"attempt_id\": {{attempt_id}}\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/quiz/answer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quiz", "answer"]
+            }
+          }
+        },
+        {
+          "name": "Finish Quiz Attempt",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"attempt_id\": {{attempt_id}},\n  \"time_taken\": 420\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/quiz/finish",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quiz", "finish"]
+            }
+          }
+        },
+        {
+          "name": "Get Quiz Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/quiz/quiz?quiz_id={{quiz_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quiz", "quiz"],
+              "query": [{ "key": "quiz_id", "value": "{{quiz_id}}" }]
+            }
+          }
+        },
+        {
+          "name": "Get User Quiz Attempts",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/quiz/quiz/attempts?quiz_id={{quiz_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quiz", "quiz", "attempts"],
+              "query": [{ "key": "quiz_id", "value": "{{quiz_id}}" }]
+            }
+          }
+        },
+        {
+          "name": "Get Quiz Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/quiz/summary?quiz_id={{quiz_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quiz", "summary"],
+              "query": [{ "key": "quiz_id", "value": "{{quiz_id}}" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Admin — Course Tracking Dashboard",
+      "description": "How admin sees student progress. All require Bearer {{admin_token}} with admin role.",
+      "item": [
+        {
+          "name": "Student Tracking List (Main Dashboard)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/tracking?page=1&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "tracking"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "per_page", "value": "15" },
+                { "key": "student", "value": "", "description": "Search by name or email", "disabled": true },
+                { "key": "course_id", "value": "{{course_id}}", "disabled": true },
+                { "key": "status", "value": "in_progress", "description": "completed | in_progress | not_started", "disabled": true },
+                { "key": "from_date", "value": "2026-01-01", "disabled": true },
+                { "key": "to_date", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "GET /api/admin/tracking — PRIMARY admin view.\n\nReturns per enrollment: student_name, course_name, progress %, status, current_lesson, last_activity.\n\nData sources: user_course_progress (cached) + user_curriculum_trackings + video_progresses."
+          }
+        },
+        {
+          "name": "Enrollment Overview (All Courses)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/courses/enrollment-overview",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "courses", "enrollment-overview"],
+              "query": [
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "status", "value": "", "disabled": true }
+              ]
+            },
+            "description": "GET /api/admin/courses/enrollment-overview — all courses with enrollment + avg progress stats."
+          }
+        },
+        {
+          "name": "Course Student Progress List",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/courses/{{course_id}}/student-progress",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "courses", "{{course_id}}", "student-progress"],
+              "query": [
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "status", "value": "in_progress", "disabled": true }
+              ]
+            },
+            "description": "GET /api/admin/courses/{course_id}/student-progress — all students enrolled in one course."
+          }
+        },
+        {
+          "name": "Student Course Details (Deep Dive)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/courses/{{course_id}}/students/{{user_id}}/details",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "courses", "{{course_id}}", "students", "{{user_id}}", "details"]
+            },
+            "description": "GET /api/admin/courses/{course_id}/students/{user_id}/details — chapter-by-chapter item completion for one student."
+          }
+        },
+        {
+          "name": "List Courses (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/courses?page=1&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "courses"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "per_page", "value": "15" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Course Enrolled Students (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/courses/{{course_id}}/students",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "courses", "{{course_id}}", "students"]
+            },
+            "description": "GET /api/admin/courses/{id}/students — enrollment list for a course."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Admin — Student Reports",
+      "item": [
+        {
+          "name": "Students Report (Summary)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/students?report_type=summary&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "students"],
+              "query": [
+                { "key": "report_type", "value": "summary", "description": "summary | detailed" },
+                { "key": "per_page", "value": "15" },
+                { "key": "course_id", "value": "{{course_id}}", "disabled": true },
+                { "key": "status", "value": "in_progress", "disabled": true },
+                { "key": "date_from", "value": "2026-01-01", "disabled": true },
+                { "key": "date_to", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "GET /api/reports/students — aggregated student progress report."
+          }
+        },
+        {
+          "name": "Students Report (Detailed)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/students?report_type=detailed",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "students"],
+              "query": [{ "key": "report_type", "value": "detailed" }]
+            }
+          }
+        },
+        {
+          "name": "Single Student Report",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/students/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "students", "{{user_id}}"]
+            },
+            "description": "GET /api/reports/students/{id} — all courses + progress for one student."
+          }
+        },
+        {
+          "name": "Students Completion Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/students/completion-stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "students", "completion-stats"]
+            },
+            "description": "GET /api/reports/students/completion-stats — aggregate completion KPIs."
+          }
+        },
+        {
+          "name": "Course Report",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/course?course_id={{course_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "course"],
+              "query": [{ "key": "course_id", "value": "{{course_id}}" }]
+            }
+          }
+        },
+        {
+          "name": "Enrollment Report",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/enrollment",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "enrollment"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

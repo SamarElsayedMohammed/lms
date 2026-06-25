@@ -284,10 +284,13 @@ class SettingsController extends Controller
             $firebaseServiceFileExists = false;
         }
 
+        $firebaseHealth = app(\App\Services\FirebaseConfigService::class)->getHealthReport();
+
         return view('settings.firebase-settings', [
             'type_menu' => 'settings',
             'settings' => $settings,
             'firebaseServiceFileExists' => $firebaseServiceFileExists,
+            'firebaseHealth' => $firebaseHealth,
         ]);
     }
 
@@ -300,6 +303,13 @@ class SettingsController extends Controller
     {
         ResponseService::noPermissionThenSendJson('settings-firebase-edit');
         $validator = Validator::make($request->all(), [
+            'firebase_api_key' => 'nullable|string|max:255',
+            'firebase_auth_domain' => 'nullable|string|max:255',
+            'firebase_project_id' => 'nullable|string|max:255',
+            'firebase_storage_bucket' => 'nullable|string|max:255',
+            'firebase_messaging_sender_id' => 'nullable|string|max:255',
+            'firebase_app_id' => 'nullable|string|max:255',
+            'firebase_measurement_id' => 'nullable|string|max:255',
             'firebase_service_file' => 'nullable|file|mimes:json|max:2048',
         ]);
 
@@ -308,36 +318,22 @@ class SettingsController extends Controller
         }
 
         try {
-            $data = $request->except(['_token', 'firebase_service_file']);
-            $firebaseFilePath = HelperService::systemSettings('firebase_service_file');
-
-            // Get Settings Data
-            $settingArray = [];
-            foreach ($data as $name => $value) {
-                $settingArray[] = ['name' => $name, 'value' => $value, 'type' => 'text'];
-            }
-            // Upload Firebase Service File
-            if ($request->hasFile('firebase_service_file')) {
-                $file = $request->file('firebase_service_file');
-                $path = FileService::replace($file, 'firebase', $firebaseFilePath);
-                $settingArray[] = ['name' => 'firebase_service_file', 'value' => $path, 'type' => 'file'];
-            }
-            // Update Settings Data
-            Setting::upsert($settingArray, ['name']);
-            // Remove Cache
-            CachingService::removeCache(config('constants.CACHE.SETTINGS'));
-
-            $firebaseFilePath = HelperService::systemSettings('firebase_service_file');
-
-            // Update Vales in ENV
-            $envUpdate = [
-                'FIREBASE_CREDENTIALS' => $firebaseFilePath,
-            ];
-            if ($envUpdate) {
-                HelperService::changeEnv($envUpdate);
-            }
+            app(\App\Services\FirebaseConfigService::class)->syncAdminSettings(
+                [
+                    'firebase_api_key' => $request->input('firebase_api_key'),
+                    'firebase_auth_domain' => $request->input('firebase_auth_domain'),
+                    'firebase_project_id' => $request->input('firebase_project_id'),
+                    'firebase_storage_bucket' => $request->input('firebase_storage_bucket'),
+                    'firebase_messaging_sender_id' => $request->input('firebase_messaging_sender_id'),
+                    'firebase_app_id' => $request->input('firebase_app_id'),
+                    'firebase_measurement_id' => $request->input('firebase_measurement_id'),
+                ],
+                $request->file('firebase_service_file'),
+            );
 
             ResponseService::successResponse('Firebase settings updated successfully');
+        } catch (\InvalidArgumentException $e) {
+            ResponseService::validationError($e->getMessage());
         } catch (Exception) {
             ResponseService::errorResponse('Something went wrong');
         }
