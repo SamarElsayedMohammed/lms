@@ -8,6 +8,8 @@ use App\Http\Controllers\API\CourseApiController;
 use App\Http\Controllers\API\CourseChapterApiController;
 use App\Http\Controllers\API\CourseDiscussionApiController;
 use App\Http\Controllers\API\FinanceApiController;
+use App\Http\Controllers\API\FirebaseConfigApiController;
+use App\Http\Controllers\API\ResetPasswordController;
 use App\Http\Controllers\API\HelpdeskApiController;
 use App\Http\Controllers\API\HomeApiController;
 use App\Http\Controllers\API\InstructorApiController;
@@ -56,6 +58,13 @@ Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApi
 Route::post('mobile-login', [ApiController::class, 'mobileLogin']);
 Route::post('mobile-registration', [ApiController::class, 'mobileRegistration']);
 Route::post('mobile-reset-password', [ApiController::class, 'mobileResetPassword']);
+Route::post('forgot-password', [ResetPasswordController::class, 'forgotPassword'])
+    ->middleware('throttle:3,15');
+Route::post('verify-reset-code', [ResetPasswordController::class, 'verifyResetCode'])
+    ->middleware('throttle:10,1');
+Route::post('reset-password', [ResetPasswordController::class, 'resetPassword'])
+    ->middleware('throttle:10,1');
+Route::get('firebase-config', [FirebaseConfigApiController::class, 'show']);
 Route::post('admin-login', [ApiController::class, 'adminLogin']);
 
 /********************************************************************************************* */
@@ -699,6 +708,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Notification Global Settings
         Route::get('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'getSettings']);
         Route::put('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'updateSettings']);
+        Route::get('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'show']);
+        Route::put('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'update']);
+        Route::post('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'update']);
 
         // Categories
         Route::get('categories', [\App\Http\Controllers\API\Admin\CategoryAdminApiController::class, 'index']);

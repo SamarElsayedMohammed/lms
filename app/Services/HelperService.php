@@ -236,8 +236,7 @@ class HelperService
     public static function verifyToken(#[\SensitiveParameter] $token)
     {
         try {
-            $credentials = config('firebase.projects.app.credentials');
-            $file = !empty($credentials) ? FileService::getFilePath($credentials) : null;
+            $file = app(FirebaseConfigService::class)->getCredentialsPath();
             if (!empty($file) && file_exists($file)) {
                 $firebase = (new Factory())
                     ->withServiceAccount($file)
@@ -245,9 +244,9 @@ class HelperService
                 $verifiedToken = $firebase->verifyIdToken($token);
 
                 return $verifiedToken;
-            } else {
-                ApiResponseService::errorResponse('Firebase Configuration Error');
             }
+
+            ApiResponseService::errorResponse('Firebase Configuration Error');
         } catch (FailedToVerifyToken $e) {
             throw $e;
         }
@@ -255,8 +254,7 @@ class HelperService
 
     public static function removeUserFromFirebase($firebaseId)
     {
-        $credentials = config('firebase.projects.app.credentials');
-        $file = !empty($credentials) ? FileService::getFilePath($credentials) : null;
+        $file = app(FirebaseConfigService::class)->getCredentialsPath();
         if (!empty($file) && file_exists($file)) {
             $firebase = (new Factory())
                 ->withServiceAccount($file)
@@ -271,8 +269,7 @@ class HelperService
     public static function updateFirebasePassword($firebaseId, #[\SensitiveParameter] $newPassword)
     {
         try {
-            $credentials = config('firebase.projects.app.credentials');
-            $file = !empty($credentials) ? FileService::getFilePath($credentials) : null;
+            $file = app(FirebaseConfigService::class)->getCredentialsPath();
             if (!empty($file) && file_exists($file)) {
                 $firebase = (new Factory())
                     ->withServiceAccount($file)

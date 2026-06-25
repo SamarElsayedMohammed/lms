@@ -127,7 +127,9 @@ final class CountryDetectionService
     private function getCustomProxyCountry(Request $request): ?string
     {
         $country = $request->header('X-User-Country')
-            ?? $request->header('X-Country');
+            ?? $request->header('X-Country')
+            ?? $request->header('X-Country-Code')
+            ?? $request->header('country');
 
         return $this->validateAndNormalize($country);
     }

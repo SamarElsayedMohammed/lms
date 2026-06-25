@@ -108,22 +108,14 @@ class FirebaseHelper
 
     private static function getAccessToken()
     {
-        // Get the firebase_service_file value from settings
-        $firebaseServiceFile = \App\Models\Setting::where('name', 'firebase_service_file')->value('value');
-        $filePath = null;
+        $filePath = app(\App\Services\FirebaseConfigService::class)->getCredentialsPath();
 
-        if ($firebaseServiceFile) {
-            $filePath = \App\Services\FileService::getFilePath($firebaseServiceFile);
-        }
-        // $filePath = base_path('config/firebase.json');
-
-        if (!$filePath || !file_exists($filePath)) {
-            // Log the error but don't throw exception - make Firebase optional
+        if ($filePath === null || !file_exists($filePath)) {
             Log::warning('Firebase service account file not found - Firebase notifications disabled', [
                 'file_path' => $filePath ?? 'not set',
-                'setting_value' => $firebaseServiceFile,
             ]);
-            return null; // Return null to indicate Firebase is not configured
+
+            return null;
         }
 
         $client = new Client();

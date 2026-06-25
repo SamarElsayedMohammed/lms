@@ -45,7 +45,10 @@ class DemoModeMiddleware
             'api/user-signup', // API user signup
             'api/mobile-registration', // API mobile registration
             'api/user-exists', // API user exists check
-            'api/mobile-reset-password', // API password reset
+            'api/mobile-reset-password', // API password reset (Firebase)
+            'api/forgot-password',
+            'api/verify-reset-code',
+            'api/reset-password',
             'api/download-invoice', // API download invoice
             'api/place_order', // API place order
         ];
