@@ -5193,10 +5193,10 @@ class CourseApiController extends Controller
                 ];
             })->values();
 
-            ApiResponseService::successResponse('User Courses retrieved successfully', $payload);
+            return ApiResponseService::successResponse('User Courses retrieved successfully', $payload);
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getUserCourses Method');
-            ApiResponseService::errorResponse();
+            return ApiResponseService::errorResponse();
         }
     }
 

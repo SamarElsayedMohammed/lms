@@ -162,7 +162,6 @@ final class UserEnrollmentService
             ->where('is_active', true);
     }
 
-    /**
     public function applyUserEnrolledCoursesEagerLoad($query): void
     {
         $query
