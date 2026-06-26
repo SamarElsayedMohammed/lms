@@ -57,6 +57,7 @@ class ApiService
             'razorpay_status',
             'stripe_status',
             'flutterwave_status',
+            'kashier_status',
         ]);
 
         $paymentDetails = [];
@@ -82,6 +83,14 @@ class ApiService
         if (!empty($paymentSettings['flutterwave_status']) && $paymentSettings['flutterwave_status'] == 1) {
             $paymentDetails[$counter] = [
                 'payment_gateway' => 'flutterwave',
+            ];
+            $counter++;
+        }
+
+        // Check Kashier
+        if (!empty($paymentSettings['kashier_status']) && $paymentSettings['kashier_status'] == 1) {
+            $paymentDetails[$counter] = [
+                'payment_gateway' => 'kashier',
             ];
             $counter++;
         }
