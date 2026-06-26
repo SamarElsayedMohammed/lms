@@ -159,6 +159,8 @@ class SettingsController extends Controller
 
                     // Add service file message to be combined with final success message
                     $fileUploadSuccess = true;
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (Exception $e) {
                     throw new Exception('Failed to store Firebase credentials file: ' . $e->getMessage());
                 }
@@ -179,6 +181,8 @@ class SettingsController extends Controller
             }
 
             ResponseService::successResponse($successMessage);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ResponseService::logError($e, 'Error updating Firebase settings');
             ResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
@@ -238,6 +242,8 @@ class SettingsController extends Controller
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
 
             ResponseService::successResponse('Refund settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ResponseService::logError($e, 'Error updating refund settings');
             ResponseService::errorResponse('Error updating refund settings');

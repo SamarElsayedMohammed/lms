@@ -207,6 +207,8 @@ class AffiliateApiController extends Controller
                 'message' => $e->getMessage(),
                 'errors' => ['amount_egp' => [$e->getMessage()]]
             ], 422);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to request withdrawal: ' . $e->getMessage());
         }
@@ -242,6 +244,8 @@ class AffiliateApiController extends Controller
                 'message' => $e->getMessage(),
                 'errors' => ['amount_egp' => [$e->getMessage()]]
             ], 422);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to transfer funds to wallet: ' . $e->getMessage());
         }

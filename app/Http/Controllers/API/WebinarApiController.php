@@ -26,6 +26,8 @@ class WebinarApiController extends Controller
             $webinars = $query->orderBy('start_at', 'asc')->paginate($perPage);
 
             return ApiResponseService::successResponse('Webinars retrieved successfully', $webinars);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve webinars: ' . $e->getMessage());
         }
@@ -65,6 +67,8 @@ class WebinarApiController extends Controller
                 'is_registered' => $is_registered,
                 'registered_count' => $webinar->registrations()->count(),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve webinar: ' . $e->getMessage());
         }
@@ -173,6 +177,8 @@ class WebinarApiController extends Controller
             $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
 
             return ApiResponseService::successResponse('Successfully registered for the webinar.');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to register: ' . $e->getMessage());
         }
@@ -213,6 +219,8 @@ class WebinarApiController extends Controller
                 'meeting_id' => $webinar->meeting_id,
                 'meeting_password' => $webinar->meeting_password
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to join webinar: ' . $e->getMessage());
         }

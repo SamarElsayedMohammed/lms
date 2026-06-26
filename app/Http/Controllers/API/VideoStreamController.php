@@ -86,6 +86,8 @@ final class VideoStreamController extends Controller
             }
 
             return $this->buildUnavailableStreamResponse($courseChapterLecture);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return $this->serverError('Failed to access video stream', exception: $e);
         }
@@ -343,6 +345,8 @@ final class VideoStreamController extends Controller
                     'Access-Control-Allow-Headers' => 'Content-Type, Authorization',
                 ],
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return $this->serverError('Failed to serve video file', exception: $e);
         }

@@ -244,6 +244,8 @@ class SettingsController extends Controller
                 try {
                     date_default_timezone_set($request->timezone);
                     config(['app.timezone' => $request->timezone]);
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     // Log error but don't fail the update
                     \Log::warning('Failed to set timezone: ' . $e->getMessage());
@@ -251,6 +253,8 @@ class SettingsController extends Controller
             }
 
             ResponseService::successResponse('Settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ResponseService::logError($e, 'Error updating system settings');
             ResponseService::errorResponse('Something went wrong');
@@ -393,6 +397,8 @@ class SettingsController extends Controller
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
 
             ResponseService::successResponse('Refund settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ResponseService::logError($e, 'Error updating refund settings');
             ResponseService::errorResponse('Error updating refund settings');
@@ -466,6 +472,8 @@ class SettingsController extends Controller
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
 
             ResponseService::successResponse('Instructor terms and conditions updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ResponseService::logError($e, 'Error updating instructor terms settings');
             ResponseService::errorResponse('Something went wrong');
@@ -550,6 +558,8 @@ class SettingsController extends Controller
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
 
             ResponseService::successResponse('App settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ResponseService::logError($e, 'Error updating app settings');
             ResponseService::errorResponse('Something went wrong');
@@ -562,6 +572,8 @@ class SettingsController extends Controller
             $countryCode = $request->country_code;
             $symbol = Currencies::getSymbol($countryCode);
             ResponseService::successResponse('', $symbol);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ResponseService::logError($e, 'Error getting currency symbol');
             ResponseService::errorResponse('Something went wrong');
@@ -585,6 +597,8 @@ class SettingsController extends Controller
 
                 $admin->assignRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'));
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             // Log error but don't fail the main operation
             ResponseService::logError($e, 'Error assigning instructor permissions to admin');
@@ -818,6 +832,8 @@ class SettingsController extends Controller
             // Remove Cache
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
             ResponseService::successResponse('Payment gateway settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ResponseService::logError($e, 'Error updating payment gateway');
             ResponseService::errorResponse('Something went wrong');
@@ -1101,6 +1117,8 @@ class SettingsController extends Controller
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
 
             return ResponseService::successResponse('Why Choose Us settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -1242,6 +1260,8 @@ class SettingsController extends Controller
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
 
             return ResponseService::successResponse('Become Instructor settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -1410,6 +1430,8 @@ class SettingsController extends Controller
             }
 
             return ResponseService::errorResponse('Update file is required');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ResponseService::errorResponse(exception: $th);
         }

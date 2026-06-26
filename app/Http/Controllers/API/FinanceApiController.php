@@ -433,6 +433,8 @@ class FinanceApiController extends Controller
                 'withdrawal_request' => $withdrawalRequest->load('user:id,name,email'),
                 'remaining_balance' => (float) $user->wallet_balance,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return ApiResponseService::errorResponse('Failed to create withdrawal request: ' . $e->getMessage());
@@ -516,6 +518,8 @@ class FinanceApiController extends Controller
                     'to' => $withdrawalRequests->lastItem(),
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve withdrawal requests: ' . $e->getMessage());
         }
@@ -591,6 +595,8 @@ class FinanceApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Wallet summary retrieved successfully', $summary);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve wallet summary: ' . $e->getMessage());
         }
@@ -732,6 +738,8 @@ class FinanceApiController extends Controller
                     'to' => $withdrawalRequests->lastItem(),
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve withdrawal requests: ' . $e->getMessage());
         }
@@ -809,6 +817,8 @@ class FinanceApiController extends Controller
             // Send notification to user
             try {
                 $withdrawalRequest->user->notify(new \App\Notifications\WithdrawalStatusNotification($withdrawalRequest));
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 \Log::warning('Failed to send withdrawal status notification: ' . $e->getMessage());
             }
@@ -818,6 +828,8 @@ class FinanceApiController extends Controller
                 'old_status' => $oldStatus,
                 'new_status' => $newStatus,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return ApiResponseService::errorResponse('Failed to update withdrawal request status: ' . $e->getMessage());
@@ -913,6 +925,8 @@ class FinanceApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Withdrawal request details retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve withdrawal request details: '
             . $e->getMessage());

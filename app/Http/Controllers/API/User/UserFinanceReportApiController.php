@@ -135,6 +135,8 @@ class UserFinanceReportApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Financial transactions retrieved successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to fetch transactions: ' . $e->getMessage());
         }

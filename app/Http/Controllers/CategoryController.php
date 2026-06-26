@@ -177,6 +177,8 @@ class CategoryController extends Controller
             $category = Category::create($data);
 
             ResponseService::successResponse('Category Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th);
             // طلب AJAX يجب أن يرجع JSON حتى تظهر رسالة الخطأ في الصفحة
@@ -414,6 +416,8 @@ class CategoryController extends Controller
             $category->update($data);
 
             ResponseService::successRedirectResponse('Category Updated Successfully', route('categories.index'));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th);
             ResponseService::errorRedirectResponse('Failed to update category');
@@ -445,6 +449,8 @@ class CategoryController extends Controller
             $category->delete();
             DB::commit();
             ResponseService::successResponse('Category deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'CategoryController -> destroy');
@@ -461,6 +467,8 @@ class CategoryController extends Controller
             $category->restore();
             DB::commit();
             ResponseService::successResponse('Category Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Category Controller -> Restore Method');
@@ -480,6 +488,8 @@ class CategoryController extends Controller
             $category->forceDelete();
             DB::commit();
             ResponseService::successResponse('Category Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Catgeory Controller -> Trash mehtos');
@@ -690,6 +700,8 @@ class CategoryController extends Controller
                                 'rows_affected' => $updated,
                             ]);
                         }
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (\Exception $e) {
                         $failedCount++;
                         Log::error('Exception updating category sequence', [
@@ -706,6 +718,8 @@ class CategoryController extends Controller
                     'updated_count' => $updatedCount,
                     'failed_count' => $failedCount,
                 ]);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $e) {
                 DB::rollBack();
                 Log::error('Category order update transaction failed', [
@@ -717,6 +731,8 @@ class CategoryController extends Controller
 
             Log::info('Category order update completed successfully');
             ResponseService::successResponse('Order Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             Log::error('Category order update failed', [
                 'error' => $th->getMessage(),

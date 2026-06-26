@@ -129,6 +129,8 @@ class SliderApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Sliders fetched successfully', $sliderData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get sliders');
             return ApiResponseService::errorResponse('Failed to get sliders ' . $e->getMessage());

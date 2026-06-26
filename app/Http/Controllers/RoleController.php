@@ -84,6 +84,8 @@ class RoleController extends Controller
             $role->syncPermissions($request->input('permission'));
             DB::commit();
             ResponseService::successResponse(trans('Role Created Successfully'));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             DB::rollBack();
             ResponseService::logErrorRedirect($e, 'Role Controller -> store');
@@ -206,6 +208,8 @@ class RoleController extends Controller
             $role->syncPermissions($request->input('permission'));
             DB::commit();
             ResponseService::successResponse('Data Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'RoleController -> update');
@@ -233,6 +237,8 @@ class RoleController extends Controller
                 $role->delete();
                 ResponseService::successResponse('Data Deleted Successfully');
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             DB::rollBack();
             ResponseService::logErrorRedirect($e);

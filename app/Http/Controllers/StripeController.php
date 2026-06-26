@@ -124,6 +124,8 @@ class StripeController extends Controller
                     CommissionService::calculateCommissions($order);
                     CommissionService::markCommissionsAsPaid($order);
                     Log::info("Commission processing completed for Order: {$order->id}");
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     Log::error("Commission processing failed for Order: {$order->id}", [
                         'error' => $e->getMessage(),
@@ -167,6 +169,8 @@ class StripeController extends Controller
             }
 
             return redirect($this->getBaseUrl() . '/payment-status?status=payment_failed');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Stripe callback error: ' . $e->getMessage());
             ApiResponseService::logErrorResponse($e, 'Stripe callback error');
@@ -223,6 +227,8 @@ class StripeController extends Controller
             }
 
             return redirect($this->getBaseUrl() . '/payment-status?status=cancelled');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Stripe cancel error: ' . $e->getMessage());
             ApiResponseService::logErrorResponse($e, 'Stripe cancel error');

@@ -62,6 +62,8 @@ class HomeApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Counts retrieved successfully.', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getCounts method');
             return ApiResponseService::errorResponse();
@@ -105,6 +107,8 @@ class HomeApiController extends Controller
                 'Categories with active course count retrieved successfully.',
                 $categories,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getCategoriesWithCourseCount method');
             return ApiResponseService::errorResponse();

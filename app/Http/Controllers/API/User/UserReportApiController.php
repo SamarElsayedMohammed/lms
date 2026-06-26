@@ -45,6 +45,8 @@ class UserReportApiController extends Controller
             $summary['open_courses'] = max(0, $summary['total_enrolled_courses'] - $summary['completed_courses']);
 
             return ApiResponseService::successResponse('Learning stats retrieved successfully', $summary);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve learning stats: ' . $e->getMessage());
         }
@@ -89,6 +91,8 @@ class UserReportApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Comprehensive user report generated successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate report: ' . $e->getMessage());
         }
@@ -383,6 +387,8 @@ class UserReportApiController extends Controller
                 });
 
             return ApiResponseService::successResponse('User certificates retrieved successfully', $certificates);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to fetch certificates: ' . $e->getMessage());
         }

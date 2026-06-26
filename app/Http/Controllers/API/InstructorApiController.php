@@ -339,6 +339,8 @@ class InstructorApiController extends Controller
             /***************************************************************************************************** */
 
             ApiResponseService::successResponse('Instructor details updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to update instructor details');
             ApiResponseService::errorResponse('Failed to update instructor details');
@@ -433,6 +435,8 @@ class InstructorApiController extends Controller
                             $message->to($user->email, $user->name)->subject('Team Invitation - ' . $appName);
                         },
                     );
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to send team invitation email: ' . $e->getMessage());
                 }
@@ -441,6 +445,8 @@ class InstructorApiController extends Controller
                 try {
                     $notification = new TeamInvitationNotification($loggedInUser, $existingTeamMember);
                     $user->notify($notification);
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to send team invitation notification: '
                     . $e->getMessage(), [
@@ -483,6 +489,8 @@ class InstructorApiController extends Controller
                         $message->to($user->email, $user->name)->subject('Team Invitation - ' . $appName);
                     },
                 );
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error('Failed to send team invitation email: ' . $e->getMessage());
 
@@ -528,6 +536,8 @@ class InstructorApiController extends Controller
                             'user_id' => $user->id,
                             'notification_id' => $maxId + 1,
                         ]);
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (\Exception $insertError) {
                         \Illuminate\Support\Facades\Log::error('Failed to insert notification directly: '
                         . $insertError->getMessage(), [
@@ -542,6 +552,8 @@ class InstructorApiController extends Controller
                         'notification_id' => $existingNotification->id,
                     ]);
                 }
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error('Failed to send team invitation notification: '
                 . $e->getMessage(), [
@@ -558,6 +570,8 @@ class InstructorApiController extends Controller
             return ApiResponseService::successResponse(
                 'Invitation sent successfully. User will be added to team after accepting the invitation.',
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to add team member');
             return ApiResponseService::errorResponse('Failed to add team member');
@@ -646,6 +660,8 @@ class InstructorApiController extends Controller
                 if ($instructorUser) {
                     try {
                         $instructorUser->notify(new TeamInvitationResponseNotification($user, 'accepted', $teamMember));
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (Exception $e) {
                         Log::error('Failed to send team invitation acceptance notification: ' . $e->getMessage());
                     }
@@ -665,6 +681,8 @@ class InstructorApiController extends Controller
                 if ($instructorUser) {
                     try {
                         $instructorUser->notify(new TeamInvitationResponseNotification($user, 'rejected', $teamMember));
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (Exception $e) {
                         Log::error('Failed to send team invitation rejection notification: ' . $e->getMessage());
                     }
@@ -672,6 +690,8 @@ class InstructorApiController extends Controller
 
                 return ApiResponseService::successResponse('Team invitation rejected successfully.');
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to process team invitation');
             return ApiResponseService::errorResponse('Failed to process team invitation');
@@ -745,6 +765,8 @@ class InstructorApiController extends Controller
                 'invitations' => $invitations,
                 'total' => $invitations->count(),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get pending invitations');
             return ApiResponseService::errorResponse('Failed to get pending invitations');
@@ -841,6 +863,8 @@ class InstructorApiController extends Controller
             }
 
             ApiResponseService::successResponse('Team member removed successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to remove team member');
             ApiResponseService::errorResponse('Failed to remove team member');
@@ -1155,6 +1179,8 @@ class InstructorApiController extends Controller
             $paginatedResponse = $this->replacePaginationFormat($paginatedData, $page, $perPage, $total);
 
             return ApiResponseService::successResponse('Team members fetched successfully', $paginatedResponse);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get team members');
             return ApiResponseService::errorResponse('Failed to get team members' . $e);
@@ -1255,6 +1281,8 @@ class InstructorApiController extends Controller
                 ]);
 
             return ApiResponseService::successResponse('Invitors fetched successfully', $invitors);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get invitors');
             return ApiResponseService::errorResponse('Failed to get invitors' . $e);
@@ -1874,6 +1902,8 @@ class InstructorApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Instructor details fetched successfully', $instructorData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get instructor details');
             return ApiResponseService::errorResponse('Failed to get instructor details' . $e->getMessage());
@@ -1956,6 +1986,8 @@ class InstructorApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Promo Code created successfully', $promoCode);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Instructor promo code creation failed');
             return ApiResponseService::errorResponse('Failed to create promo code');
@@ -2098,6 +2130,8 @@ class InstructorApiController extends Controller
                 });
 
             return ApiResponseService::successResponse('Promo codes retrieved successfully', $promoCodes);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to retrieve instructor promo codes');
             return ApiResponseService::errorResponse('Failed to retrieve promo codes');
@@ -2133,6 +2167,8 @@ class InstructorApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Promo code retrieved successfully', $promoCode);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to retrieve promo code');
             return ApiResponseService::errorResponse('Failed to retrieve promo code');
@@ -2225,6 +2261,8 @@ class InstructorApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Promo Code updated successfully', $promoCode);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Instructor promo code update failed');
             return ApiResponseService::errorResponse('Failed to update promo code');
@@ -2265,6 +2303,8 @@ class InstructorApiController extends Controller
             $promoCode->delete();
 
             return ApiResponseService::successResponse('Promo Code deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Instructor promo code deletion failed');
             return ApiResponseService::errorResponse('Failed to delete promo code');
@@ -2329,6 +2369,8 @@ class InstructorApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Commissions retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get instructor commissions');
             return ApiResponseService::errorResponse('Failed to get instructor commissions');
@@ -2403,6 +2445,8 @@ class InstructorApiController extends Controller
                 ]);
 
             return ApiResponseService::successResponse('Instructor courses fetched successfully', $courses);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to fetch instructor courses');
             return ApiResponseService::errorResponse('Something went wrong while fetching instructor courses.');
@@ -2504,6 +2548,8 @@ class InstructorApiController extends Controller
                 'certificate_enabled' => $course->certificate_enabled,
                 'certificate_fee' => $course->certificate_fee,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to update course status');
             return ApiResponseService::errorResponse('Something went wrong while updating course status.');
@@ -2613,6 +2659,8 @@ class InstructorApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Wallet history retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to retrieve wallet history');
             return ApiResponseService::errorResponse('Something went wrong while retrieving wallet history.');
@@ -2839,6 +2887,8 @@ class InstructorApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Assignment submissions retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get assignment submissions');
             return ApiResponseService::errorResponse('Failed to retrieve assignment submissions' . $e);
@@ -2958,6 +3008,8 @@ class InstructorApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Assignment submission updated successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to update assignment submission');
             return ApiResponseService::errorResponse('Failed to update assignment submission');
@@ -3042,6 +3094,8 @@ class InstructorApiController extends Controller
                 'Assignment submission details retrieved successfully',
                 $response,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get assignment submission details');
             return ApiResponseService::errorResponse('Failed to retrieve assignment submission details');
@@ -3170,6 +3224,8 @@ class InstructorApiController extends Controller
             $categoryTree = $buildTree(null);
 
             return ApiResponseService::successResponse('Categories retrieved successfully', $categoryTree);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'InstructorApiController -> getCategories method');
             return ApiResponseService::errorResponse('Failed to retrieve categories');

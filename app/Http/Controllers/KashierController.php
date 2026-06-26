@@ -177,6 +177,8 @@ final class KashierController extends Controller
             // Send notification to user
             try {
                 $user->notify(new \App\Notifications\SubscriptionExpiryNotification($subscription, (int)$plan->getDurationDays()));
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 Log::warning('Failed to send subscription notification: ' . $e->getMessage());
             }
@@ -191,6 +193,8 @@ final class KashierController extends Controller
             $this->saveCreditCardIfPresent($user, $data);
 
             return $this->respond($request, 'OK', 200, true);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: failed to create subscription', [
                 'message' => $e->getMessage(),
@@ -277,6 +281,8 @@ final class KashierController extends Controller
             $this->saveCreditCardIfPresent($user, $data);
             
             return $this->respond($request, 'OK', 200, true);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: wallet top-up failed', ['message' => $e->getMessage(), 'orderId' => $orderId]);
             return $this->respond($request, 'Internal Server Error', 500, false);
@@ -355,6 +361,8 @@ final class KashierController extends Controller
 
             return $this->respond($request, 'OK', 200, true);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: failed to activate webinar registration', [
                 'message' => $e->getMessage(),
@@ -471,6 +479,8 @@ final class KashierController extends Controller
                 'last_four' => $lastFour
             ]);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: Failed to auto-save credit card', [
                 'user_id' => $user->id,

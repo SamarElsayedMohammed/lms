@@ -55,6 +55,7 @@ final class ApiResponseService
 
     /**
      * @param array<string, mixed> $customData
+     * @param array<string, string> $headers
      */
     public static function successResponse(
         string|null $message = 'Success',
@@ -62,6 +63,7 @@ final class ApiResponseService
         array $customData = [],
         int|null $code = null,
         string|null $redirectUrl = null,
+        array $headers = [],
     ): void {
         $code ??= (int) config('constants.RESPONSE_CODE.SUCCESS');
         $response = [
@@ -76,6 +78,10 @@ final class ApiResponseService
         }
 
         $jsonResponse = response()->json([...$response, ...$customData], $code);
+
+        foreach ($headers as $headerName => $headerValue) {
+            $jsonResponse->header($headerName, $headerValue);
+        }
 
         // Preserve CORS headers when raising the response from a service.
         try {
@@ -148,15 +154,33 @@ final class ApiResponseService
     }
 
     /**
-     * Log an exception to the system logs
+     * Log an exception to the system logs.
+     * Intentional API responses raised via HttpResponseException are re-thrown.
      */
     public static function logErrorResponse(Throwable $e, string $logMessage = 'Error occurred'): void
     {
+        if ($e instanceof HttpResponseException) {
+            throw $e;
+        }
+
         Log::error($logMessage . ': ' . $e->getMessage(), [
             'file' => $e->getFile(),
             'line' => $e->getLine(),
             'trace' => $e->getTraceAsString(),
         ]);
+    }
+
+    /**
+     * Use in controller catch blocks: rethrow success/validation responses, otherwise return API error.
+     */
+    public static function fail(Throwable $e, string $message, mixed $data = null): void
+    {
+        if ($e instanceof HttpResponseException) {
+            throw $e;
+        }
+
+        self::logErrorResponse($e, $message);
+        self::errorResponse($message, $data, exception: $e);
     }
 
     public static function unauthorizedResponse(string $message = 'Unauthorized.'): JsonResponse

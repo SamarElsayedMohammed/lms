@@ -191,6 +191,8 @@ class InstructorController extends Controller
             }
 
             return ResponseService::successResponse('Status updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -607,6 +609,8 @@ class InstructorController extends Controller
             DB::commit();
 
             return ResponseService::successResponse('Withdrawal request status updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
 

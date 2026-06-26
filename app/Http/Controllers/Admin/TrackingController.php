@@ -492,6 +492,8 @@ class TrackingController extends Controller
                 'message' => 'Chapter progress updated successfully',
                 'data' => $tracking,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -527,6 +529,8 @@ class TrackingController extends Controller
                     'progress' => $progressData,
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

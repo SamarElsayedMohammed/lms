@@ -58,6 +58,8 @@ final class PopupCampaignApiController extends Controller
                     'ends_at'        => $campaign->ends_at?->toDateTimeString(),
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve popup campaign: ' . $e->getMessage());
         }

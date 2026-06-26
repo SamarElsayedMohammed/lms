@@ -107,7 +107,7 @@ final class SubscriptionApiController extends Controller
             });
 
             $responseData = [
-                'plans' => $plans,
+                'plans' => $plans->values()->all(),
                 'detected_country' => $countryCode,
                 'pagination' => [
                     'current_page' => $paginator->currentPage(),
@@ -123,12 +123,17 @@ final class SubscriptionApiController extends Controller
                 'endpoint' => $request->path(),
                 'detected_country' => $countryCode,
                 'plans_count' => $plans->count(),
-                'response_data' => $responseData
             ]);
 
-            return ApiResponseService::successResponse('Subscription plans retrieved successfully', $responseData)->header('Cache-Control', 'private, no-store');
+            ApiResponseService::successResponse(
+                'Subscription plans retrieved successfully',
+                $responseData,
+                headers: ['Cache-Control' => 'private, no-store'],
+            );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve subscription plans: ' . $e->getMessage());
+            ApiResponseService::fail($e, 'Failed to retrieve subscription plans');
         }
     }
 
@@ -213,8 +218,10 @@ final class SubscriptionApiController extends Controller
                 'subscriptions'   => $formattedSubscriptions,
                 'subscription'    => $formattedSubscriptions->first(),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve subscription status: ' . $e->getMessage());
+            ApiResponseService::fail($e, 'Failed to retrieve subscription status');
         }
     }
 
@@ -490,8 +497,10 @@ final class SubscriptionApiController extends Controller
                     'gateway_amount' => $gatewayAmount,
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to create subscription: ' . $e->getMessage());
+            ApiResponseService::fail($e, 'Failed to create subscription');
         }
     }
 
@@ -726,8 +735,10 @@ final class SubscriptionApiController extends Controller
 
         } catch (\InvalidArgumentException $e) {
             return ApiResponseService::errorResponse($e->getMessage(), [], 400);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to renew subscription: ' . $e->getMessage());
+            ApiResponseService::fail($e, 'Failed to renew subscription');
         }
     }
 
@@ -767,8 +778,10 @@ final class SubscriptionApiController extends Controller
             }
 
             return ApiResponseService::errorResponse('فشل إلغاء الاشتراك.', [], 500);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to cancel subscription: ' . $e->getMessage());
+            ApiResponseService::fail($e, 'Failed to cancel subscription');
         }
     }
 
@@ -851,8 +864,10 @@ final class SubscriptionApiController extends Controller
                     'to' => $paginator->lastItem(),
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve payment history: ' . $e->getMessage());
+            ApiResponseService::fail($e, 'Failed to retrieve payment history');
         }
     }
 
@@ -887,8 +902,10 @@ final class SubscriptionApiController extends Controller
             return ApiResponseService::successResponse('تم تحديث الإعدادات بنجاح.', [
                 'auto_renew' => $subscription->auto_renew,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to update settings: ' . $e->getMessage());
+            ApiResponseService::fail($e, 'Failed to update settings');
         }
     }
 }

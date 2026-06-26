@@ -109,6 +109,8 @@ class CategoryAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess(__('Category created successfully'), $category->fresh(), 201);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to create category') . ': ' . $e->getMessage(), 500);
@@ -168,6 +170,8 @@ class CategoryAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess(__('Category updated successfully'), $category->fresh());
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update category') . ': ' . $e->getMessage(), 500);
@@ -223,6 +227,8 @@ class CategoryAdminApiController extends AdminCrudApiController
         try {
             $category->delete();
             return $this->jsonSuccess(__('Category deleted successfully'));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return $this->jsonError(__('Failed to delete category') . ': ' . $e->getMessage(), 500);
         }
@@ -269,6 +275,8 @@ class CategoryAdminApiController extends AdminCrudApiController
             }
             DB::commit();
             return $this->jsonSuccess(__('Order updated successfully'));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update order') . ': ' . $e->getMessage(), 500);
@@ -299,6 +307,8 @@ class CategoryAdminApiController extends AdminCrudApiController
                 'id' => $category->id,
                 'is_featured' => $category->is_featured,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return $this->jsonError(__('Failed to toggle category featured status: ') . $e->getMessage(), 500);
         }

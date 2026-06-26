@@ -90,6 +90,8 @@ class FaqAdminApiController extends AdminCrudApiController
             $faq = Faq::create($data);
             DB::commit();
             return $this->jsonSuccess(__('FAQ created successfully'), $faq, 201);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to create FAQ') . ': ' . $e->getMessage(), 500);
@@ -172,6 +174,8 @@ class FaqAdminApiController extends AdminCrudApiController
             }
             DB::commit();
             return $this->jsonSuccess(__('FAQ order updated successfully'));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update FAQ order') . ': ' . $e->getMessage(), 500);

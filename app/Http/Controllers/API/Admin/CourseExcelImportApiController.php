@@ -35,6 +35,8 @@ class CourseExcelImportApiController extends AdminCrudApiController
             $stats = $this->courseExcelImportService->import($path, $userId, $categoryId, $languageId);
         } catch (\InvalidArgumentException $e) {
             return $this->jsonError($e->getMessage(), 422);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             report($e);
 

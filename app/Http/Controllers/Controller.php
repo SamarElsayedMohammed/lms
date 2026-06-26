@@ -39,6 +39,8 @@ class Controller extends BaseController
             }
             DB::table($request->table)->upsert($data, ['id'], [(string) $column]);
             ResponseService::successResponse('Order Changed Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th);
             ResponseService::errorResponse();
@@ -109,6 +111,8 @@ class Controller extends BaseController
                 }
             }
             ResponseService::successResponse('Status Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th);
             ResponseService::errorResponse();
@@ -128,6 +132,8 @@ class Controller extends BaseController
             echo 'window.languageLabels = ' . File::get($files);
 
             exit();
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::errorResponse($th);
         }

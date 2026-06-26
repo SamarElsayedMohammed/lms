@@ -60,6 +60,8 @@ class ReportsApiController extends Controller
             };
 
             return ApiResponseService::successResponse('Sales report generated successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate sales report: ' . $e->getMessage());
         }
@@ -121,6 +123,8 @@ class ReportsApiController extends Controller
             };
 
             return ApiResponseService::successResponse('Commission report generated successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate commission report: ' . $e->getMessage());
         }
@@ -164,6 +168,8 @@ class ReportsApiController extends Controller
             };
 
             return ApiResponseService::successResponse('Course report generated successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate course report: ' . $e->getMessage());
         }
@@ -203,6 +209,8 @@ class ReportsApiController extends Controller
             };
 
             return ApiResponseService::successResponse('Instructor report generated successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate instructor report: ' . $e->getMessage());
         }
@@ -244,6 +252,8 @@ class ReportsApiController extends Controller
             };
 
             return ApiResponseService::successResponse('Enrollment report generated successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate enrollment report: ' . $e->getMessage());
         }
@@ -280,6 +290,8 @@ class ReportsApiController extends Controller
             };
 
             return ApiResponseService::successResponse('Revenue report generated successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate revenue report: ' . $e->getMessage());
         }

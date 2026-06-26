@@ -466,6 +466,8 @@ class CoursesController extends Controller
             // Commit Transaction
             DB::commit();
             ResponseService::successResponse('Course Created Successfully', ['course_id' => $course->id]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Course Controller -> Store Method');
@@ -728,6 +730,8 @@ class CoursesController extends Controller
             DB::commit();
 
             return ResponseService::successResponse('Course approval updated');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Course Controller -> Approve Method');
@@ -1157,6 +1161,8 @@ class CoursesController extends Controller
 
             DB::commit();
             ResponseService::successResponse('Course Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Course Controller -> Update Method');
@@ -1193,6 +1199,8 @@ class CoursesController extends Controller
             DB::commit();
 
             return ResponseService::successResponse('Course Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Course Controller -> Destroy Method');
@@ -1213,6 +1221,8 @@ class CoursesController extends Controller
             $course->restore();
             DB::commit();
             ResponseService::successResponse('Course Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Course Controller -> Restore Method');
@@ -1237,6 +1247,8 @@ class CoursesController extends Controller
             $course->forceDelete();
             DB::commit();
             ResponseService::successResponse('Course Permanently Deleted');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Course Controller -> Trash Method');
@@ -1266,6 +1278,8 @@ class CoursesController extends Controller
         try {
             CourseLearning::findOrFail($id)->delete();
             ResponseService::successResponse('Course Learning Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             ResponseService::logErrorRedirect($th, 'Course Controller -> Destroy Learnings Method');
             ResponseService::errorResponse();
@@ -1294,6 +1308,8 @@ class CoursesController extends Controller
         try {
             CourseRequirement::findOrFail($id)->delete();
             ResponseService::successResponse('Course Requirement Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             ResponseService::logErrorRedirect($th, 'Course Controller -> Destroy Requirements Method');
             ResponseService::errorResponse();
@@ -1338,6 +1354,8 @@ class CoursesController extends Controller
             }
             DB::commit();
             ResponseService::successResponse('Language Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Languages Controller -> Store Method');
@@ -1436,6 +1454,8 @@ class CoursesController extends Controller
             $language->update($data);
             DB::commit();
             ResponseService::successResponse('Language Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Languages Controller -> Update Method');
@@ -1451,6 +1471,8 @@ class CoursesController extends Controller
             CourseLanguage::findOrFail($id)->delete();
             DB::commit();
             ResponseService::successResponse('Language Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Languages Controller -> Destroy Method');
@@ -1466,6 +1488,8 @@ class CoursesController extends Controller
             CourseLanguage::withTrashed()->findOrFail($id)->restore();
             DB::commit();
             ResponseService::successResponse('Language Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Languages Controller -> Restore Method');
@@ -1481,6 +1505,8 @@ class CoursesController extends Controller
             CourseLanguage::withTrashed()->findOrFail($id)->forceDelete();
             DB::commit();
             ResponseService::successResponse('Language Permanently Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Languages Controller -> Trash Method');
@@ -1529,6 +1555,8 @@ class CoursesController extends Controller
             }
             DB::commit();
             ResponseService::successResponse('Tag Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Tags Controller -> Store Method');
@@ -1635,6 +1663,8 @@ class CoursesController extends Controller
             $tag->update($data);
             DB::commit();
             ResponseService::successResponse('Tag Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Tags Controller -> Update Method');
@@ -1653,6 +1683,8 @@ class CoursesController extends Controller
             Tag::findOrFail($id)->delete();
             DB::commit();
             ResponseService::successResponse('Tag Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Tags Controller -> Destroy Method');
@@ -1668,6 +1700,8 @@ class CoursesController extends Controller
             Tag::withTrashed()->findOrFail($id)->restore();
             DB::commit();
             ResponseService::successResponse('Tag Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Tags Controller -> Restore Method');
@@ -1683,6 +1717,8 @@ class CoursesController extends Controller
             Tag::withTrashed()->findOrFail($id)->forceDelete();
             DB::commit();
             ResponseService::successResponse('Tag Permanently Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'Tags Controller -> Trash Method');

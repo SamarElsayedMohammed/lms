@@ -123,6 +123,8 @@ class RefundApiController extends Controller
                 'Refund request submitted successfully. It will be reviewed by our team',
                 $refundRequest,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -181,6 +183,8 @@ class RefundApiController extends Controller
                 });
 
             return ApiResponseService::successResponse('Refund requests retrieved successfully', $refunds);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -286,6 +290,8 @@ class RefundApiController extends Controller
                 'purchase_date' => $purchaseDate->format('Y-m-d H:i:s'),
                 'refund_period_days' => $refundPeriod,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -374,6 +380,8 @@ class RefundApiController extends Controller
                 DB::commit();
                 return ApiResponseService::successResponse('Refund request rejected');
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
@@ -394,6 +402,8 @@ class RefundApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Refund settings retrieved successfully', $formattedSettings);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -430,6 +440,8 @@ class RefundApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Refund settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -472,6 +484,8 @@ class RefundApiController extends Controller
                 });
 
             return ApiResponseService::successResponse('Refund requests retrieved successfully', $refunds);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }

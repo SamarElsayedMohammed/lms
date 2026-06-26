@@ -135,6 +135,8 @@ class CourseDiscussionApiController extends Controller
 
             // Return standard Laravel pagination response with additional data
             return ApiResponseService::successResponse('Course discussions fetched successfully', $discussions);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get course discussions');
             return ApiResponseService::errorResponse('Failed to get course discussions');
@@ -205,6 +207,8 @@ class CourseDiscussionApiController extends Controller
             });
 
             return ApiResponseService::successResponse('Discussion posted successfully', $discussion);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $th) {
             return ApiResponseService::errorResponse($th->getMessage());
         }

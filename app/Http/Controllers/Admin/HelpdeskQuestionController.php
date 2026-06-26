@@ -191,6 +191,8 @@ class HelpdeskQuestionController extends Controller
             $question->update($validator->validated());
 
             return ResponseService::successResponse('Question updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'HelpdeskQuestionController -> update()');
             return ResponseService::errorResponse();
@@ -205,6 +207,8 @@ class HelpdeskQuestionController extends Controller
             $question->delete();
 
             return ResponseService::successResponse('Question deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'HelpdeskQuestionController -> destroy()');
             return ResponseService::errorResponse();
@@ -219,6 +223,8 @@ class HelpdeskQuestionController extends Controller
             $question->restore();
 
             return ResponseService::successResponse('Question restored successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'HelpdeskQuestionController -> restore()');
             return ResponseService::errorResponse('Failed to restore question');
@@ -233,6 +239,8 @@ class HelpdeskQuestionController extends Controller
             $question->forceDelete();
 
             return ResponseService::successResponse('Question permanently deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'HelpdeskQuestionController -> trash()');
             return ResponseService::errorResponse('Failed to permanently delete question');

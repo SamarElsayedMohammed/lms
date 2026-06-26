@@ -59,6 +59,8 @@ class CartApiController extends Controller
             $cartData = $this->formatUserCart($user, $request);
 
             return ApiResponseService::successResponse('Cart fetched successfully', $cartData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get cart');
 
@@ -166,6 +168,8 @@ class CartApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('Course added to cart', $this->formatUserCart($user, $request));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to add course to cart');
 
@@ -292,6 +296,8 @@ class CartApiController extends Controller
             $user->refresh();
 
             return ApiResponseService::successResponse($message, $this->formatUserCart($user, $request));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to apply promo code');
 
@@ -314,6 +320,8 @@ class CartApiController extends Controller
                 $user,
                 $request,
             ));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to remove promo codes');
 
@@ -350,6 +358,8 @@ class CartApiController extends Controller
                 $user,
                 $request,
             ));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to remove course from cart');
 
@@ -372,6 +382,8 @@ class CartApiController extends Controller
                 $user,
                 $request,
             ));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to clear cart');
 

@@ -111,8 +111,9 @@ class CountryController extends Controller
             Country::create($data);
 
             return ResponseService::successResponse(__('Country created successfully'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -145,8 +146,9 @@ class CountryController extends Controller
             $country->update($data);
 
             return ResponseService::successResponse(__('Country updated successfully'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -158,8 +160,9 @@ class CountryController extends Controller
         try {
             $country->delete();
             return ResponseService::successResponse(__('Country deleted successfully'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -176,8 +179,9 @@ class CountryController extends Controller
                 $country->status ? __('Country activated') : __('Country deactivated'),
             ['status' => $country->status]
             );
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }

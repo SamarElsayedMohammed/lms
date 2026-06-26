@@ -135,8 +135,9 @@ final class SubscriptionPlanController extends Controller
             DB::commit();
 
             return ResponseService::successResponse(__('Subscription plan created successfully'), $plan->load('countryPrices'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             DB::rollBack();
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -260,8 +261,9 @@ final class SubscriptionPlanController extends Controller
             DB::commit();
 
             return ResponseService::successResponse(__('Subscription plan updated successfully'), $subscriptionPlan->fresh('countryPrices'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             DB::rollBack();
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -274,8 +276,9 @@ final class SubscriptionPlanController extends Controller
         try {
             $subscriptionPlan->delete();
             return ResponseService::successResponse(__('Subscription plan deleted successfully'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -288,8 +291,9 @@ final class SubscriptionPlanController extends Controller
             $plan = SubscriptionPlan::onlyTrashed()->findOrFail($id);
             $plan->restore();
             return ResponseService::successResponse(__('Subscription plan restored successfully'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -302,8 +306,9 @@ final class SubscriptionPlanController extends Controller
             $plan = SubscriptionPlan::onlyTrashed()->findOrFail($id);
             $plan->forceDelete();
             return ResponseService::successResponse(__('Subscription plan permanently deleted'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -321,8 +326,9 @@ final class SubscriptionPlanController extends Controller
             $plan->sort_order = (int)$request->sort_order;
             $plan->save();
             return ResponseService::successResponse(__('Sort order updated'));
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }
@@ -339,8 +345,9 @@ final class SubscriptionPlanController extends Controller
                 $subscriptionPlan->is_active ? __('Plan activated') : __('Plan deactivated'),
             ['is_active' => $subscriptionPlan->is_active]
             );
-        }
-        catch (Exception $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
     }

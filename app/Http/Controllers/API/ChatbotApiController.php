@@ -311,6 +311,8 @@ class ChatbotApiController extends Controller
                 'status' => 'success',
                 'reply' => $reply,
             ];
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             $debugData['test_connection'] = [
                 'status' => 'failed',

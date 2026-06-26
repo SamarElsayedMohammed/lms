@@ -98,6 +98,8 @@ class CustomFormFieldController extends Controller
             }
 
             ResponseService::successResponse('Data Stored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'CustomFormFieldController -> Store method');
             ResponseService::errorResponse('An error occurred while storing Tfhe data.');
@@ -272,6 +274,8 @@ class CustomFormFieldController extends Controller
             }
 
             ResponseService::successResponse('Data Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'CustomFormFieldController -> Update method');
             ResponseService::errorResponse('An error occurred while updating the data.');
@@ -288,6 +292,8 @@ class CustomFormFieldController extends Controller
             $customFormField = CustomFormField::findOrFail($id);
             $customFormField->delete();
             ResponseService::successResponse('Data Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'CustomFormFieldController -> Destroy method');
             ResponseService::errorResponse();
@@ -313,6 +319,8 @@ class CustomFormFieldController extends Controller
                 ]);
             }
             ResponseService::successResponse('Data Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'CustomFormFieldController -> Update sort_order method');
             ResponseService::errorResponse();
@@ -329,6 +337,8 @@ class CustomFormFieldController extends Controller
             $formField = CustomFormField::onlyTrashed()->findOrFail($id);
             $formField->restore();
             ResponseService::successResponse('Data Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'CustomFormFieldController -> Restore method');
             ResponseService::errorResponse();
@@ -345,6 +355,8 @@ class CustomFormFieldController extends Controller
             $formField = CustomFormField::onlyTrashed()->findOrFail($id);
             $formField->forceDelete();
             ResponseService::successResponse('Data Deleted Permanently');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'CustomFormFieldController -> Trash method');
             ResponseService::errorResponse();
@@ -358,6 +370,8 @@ class CustomFormFieldController extends Controller
             $option = CustomFormFieldOption::findOrFail($id);
             $option->delete(); // soft delete
             ResponseService::successResponse('Option Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'CustomFormFieldController -> deleteOption');
             ResponseService::errorResponse();

@@ -244,6 +244,8 @@ class CertificateController extends Controller
                     ->withInput();
             }
             return ResponseService::errorResponse('Failed to create certificate: ' . $e->getMessage());
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ResponseService::errorResponse('Failed to create certificate: ' . $e->getMessage());
         }
@@ -494,6 +496,8 @@ class CertificateController extends Controller
                 ], 500);
             }
             return ResponseService::errorResponse('Failed to update certificate: ' . $e->getMessage());
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             // Check if this is an AJAX request
             if (request()->ajax()) {
@@ -525,6 +529,8 @@ class CertificateController extends Controller
             $certificate->delete();
 
             return ResponseService::successResponse('Certificate deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ResponseService::errorResponse('Failed to delete certificate: ' . $e->getMessage());
         }
@@ -540,6 +546,8 @@ class CertificateController extends Controller
 
             $status = $certificate->is_active ? 'activated' : 'deactivated';
             return ResponseService::successResponse("Certificate {$status} successfully");
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ResponseService::errorResponse('Failed to update certificate status: ' . $e->getMessage());
         }
@@ -681,6 +689,8 @@ class CertificateController extends Controller
                 'message' => 'Certificate design updated successfully',
                 'data' => $certificate,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

@@ -84,6 +84,8 @@ class CourseFaqAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess('Course FAQ created successfully', $faq, 201);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError('Failed to create FAQ: ' . $e->getMessage(), 500);
@@ -176,6 +178,8 @@ class CourseFaqAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess('Course FAQ order updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError('Failed to update order: ' . $e->getMessage(), 500);

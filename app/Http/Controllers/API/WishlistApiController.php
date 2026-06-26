@@ -46,6 +46,8 @@ class WishlistApiController extends Controller
             );
 
             return ApiResponseService::successResponse('Wishlist fetched successfully', $wishlist);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Wishlist Error: ' . $e->getMessage(), [
                 'exception' => $e,
@@ -105,6 +107,8 @@ class WishlistApiController extends Controller
                 'is_wishlisted' => $status === 1,
                 'wishlist_count' => Wishlist::where('user_id', $user->id)->count(),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to update wishlist');
             return ApiResponseService::errorResponse('Failed to update wishlist');

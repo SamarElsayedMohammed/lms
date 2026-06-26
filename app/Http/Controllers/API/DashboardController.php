@@ -94,6 +94,8 @@ class DashboardController extends Controller
                 [],
                 JSON_UNESCAPED_UNICODE,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Dashboard API Error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
@@ -194,6 +196,8 @@ class DashboardController extends Controller
                 ],
             ], 200, [], JSON_UNESCAPED_UNICODE);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Dashboard Charts API Error: ' . $e->getMessage());
             return response()->json([
@@ -426,6 +430,8 @@ class DashboardController extends Controller
                     ],
                 ],
             ];
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Dashboard Financial Stats Error: ' . $e->getMessage());
             return $this->getDefaultFinancialStats();
@@ -828,6 +834,8 @@ class DashboardController extends Controller
                 'count' => $item->count,
                 'total' => $item->total,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Payment Method Stats Error: ' . $e->getMessage());
             return [];
@@ -1450,6 +1458,8 @@ class DashboardController extends Controller
                 'custom'     => (int) ($stats->get('custom')->count ?? 0),
                 'total_active' => (int) Subscription::where('status', 'active')->count(),
             ];
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Dashboard subscription stats error: ' . $e->getMessage());
             return [
@@ -1507,6 +1517,8 @@ class DashboardController extends Controller
             }
 
             return $data;
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Dashboard monthly financial summary error: ' . $e->getMessage());
             return [];

@@ -80,6 +80,8 @@ class UserDashboardApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('User dashboard data retrieved successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to load dashboard: ' . $e->getMessage());
         }

@@ -117,6 +117,8 @@ class ReportsController extends Controller
                 'message' => 'Sales report generated successfully',
                 'data' => $data,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
@@ -329,6 +331,8 @@ class ReportsController extends Controller
                 'message' => 'Commission report generated successfully',
                 'data' => $data,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
@@ -536,6 +540,8 @@ class ReportsController extends Controller
                 'message' => 'Course report generated successfully',
                 'data' => $data,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
@@ -718,6 +724,8 @@ class ReportsController extends Controller
             }
 
             return $chartData->toArray();
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Log::error('Error in getSalesChartData: ' . $e->getMessage());
 
@@ -772,6 +780,8 @@ class ReportsController extends Controller
             } else {
                 return $this->exportPDF($orders, $request);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return back()->withErrors(['error' => 'Failed to export report: ' . $e->getMessage()]);
         }
@@ -927,6 +937,8 @@ class ReportsController extends Controller
             // Try to write HTML with better error handling
             try {
                 $mpdf->WriteHTML($html);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $writeError) {
                 Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
@@ -951,6 +963,8 @@ class ReportsController extends Controller
                 'Expires' => '0',
                 'Content-Length' => strlen((string) $pdfContent),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('PDF Export Error: ' . $e->getMessage());
 
@@ -1008,6 +1022,8 @@ class ReportsController extends Controller
             } else {
                 return $this->exportCommissionPDF($commissions, $request);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Commission Export Error: ' . $e->getMessage());
             Log::error('Commission Export Trace: ' . $e->getTraceAsString());
@@ -1175,6 +1191,8 @@ class ReportsController extends Controller
             // Try to write HTML with better error handling
             try {
                 $mpdf->WriteHTML($html);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $writeError) {
                 Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
@@ -1199,6 +1217,8 @@ class ReportsController extends Controller
                 'Expires' => '0',
                 'Content-Length' => strlen((string) $pdfContent),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('PDF Export Error: ' . $e->getMessage());
 
@@ -1313,6 +1333,8 @@ class ReportsController extends Controller
             } else {
                 return $this->exportCoursePDF($courses, $request);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return back()->withErrors(['error' => 'Failed to export course report: ' . $e->getMessage()]);
         }
@@ -1474,6 +1496,8 @@ class ReportsController extends Controller
             // Try to write HTML with better error handling
             try {
                 $mpdf->WriteHTML($html);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $writeError) {
                 // Log the error with HTML snippet for debugging
                 Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage(), [
@@ -1504,6 +1528,8 @@ class ReportsController extends Controller
                 'Expires' => '0',
                 'Content-Length' => strlen((string) $pdfContent),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('PDF Export Error: ' . $e->getMessage());
 
@@ -1714,6 +1740,8 @@ class ReportsController extends Controller
                 'message' => 'Instructor report generated successfully',
                 'data' => $data,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
@@ -1818,6 +1846,8 @@ class ReportsController extends Controller
             } else {
                 return $this->exportInstructorPDF($instructors, $request);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return back()->withErrors(['error' => 'Failed to export instructor report: ' . $e->getMessage()]);
         }
@@ -1952,6 +1982,8 @@ class ReportsController extends Controller
             // Try to write HTML with better error handling
             try {
                 $mpdf->WriteHTML($html);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $writeError) {
                 Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
@@ -1976,6 +2008,8 @@ class ReportsController extends Controller
                 'Expires' => '0',
                 'Content-Length' => strlen((string) $pdfContent),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('PDF Export Error: ' . $e->getMessage());
 
@@ -2123,6 +2157,8 @@ class ReportsController extends Controller
                 'message' => 'Enrollment report generated successfully',
                 'data' => $data,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Enrollment Report Error: ' . $e->getMessage());
 
@@ -2221,6 +2257,8 @@ class ReportsController extends Controller
             } else {
                 return $this->exportEnrollmentPDF($enrollments, $request);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return back()->withErrors(['error' => 'Failed to export enrollment report: ' . $e->getMessage()]);
         }
@@ -2382,6 +2420,8 @@ class ReportsController extends Controller
             // Try to write HTML with better error handling
             try {
                 $mpdf->WriteHTML($html);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $writeError) {
                 Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
@@ -2406,6 +2446,8 @@ class ReportsController extends Controller
                 'Expires' => '0',
                 'Content-Length' => strlen((string) $pdfContent),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('PDF Export Error: ' . $e->getMessage());
 
@@ -2450,6 +2492,8 @@ class ReportsController extends Controller
                 'message' => 'Revenue report generated successfully',
                 'data' => $data,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
@@ -2690,6 +2734,8 @@ class ReportsController extends Controller
             } else {
                 return $this->exportRevenuePDF($orders, $request);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Revenue Export Error: ' . $e->getMessage());
 
@@ -2823,6 +2869,8 @@ class ReportsController extends Controller
 
             try {
                 $mpdf->WriteHTML($html);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $writeError) {
                 Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
@@ -2847,6 +2895,8 @@ class ReportsController extends Controller
                 'Expires' => '0',
                 'Content-Length' => strlen((string) $pdfContent),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('PDF Export Error: ' . $e->getMessage());
 

@@ -48,6 +48,8 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
                 new SubscriptionPlanAdminResource($plan),
                 201,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return $this->jsonError($e->getMessage(), 500);
         }
@@ -84,6 +86,8 @@ final class SubscriptionPlanAdminApiController extends AdminCrudApiController
                 __('Subscription plan updated successfully'),
                 new SubscriptionPlanAdminResource($plan)
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return $this->jsonError($e->getMessage(), 500);
         }

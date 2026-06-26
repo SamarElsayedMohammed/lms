@@ -91,6 +91,8 @@ class TaxController extends Controller
             $tax = Tax::create($data);
 
             ResponseService::successResponse('Tax Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th);
             ResponseService::errorRedirectResponse('Failed to create Tax');
@@ -233,6 +235,8 @@ class TaxController extends Controller
             $tax->update($data);
 
             return ResponseService::successResponse('Tax Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             ResponseService::logErrorRedirect($th, 'TaxController -> update()');
             return ResponseService::errorResponse();
@@ -254,6 +258,8 @@ class TaxController extends Controller
             $tax = Tax::onlyTrashed()->findOrFail($id);
             $tax->restore();
             return ResponseService::successResponse('Tax Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'TaxController -> restore');
             return ResponseService::errorResponse('Failed to restore tax.');
@@ -269,6 +275,8 @@ class TaxController extends Controller
             $tax = Tax::onlyTrashed()->findOrFail($id);
             $tax->forceDelete();
             return ResponseService::successResponse('Tax Permanently Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'TaxController -> trash');
             return ResponseService::errorResponse('Failed to permanently delete tax.');

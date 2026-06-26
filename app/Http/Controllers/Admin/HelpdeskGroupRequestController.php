@@ -104,6 +104,8 @@ class HelpdeskGroupRequestController extends Controller
 
             Log::info('Status updated successfully for ID: ' . $id);
             return ResponseService::successResponse('Status updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             Log::error('Error updating status: ' . $th->getMessage());
             ResponseService::logErrorRedirect($th, 'HelpdeskGroupRequestController -> updateStatus()');

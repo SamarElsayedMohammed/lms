@@ -51,6 +51,8 @@ class HelpdeskGroupController extends Controller
 
             HelpDeskGroup::create($data);
             return ResponseService::successResponse('Group Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'HelpDeskGroupController -> store()');
             return ResponseService::errorRedirectResponse('Failed to create Group');
@@ -189,6 +191,8 @@ class HelpdeskGroupController extends Controller
 
             $group->update($data);
             return ResponseService::successResponse('Group Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'HelpDeskGroupController -> update()');
             return ResponseService::errorResponse();
@@ -234,6 +238,8 @@ class HelpdeskGroupController extends Controller
                 ]);
             }
             ResponseService::successResponse('Data Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'FeatureSectionController -> Update row_order method');
             ResponseService::errorResponse();

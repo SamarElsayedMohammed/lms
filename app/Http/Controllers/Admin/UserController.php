@@ -171,6 +171,8 @@ class UserController extends Controller
                 'is_instructor' => $instructor ? true : false,
                 'instructor_status' => $instructor ? $instructor->status : null,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
@@ -203,6 +205,8 @@ class UserController extends Controller
                 'success' => true, 
                 'message' => 'Role updated successfully to ' . $role->name
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([

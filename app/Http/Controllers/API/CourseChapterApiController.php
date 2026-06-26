@@ -304,6 +304,8 @@ class CourseChapterApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Chapters retrieved successfully', $chapters);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API CourseChapterController -> getAddedCourseChapters Method');
 
@@ -365,6 +367,8 @@ class CourseChapterApiController extends Controller
             $chapter->delete();
 
             return ApiResponseService::successResponse('Chapter deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API CourseChapterController -> deleteCourseChapter Method');
 
@@ -696,6 +700,8 @@ class CourseChapterApiController extends Controller
             });
 
             return ApiResponseService::successResponse('Course chapters retrieved successfully', $formattedChapters);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API CourseChapterController -> getCourseChapters Method');
 
@@ -746,6 +752,8 @@ class CourseChapterApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('Chapter tracking updated successfully', $tracking);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API CourseChapterController -> trackCourseChapter Method');
 
@@ -875,6 +883,8 @@ class CourseChapterApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Curriculum progress retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API CourseChapterController -> getCurriculumProgress Method');
 
@@ -1006,6 +1016,8 @@ class CourseChapterApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Chapter curriculum details retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse(
                 $e,
@@ -1494,6 +1506,8 @@ class CourseChapterApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Curriculum item marked as completed', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse(
                 $e,
@@ -1604,6 +1618,8 @@ class CourseChapterApiController extends Controller
                 'Detailed curriculum tracking retrieved successfully',
                 $response,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse(
                 $e,
@@ -1689,6 +1705,8 @@ class CourseChapterApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Current curriculum retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API CourseChapterController -> getCurrentCurriculum Method');
 
@@ -2048,6 +2066,8 @@ class CourseChapterApiController extends Controller
                 'Course assignment submission history retrieved successfully',
                 $responseData,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse(
                 $e,
@@ -2264,6 +2284,8 @@ class CourseChapterApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Course completion status retrieved successfully.', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API CourseChapterController -> checkCourseCompletion Method');
 

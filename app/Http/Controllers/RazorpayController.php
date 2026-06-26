@@ -63,6 +63,8 @@ class RazorpayController extends Controller
                 'prefillName',
                 'prefillEmail',
             ));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return view('errors.payment', ['message' => 'Payment initialization failed: ' . $e->getMessage()]);
         }
@@ -160,6 +162,8 @@ class RazorpayController extends Controller
                 CommissionService::calculateCommissions($order);
                 CommissionService::markCommissionsAsPaid($order);
                 Log::info("Commission processing completed for Order: {$order->id}");
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $e) {
                 Log::error("Commission processing failed for Order: {$order->id}", [
                     'error' => $e->getMessage(),
@@ -207,6 +211,8 @@ class RazorpayController extends Controller
             }
 
             return redirect($this->getBaseUrl() . '/payment-status?status=payment_failed');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Razorpay callback error: ' . $e->getMessage(), [
                 'order_number' => $request->order_number ?? null,
