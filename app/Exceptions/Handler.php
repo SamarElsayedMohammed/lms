@@ -49,6 +49,26 @@ class Handler extends ExceptionHandler
     }
 
     /**
+     * Convert an authentication exception into a response.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Illuminate\Auth\AuthenticationException  $exception
+     * @return \Symfony\Component\HttpFoundation\Response
+     */
+    protected function unauthenticated($request, \Illuminate\Auth\AuthenticationException $exception)
+    {
+        if ($request->expectsJson() || $request->is('api/*')) {
+            return response()->json(['error' => true, 'message' => 'Unauthenticated.'], 401);
+        }
+
+        if (!\Illuminate\Support\Facades\Route::has('login')) {
+            return response()->json(['error' => true, 'message' => 'Unauthenticated.'], 401);
+        }
+
+        return redirect()->guest(route('login'));
+    }
+
+    /**
      * Log the exception with detailed information
      */
     protected function logException(Throwable $e): void

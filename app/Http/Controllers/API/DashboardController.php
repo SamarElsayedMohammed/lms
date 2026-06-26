@@ -229,15 +229,29 @@ class DashboardController extends Controller
                 ', [$thirtyDaysAgo, $sixtyDaysAgo, $thirtyDaysAgo])
                 ->first();
 
-            $totalEarnings = $revenueStats->total_earnings ?? 0;
+            $subStats = DB::table('subscription_payments')
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->selectRaw('
+                    SUM(subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)) as total_earnings,
+                    SUM(CASE WHEN subscription_payments.created_at >= ? THEN subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1) ELSE 0 END) as current_revenue,
+                    SUM(CASE WHEN subscription_payments.created_at BETWEEN ? AND ? THEN subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1) ELSE 0 END) as previous_revenue
+                ', [$thirtyDaysAgo, $sixtyDaysAgo, $thirtyDaysAgo])
+                ->first();
+
+            $totalEarnings = ($revenueStats->total_earnings ?? 0) + ($subStats->total_earnings ?? 0);
+            
+            $previousRevenue = ($revenueStats->previous_revenue ?? 0) + ($subStats->previous_revenue ?? 0);
+            $currentRevenue = ($revenueStats->current_revenue ?? 0) + ($subStats->current_revenue ?? 0);
+            
             $revenueGrowth = $this->calculatePercentageChange(
-                $revenueStats->previous_revenue ?? 0,
-                $revenueStats->current_revenue ?? 0,
+                $previousRevenue,
+                $currentRevenue,
             );
 
             $totalUsers = $this->getTotalUsersCount();
             $totalInstructors = Instructor::count();
-            $totalEnrollments = OrderCourse::count();
+            $totalEnrollments = OrderCourse::count() + \App\Models\Course\UserCourseTrack::count();
             $totalCategories = Category::count();
 
             $coursesStats = Course::without('taxes')->selectRaw('
@@ -331,6 +345,13 @@ class DashboardController extends Controller
             $thisMonthRevenueFromOrders =
                 Order::where('status', 'completed')->where('created_at', '>=', $currentMonth)->sum('final_price') ?? 0;
 
+            // Add Subscription Payments for this month
+            $thisMonthRevenueFromSubscriptions = DB::table('subscription_payments')
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->where('subscription_payments.created_at', '>=', $currentMonth)
+                ->sum(DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)')) ?? 0;
+
             // 2. Payment transactions with successful status
             $thisMonthRevenueFromTransactions =
                 PaymentTransaction::where('payment_status', 'success')->where('created_at', '>=', $currentMonth)->sum(
@@ -348,6 +369,8 @@ class DashboardController extends Controller
             $thisMonthRevenue = $thisMonthRevenueFromOrders > 0
                 ? $thisMonthRevenueFromOrders
                 : max($thisMonthRevenueFromTransactions, $thisMonthRevenueFromGatewayTransactions);
+                
+            $thisMonthRevenue += $thisMonthRevenueFromSubscriptions;
 
             // Get last month revenue - same logic
             $lastMonthRevenueFromOrders =
@@ -355,6 +378,12 @@ class DashboardController extends Controller
                     $lastMonth,
                     $lastMonth->copy()->endOfMonth(),
                 ])->sum('final_price') ?? 0;
+
+            $lastMonthRevenueFromSubscriptions = DB::table('subscription_payments')
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->whereBetween('subscription_payments.created_at', [$lastMonth, $lastMonth->copy()->endOfMonth()])
+                ->sum(DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)')) ?? 0;
 
             $lastMonthRevenueFromTransactions =
                 PaymentTransaction::where('payment_status', 'success')->whereBetween('created_at', [
@@ -370,6 +399,8 @@ class DashboardController extends Controller
             $lastMonthRevenue = $lastMonthRevenueFromOrders > 0
                 ? $lastMonthRevenueFromOrders
                 : max($lastMonthRevenueFromTransactions, $lastMonthRevenueFromGatewayTransactions);
+                
+            $lastMonthRevenue += $lastMonthRevenueFromSubscriptions;
 
             // Get all order statistics in a single query
             $orderStats = Order::selectRaw('
@@ -1045,6 +1076,19 @@ class DashboardController extends Controller
                 ->get()
                 ->keyBy(static fn($item) => sprintf('%04d-%02d', $item->year, $item->month));
 
+            $subRevenues = DB::table('subscription_payments')
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->whereBetween('subscription_payments.created_at', [$startDate, $endDate])
+                ->selectRaw('
+                    YEAR(subscription_payments.created_at) as year,
+                    MONTH(subscription_payments.created_at) as month,
+                    SUM(subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)) as revenue
+                ')
+                ->groupBy('year', 'month')
+                ->get()
+                ->keyBy(static fn($item) => sprintf('%04d-%02d', $item->year, $item->month));
+
             $data = [];
             for ($i = 11; $i >= 0; $i--) {
                 $date = Carbon::now()->subMonths($i)->startOfMonth();
@@ -1052,7 +1096,7 @@ class DashboardController extends Controller
 
                 $data[] = [
                     'month' => $date->format('M Y'),
-                    'revenue' => $revenues->get($key)->revenue ?? 0,
+                    'revenue' => ($revenues->get($key)->revenue ?? 0) + ($subRevenues->get($key)->revenue ?? 0),
                 ];
             }
             return $data;
@@ -1082,6 +1126,16 @@ class DashboardController extends Controller
                 ->get()
                 ->keyBy(static fn($item) => sprintf('%04d-%02d', $item->year, $item->month));
 
+            $trackEnrollments = \App\Models\Course\UserCourseTrack::whereBetween('created_at', [$startDate, $endDate])
+                ->selectRaw('
+                    YEAR(created_at) as year,
+                    MONTH(created_at) as month,
+                    COUNT(*) as enrollments
+                ')
+                ->groupBy('year', 'month')
+                ->get()
+                ->keyBy(static fn($item) => sprintf('%04d-%02d', $item->year, $item->month));
+
             $data = [];
             for ($i = 11; $i >= 0; $i--) {
                 $date = Carbon::now()->subMonths($i)->startOfMonth();
@@ -1089,7 +1143,7 @@ class DashboardController extends Controller
 
                 $data[] = [
                     'month' => $date->format('M Y'),
-                    'enrollments' => $enrollments->get($key)->enrollments ?? 0,
+                    'enrollments' => ($enrollments->get($key)->enrollments ?? 0) + ($trackEnrollments->get($key)->enrollments ?? 0),
                 ];
             }
             return $data;
@@ -1493,6 +1547,14 @@ class DashboardController extends Controller
                 $sales = (float) Order::where('status', 'completed')
                     ->whereBetween('created_at', [$monthStart, $monthEnd])
                     ->sum('final_price');
+
+                $subSales = (float) DB::table('subscription_payments')
+                    ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                    ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                    ->whereBetween('subscription_payments.created_at', [$monthStart, $monthEnd])
+                    ->sum(DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)'));
+
+                $sales += $subSales;
 
                 // Commission: sum of admin_commission_amount from commissions table
                 $commission = (float) Commission::whereHas('order', function ($q) use ($monthStart, $monthEnd) {
