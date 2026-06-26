@@ -42,6 +42,24 @@ class Webinar extends Model
         'is_featured' => 'boolean',
     ];
 
+    /**
+     * Ensure start_at is always treated and saved as UTC.
+     */
+    public function setStartAtAttribute($value)
+    {
+        if ($value) {
+            $this->attributes['start_at'] = \Carbon\Carbon::parse($value)->utc();
+        }
+    }
+
+    /**
+     * Serialize dates to standard ISO 8601 UTC format to prevent double-shifting in API responses.
+     */
+    protected function serializeDate(\DateTimeInterface $date)
+    {
+        return $date->format('Y-m-d\TH:i:s.v\Z');
+    }
+
     // Accessor for spots left
     public function getSpotsLeftAttribute(): int
     {

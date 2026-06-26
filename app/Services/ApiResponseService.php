@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Routing\Redirector;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -76,7 +77,7 @@ final class ApiResponseService
 
         $jsonResponse = response()->json([...$response, ...$customData], $code);
 
-        // Add CORS headers manually since we're bypassing middleware with exit()
+        // Preserve CORS headers when raising the response from a service.
         try {
             $origin = request()->header('Origin');
             if ($origin !== null && $origin !== '') {
@@ -87,8 +88,7 @@ final class ApiResponseService
             // Ignore CORS header errors - don't break the response
         }
 
-        $jsonResponse->send();
-        exit();
+        throw new HttpResponseException($jsonResponse);
     }
 
     public static function errorResponse(
@@ -98,6 +98,13 @@ final class ApiResponseService
         Throwable|null $exception = null,
         string|null $redirectUrl = null,
     ): void {
+        // Controllers commonly catch Throwable around the whole action. Preserve
+        // responses intentionally raised by successResponse/validationError
+        // instead of wrapping them as an unrelated HTTP 500 response.
+        if ($exception instanceof HttpResponseException) {
+            throw $exception;
+        }
+
         $code ??= (int) config('constants.RESPONSE_CODE.ERROR');
         $response = [
             'error' => true,
@@ -121,7 +128,7 @@ final class ApiResponseService
 
         $jsonResponse = response()->json($response, $code);
 
-        // Add CORS headers manually since we're bypassing middleware with exit()
+        // Preserve CORS headers when raising the response from a service.
         try {
             $origin = request()->header('Origin');
             if ($origin !== null && $origin !== '') {
@@ -132,8 +139,7 @@ final class ApiResponseService
             // Ignore CORS header errors - don't break the response
         }
 
-        $jsonResponse->send();
-        exit();
+        throw new HttpResponseException($jsonResponse);
     }
 
     public static function validationError(string $message = 'Error Occurred', mixed $data = null): void

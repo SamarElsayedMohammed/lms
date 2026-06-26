@@ -7,6 +7,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\AffiliateCommission;
 use App\Models\AffiliateWithdrawal;
+use App\Models\User;
 use App\Services\AffiliateService;
 use App\Services\ApiResponseService;
 use App\Services\PricingService;
@@ -325,7 +326,7 @@ final class AffiliateApiController extends Controller
     /**
      * Get paginated referral list.
      */
-    public function getReferrals(Request $request): never
+    public function getReferrals(Request $request): JsonResponse
     {
         if (!$this->affiliateService->isEnabled()) {
             ApiResponseService::errorResponse('Affiliate system is not available.', null, 404);
@@ -341,19 +342,32 @@ final class AffiliateApiController extends Controller
 
         $paginator = $this->affiliateService->getReferredUsers($user, $perPage);
 
-        $referrals = $paginator->getCollection()->map(fn (User $u) => [
-            'id' => $u->id,
-            'name' => $u->name,
-            'email' => $u->email,
-            'profile' => $u->profile,
-            'joined_at' => $u->created_at->format('Y-m-d'),
-            'orders_count' => $u->orders_count,
-            'status' => $u->orders_count > 0 ? 'converted' : 'pending',
-        ]);
+        if ($paginator->isEmpty()) {
+            return response()->json([
+                'data' => [],
+                'meta' => [
+                    'current_page' => 1,
+                    'last_page' => 1,
+                    'per_page' => $perPage,
+                    'total' => 0,
+                ],
+            ]);
+        }
 
-        ApiResponseService::successResponse('OK', [
-            'referrals' => $referrals,
-            'pagination' => [
+        $referrals = $paginator->getCollection()->map(fn ($u) => [
+            'id' => $u?->id,
+            'name' => $u?->name,
+            'email' => $u?->email,
+            'profile' => $u?->profile,
+            'created_at' => $u?->created_at?->toIso8601String(),
+            'joined_at' => $u?->created_at?->format('Y-m-d'),
+            'orders_count' => $u?->orders_count ?? 0,
+            'status' => ($u?->orders_count ?? 0) > 0 ? 'converted' : 'pending',
+        ])->values();
+
+        return response()->json([
+            'data' => $referrals,
+            'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),

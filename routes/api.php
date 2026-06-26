@@ -418,12 +418,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/manual-deposits/methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
         Route::get('/deposit-methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
         Route::post('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit']);
-        
-        // Webinars (User)
-        Route::get('/webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);
-        Route::get('/webinars/{id}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
-        Route::post('/webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register']);
-        Route::get('/webinars/{id}/join', [\App\Http\Controllers\API\WebinarApiController::class, 'join']);
     });
 
     // rating_reviews

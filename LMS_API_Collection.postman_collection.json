@@ -163,7 +163,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"email\": \"\", \"password\": \"\"}"
+                            "raw": "{\n    \"email\": \"\",\n    \"password\": \"\",\n    \"type\": \"email\",\n    \"firebase_token\": \"dummy_token_or_empty\"\n}"
                         }
                     }
                 },
