@@ -321,11 +321,16 @@ final class KashierCheckoutService implements PaymentGatewayContract
             'api_key' => (string) CachingService::getSystemSettings('kashier_api_key'),
             'webhook_secret' => (string) CachingService::getSystemSettings('kashier_webhook_secret'),
             'mode' => $mode === 'live' ? 'live' : 'test',
+            'status' => (int) CachingService::getSystemSettings('kashier_status'),
         ];
     }
 
     private function validateConfig(array $config): void
     {
+        if (isset($config['status']) && $config['status'] !== 1) {
+            throw new \RuntimeException('Kashier payment gateway is currently disabled.');
+        }
+
         if (empty($config['merchant_id']) || empty($config['api_key'])) {
             throw new \RuntimeException('Kashier credentials not configured. Please set kashier_merchant_id and kashier_api_key in settings.');
         }
