@@ -70,6 +70,8 @@ class PromoCodeController extends Controller
             $promoCode = PromoCode::create($data);
 
             ResponseService::successResponse('Promo Code Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             ResponseService::logErrorRedirect($th);
             ResponseService::errorRedirectResponse('Failed to create Promo Code');
@@ -139,6 +141,8 @@ class PromoCodeController extends Controller
                     $startDate = $row->start_date instanceof \Carbon\Carbon
                         ? $row->start_date->format('Y-m-d')
                         : \Carbon\Carbon::parse($row->start_date)->format('Y-m-d');
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     $startDate = '';
                 }
@@ -149,6 +153,8 @@ class PromoCodeController extends Controller
                     $endDate = $row->end_date instanceof \Carbon\Carbon
                         ? $row->end_date->format('Y-m-d')
                         : \Carbon\Carbon::parse($row->end_date)->format('Y-m-d');
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     $endDate = '';
                 }
@@ -178,6 +184,8 @@ class PromoCodeController extends Controller
                     } else {
                         $tempRow['is_expired'] = false;
                     }
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     $tempRow['is_expired'] = false;
                 }
@@ -248,6 +256,8 @@ class PromoCodeController extends Controller
             $promoCode->update($data);
 
             return ResponseService::successResponse('Promo Code Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             ResponseService::logErrorRedirect($th, 'PromoCodeController -> update()');
             return ResponseService::errorResponse();
@@ -271,6 +281,8 @@ class PromoCodeController extends Controller
             $promoCode = PromoCode::onlyTrashed()->findOrFail($id);
             $promoCode->restore();
             return ResponseService::successResponse('Promo Code Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             ResponseService::logErrorRedirect($th, 'PromoCodeController -> restore');
             return ResponseService::errorResponse('Failed to restore promo code.');
@@ -287,6 +299,8 @@ class PromoCodeController extends Controller
             $promoCode = PromoCode::onlyTrashed()->findOrFail($id);
             $promoCode->forceDelete();
             return ResponseService::successResponse('Promo Code Permanently Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             ResponseService::logErrorRedirect($th, 'PromoCodeController -> trash');
             return ResponseService::errorResponse('Failed to permanently delete promo code.');

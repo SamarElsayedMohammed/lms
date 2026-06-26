@@ -143,6 +143,8 @@ class InstructorAdminApiController extends AdminCrudApiController
             ]);
 
             DB::commit();
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to create instructor: ') . $e->getMessage(), 500);
@@ -252,6 +254,8 @@ class InstructorAdminApiController extends AdminCrudApiController
             );
 
             DB::commit();
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update instructor: ') . $e->getMessage(), 500);

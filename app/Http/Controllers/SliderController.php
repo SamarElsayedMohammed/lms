@@ -137,6 +137,8 @@ class SliderController extends Controller
 
             $slider->save();
             ResponseService::successResponse('Slider Stored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'SliderController -> Store method');
             ResponseService::errorResponse('An error occurred while storing The data.');
@@ -243,6 +245,8 @@ class SliderController extends Controller
             $slider = Slider::findOrFail($id);
             $slider->delete();
             ResponseService::successResponse('Slider Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'SliderController -> Destroy method');
             ResponseService::errorResponse('An error occurred while deleting the slider.');
@@ -268,6 +272,8 @@ class SliderController extends Controller
                 ]);
             }
             ResponseService::successResponse('Slider Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'SliderController -> Update sort_order method');
             ResponseService::errorResponse();

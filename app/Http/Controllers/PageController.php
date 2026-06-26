@@ -123,6 +123,8 @@ class PageController extends Controller
 
             DB::commit();
             ResponseService::successResponse('Page Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'PageController -> Store Method');
@@ -347,6 +349,8 @@ class PageController extends Controller
             $page->update($data);
             DB::commit();
             ResponseService::successResponse('Page Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'PageController -> Update Method');
@@ -370,6 +374,8 @@ class PageController extends Controller
             $page->delete();
             DB::commit();
             ResponseService::successResponse('Page Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'PageController -> Destroy Method');
@@ -386,6 +392,8 @@ class PageController extends Controller
             $page->restore();
             DB::commit();
             ResponseService::successResponse('Page Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'PageController -> Restore Method');
@@ -409,6 +417,8 @@ class PageController extends Controller
             $page->forceDelete();
             DB::commit();
             ResponseService::successResponse('Page Permanently Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'PageController -> Trash Method');

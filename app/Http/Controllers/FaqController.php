@@ -41,6 +41,8 @@ class FaqController extends Controller
 
             DB::commit();
             ResponseService::successResponse('FAQ Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'FaqController -> Store Method');
@@ -140,6 +142,8 @@ class FaqController extends Controller
             $faq->update($data);
             DB::commit();
             ResponseService::successResponse('FAQ Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'FaqController -> Update Method');
@@ -155,6 +159,8 @@ class FaqController extends Controller
             Faq::findOrFail($id)->delete();
             DB::commit();
             ResponseService::successResponse('FAQ Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'FaqController -> Destroy Method');
@@ -172,6 +178,8 @@ class FaqController extends Controller
             $faq->restore();
             DB::commit();
             ResponseService::successResponse('FAQ Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'FaqController -> Restore Method');
@@ -188,6 +196,8 @@ class FaqController extends Controller
             $faq->forceDelete();
             DB::commit();
             ResponseService::successResponse('FAQ Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'FaqController -> Trash Method');

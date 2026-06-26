@@ -113,6 +113,8 @@ class OrderApiController extends Controller
 
             // Handle cart-based order
             return $this->handleCartOrder($request, $user);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse($th->getMessage());
         }
@@ -334,6 +336,8 @@ class OrderApiController extends Controller
                 });
 
             return ApiResponseService::successResponse('Orders fetched successfully', $orders);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse($th->getMessage());
         }
@@ -490,6 +494,8 @@ class OrderApiController extends Controller
             try {
                 try {
                     $html = view('invoices.order-invoice', $invoiceData)->render();
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (Exception $viewError) {
                     Log::error('View rendering error: ' . $viewError->getMessage());
                     throw new Exception('Failed to render invoice template: ' . $viewError->getMessage());
@@ -535,10 +541,14 @@ class OrderApiController extends Controller
                     'Expires' => '0',
                     'Content-Length' => strlen((string) $pdfContent),
                 ]);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (Exception $e) {
                 Log::error('MPDF Error: ' . $e->getMessage());
                 throw $e;
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             Log::error('Invoice generation failed: ' . $th->getMessage(), [
                 'order_id' => $request->order_id,
@@ -673,6 +683,8 @@ class OrderApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Test invoice data generated successfully', $invoiceData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Test failed: ' . $th->getMessage());
         }
@@ -817,6 +829,8 @@ class OrderApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Invoice data retrieved successfully', $invoiceData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Failed to retrieve invoice data: ' . $th->getMessage());
         }
@@ -920,6 +934,8 @@ class OrderApiController extends Controller
                     }
                 }
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::warning('Failed to get country from IP: ' . $e->getMessage(), [
                 'ip' => $ipAddress,
@@ -1101,6 +1117,8 @@ class OrderApiController extends Controller
                     CommissionService::calculateCommissions($order);
                     CommissionService::markCommissionsAsPaid($order);
                     Log::info("Commission processing completed for 100% coupon Order: {$order->id}");
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (Exception $e) {
                     Log::error("Commission processing failed for Order: {$order->id}", [
                         'error' => $e->getMessage(),
@@ -1182,6 +1200,8 @@ class OrderApiController extends Controller
                     CommissionService::calculateCommissions($order);
                     CommissionService::markCommissionsAsPaid($order);
                     Log::info("Commission processing completed for Order: {$order->id}");
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (Exception $e) {
                     Log::error("Commission processing failed for Order: {$order->id}", [
                         'error' => $e->getMessage(),
@@ -1226,6 +1246,8 @@ class OrderApiController extends Controller
                 'order' => $order->fresh(),
                 'payment' => $paymentInit,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
 
@@ -1441,6 +1463,8 @@ class OrderApiController extends Controller
                     CommissionService::calculateCommissions($order);
                     CommissionService::markCommissionsAsPaid($order);
                     Log::info("Commission processing completed for 100% coupon Order: {$order->id}");
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (Exception $e) {
                     Log::error("Commission processing failed for Order: {$order->id}", [
                         'error' => $e->getMessage(),
@@ -1532,6 +1556,8 @@ class OrderApiController extends Controller
                     CommissionService::calculateCommissions($order);
                     CommissionService::markCommissionsAsPaid($order);
                     Log::info("Commission processing completed for Order: {$order->id}");
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (Exception $e) {
                     Log::error("Commission processing failed for Order: {$order->id}", [
                         'error' => $e->getMessage(),
@@ -1585,6 +1611,8 @@ class OrderApiController extends Controller
                 'order' => $order->fresh(),
                 'payment' => $paymentInit,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
 
@@ -1915,6 +1943,8 @@ class OrderApiController extends Controller
                         ],
                         'type' => $type, // Pass type to payment service
                     ]);
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (Exception $e) {
                     Log::error('Payment URL generation failed for certificate purchase: ' . $e->getMessage());
 
@@ -1960,10 +1990,14 @@ class OrderApiController extends Controller
                     'Certificate purchase order created successfully',
                     $response,
                 );
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (Exception $e) {
                 DB::rollBack();
                 throw $e;
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Failed to purchase certificate: ' . $th->getMessage());
         }

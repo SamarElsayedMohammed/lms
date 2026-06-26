@@ -89,6 +89,8 @@ class ManualDepositApiController extends Controller
                 foreach ($admins as $admin) {
                     $admin->notify(new AdminNewManualDepositNotification($deposit, $user));
                 }
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 Log::error('ManualDepositApiController: Failed to notify admins of new manual deposit request', [
                     'deposit_id' => $deposit->id,
@@ -98,6 +100,8 @@ class ManualDepositApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Deposit request submitted successfully. It will be processed after verification.', $deposit);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Failed to submit deposit request: ' . $e->getMessage());
         }

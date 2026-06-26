@@ -85,6 +85,8 @@ class LanguageController extends Controller
             CachingService::removeCache(config('constants.CACHE.LANGUAGE'));
             CachingService::removeCache(config('constants.CACHE.DEFAULT_LANGUAGE'));
             ResponseService::successResponse('Language Successfully Added');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'Language Controller -> Store');
             ResponseService::errorResponse('Something Went Wrong');
@@ -238,6 +240,8 @@ class LanguageController extends Controller
             CachingService::removeCache(config('constants.CACHE.DEFAULT_LANGUAGE'));
 
             return redirect()->route('language.index')->with('success', 'Language Updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'Language Controller --> update');
 
@@ -265,6 +269,8 @@ class LanguageController extends Controller
             CachingService::removeCache(config('constants.CACHE.LANGUAGE'));
             CachingService::removeCache(config('constants.CACHE.DEFAULT_LANGUAGE'));
             ResponseService::successResponse('Language Deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'Language Controller --> Destroy');
             ResponseService::errorResponse('Something Went Wrong');
@@ -476,6 +482,8 @@ class LanguageController extends Controller
 
                 return ResponseService::errorResponse('Translation failed: ' . trim($output));
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $th) {
             ResponseService::logErrorRedirect($th, 'Language Controller --> Auto Translate');
 
@@ -517,6 +525,8 @@ class LanguageController extends Controller
             File::put($newFilePath, json_encode($targetContent, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
             ResponseService::successResponse("Language file saved as {$newFileName} successfully.");
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $th) {
             ResponseService::logErrorRedirect($th, 'Language Controller --> Save As Code Json');
             ResponseService::errorResponse('Failed to save file: ' . $th->getMessage());
@@ -589,6 +599,8 @@ class LanguageController extends Controller
             return response()->download($filePath, $fileInfo['name'], [
                 'Content-Type' => 'application/json',
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'Language Controller --> Download Sample File');
 

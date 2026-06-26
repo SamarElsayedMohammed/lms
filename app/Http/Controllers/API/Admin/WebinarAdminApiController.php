@@ -146,6 +146,8 @@ class WebinarAdminApiController extends AdminCrudApiController
                         $data['meeting_id']        = (string) $zoomResponse['data']['meeting_id'];
                         $data['meeting_password']  = $zoomResponse['data']['password'];
                     }
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Zoom Service Error: ' . $e->getMessage());
                 }
@@ -161,6 +163,8 @@ class WebinarAdminApiController extends AdminCrudApiController
                         $data['join_url']   = $googleResponse['data']['join_url'];
                         $data['meeting_id'] = (string) $googleResponse['data']['meeting_id'];
                     }
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Google Meet Service Error: ' . $e->getMessage());
                 }
@@ -169,6 +173,8 @@ class WebinarAdminApiController extends AdminCrudApiController
             $webinar = Webinar::create($data);
 
             return $this->jsonSuccess('Webinar created successfully', $webinar->fresh('instructor'), 201);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return $this->jsonError('Failed to create webinar: ' . $e->getMessage());
         }
@@ -214,6 +220,8 @@ class WebinarAdminApiController extends AdminCrudApiController
         try {
             $webinar->update($request->all());
             return $this->jsonSuccess('Webinar updated successfully', $webinar->fresh('instructor'));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return $this->jsonError('Failed to update webinar: ' . $e->getMessage());
         }

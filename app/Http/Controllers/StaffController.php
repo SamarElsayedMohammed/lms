@@ -87,6 +87,8 @@ class StaffController extends Controller
             ResponseService::successResponse('Staff Created Successfully', null, ['redirect_url' => route(
                 'staffs.index',
             )]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             DB::rollBack();
             ResponseService::logErrorRedirect($e, 'StaffController --> store');
@@ -215,6 +217,8 @@ class StaffController extends Controller
 
             DB::commit();
             ResponseService::successResponse('User Update Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'StaffController --> update');
@@ -232,6 +236,8 @@ class StaffController extends Controller
             $user = User::findOrFail($id);
             $user->delete();
             ResponseService::successResponse('Staff Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'StaffController --> delete');
             ResponseService::errorResponse('Failed to delete staff');
@@ -251,6 +257,8 @@ class StaffController extends Controller
         try {
             User::findOrFail($id)->update(['password' => Hash::make($request->confirm_password)]);
             ResponseService::successResponse('Password Reset Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'StaffController -> changePassword');
             ResponseService::errorResponse();

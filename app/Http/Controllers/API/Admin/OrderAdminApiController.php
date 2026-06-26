@@ -188,6 +188,8 @@ class OrderAdminApiController extends AdminCrudApiController
                     try {
                         $affiliateService = app(\App\Services\AffiliateService::class);
                         $affiliateService->processReferral($user, $subscription);
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (\Throwable $e) {
                         Log::error('OrderAdminApiController: Affiliate referral processing failed', [
                             'message' => $e->getMessage()
@@ -198,12 +200,16 @@ class OrderAdminApiController extends AdminCrudApiController
 
                     try {
                         $user->notify(new \App\Notifications\ManualSubscriptionStatusNotification($subscription));
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (\Throwable $e) {
                         Log::error('OrderAdminApiController: User notification failed', [
                             'message' => $e->getMessage()
                         ]);
                     }
 
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     DB::rollBack();
                     return $this->jsonError('فشل في إتمام عملية الموافقة: ' . $e->getMessage(), 500);
@@ -224,11 +230,15 @@ class OrderAdminApiController extends AdminCrudApiController
 
                     try {
                         $subscription->user->notify(new \App\Notifications\ManualSubscriptionStatusNotification($subscription));
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (\Throwable $e) {
                         Log::error('OrderAdminApiController: User notification failed', [
                             'message' => $e->getMessage()
                         ]);
                     }
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     DB::rollBack();
                     return $this->jsonError('فشل في إتمام عملية الرفض: ' . $e->getMessage(), 500);

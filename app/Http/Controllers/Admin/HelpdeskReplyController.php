@@ -152,6 +152,8 @@ class HelpdeskReplyController extends Controller
             $reply->update($validator->validated());
 
             return ResponseService::successResponse('Reply updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'HelpdeskReplyController -> update()');
             return ResponseService::errorResponse();
@@ -170,6 +172,8 @@ class HelpdeskReplyController extends Controller
                 'error' => false,
                 'message' => 'Reply deleted successfully',
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'HelpdeskReplyController -> destroy()');
             return response()->json([

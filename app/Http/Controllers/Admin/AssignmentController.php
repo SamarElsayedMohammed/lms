@@ -78,6 +78,8 @@ class AssignmentController extends Controller
                 'courses' => $courses,
                 'instructors' => $instructors,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Failed to load assignment submissions: ' . $e->getMessage());
         }
@@ -200,6 +202,8 @@ class AssignmentController extends Controller
                 'statistics' => $statistics,
                 'courses' => $courses,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Failed to load statistics: ' . $e->getMessage());
         }
@@ -252,6 +256,8 @@ class AssignmentController extends Controller
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException) {
             return redirect()->route('admin.assignments.index')->with('error', 'Assignment submission not found.');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Error loading assignment submission: ' . $e->getMessage(), [
                 'id' => $id,
@@ -304,6 +310,8 @@ class AssignmentController extends Controller
             $submission->update($updateData);
 
             return redirect()->back()->with('success', 'Assignment submission updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Failed to update assignment submission: ' . $e->getMessage());
         }
@@ -374,6 +382,8 @@ class AssignmentController extends Controller
             $updatedCount = UserAssignmentSubmission::whereIn('id', $submissionIds)->update($updateData);
 
             return redirect()->back()->with('success', "Successfully updated {$updatedCount} assignment submissions");
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return redirect()
                 ->back()
@@ -414,6 +424,8 @@ class AssignmentController extends Controller
                         : 0,
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

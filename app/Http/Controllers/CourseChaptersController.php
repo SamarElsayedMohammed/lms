@@ -84,6 +84,8 @@ class CourseChaptersController extends Controller
             CourseChapter::create($data); // create chapter
 
             return ResponseService::successResponse('Chapter created successfully'); // return success response
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage()); // return error response
         }
@@ -269,6 +271,8 @@ class CourseChaptersController extends Controller
             $chapter->update($data);
 
             return ResponseService::successResponse('Chapter updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -302,6 +306,8 @@ class CourseChaptersController extends Controller
             $chapter->delete();
 
             return ResponseService::successResponse('Chapter deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -330,6 +336,8 @@ class CourseChaptersController extends Controller
             return ResponseService::successResponse('Chapter restored successfully');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return ResponseService::validationError('Chapter not found in trash');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -358,6 +366,8 @@ class CourseChaptersController extends Controller
             return ResponseService::successResponse('Chapter permanently deleted successfully');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return ResponseService::validationError('Chapter not found in trash');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -465,6 +475,8 @@ class CourseChaptersController extends Controller
             ];
 
             return ResponseService::successResponse('Curriculum created successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             DB::rollBack();
 
@@ -638,6 +650,8 @@ class CourseChaptersController extends Controller
             $curriculum->save();
 
             return ResponseService::successResponse('Status updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -660,6 +674,8 @@ class CourseChaptersController extends Controller
             } else {
                 return ResponseService::errorResponse('Curriculum not found');
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -703,6 +719,8 @@ class CourseChaptersController extends Controller
             return view('courses.chapters.curriculums.edit', compact('curriculum', 'allowedFileTypes'), [
                 'type_menu' => 'course-chapters',
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -834,6 +852,8 @@ class CourseChaptersController extends Controller
             ];
 
             return ResponseService::successResponse('Lecture updated successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -888,6 +908,8 @@ class CourseChaptersController extends Controller
             ];
 
             return ResponseService::successResponse('Quiz updated successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -939,6 +961,8 @@ class CourseChaptersController extends Controller
             ];
 
             return ResponseService::successResponse('Resource updated successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -993,6 +1017,8 @@ class CourseChaptersController extends Controller
             ];
 
             return ResponseService::successResponse('Assignment updated successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -1033,6 +1059,8 @@ class CourseChaptersController extends Controller
             $curriculum->delete();
 
             return ResponseService::successResponse('Curriculum deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -1104,6 +1132,8 @@ class CourseChaptersController extends Controller
                 'Trashed curriculum list fetched successfully',
                 $trashedCurriculums->values(),
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -1147,6 +1177,8 @@ class CourseChaptersController extends Controller
             $curriculum->restore();
 
             return ResponseService::successResponse('Curriculum restored successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -1269,6 +1301,8 @@ class CourseChaptersController extends Controller
             }
 
             return ResponseService::successResponse('Curriculum items reordered successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -1332,6 +1366,8 @@ class CourseChaptersController extends Controller
             DB::commit();
 
             return ResponseService::successResponse('Quiz questions saved successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             DB::rollBack();
 
@@ -1419,6 +1455,8 @@ class CourseChaptersController extends Controller
                 'quiz_id' => $quiz->id,
                 'questions' => $quiz->questions()->with('options')->get(),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             DB::rollBack();
 
@@ -1456,6 +1494,8 @@ class CourseChaptersController extends Controller
                     'is_active' => $option->is_active,
                 ]),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ResponseService::errorResponse($e->getMessage());
         }
@@ -1483,6 +1523,8 @@ class CourseChaptersController extends Controller
             DB::commit();
 
             return ResponseService::successResponse('Quiz question deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             DB::rollBack();
 
@@ -1526,6 +1568,8 @@ class CourseChaptersController extends Controller
             DB::commit();
 
             return ResponseService::successResponse('Selected quiz questions deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             DB::rollBack();
 

@@ -175,6 +175,8 @@ class SeoSettingsController extends Controller
             DB::commit();
 
             ResponseService::successResponse('SEO settings created successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'SeoSettingsController -> store');
@@ -293,6 +295,8 @@ class SeoSettingsController extends Controller
                 ResponseService::logErrorRedirect($e, 'SeoSettingsController -> update');
                 ResponseService::errorResponse('Failed to update SEO settings: ' . $e->getMessage());
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'SeoSettingsController -> update');
@@ -318,6 +322,8 @@ class SeoSettingsController extends Controller
             $seoSetting->delete();
             DB::commit();
             ResponseService::successResponse('SEO settings deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'SeoSettingsController -> destroy');
@@ -337,6 +343,8 @@ class SeoSettingsController extends Controller
             $seoSetting->restore();
             DB::commit();
             ResponseService::successResponse('SEO settings restored successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'SeoSettingsController -> restore');
@@ -362,6 +370,8 @@ class SeoSettingsController extends Controller
             $seoSetting->forceDelete();
             DB::commit();
             ResponseService::successResponse('SEO settings permanently deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorRedirect($th, 'SeoSettingsController -> trash');

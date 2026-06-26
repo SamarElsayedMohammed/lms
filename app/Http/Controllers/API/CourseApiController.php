@@ -1376,6 +1376,8 @@ class CourseApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Course details retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -1647,6 +1649,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Course view tracked successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -2224,6 +2228,8 @@ class CourseApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Course details retrieved successfully', $finalResponse);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -2578,6 +2584,8 @@ class CourseApiController extends Controller
                 ? 'Your courses retrieved successfully'
                 : 'Courses where team member is assigned as instructor retrieved successfully';
             ApiResponseService::successResponse($message, $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getAddedCourses Method');
             ApiResponseService::errorResponse();
@@ -2641,6 +2649,8 @@ class CourseApiController extends Controller
             $enrolledStudents = $this->getEnrolledStudentsWithProgress($course->id, $perPage, $page);
 
             return ApiResponseService::successResponse('Enrolled students retrieved successfully', $enrolledStudents);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -2881,6 +2891,8 @@ class CourseApiController extends Controller
                     $assignmentDetails,
                 );
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -3150,6 +3162,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Assignment submission updated successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Failed to update assignment submission: ' . $e->getMessage());
         }
@@ -3413,6 +3427,8 @@ class CourseApiController extends Controller
                     $submissions,
                 );
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -3618,6 +3634,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Dashboard data retrieved successfully', $dashboardData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Failed to retrieve dashboard data: ' . $e->getMessage());
         }
@@ -4039,6 +4057,8 @@ class CourseApiController extends Controller
 
                 return ApiResponseService::successResponse('Quiz reports retrieved successfully', $quizReports);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -4252,6 +4272,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Resources retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -4541,6 +4563,8 @@ class CourseApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('Most selling courses retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
@@ -5148,6 +5172,8 @@ class CourseApiController extends Controller
             $course = Course::onlyTrashed()->findOrFail($request->id);
             $course->forceDelete();
             ApiResponseService::successResponse('Course permanently deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> deleteCoursePermanently Method');
             ApiResponseService::errorResponse('Failed to permanently delete the course.');
@@ -5194,6 +5220,8 @@ class CourseApiController extends Controller
             })->values();
 
             return ApiResponseService::successResponse('User Courses retrieved successfully', $payload);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getUserCourses Method');
             return ApiResponseService::errorResponse();
@@ -5628,6 +5656,8 @@ class CourseApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('My learning courses retrieved successfully', $pagination);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getMyLearning Method');
             ApiResponseService::errorResponse('Failed to retrieve my learning courses.');
@@ -5677,6 +5707,8 @@ class CourseApiController extends Controller
         try {
             $languages = CourseLanguage::where('is_active', true)->get();
             ApiResponseService::successResponse('Course Languages retrieved successfully', $languages);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getCourseLanguages Method');
             ApiResponseService::errorResponse();
@@ -5691,6 +5723,8 @@ class CourseApiController extends Controller
         try {
             $tags = Tag::where('is_active', true)->get();
             ApiResponseService::successResponse('Course Tags retrieved successfully', $tags);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getCourseTags Method');
             ApiResponseService::errorResponse();
@@ -5759,6 +5793,8 @@ class CourseApiController extends Controller
             ]);
 
             ApiResponseService::successResponse('Course progress tracked successfully', $track);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> userTrackCourse Method');
             ApiResponseService::errorResponse('Failed to track course progress.');
@@ -5895,6 +5931,8 @@ class CourseApiController extends Controller
                 'quiz_details' => $quizDetails,
                 'student_attempts' => $studentAttempts,
             ];
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting course quiz reports: ' . $e->getMessage());
 
@@ -6253,6 +6291,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Quiz attempt details retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting quiz attempt details: ' . $e->getMessage());
 
@@ -6549,6 +6589,8 @@ class CourseApiController extends Controller
                 ],
                 'questions' => $questions,
             ];
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting quiz attempt details for course: ' . $e->getMessage());
 
@@ -6965,6 +7007,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Quiz report details retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting quiz report details: ' . $e->getMessage());
 
@@ -7185,6 +7229,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Quiz result details retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting quiz result details: ' . $e->getMessage());
 
@@ -7317,6 +7363,8 @@ class CourseApiController extends Controller
                     'latest_activity' => $latestActivity ? $latestActivity->format('Y-m-d H:i:s') : null,
                 ],
             ];
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting helpdesk discussions: ' . $e->getMessage());
 
@@ -7455,6 +7503,8 @@ class CourseApiController extends Controller
                         ),
                 ],
             ];
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting course ratings: ' . $e->getMessage());
 
@@ -7500,6 +7550,8 @@ class CourseApiController extends Controller
                 'created_at' => $assignment->created_at,
                 'updated_at' => $assignment->updated_at,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting course assignments: ' . $e->getMessage());
 
@@ -7596,6 +7648,8 @@ class CourseApiController extends Controller
                     'updated_at' => $assignment->updated_at,
                 ];
             });
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Error getting assignment details: ' . $e->getMessage());
 
@@ -7823,6 +7877,8 @@ class CourseApiController extends Controller
             ];
 
             ApiResponseService::successResponse('Search suggestions retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getSearchSuggestions Method');
             ApiResponseService::errorResponse();
@@ -8027,6 +8083,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Course reviews retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getCourseReviews Method');
 
@@ -8184,6 +8242,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Instructor reviews retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getInstructorReviews Method');
 
@@ -8230,6 +8290,8 @@ class CourseApiController extends Controller
 
             // Scenario 3: Authenticated user's instructor reviews (no parameters)
             return $this->getAuthenticatedUserInstructorReviews($request, $user);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getReviews Method');
 
@@ -8397,6 +8459,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Team member course reviews retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getTeamMemberInstructorReviews Method');
 
@@ -8502,6 +8566,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Your instructor reviews retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse(
                 $e,
@@ -8659,6 +8725,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Course discussions retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getDiscussion Method');
 
@@ -8751,6 +8819,8 @@ class CourseApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Reply posted successfully', $formattedReply);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> replyDiscussion Method');
 
@@ -8954,6 +9024,8 @@ class CourseApiController extends Controller
             } else {
                 return ApiResponseService::errorResponse('Failed to generate certificate: ' . $result['error']);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> generateCourseCertificate Method');
 
@@ -9012,6 +9084,8 @@ class CourseApiController extends Controller
             } else {
                 return ApiResponseService::errorResponse('Failed to generate certificate: ' . $result['error']);
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> generateExamCertificate Method');
 
@@ -9047,6 +9121,8 @@ class CourseApiController extends Controller
                 'Certificate templates fetched successfully',
                 $formattedTemplates,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getCertificateTemplates Method');
 
@@ -9252,6 +9328,8 @@ class CourseApiController extends Controller
 
             return ApiResponseService::successResponse('Course progress retrieved successfully.', $details);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Failed to get course progress details', [
                 'user_id' => Auth::id(),

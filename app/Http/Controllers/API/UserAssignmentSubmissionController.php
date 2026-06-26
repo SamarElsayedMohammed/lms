@@ -168,6 +168,8 @@ class UserAssignmentSubmissionController extends Controller
             $submission->load(['files', 'assignment.chapter.course']);
 
             ApiResponseService::successResponse('Assignment submitted successfully', $submission);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to submit assignment');
             ApiResponseService::errorResponse('Failed to submit assignment');
@@ -225,6 +227,8 @@ class UserAssignmentSubmissionController extends Controller
             $submissions = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
             ApiResponseService::successResponse('Submissions retrieved successfully', $submissions);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to retrieve submissions');
             ApiResponseService::errorResponse('Failed to retrieve submissions');
@@ -275,6 +279,8 @@ class UserAssignmentSubmissionController extends Controller
             }
 
             ApiResponseService::successResponse('Submission details retrieved successfully', $submission);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to retrieve submission details');
             ApiResponseService::errorResponse('Failed to retrieve submission details');
@@ -337,6 +343,8 @@ class UserAssignmentSubmissionController extends Controller
             });
 
             ApiResponseService::successResponse('Course assignments retrieved successfully', $assignments);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to retrieve course assignments');
             ApiResponseService::errorResponse('Failed to retrieve course assignments');
@@ -474,6 +482,8 @@ class UserAssignmentSubmissionController extends Controller
             $submission->load(['files', 'assignment.chapter.course']);
 
             ApiResponseService::successResponse('Submission updated successfully', $submission);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to update submission');
             ApiResponseService::errorResponse('Failed to update submission');
@@ -537,6 +547,8 @@ class UserAssignmentSubmissionController extends Controller
             $submission->delete();
 
             ApiResponseService::successResponse('Submission deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to delete submission');
             ApiResponseService::errorResponse('Failed to delete submission');

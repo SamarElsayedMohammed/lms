@@ -66,6 +66,8 @@ class PromoCodeApiController extends Controller
             $promoCodes = $instructorPromoCodes->union($adminPromoCodes)->get();
 
             return ApiResponseService::successResponse('Promo codes fetched successfully', $promoCodes);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to fetch promo codes');
 
@@ -140,6 +142,8 @@ class PromoCodeApiController extends Controller
                 'Instructor promo codes for course fetched successfully',
                 $responseData,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to fetch promo codes for course');
 
@@ -214,6 +218,8 @@ class PromoCodeApiController extends Controller
             });
 
             return ApiResponseService::successResponse('Valid promo codes fetched', $promoCodesWithDiscount->values());
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::logErrorResponse($e, 'Failed to get valid promo codes');
         }
@@ -357,6 +363,8 @@ class PromoCodeApiController extends Controller
                 'tax_amount' => $pricing['tax_amount'],
                 'total' => $pricing['total'],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to preview promo code discount');
 
@@ -373,6 +381,8 @@ class PromoCodeApiController extends Controller
                 'total_discounted_amount' => 0,
                 'applied_promo_codes' => [],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::logErrorResponse($e, 'Failed to get applied promo codes');
         }

@@ -162,6 +162,8 @@ class FlutterwaveController extends Controller
                     CommissionService::calculateCommissions($order);
                     CommissionService::markCommissionsAsPaid($order);
                     Log::info("Commission processing completed for Order: {$order->id}");
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     Log::error("Commission processing failed for Order: {$order->id}", [
                         'error' => $e->getMessage(),
@@ -224,6 +226,8 @@ class FlutterwaveController extends Controller
 
                 return redirect($this->getBaseUrl() . '/payment-status?status=payment_failed');
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Flutterwave callback error: ' . $e->getMessage(), [
                 'tx_ref' => $txRef,
@@ -309,6 +313,8 @@ class FlutterwaveController extends Controller
                     'customer' => $data['customer'],
                 ],
             ];
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Flutterwave transaction verification error: ' . $e->getMessage());
             return ['success' => false, 'message' => 'Verification error: ' . $e->getMessage()];
@@ -347,6 +353,8 @@ class FlutterwaveController extends Controller
             }
 
             return redirect($this->getBaseUrl() . '/payment-status?status=cancelled');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Flutterwave cancel error: ' . $e->getMessage());
             ApiResponseService::logErrorResponse($e, 'Flutterwave cancel error');

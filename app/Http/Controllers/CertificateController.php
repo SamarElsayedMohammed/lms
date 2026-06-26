@@ -416,6 +416,8 @@ class CertificateController extends Controller
             $qrX = $canvasWidth - 180;
             $qrY = $canvasHeight - 180;
             $html .= "<div style='position:absolute;left:{$qrX}px;top:{$qrY}px;width:150px;height:150px;'><img src='{$qrDataUri}' style='width:100%;height:100%;'></div>";
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             // QR generation optional - skip if fails
         }

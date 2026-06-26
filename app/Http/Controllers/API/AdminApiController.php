@@ -160,6 +160,8 @@ class AdminApiController extends Controller
                 ]);
 
             return ApiResponseService::successResponse('Assignment submissions retrieved successfully', $submissions);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get assignment submissions');
             return ApiResponseService::errorResponse('Failed to retrieve assignment submissions');
@@ -239,6 +241,8 @@ class AdminApiController extends Controller
                 'Assignment submission details retrieved successfully',
                 $response,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get assignment submission details');
             return ApiResponseService::errorResponse('Failed to retrieve assignment submission details');
@@ -331,6 +335,8 @@ class AdminApiController extends Controller
                 'Assignment submission updated successfully by admin',
                 $response,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to update assignment submission');
             return ApiResponseService::errorResponse('Failed to update assignment submission');
@@ -436,6 +442,8 @@ class AdminApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Assignment statistics retrieved successfully', $statistics);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get assignment statistics');
             return ApiResponseService::errorResponse('Failed to retrieve assignment statistics');
@@ -494,6 +502,8 @@ class AdminApiController extends Controller
                 'status' => $status,
                 'submission_ids' => $submissionIds,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to bulk update assignment submissions');
             return ApiResponseService::errorResponse('Failed to bulk update assignment submissions');

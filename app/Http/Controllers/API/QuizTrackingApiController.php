@@ -136,6 +136,8 @@ class QuizTrackingApiController extends Controller
             ])->find($request->quiz_id);
 
             return ApiResponseService::successResponse(__('Quiz details fetched.'), $quiz);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return ApiResponseService::errorResponse(__('Failed to fetch quiz details.'), $e->getMessage());
         }
@@ -161,6 +163,8 @@ class QuizTrackingApiController extends Controller
                 ->get(['id', 'score', 'time_taken', 'created_at']);
 
             return ApiResponseService::successResponse(__('User attempts fetched.'), $attempts);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return ApiResponseService::errorResponse(__('Failed to fetch attempts.'), $e->getMessage());
         }
@@ -204,6 +208,8 @@ class QuizTrackingApiController extends Controller
                 'time_taken' => $attempt->time_taken,
                 'answers' => $details,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return ApiResponseService::errorResponse(__('Failed to fetch attempt details.'), $e->getMessage());
         }
@@ -307,6 +313,8 @@ class QuizTrackingApiController extends Controller
             ];
 
             return ApiResponseService::successResponse(__('Quiz summary fetched successfully.'), $summary);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return ApiResponseService::errorResponse(__('Failed to fetch quiz summary.'), $e->getMessage());
         }

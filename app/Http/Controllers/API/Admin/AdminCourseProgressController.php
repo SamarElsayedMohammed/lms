@@ -41,6 +41,8 @@ class AdminCourseProgressController extends Controller
 
             return ApiResponseService::successResponse('Enrollment overview retrieved successfully.', $overview);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Failed to get enrollment overview', [
                 'admin_id' => Auth::id(),
@@ -81,6 +83,8 @@ class AdminCourseProgressController extends Controller
                 'students' => $progress,
             ]);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Failed to get course student progress', [
                 'admin_id' => Auth::id(),
@@ -106,6 +110,8 @@ class AdminCourseProgressController extends Controller
 
             return ApiResponseService::successResponse('Student course details retrieved successfully.', $details);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Failed to get student course details', [
                 'admin_id' => Auth::id(),

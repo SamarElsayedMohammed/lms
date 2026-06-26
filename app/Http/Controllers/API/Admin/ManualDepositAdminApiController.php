@@ -194,6 +194,8 @@ class ManualDepositAdminApiController extends AdminCrudApiController
 
             DB::commit();
             return ApiResponseService::successResponse('Manual deposit request updated successfully', $deposit);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             return ApiResponseService::errorResponse('Failed to update deposit status: ' . $e->getMessage());

@@ -255,6 +255,8 @@ class RefundController extends Controller
                     ->route('admin.refunds.show', $id)
                     ->with('success', 'Refund request rejected successfully.');
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 

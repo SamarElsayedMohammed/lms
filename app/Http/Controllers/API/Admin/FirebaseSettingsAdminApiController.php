@@ -58,6 +58,8 @@ final class FirebaseSettingsAdminApiController extends AdminCrudApiController
             return ApiResponseService::successResponse('Firebase settings updated successfully', $payload);
         } catch (InvalidArgumentException $e) {
             return ApiResponseService::validationError($e->getMessage());
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return ApiResponseService::errorResponse(exception: $e);
         }

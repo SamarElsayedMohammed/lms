@@ -84,6 +84,8 @@ class ApiController extends Controller
 
             // If user doesn't exist at all, treat as new user
             return ApiResponseService::successResponse(data: ['is_new_user' => true]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ApiResponseService::errorResponse(exception: $th);
@@ -171,6 +173,8 @@ class ApiController extends Controller
                     if (empty($request->name) && $socialUser->getName()) {
                         $request->merge(['name' => $socialUser->getName()]);
                     }
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Throwable $e) {
                     ApiResponseService::validationError('Invalid Google access token: ' . $e->getMessage());
                 }
@@ -314,6 +318,8 @@ class ApiController extends Controller
             $pair          = $this->createTokenPair($auth, $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ApiResponseService::errorResponse(exception: $th);
@@ -469,6 +475,8 @@ class ApiController extends Controller
                     try {
                         $socialUser = \Laravel\Socialite\Facades\Socialite::driver('google')->stateless()->userFromToken($accessToken);
                         $firebaseId = 'google-oauth-' . $socialUser->getId();
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (\Throwable $e) {
                         ApiResponseService::validationError('Invalid Google access token: ' . $e->getMessage());
                     }
@@ -521,6 +529,8 @@ class ApiController extends Controller
             $pair          = $this->createTokenPair($auth, $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -579,6 +589,8 @@ class ApiController extends Controller
             $pair          = $this->createTokenPair($user, $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('Login successful', $formattedUser);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -630,6 +642,8 @@ class ApiController extends Controller
                 'refresh_token' => $pair['refresh'],
                 'expires_in'    => config('sanctum.access_token_lifetime', 60) * 60, // seconds
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -766,6 +780,8 @@ class ApiController extends Controller
             $pair          = $this->createTokenPair($user, $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('Registration successful', $formattedUser);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             DB::rollBack();
             ApiResponseService::errorResponse(exception: $th);
@@ -825,6 +841,8 @@ class ApiController extends Controller
             $user->tokens()->delete();
 
             ApiResponseService::successResponse('Password reset successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -897,6 +915,8 @@ class ApiController extends Controller
             $userData['expires_in']    = config('sanctum.access_token_lifetime', 60) * 60; // seconds
 
             ApiResponseService::successResponse(__('Login successful'), $userData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -946,6 +966,8 @@ class ApiController extends Controller
             }
 
             ApiResponseService::successResponse('User details retrieved successfully', $userData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -1421,6 +1443,8 @@ class ApiController extends Controller
                 : 'Profile updated successfully';
 
             return ApiResponseService::successResponse($responseMessage, $user);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse(exception: $th);
         }
@@ -1478,6 +1502,8 @@ class ApiController extends Controller
             if ($socialLogin && !empty($socialLogin->firebase_id)) {
                 try {
                     HelperService::updateFirebasePassword($socialLogin->firebase_id, $request->new_password);
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Exception $e) {
                     Log::error('Failed to update Firebase password: ' . $e->getMessage());
 
@@ -1492,6 +1518,8 @@ class ApiController extends Controller
             return ApiResponseService::successResponse(
                 'Password changed successfully. Please login again with your new password.',
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse(exception: $th);
         }
@@ -1958,6 +1986,8 @@ class ApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Notifications retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse(exception: $th);
         }
@@ -2072,6 +2102,8 @@ class ApiController extends Controller
                                 ]);
                                 $globalCount++;
                                 $markedCount++; // Also increment marked_count for global notifications
+                            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                                throw $e;
                             } catch (\Exception $e) {
                                 // If duplicate key error, notification is already read
                                 if (
@@ -2112,6 +2144,8 @@ class ApiController extends Controller
                         try {
                             $notification->markAsRead();
                             $markedCount++;
+                        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                            throw $e;
                         } catch (\Exception $e) {
                             \Illuminate\Support\Facades\Log::error('Error marking personal notification as read', [
                                 'user_id' => $user->id,
@@ -2144,6 +2178,8 @@ class ApiController extends Controller
             }
 
             return ApiResponseService::successResponse($message, $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse(exception: $th);
         }
@@ -2254,6 +2290,8 @@ class ApiController extends Controller
                 'personal_count' => $personalMarkedCount,
                 'global_count' => $globalMarkedCount,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse(exception: $th);
         }
@@ -2391,6 +2429,8 @@ class ApiController extends Controller
                         try {
                             // Delete user from Firebase
                             \App\Services\HelperService::removeUserFromFirebase($socialLogin->firebase_id);
+                        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                            throw $e;
                         } catch (\Throwable $firebaseError) {
                             // Log Firebase deletion error but continue with database deletion
                             Log::warning('Failed to delete Firebase user during account deletion', [
@@ -2400,6 +2440,8 @@ class ApiController extends Controller
                             ]);
                         }
                     }
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Throwable $e) {
                     // Log error but continue with database deletion
                     Log::warning('Error during Firebase account deletion', [
@@ -2507,11 +2549,15 @@ class ApiController extends Controller
                 return ApiResponseService::successResponse(
                     'Your account has been successfully deleted. All your data has been removed from our system.',
                 );
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $e) {
                 // Rollback transaction on error
                 DB::rollback();
                 throw $e;
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             // Log the actual error for debugging
             Log::error('Delete account error: ' . $th->getMessage(), [
@@ -2731,6 +2777,8 @@ class ApiController extends Controller
                         $appName,
                     ));
                 }
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $e) {
                 Log::error('submitContactForm: Failed to notify admins', [
                     'contact_message_id' => $contactMessage->id,
@@ -2758,6 +2806,8 @@ class ApiController extends Controller
                         );
                     },
                 );
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $e) {
                 Log::error('Failed to send contact form email: ' . $e->getMessage());
                 // Don't fail the request if email fails
@@ -2776,6 +2826,8 @@ class ApiController extends Controller
             return ApiResponseService::successResponse(
                 'Your message has been sent successfully! We will get back to you soon.',
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Failed to send message. Please try again later.', exception: $th);
         }
@@ -2934,6 +2986,8 @@ class ApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Categories retrieved successfully', $categories);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse(exception: $th);
         }
@@ -3042,6 +3096,8 @@ class ApiController extends Controller
             $perPage = $request->per_page ?? 15;
             $subcategories = $categoryQuery->paginate($perPage);
             ApiResponseService::successResponse(null, $subcategories);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
@@ -3058,6 +3114,8 @@ class ApiController extends Controller
                 ->orderBy('sort_order')
                 ->get();
             ApiResponseService::successResponse('Data Fetched Successfully', $customFormFields);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller ->getCustomFormFields');
             ApiResponseService::errorResponse();
@@ -3082,6 +3140,8 @@ class ApiController extends Controller
                 }
             }
             ApiResponseService::successResponse('User removed successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::errorResponse(exception: $e);
         }
@@ -3144,6 +3204,8 @@ class ApiController extends Controller
 
             $appSettings = array_merge($generalSystemSettings, $appSettings);
             ApiResponseService::successResponse('Data Fetched Successfully', $appSettings);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::errorResponse(exception: $e);
         }
@@ -3192,6 +3254,8 @@ class ApiController extends Controller
             $socialMedia = SocialMedia::select('id', 'name', 'icon', 'url')->get();
             $webSettings = array_merge($generalSystemSettings, $webSettings, ['social_media' => $socialMedia]);
             ApiResponseService::successResponse('Data Fetched Successfully', $webSettings);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::errorResponse(exception: $e);
         }
@@ -3230,6 +3294,8 @@ class ApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Why Choose Us data fetched successfully', $formattedData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getWhyChooseUs Method');
             return ApiResponseService::errorResponse('Failed to retrieve Why Choose Us data');
@@ -3304,6 +3370,8 @@ class ApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Become Instructor data fetched successfully', $formattedData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getBecomeInstructor Method');
             return ApiResponseService::errorResponse('Failed to retrieve Become Instructor data');
@@ -3378,6 +3446,8 @@ class ApiController extends Controller
                 'payment_intent' => $paymentGatewayDetails,
                 'payment_transaction' => $paymentTransactionData,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             DB::rollBack();
             ApiResponseService::logErrorResponse($e);
@@ -3595,6 +3665,8 @@ class ApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Sales chart data retrieved successfully', $salesChartData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Failed to retrieve sales chart data: ' . $e->getMessage());
         }
@@ -3627,6 +3699,8 @@ class ApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('FAQs retrieved successfully', $faqs);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getFaqs Method');
             return ApiResponseService::errorResponse('Failed to retrieve FAQs');
@@ -3706,6 +3780,8 @@ class ApiController extends Controller
                 });
 
             return ApiResponseService::successResponse('Pages retrieved successfully', $pages);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getPages Method');
             return ApiResponseService::errorResponse('Failed to retrieve pages');
@@ -3766,6 +3842,8 @@ class ApiController extends Controller
                 ]);
 
             return ApiResponseService::successResponse('SEO settings retrieved successfully', $seoSettings);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getSeoSettings Method');
             return ApiResponseService::errorResponse('Failed to retrieve SEO settings');
@@ -3790,6 +3868,8 @@ class ApiController extends Controller
                 'email_exists' => $emailExists,
                 'email' => $user->email ?? null,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> isEmailExist Method');
             return ApiResponseService::errorResponse('Failed to check email existence');
@@ -3834,6 +3914,8 @@ class ApiController extends Controller
                 'Your request has been submitted successfully! We will contact you soon.',
                 ['request_id' => $instructorRequest->id]
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $th) {
             ApiResponseService::logErrorResponse($th, 'API Controller -> submitBecomeInstructor Method');
             return ApiResponseService::errorResponse('Failed to submit request. Please try again later.', exception: $th);
@@ -3893,6 +3975,8 @@ class ApiController extends Controller
             });
 
             return ApiResponseService::successResponse('Active sessions retrieved successfully', $sessions);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $th) {
             return ApiResponseService::errorResponse($th->getMessage());
         }
@@ -3910,6 +3994,8 @@ class ApiController extends Controller
 
             $token->delete();
             return ApiResponseService::successResponse('Session logged out successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $th) {
             return ApiResponseService::errorResponse($th->getMessage());
         }
@@ -3936,6 +4022,8 @@ class ApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Notification settings retrieved successfully', $settings);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $th) {
             return ApiResponseService::errorResponse($th->getMessage());
         }
@@ -3967,6 +4055,8 @@ class ApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Notification settings updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $th) {
             return ApiResponseService::errorResponse($th->getMessage());
         }

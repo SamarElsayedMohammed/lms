@@ -123,6 +123,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess(__('Chatbot settings updated successfully'));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update settings') . ': ' . $e->getMessage(), 500);
@@ -186,6 +188,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess(__('FAQ created successfully'), $faq, 201);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to create FAQ') . ': ' . $e->getMessage(), 500);
@@ -340,6 +344,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess(__('Knowledge base entry created successfully'), $entry, 201);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to create knowledge base entry') . ': ' . $e->getMessage(), 500);
@@ -420,6 +426,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess(__('Knowledge base entry updated successfully'), $entry->fresh());
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update knowledge base entry') . ': ' . $e->getMessage(), 500);

@@ -69,6 +69,8 @@ class FeatureSectionController extends Controller
             }
 
             return ResponseService::successResponse('Feature Section Created Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th);
             return ResponseService::errorRedirectResponse('Failed to create Feature Section');
@@ -218,6 +220,8 @@ class FeatureSectionController extends Controller
             }
 
             return ResponseService::successResponse('Feature Section Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $th) {
             ResponseService::logErrorRedirect($th, 'FeatureSectionController -> update()');
             return ResponseService::errorResponse();
@@ -238,6 +242,8 @@ class FeatureSectionController extends Controller
             $featureSection = FeatureSection::onlyTrashed()->findOrFail($id);
             $featureSection->restore();
             return ResponseService::successResponse('Feature Section Restored Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'FeatureSectionController -> restore()');
             return ResponseService::errorResponse('Failed to restore Feature Section');
@@ -251,6 +257,8 @@ class FeatureSectionController extends Controller
             $featureSection = FeatureSection::onlyTrashed()->findOrFail($id);
             $featureSection->forceDelete();
             return ResponseService::successResponse('Feature Section Permanently Deleted Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             ResponseService::logErrorRedirect($th, 'FeatureSectionController -> trash()');
             return ResponseService::errorResponse('Failed to permanently delete Feature Section');
@@ -273,6 +281,8 @@ class FeatureSectionController extends Controller
                 ]);
             }
             ResponseService::successResponse('Data Updated Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ResponseService::logErrorRedirect($e, 'FeatureSectionController -> Update row_order method');
             ResponseService::errorResponse();

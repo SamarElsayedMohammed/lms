@@ -223,6 +223,8 @@ class ContactMessageAdminApiController extends AdminCrudApiController
                             $replyMessage,
                             $appName,
                         ));
+                    } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                        throw $e;
                     } catch (\Exception $e) {
                         \Illuminate\Support\Facades\Log::warning(
                             'ContactMessageAdminApiController: Failed to send in-app notification to user',
@@ -239,6 +241,8 @@ class ContactMessageAdminApiController extends AdminCrudApiController
             ]);
 
             return response()->json(['success' => true]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->jsonError(__('Failed to send reply: ') . $e->getMessage(), 500);
         }

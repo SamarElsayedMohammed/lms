@@ -48,6 +48,8 @@ class HelpdeskApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('Groups fetched successfully', $formattedGroups);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> groups method');
             return ApiResponseService::errorResponse();
@@ -110,6 +112,8 @@ class HelpdeskApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Group details fetched successfully', $groupData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getGroupDetails method');
             return ApiResponseService::errorResponse();
@@ -173,6 +177,8 @@ class HelpdeskApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Group approval status checked successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> checkGroupApproval method');
             return ApiResponseService::errorResponse();
@@ -292,6 +298,8 @@ class HelpdeskApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Questions fetched successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> questions method');
             return ApiResponseService::errorResponse();
@@ -404,6 +412,8 @@ class HelpdeskApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Question fetched successfully', $formattedQuestion);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> showQuestion method');
             return ApiResponseService::errorResponse();
@@ -446,6 +456,8 @@ class HelpdeskApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('Group created successfully', $group);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getCounts method');
             return ApiResponseService::errorResponse();
@@ -493,6 +505,8 @@ class HelpdeskApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('Join request submitted successfully', $req);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> requestJoin method');
             return ApiResponseService::errorResponse();
@@ -554,6 +568,8 @@ class HelpdeskApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('Question posted successfully', $question);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> storeQuestion method');
             return ApiResponseService::errorResponse();
@@ -614,6 +630,8 @@ class HelpdeskApiController extends Controller
             unset($reply->children);
 
             return ApiResponseService::successResponse('Reply added successfully', $reply);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> getCounts method');
             return ApiResponseService::errorResponse();
@@ -737,6 +755,8 @@ class HelpdeskApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Search completed successfully', $results);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             ApiResponseService::logErrorResponse($e, 'API Controller -> search method');
             return ApiResponseService::errorResponse();

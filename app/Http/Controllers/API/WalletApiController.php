@@ -98,6 +98,8 @@ class WalletApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Wallet summary retrieved successfully', $summary);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve wallet summary: ' . $e->getMessage());
         }
@@ -134,6 +136,8 @@ class WalletApiController extends Controller
                 'amount' => $result['amount'],
                 'currency' => $result['currency'],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to create checkout: ' . $e->getMessage());
         }
@@ -271,6 +275,8 @@ class WalletApiController extends Controller
             $responseData['is_withdrawal_request_pending'] = $withdrawalRequests->where('status', 'pending')->isNotEmpty();
 
             return ApiResponseService::successResponse('Wallet history retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve wallet history: ' . $e->getMessage());
         }
@@ -469,6 +475,8 @@ class WalletApiController extends Controller
                 ],
                 'remaining_balance' => (float) $user->wallet_balance,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return ApiResponseService::errorResponse('Failed to create withdrawal request: ' . $e->getMessage());
@@ -551,6 +559,8 @@ class WalletApiController extends Controller
                     'to' => $withdrawalRequests->lastItem(),
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve withdrawal requests: ' . $e->getMessage());
         }
@@ -701,6 +711,8 @@ class WalletApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Withdrawal request details retrieved successfully', $response);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve withdrawal request details: '
             . $e->getMessage());

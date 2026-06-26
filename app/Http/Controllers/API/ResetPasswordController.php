@@ -38,6 +38,8 @@ final class ResetPasswordController extends Controller
             }
 
             ApiResponseService::successResponse(self::GENERIC_FORGOT_MESSAGE);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::errorResponse(exception: $e);
         }
@@ -59,6 +61,8 @@ final class ResetPasswordController extends Controller
                 'verified' => true,
                 'expires_in_seconds' => $this->emailPasswordResetService->remainingSeconds($request->email),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::errorResponse(exception: $e);
         }
@@ -82,6 +86,8 @@ final class ResetPasswordController extends Controller
             }
 
             ApiResponseService::successResponse('Password reset successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::errorResponse(exception: $e);
         }

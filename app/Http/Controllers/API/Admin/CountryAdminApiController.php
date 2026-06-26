@@ -114,6 +114,8 @@ class CountryAdminApiController extends AdminCrudApiController
         try {
             \App\Jobs\UpdateExchangeRatesJob::dispatch();
             Log::info("Currency auto-created for country [{$countryCode}] and rate-update job dispatched.");
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Failed to dispatch UpdateExchangeRatesJob after country creation: ' . $e->getMessage());
         }

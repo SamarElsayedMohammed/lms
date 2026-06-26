@@ -86,6 +86,8 @@ class RoleAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess(__('Role created successfully'), $role->load('permissions'), 201);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to create role: ') . $e->getMessage());
@@ -127,6 +129,8 @@ class RoleAdminApiController extends AdminCrudApiController
             DB::commit();
 
             return $this->jsonSuccess(__('Role updated successfully'), $role->load('permissions'));
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update role: ') . $e->getMessage());

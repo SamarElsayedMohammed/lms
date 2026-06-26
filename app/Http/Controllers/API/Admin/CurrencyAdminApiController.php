@@ -73,6 +73,8 @@ class CurrencyAdminApiController extends AdminCrudApiController
         if (!$request->filled('exchange_rate_to_egp')) {
             try {
                 \App\Jobs\UpdateExchangeRatesJob::dispatch();
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error('Failed to dispatch UpdateExchangeRatesJob: ' . $e->getMessage());
             }
@@ -149,6 +151,8 @@ class CurrencyAdminApiController extends AdminCrudApiController
             return $this->jsonSuccess(__('Exchange rates updated successfully'), [
                 'last_updated_at' => now()->toDateTimeString()
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->jsonError(__('Failed to update rates: ') . $e->getMessage(), 500);
         }

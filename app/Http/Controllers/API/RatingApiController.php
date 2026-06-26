@@ -110,6 +110,8 @@ class RatingApiController extends Controller
                 'rating' => $rating,
                 'is_updated' => $rating->wasRecentlyCreated === false, // convenience flag
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to add/update review');
             return ApiResponseService::errorResponse('Failed to save review.');
@@ -164,6 +166,8 @@ class RatingApiController extends Controller
             return ApiResponseService::successResponse('Review updated successfully', [
                 'rating' => $rating,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to update review');
             return ApiResponseService::errorResponse('Failed to update review.');
@@ -226,6 +230,8 @@ class RatingApiController extends Controller
             $rating->delete();
 
             return ApiResponseService::successResponse('Review deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to delete review');
             return ApiResponseService::errorResponse('Failed to delete review.');

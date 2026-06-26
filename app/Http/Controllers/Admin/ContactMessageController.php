@@ -198,6 +198,8 @@ final class ContactMessageController extends Controller
                 'data' => $message->fresh(),
                 'code' => 200,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -228,6 +230,8 @@ final class ContactMessageController extends Controller
                 'message' => 'Contact message deleted successfully',
                 'code' => 200,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 

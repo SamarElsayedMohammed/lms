@@ -166,6 +166,8 @@ class WithdrawalController extends Controller
                 'data' => $withdrawal->fresh(),
                 'code' => 200,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 

@@ -81,6 +81,8 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
             $campaign = PopupCampaign::create($data);
 
             return ApiResponseService::successResponse('Campaign created successfully', $campaign);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to create campaign: ' . $e->getMessage());
         }
@@ -159,6 +161,8 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
             $campaign->update($data);
 
             return ApiResponseService::successResponse('Campaign updated successfully', $campaign->fresh());
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to update campaign: ' . $e->getMessage());
         }

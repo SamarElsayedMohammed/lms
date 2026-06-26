@@ -21,6 +21,8 @@ class UserCreditCardApiController extends Controller
             $cards = $user->creditCards()->get();
 
             return ApiResponseService::successResponse('Credit cards retrieved successfully', $cards);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Failed to retrieve credit cards', null, 500, $th);
         }
@@ -67,6 +69,8 @@ class UserCreditCardApiController extends Controller
             ]);
 
             return ApiResponseService::successResponse('Credit card added successfully', $card);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Failed to add credit card', null, 500, $th);
         }
@@ -95,6 +99,8 @@ class UserCreditCardApiController extends Controller
             $card->update($request->only(['card_holder_name', 'exp_month', 'exp_year']));
 
             return ApiResponseService::successResponse('Credit card updated successfully', $card);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Failed to update credit card', null, 500, $th);
         }
@@ -122,6 +128,8 @@ class UserCreditCardApiController extends Controller
             }
 
             return ApiResponseService::successResponse('Credit card deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Failed to delete credit card', null, 500, $th);
         }
@@ -143,6 +151,8 @@ class UserCreditCardApiController extends Controller
             $card->update(['is_default' => true]);
 
             return ApiResponseService::successResponse('Credit card set as default successfully', $card);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse('Failed to set default credit card', null, 500, $th);
         }

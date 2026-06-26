@@ -70,6 +70,8 @@ class WebhookController extends Controller
             } else {
                 Log::error('Razorpay Signature Not Matched Payment Failed !!!!!!');
             }
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             Log::error('Razorpay Webhook : Error occurred', [
                 $e->getMessage() . ' --> ' . $e->getFile() . ' At Line : ' . $e->getLine(),
@@ -115,6 +117,8 @@ class WebhookController extends Controller
             }
             DB::commit();
             ResponseService::successResponse('Transaction Verified Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             DB::rollBack();
             Log::error($e->getMessage() . 'WebhookController -> assignCourse');
@@ -147,6 +151,8 @@ class WebhookController extends Controller
             $paymentTransactionData->update(['payment_status' => 'failed']);
             DB::commit();
             ResponseService::successResponse('Transaction Failed Successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Exception $e) {
             DB::rollBack();
             Log::error($e->getMessage() . 'WebhookController -> failedTransaction');

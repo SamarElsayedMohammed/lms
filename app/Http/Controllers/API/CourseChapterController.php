@@ -263,6 +263,8 @@ class CourseChapterController extends Controller
                 ApiResponseService::validationError('No Courses Found');
             }
             ApiResponseService::successResponse('Courses retrieved successfully', $courses);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'API Course Controller -> getAddedCourses Method');
             ApiResponseService::errorResponse();

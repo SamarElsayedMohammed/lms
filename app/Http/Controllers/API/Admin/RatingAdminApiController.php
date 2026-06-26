@@ -99,6 +99,8 @@ class RatingAdminApiController extends Controller
 
             return ApiResponseService::successResponse('Ratings retrieved successfully', $paginated);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'Admin RatingAdminApiController -> index');
             return ApiResponseService::errorResponse('Failed to retrieve ratings.');
@@ -171,6 +173,8 @@ class RatingAdminApiController extends Controller
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException) {
             return ApiResponseService::errorResponse('Rating not found.', null, 404);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'Admin RatingAdminApiController -> update');
             return ApiResponseService::errorResponse('Failed to update rating.');
@@ -194,6 +198,8 @@ class RatingAdminApiController extends Controller
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException) {
             return ApiResponseService::errorResponse('Rating not found.', null, 404);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'Admin RatingAdminApiController -> destroy');
             return ApiResponseService::errorResponse('Failed to delete rating.');

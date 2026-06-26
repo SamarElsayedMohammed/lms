@@ -255,6 +255,8 @@ class CourseAdminApiController extends AdminCrudApiController
                 }
 
             DB::commit();
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -329,6 +331,8 @@ class CourseAdminApiController extends AdminCrudApiController
                         $minutes = (int) floor(($totalSeconds % 3600) / 60);
                         $seconds = (int) ($totalSeconds % 60);
                     }
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                    throw $e;
                 } catch (\Throwable $e) {
                     \Illuminate\Support\Facades\Log::warning('Could not auto-detect video duration in admin API', [
                         'error' => $e->getMessage(),
@@ -831,6 +835,8 @@ class CourseAdminApiController extends AdminCrudApiController
             }
 
             DB::commit();
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to update course: ') . $e->getMessage(), 500);
@@ -947,6 +953,8 @@ class CourseAdminApiController extends AdminCrudApiController
                 __('Course AI information removed successfully'),
                 $this->buildCourseResponse($course)
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             return $this->jsonError(__('Failed to remove course AI info: ') . $e->getMessage(), 500);

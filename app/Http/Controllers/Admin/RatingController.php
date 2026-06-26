@@ -134,6 +134,8 @@ class RatingController extends Controller
             $rating->delete();
 
             return ResponseService::successResponse('Rating deleted successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ResponseService::errorResponse('Failed to delete rating: ' . $e->getMessage());
         }

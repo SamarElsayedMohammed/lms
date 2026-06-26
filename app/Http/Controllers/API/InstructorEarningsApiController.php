@@ -180,6 +180,8 @@ final class InstructorEarningsApiController extends Controller
                 'Instructor earnings data retrieved successfully',
                 $responseData,
             );
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Error getting instructor earnings: ' . $e->getMessage());
             return ApiResponseService::errorResponse('Failed to load earnings data: ' . $e->getMessage());
@@ -360,6 +362,8 @@ final class InstructorEarningsApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Withdrawal details retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Error getting withdrawal details: ' . $e->getMessage());
             return ApiResponseService::errorResponse('Failed to load withdrawal details: ' . $e->getMessage());
@@ -440,6 +444,8 @@ final class InstructorEarningsApiController extends Controller
                     'has_more_pages' => $withdrawals->hasMorePages(),
                 ],
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Error getting withdrawal history: ' . $e->getMessage());
             return ApiResponseService::errorResponse('Failed to load withdrawal history: ' . $e->getMessage());
@@ -505,6 +511,8 @@ final class InstructorEarningsApiController extends Controller
                 'formatted_amount' => number_format($withdrawal->amount, 2),
                 'status' => $withdrawal->status,
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Error requesting withdrawal: ' . $e->getMessage());
             return ApiResponseService::errorResponse('Failed to submit withdrawal request: ' . $e->getMessage());
@@ -599,6 +607,8 @@ final class InstructorEarningsApiController extends Controller
                 'data' => $data,
                 'summary' => $this->calculateSalesSummary($data),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Error getting sales statistics: ' . $e->getMessage());
             return ApiResponseService::errorResponse('Failed to load sales statistics: ' . $e->getMessage());
@@ -756,6 +766,8 @@ final class InstructorEarningsApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Course analysis retrieved successfully', $responseData);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Error getting course analysis: ' . $e->getMessage());
             return ApiResponseService::errorResponse('Failed to load course analysis: ' . $e->getMessage());

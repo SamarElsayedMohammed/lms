@@ -198,6 +198,8 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             try {
                 $affiliateService = app(AffiliateService::class);
                 $affiliateService->processReferral($user, $subscription);
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 Log::error('SubscriptionAdminApiController: Affiliate referral processing failed', [
                     'message' => $e->getMessage(),
@@ -227,6 +229,8 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                         ]
                     ]);
                 }
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 Log::error('SubscriptionAdminApiController: Tracking events failed', [
                     'message' => $e->getMessage()
@@ -239,6 +243,8 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $user->notify(new ManualSubscriptionStatusNotification($subscription));
 
             return ApiResponseService::successResponse('تمت الموافقة على طلب الاشتراك بنجاح وتفعيله.', $subscription);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             return ApiResponseService::errorResponse('فشل في إتمام عملية الموافقة: ' . $e->getMessage());
@@ -295,6 +301,8 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $subscription->user->notify(new ManualSubscriptionStatusNotification($subscription));
 
             return ApiResponseService::successResponse('تم رفض طلب الاشتراك وإلغاؤه بنجاح.');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             return ApiResponseService::errorResponse('فشل في إتمام عملية الرفض: ' . $e->getMessage());

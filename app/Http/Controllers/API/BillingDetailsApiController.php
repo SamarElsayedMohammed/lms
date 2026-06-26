@@ -39,6 +39,8 @@ final class BillingDetailsApiController extends Controller
             }
 
             return $this->ok($billingDetails->formatForApi(), 'Billing details retrieved successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->serverError('Failed to retrieve billing details', exception: $e);
         }
@@ -87,6 +89,8 @@ final class BillingDetailsApiController extends Controller
             ]));
 
             return $this->ok($billingDetails->formatForApi(), 'Billing details saved successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->serverError('Failed to save billing details', exception: $e);
         }
@@ -143,6 +147,8 @@ final class BillingDetailsApiController extends Controller
             $billingDetails->update($data);
 
             return $this->ok($billingDetails->fresh()->formatForApi(), 'Billing details updated successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->serverError('Failed to update billing details', exception: $e);
         }

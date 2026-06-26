@@ -75,6 +75,8 @@ class SocialLoginApiController extends ApiController
                 'message' => 'The provided token is invalid or has expired. Please sign in again.',
             ], $statusCode >= 400 && $statusCode < 500 ? 401 : 500);
 
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (Throwable $e) {
             ApiResponseService::errorResponse(exception: $e);
         }
