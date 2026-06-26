@@ -33,60 +33,40 @@ Route::group(['prefix' => 'common'], static function (): void {
 });
 /***************************************************************************************************** */
 
-/** Migration Routes */
-Route::get('/migrate', static function (): void {
-    Artisan::call('migrate');
-    $output = Artisan::output();
-    echo nl2br($output); // Convert newlines to <br> for better readability in HTML
-});
+// Developer maintenance helpers must never be registered in production.
+if (app()->isLocal()) {
+    Route::get('/migrate', static function (): void {
+        Artisan::call('migrate');
+        echo nl2br(Artisan::output());
+    });
 
-// Super Admin Seeder Route
-Route::get('/seed-superadmin', static function () {
-    try {
+    Route::get('/seed-superadmin', static function () {
         Artisan::call('db:seed', ['--class' => 'SuperAdminSeeder']);
-        $output = Artisan::output();
+
         return response()->json([
-        'success' => true,
-        'message' => 'Super Admin user created successfully!',
-        'output' => $output,
-        'credentials' => [
-        'email' => 'superadmin@elms.com',
-        'password' => 'Super@Admin#2024!ELMS',
-        ],
+            'success' => true,
+            'message' => 'Super Admin user created successfully!',
+            'output' => Artisan::output(),
         ]);
-    }
-    catch (\Exception $e) {
-        return response()->json([
-        'success' => false,
-        'message' => 'Error: ' . $e->getMessage(),
-        ], 500);
-    }
-})->name('seed.superadmin');
-/***************************************************************************************************** */
+    })->name('seed.superadmin');
 
-/** Clear Routes */
-Route::get('clear', static function () {
-    Artisan::call('config:clear');
-    Artisan::call('view:clear');
-    Artisan::call('cache:clear');
-    Artisan::call('optimize:clear');
-    Artisan::call('debugbar:clear');
-    return redirect()->back();
-});
+    Route::get('clear', static function () {
+        Artisan::call('optimize:clear');
 
-/** Storage Link */
-Route::get('storage-link', static function () {
-    $storageLink = public_path('storage');
+        return redirect()->back();
+    });
 
-    // If storage link already exists, delete it before recreating
-    if (File::exists($storageLink)) {
-        File::delete($storageLink);
-    }
+    Route::get('storage-link', static function () {
+        $storageLink = public_path('storage');
+        if (File::exists($storageLink)) {
+            File::delete($storageLink);
+        }
 
-    Artisan::call('storage:link');
+        Artisan::call('storage:link');
 
-    return 'Storage link refreshed';
-});
+        return 'Storage link refreshed';
+    });
+}
 
 if (class_exists(\Rap2hpoutre\LaravelLogViewer\LogViewerController::class)) {
     Route::get('logs', [\Rap2hpoutre\LaravelLogViewer\LogViewerController::class, 'index']);

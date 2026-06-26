@@ -97,6 +97,7 @@ backups/
 *.rar
 *.7z
 *.md
+!docs/AUTHENTICATION_BUG_REPORT_AR.md
 
 *.sh
 

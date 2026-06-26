@@ -17,29 +17,13 @@ class ApiService
 
     public static function verifyFirebaseToken(#[\SensitiveParameter] string $token)
     {
-        if ($token === 'skilso-no-firebase') {
-            return new class {
-                public function claims() {
-                    return new class {
-                        public function get($key) {
-                            if ($key === 'sub') {
-                                $identifier = request('email') ?? request('mobile') ?? 'default';
-                                return 'fake-firebase-' . md5((string)$identifier);
-                            }
-                            return null;
-                        }
-                    };
-                }
-            };
-        }
-
         try {
             $verifiedToken = HelperService::verifyToken($token);
             if (empty($verifiedToken)) {
                 ApiResponseService::errorResponse('Invalid Firebase token');
             }
             return $verifiedToken;
-        } catch (\Exception) {
+        } catch (\Throwable) {
             ApiResponseService::errorResponse('Invalid Firebase token');
         }
     }

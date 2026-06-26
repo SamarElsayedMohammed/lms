@@ -34,11 +34,12 @@ class WebinarApiController extends Controller
     /**
      * Get webinar details
      */
-    public function show($id)
+    public function show($param)
     {
         try {
             $webinar = Webinar::with(['instructor:id,name,profile', 'registrations'])
-                ->where('id', $id)
+                ->where('id', $param)
+                ->orWhere('slug', $param)
                 ->first();
 
             if (!$webinar) {
@@ -72,11 +73,14 @@ class WebinarApiController extends Controller
     /**
      * Register for a webinar
      */
-    public function register(Request $request, $id)
+    public function register(Request $request, $param)
     {
         try {
-            $user = Auth::user();
-            $webinar = Webinar::findOrFail($id);
+            $user = Auth::guard('sanctum')->user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('Unauthorized.', [], 401);
+            }
+            $webinar = Webinar::where('id', $param)->orWhere('slug', $param)->firstOrFail();
 
             if ($webinar->status === 'completed' || $webinar->status === 'cancelled') {
                 return ApiResponseService::errorResponse('This webinar is no longer available for registration.');
@@ -177,11 +181,14 @@ class WebinarApiController extends Controller
     /**
      * Join a webinar (get join URL)
      */
-    public function join($id)
+    public function join($param)
     {
         try {
-            $user = Auth::user();
-            $webinar = Webinar::findOrFail($id);
+            $user = Auth::guard('sanctum')->user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('Unauthorized.', [], 401);
+            }
+            $webinar = Webinar::where('id', $param)->orWhere('slug', $param)->firstOrFail();
 
             $registration = WebinarRegistration::where('user_id', $user->id)
                 ->where('webinar_id', $webinar->id)

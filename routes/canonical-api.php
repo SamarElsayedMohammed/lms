@@ -13,8 +13,12 @@ Route::get('certificate/verify', [\App\Http\Controllers\API\CertificateApiContro
 
 // Webinar Contract
 Route::get('webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);
-Route::get('webinars/{id}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
-Route::post('webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register']);
+Route::get('webinars/{param}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('webinars/{param}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register']);
+    Route::get('webinars/{param}/join', [\App\Http\Controllers\API\WebinarApiController::class, 'join']);
+});
 
 Route::prefix('admin/webinars')->middleware('auth:sanctum')->group(function () {
     Route::get('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'index']);

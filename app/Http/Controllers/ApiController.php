@@ -141,17 +141,9 @@ class ApiController extends Controller
                     ->first();
 
                 if ($existingEmailUser && !$existingEmailUser->trashed()) {
-                    // User already exists → treat as login (return existing account)
-                    if (!Hash::check($request->password, $existingEmailUser->password ?? '')) {
-                        ApiResponseService::validationError('An account with this email already exists. Please log in instead.');
-                    }
-                    Auth::login($existingEmailUser);
-                    $auth = $existingEmailUser;
-
-                    $pair          = $this->createTokenPair($auth, $auth->name ?? '', $request);
-                    $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
-                    ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
-                    return; // handled
+                    ApiResponseService::validationError(
+                        'An account with this email already exists. Please log in instead.',
+                    );
                 }
 
                 // New email user — no firebase_id needed, skip SocialLogin table
@@ -280,6 +272,13 @@ class ApiController extends Controller
                 $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
                 Auth::login($user);
                 $auth = User::find($user->id);
+
+                $deviceError = $this->verifyDeviceLimits($auth, $request);
+                if ($deviceError) {
+                    DB::rollBack();
+                    ApiResponseService::validationError($deviceError);
+                }
+
                 DB::commit();
 
                 // Server-side tracking
@@ -331,7 +330,7 @@ class ApiController extends Controller
      *
      * @return array{access: string, refresh: string}
      */
-    private function createTokenPair($user, string $baseName, Request $request): array
+    protected function createTokenPair($user, string $baseName, Request $request): array
     {
         // Revoke ALL previous tokens (access + refresh) for this user so only
         // one active session exists at a time (single-session policy).
@@ -388,6 +387,9 @@ class ApiController extends Controller
 
         // Determine max devices for this user
         $maxDevices = $user->allowed_devices_count ?? (int) HelperService::systemSettings('default_device_limit', 3);
+        if ($maxDevices <= 0) {
+            $maxDevices = 3;
+        }
 
         $result = UserDevice::verifyDevice(
             $user->id,
@@ -542,6 +544,7 @@ class ApiController extends Controller
             $user = User::withTrashed()
                 ->role(config('constants.SYSTEM_ROLES.USER'))
                 ->where('mobile', $request->mobile)
+                ->where('country_calling_code', $request->country_calling_code)
                 ->first();
 
             if (!$user) {
@@ -645,22 +648,37 @@ class ApiController extends Controller
                 'name' => 'required|string|max:255',
                 'fcm_id' => 'nullable|string',
                 'platform_type' => 'nullable|in:android,ios',
-                'firebase_token' => 'nullable|string', // Optional: only used when phone OTP verification is done via Firebase
+                'firebase_token' => 'required|string',
                 'email' => 'nullable|email',
-                'country_calling_code' => 'nullable|string|max:10',
+                'country_calling_code' => 'required|string|max:10',
                 'device_type' => 'nullable|in:web,android,ios,desktop',
                 'device_id' => 'nullable|string|max:255',
                 'device_name' => 'nullable|string|max:255',
             ]);
 
-            // Resolve firebase_id only when a token is provided (OTP-verified phone flow)
-            $firebaseId = null;
-            if (!empty($request->firebase_token)) {
-                $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
-                $firebaseId = $verifiedToken->claims()->get('sub');
+            $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
+            $claims = $verifiedToken->claims();
+            $firebaseId = $claims->get('sub');
+            $verifiedPhone = $claims->get('phone_number');
+
+            if (empty($firebaseId) || empty($verifiedPhone)) {
+                ApiResponseService::validationError('Firebase phone verification is required');
             }
 
-            $existingUser = User::where('mobile', $request->mobile)->whereNull('deleted_at')->first();
+            if (!$this->phoneNumbersMatch(
+                (string) $verifiedPhone,
+                (string) $request->country_calling_code,
+                (string) $request->mobile,
+            )) {
+                ApiResponseService::validationError(
+                    'The verified Firebase phone number does not match the submitted phone number',
+                );
+            }
+
+            $existingUser = User::where('mobile', $request->mobile)
+                ->where('country_calling_code', $request->country_calling_code)
+                ->whereNull('deleted_at')
+                ->first();
 
             if ($existingUser) {
                 ApiResponseService::validationError('User already exists');
@@ -708,24 +726,19 @@ class ApiController extends Controller
             }
             $user = User::create($userData);
 
-            // Only link Firebase SocialLogin record when a firebase_token was provided
-            if (!empty($firebaseId)) {
-                $socialLogin = SocialLogin::where(['firebase_id' => $firebaseId, 'user_id' => $user->id])->where(
-                    'type',
-                    'phone',
-                )->first();
-                if (empty($socialLogin)) {
-                    SocialLogin::create([
-                        'firebase_id' => $firebaseId,
-                        'user_id' => $user->id,
-                        'type' => 'phone',
-                    ]);
-                } else {
-                    $socialLogin->update([
-                        'firebase_id' => $firebaseId,
-                    ]);
-                }
+            $firebaseAccount = SocialLogin::where('firebase_id', $firebaseId)
+                ->where('type', 'phone')
+                ->first();
+
+            if ($firebaseAccount && $firebaseAccount->user_id !== $user->id) {
+                DB::rollBack();
+                ApiResponseService::validationError('This Firebase phone account is already linked to another user');
             }
+
+            SocialLogin::updateOrCreate(
+                ['user_id' => $user->id, 'type' => 'phone'],
+                ['firebase_id' => $firebaseId],
+            );
             // Assign General User role
             $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
 
@@ -739,13 +752,15 @@ class ApiController extends Controller
                 ]);
             }
 
-            DB::commit();
-
-            // Verify device limits (for new user, this will register the device)
+            // Keep device registration in the transaction so a device-limit
+            // failure cannot leave behind a user that the client thinks failed.
             $deviceError = $this->verifyDeviceLimits($user, $request);
             if ($deviceError) {
+                DB::rollBack();
                 ApiResponseService::validationError($deviceError);
             }
+
+            DB::commit();
 
             // Generate new token pair
             $pair          = $this->createTokenPair($user, $user->name ?? '', $request);
@@ -761,27 +776,69 @@ class ApiController extends Controller
     {
         try {
             ApiService::validateRequest($request, [
-                'firebase_token' => 'required',
+                'firebase_token' => 'required|string',
+                'mobile' => 'required|numeric',
+                'country_calling_code' => 'required|string|max:10',
                 'password' => 'required|string|min:6',
                 'confirm_password' => 'required|same:password',
             ]);
 
             $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
-            $firebaseId = $verifiedToken->claims()->get('sub');
+            $claims = $verifiedToken->claims();
+            $firebaseId = $claims->get('sub');
+            $verifiedPhone = $claims->get('phone_number');
 
-            $user = SocialLogin::where('firebase_id', $firebaseId)->pluck('user_id')->first();
-            if (empty($user)) {
+            if (empty($firebaseId) || empty($verifiedPhone)) {
+                ApiResponseService::validationError('Firebase phone verification is required');
+            }
+
+            if (!$this->phoneNumbersMatch(
+                (string) $verifiedPhone,
+                (string) $request->country_calling_code,
+                (string) $request->mobile,
+            )) {
+                ApiResponseService::validationError(
+                    'The verified Firebase phone number does not match the submitted phone number',
+                );
+            }
+
+            $socialLogin = SocialLogin::where('firebase_id', $firebaseId)
+                ->where('type', 'phone')
+                ->with('user')
+                ->first();
+
+            $user = $socialLogin?->user;
+            if (!$user
+                || $user->trashed()
+                || !$user->is_active
+                || !$this->phoneNumbersMatch(
+                    (string) $verifiedPhone,
+                    (string) $user->country_calling_code,
+                    (string) $user->mobile,
+                )) {
                 ApiResponseService::validationError('User not found');
             }
 
-            User::where('id', $user)->update([
+            $user->update([
                 'password' => Hash::make($request->password),
             ]);
+            $user->tokens()->delete();
 
             ApiResponseService::successResponse('Password reset successfully');
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
+    }
+
+    private function phoneNumbersMatch(string $verifiedPhone, string $callingCode, string $mobile): bool
+    {
+        $normalize = static fn(string $value): string => preg_replace('/\D+/', '', $value) ?? '';
+
+        return $normalize($verifiedPhone) !== ''
+            && hash_equals(
+                $normalize($callingCode . $mobile),
+                $normalize($verifiedPhone),
+            );
     }
 
     /**
@@ -2811,7 +2868,7 @@ class ApiController extends Controller
                         } else if ($request->has('get_parent_category') && $request->get_parent_category == 1) {
                             $query->with('parent_category');
                         }
-                    } else {
+                    } else if (!$request->has('is_featured')) {
                         $query->whereNull('parent_category_id');
                     }
 
@@ -2856,8 +2913,24 @@ class ApiController extends Controller
                 return $category;
             });
 
+            if ($request->has('is_featured')) {
+                if ($categories->isEmpty()) {
+                    return response()->json(['data' => []]);
+                }
+                
+                return response()->json([
+                    'data' => $categories->getCollection()->values()->toArray(),
+                    'meta' => [
+                        'current_page' => $categories->currentPage(),
+                        'last_page' => $categories->lastPage(),
+                        'per_page' => $categories->perPage(),
+                        'total' => $categories->total(),
+                    ],
+                ]);
+            }
+
             if ($categories->isEmpty()) {
-                return ApiResponseService::successResponse('No categories found');
+                return response()->json(['data' => []]);
             }
 
             return ApiResponseService::successResponse('Categories retrieved successfully', $categories);

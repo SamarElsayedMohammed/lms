@@ -20,6 +20,8 @@ use Throwable;
 
 class SocialLoginApiController extends ApiController
 {
+    private const SUPPORTED_PROVIDERS = ['google', 'apple'];
+
     /**
      * Handle social login/callback (e.g., POST /api/social-login/google)
      *
@@ -40,6 +42,12 @@ class SocialLoginApiController extends ApiController
      */
     public function handleSocialLogin(Request $request, string $provider)
     {
+        $provider = strtolower(trim($provider));
+
+        if (!in_array($provider, self::SUPPORTED_PROVIDERS, true)) {
+            return ApiResponseService::validationError('Unsupported social provider.');
+        }
+
         $firebaseToken = $request->input('firebase_token');
         $accessToken   = $request->input('access_token')
             ?? $request->input('provider_token')
@@ -152,8 +160,8 @@ class SocialLoginApiController extends ApiController
         }
 
         // ── Issue Sanctum token ──────────────────────────────────────────
-        $plainToken    = $this->createToken($user, $user->name ?? $provider, $request);
-        $formattedUser = $this->formatUserWithRolesAndPermissions($user, $plainToken);
+        $pair = $this->createTokenPair($user, $user->name ?? $provider, $request);
+        $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
 
         ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
     }
@@ -231,32 +239,10 @@ class SocialLoginApiController extends ApiController
         }
 
         // ── Issue Sanctum token ──────────────────────────────────────────
-        $plainToken    = $this->createToken($user, $user->name ?? $provider, $request);
-        $formattedUser = $this->formatUserWithRolesAndPermissions($user, $plainToken);
+        $pair = $this->createTokenPair($user, $user->name ?? $provider, $request);
+        $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
 
         ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
-
-    /**
-     * Create a Sanctum token with IP/User-Agent metadata.
-     * Mirrors ApiController::createTokenWithMetadata (which is private there).
-     */
-    private function createToken(User $user, string $name, Request $request): string
-    {
-        // Cap tokens per user at 10 to prevent unbounded growth
-        $count = $user->tokens()->count();
-        if ($count >= 10) {
-            $user->tokens()->oldest()->take($count - 9)->delete();
-        }
-
-        $tokenResult = $user->createToken($name);
-        $token       = $tokenResult->accessToken;
-        $token->ip_address = $request->ip();
-        $token->user_agent = $request->userAgent();
-        $token->save();
-
-        return $tokenResult->plainTextToken;
-    }
 }
