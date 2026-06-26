@@ -1107,3 +1107,4 @@ Route::middleware('auth:sanctum')->group(function (): void {
 Route::delete('remove-user', [ApiController::class, 'removeUser']); // Remove User
 
 /********************************************************************************************* */
+Route::match(['get', 'post'], 'webhooks/kashier', [\App\Http\Controllers\KashierController::class, 'handleWebhook'])->name('webhooks.kashier');
