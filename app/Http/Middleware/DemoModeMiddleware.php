@@ -97,6 +97,11 @@ class DemoModeMiddleware
             $isAllowedRoute = true;
         }
 
+        // Allow payment gateway webhooks (Kashier, Razorpay, etc.)
+        if (!$isAllowedRoute && $request->is('webhooks/*', 'webhook/*')) {
+            $isAllowedRoute = true;
+        }
+
         // If demo mode is on, block only write operations (POST, PUT, PATCH, DELETE)
         // Allow GET, HEAD, OPTIONS for viewing data
         // Allow login routes for both admin and users
