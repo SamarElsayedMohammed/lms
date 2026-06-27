@@ -366,29 +366,75 @@ class UserReportApiController extends Controller
                 return ApiResponseService::errorResponse('User not authenticated', null, 401);
             }
 
-            $certificates = CourseCertificate::where('user_id', $user->id)
+            // 1. Get already generated certificates
+            $generatedCertificates = CourseCertificate::where('user_id', $user->id)
                 ->with('course.category')
                 ->latest('issued_date')
                 ->get()
-                ->map(function ($cert) {
-                    return [
-                        'id'                 => $cert->id,
-                        'certificate_number' => $cert->certificate_number,
-                        'status'             => $cert->status,  // 'active' | 'revoked'
-                        'issued_date'        => $cert->issued_date?->format('Y-m-d'),
-                        'course_id'          => $cert->course_id,
-                        'course_title'       => $cert->course->title    ?? 'N/A',
-                        'course_image'       => $cert->course->thumbnail ?? null,
-                        'category'           => $cert->course->category->name ?? 'N/A',
-                        // Frontend sends course_id to: POST /api/certificate/course/download or GET using download_url
-                        'can_download'       => $cert->isActive(),
-                        'verify_url'         => url("/api/certificate/verify?code={$cert->certificate_number}"),
-                        'download_url'       => url("/api/certificate/course/download?course_id={$cert->course_id}"),
-                        'view_url'           => url("/api/certificate/course/generate?course_id={$cert->course_id}"),
-                    ];
-                });
+                ->keyBy('course_id');
 
-            return ApiResponseService::successResponse('User certificates retrieved successfully', $certificates);
+            $result = [];
+
+            // Add generated certificates to the result
+            foreach ($generatedCertificates as $cert) {
+                $result[] = [
+                    'id'                 => $cert->id,
+                    'certificate_number' => $cert->certificate_number,
+                    'status'             => $cert->status,  // 'active' | 'revoked'
+                    'issued_date'        => $cert->issued_date?->format('Y-m-d'),
+                    'course_id'          => $cert->course_id,
+                    'course_title'       => $cert->course->title    ?? 'N/A',
+                    'course_image'       => $cert->course->thumbnail ?? null,
+                    'category'           => $cert->course->category->name ?? 'N/A',
+                    'can_download'       => $cert->isActive(),
+                    'verify_url'         => url("/api/certificate/verify?code={$cert->certificate_number}"),
+                    'download_url'       => url("/api/certificate/course/download?course_id={$cert->course_id}"),
+                    'view_url'           => url("/api/certificate/course/generate?course_id={$cert->course_id}"),
+                ];
+            }
+
+            // 2. Find all enrolled courses and append completed ones that don't have a certificate generated yet
+            $enrollmentService = app(\App\Services\UserEnrollmentService::class);
+            $enrolled = $enrollmentService->resolveEnrolledCourses(
+                (int) $user->id,
+                static fn ($query) => $query->with('category')
+            );
+
+            $certService = app(\App\Services\CertificateService::class);
+            $videoService = app(\App\Services\VideoProgressService::class);
+
+            foreach ($enrolled as $item) {
+                $course = $item['course'];
+                if (!$course) continue;
+
+                // Skip if already generated
+                if ($generatedCertificates->has($course->id)) {
+                    continue;
+                }
+
+                // Check completion
+                $isCompleted = $certService->checkCourseCompletionStatus($user->id, $course->id);
+                $videoProgress = $videoService->getCourseProgress($user, $course);
+
+                if ($isCompleted && $videoProgress >= \App\Services\VideoProgressService::COMPLETION_THRESHOLD) {
+                    $result[] = [
+                        'id'                 => null,
+                        'certificate_number' => null,
+                        'status'             => 'active', // treat as active so frontend allows download
+                        'issued_date'        => null,
+                        'course_id'          => $course->id,
+                        'course_title'       => $course->title ?? 'N/A',
+                        'course_image'       => $course->thumbnail ?? null,
+                        'category'           => $course->category->name ?? 'N/A',
+                        'can_download'       => true,
+                        'verify_url'         => null,
+                        'download_url'       => url("/api/certificate/course/download?course_id={$course->id}"),
+                        'view_url'           => url("/api/certificate/course/generate?course_id={$course->id}"),
+                    ];
+                }
+            }
+
+            return ApiResponseService::successResponse('User certificates retrieved successfully', array_values($result));
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {

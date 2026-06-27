@@ -147,6 +147,7 @@ Route::prefix('subscription')->group(function (): void {
     
     // Authenticated
     Route::middleware('auth:sanctum')->group(function (): void {
+        Route::get('/payment-methods', [SubscriptionApiController::class, 'getPaymentMethods']);
         Route::get('/my-subscription', [SubscriptionApiController::class, 'getMySubscription']);
         Route::post('/subscribe', [SubscriptionApiController::class, 'subscribe']);
         Route::post('/renew', [SubscriptionApiController::class, 'renew']);
