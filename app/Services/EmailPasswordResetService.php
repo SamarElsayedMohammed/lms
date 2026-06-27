@@ -219,12 +219,8 @@ final class EmailPasswordResetService
 
     private function isPasswordResetBlocked(User $user): bool
     {
-        return $user->hasAnyRole([
-            config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-            config('constants.SYSTEM_ROLES.SUPERVISOR'),
-            config('constants.SYSTEM_ROLES.STAFF'),
-            config('constants.SYSTEM_ROLES.ACCOUNTANT'),
-        ]);
+        // Allow all users (including admins) to reset password via email
+        return false;
     }
 
     private function getValidResetRecord(string $email, string $code): ?object
