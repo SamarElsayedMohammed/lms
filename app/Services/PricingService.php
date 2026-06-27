@@ -95,16 +95,23 @@ final class PricingService
             ];
         }
 
-        // 4. International fallback: USD default price (not EGP base)
-        $usdPrice = $plan->usd_price;
+        // 4. International fallback: Convert EGP to USD dynamically
+        $usdCurrency = SupportedCurrency::where('currency_code', 'USD')->first();
+
+        if ($usdCurrency !== null && $usdCurrency->active_exchange_rate > 0) {
+            $usdPrice = round((float) $plan->price / (float) $usdCurrency->active_exchange_rate, 2);
+        } else {
+            // Fallback to the static usd_price if USD is not found in SupportedCurrency
+            $usdPrice = (float) ($plan->usd_price ?? 0);
+        }
 
         return [
-            'price' => $this->roundUpForDisplay((float) ($usdPrice ?? 0)),
+            'price' => $this->roundUpForDisplay($usdPrice),
             'old_price' => null,
             'currency_code' => 'USD',
-            'currency_symbol' => $this->getCurrencySymbol('USD'),
-            'price_source' => 'default',
-            'can_subscribe' => $usdPrice !== null && (float) $usdPrice > 0,
+            'currency_symbol' => $usdCurrency?->currency_symbol ?? '$',
+            'price_source' => 'dynamic_usd_fallback',
+            'can_subscribe' => $usdPrice > 0,
         ];
     }
 
