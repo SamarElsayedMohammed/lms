@@ -45,18 +45,39 @@ final class KashierController extends Controller
 
         // Initialize variables to prevent undefined variable errors
         $isVerified = false;
-        $orderId = (string)($data['merchantOrderId'] ?? $data['merchant_order_id'] ?? $data['orderId'] ?? $data['order_id'] ?? '');
-        $status = strtolower((string) ($data['paymentStatus'] ?? $data['status'] ?? $data['transactionStatus'] ?? 'unknown'));
-        $isSuccess = in_array($status, ['success', 'completed', 'captured', 'paid'], true);
-        $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? $data['queryString']['transactionId'] ?? '';
+        
+        // Ensure orderId is always extracted (from query string, payload, or API details).
+        $orderId = $this->extractOrderId($request, $data);
+        
+        // If it's a GET request and we already successfully processed this via webhook, just redirect to success.
+        if ($request->isMethod('get') && !empty($orderId) && Cache::get('kashier_order_processed_' . $orderId)) {
+            Log::info('Kashier GET redirect: order already processed via webhook', ['orderId' => $orderId]);
+            return $this->respond($request, 'OK', 200, true);
+        }
+
+        $status = $this->normalizeKashierStatus(
+            (string) ($data['paymentStatus']
+                ?? $data['payment_status']
+                ?? $data['transactionStatus']
+                ?? $data['transaction_status']
+                ?? $data['status']
+                ?? data_get($data, 'queryString.paymentStatus')
+                ?? data_get($data, 'queryString.status')
+                ?? 'unknown')
+        );
+        $isSuccess = $this->isSuccessfulStatus($status);
+        $transactionId = $this->extractTransactionId($data);
 
         // ALWAYS try to verify via API if we have a transactionId (most reliable method)
         if (!empty($transactionId)) {
             Log::info('Kashier: Verifying via API', ['transactionId' => $transactionId]);
             $apiData = $this->kashierService->getPaymentDetails($transactionId);
-            if ($apiData && in_array($apiData['status'], ['success', 'completed', 'captured', 'paid'], true)) {
+            if ($apiData && !empty($apiData['order_id']) && empty($orderId)) {
+                $orderId = (string) $apiData['order_id'];
+            }
+            if ($apiData && $this->isSuccessfulStatus($this->normalizeKashierStatus($apiData['status'] ?? 'unknown'))) {
                 $isVerified = true;
-                $status = $apiData['status'];
+                $status = $this->normalizeKashierStatus($apiData['status']);
                 $isSuccess = true;
                 Log::info('Kashier: API verification successful');
             }
@@ -124,20 +145,21 @@ final class KashierController extends Controller
             return $this->respond($request, 'Order not found', 404, false);
         }
 
-        $gatewayAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? $plan->price);
-        $transactionId = $data['transactionId'] ?? $data['transaction_id'] ?? $orderId;
+        $gatewayAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? $plan->price);
+        $transactionId = $this->extractTransactionId($data) ?: $orderId;
 
         // Retrieve pending wallet amount from cache (split payment)
-        $pending = Cache::pull('kashier_pending_' . $orderId);
+        $pending = Cache::get('kashier_pending_' . $orderId);
         $walletAmount = $pending['wallet_amount'] ?? 0;
         $totalAmount = $gatewayAmount + (float) $walletAmount;
 
-        if (in_array($status, ['success', 'completed', 'captured', 'paid'], true)) {
-            return $this->handleSuccess($request, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, $data);
+        if ($this->isSuccessfulStatus($status)) {
+            return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, $data);
         }
 
-        if (in_array($status, ['failed', 'rejected', 'cancelled'], true)) {
+        if ($this->isFailedStatus($status)) {
             Log::info('Kashier webhook: payment failed', ['orderId' => $orderId, 'status' => $status]);
+            Cache::forget('kashier_pending_' . $orderId);
             return $this->respond($request, 'OK', 200, false);
         }
 
@@ -145,18 +167,22 @@ final class KashierController extends Controller
         return $this->respond($request, 'OK', 200, false);
     }
 
-    private function handleSuccess(Request $request, User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data)
+    private function handleSuccess(Request $request, string $orderId, User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data)
     {
         $existingPayment = SubscriptionPayment::where('transaction_id', $transactionId)->first();
         if ($existingPayment) {
             Log::info('Kashier webhook: payment already processed', ['transactionId' => $transactionId]);
+            if (!empty($orderId)) {
+                Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
+                Cache::forget('kashier_pending_' . $orderId);
+            }
             return $this->respond($request, 'OK', 200, true);
         }
 
         $paymentMethod = $walletAmount > 0 ? 'wallet_and_kashier' : 'kashier';
 
         try {
-            DB::transaction(function () use ($user, $plan, $walletAmount, $gatewayAmount, $paymentMethod, $transactionId, $data) {
+            $subscription = DB::transaction(function () use ($user, $plan, $walletAmount, $gatewayAmount, $paymentMethod, $transactionId, $data) {
                 $subscription = $this->subscriptionService->createSubscription(
                     $user,
                     $plan,
@@ -172,6 +198,8 @@ final class KashierController extends Controller
                         'gateway_response' => $data,
                     ]);
                 }
+                
+                return $subscription;
             });
 
             // Send notification to user
@@ -191,6 +219,11 @@ final class KashierController extends Controller
 
             // Attempt to save credit card token if available
             $this->saveCreditCardIfPresent($user, $data);
+
+            if (!empty($orderId)) {
+                Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
+                Cache::forget('kashier_pending_' . $orderId);
+            }
 
             return $this->respond($request, 'OK', 200, true);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -222,8 +255,8 @@ final class KashierController extends Controller
         }
 
         // Extract amount - support multiple keys from Kashier
-        $amount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? $data['queryString']['transactionAmount'] ?? 0);
-        $transactionId = (string) ($data['transactionId'] ?? $data['transaction_id'] ?? $data['queryString']['transactionId'] ?? $orderId);
+        $amount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? 0);
+        $transactionId = $this->extractTransactionId($data) ?: $orderId;
 
         // FALLBACK: If amount is missing (common in redirects), fetch it from Kashier API
         if ($amount <= 0 && !empty($transactionId) && $transactionId !== $orderId) {
@@ -244,15 +277,15 @@ final class KashierController extends Controller
             ]);
             // If it's a redirect, we might still want to show success UI if the status is success, 
             // even if the balance update happens via webhook.
-            return $this->respond($request, 'Amount missing for processing', 200, $isSuccess);
+            return $this->respond($request, 'Amount missing for processing', 200, $this->isSuccessfulStatus($status));
         }
 
-        if (in_array($status, ['failed', 'rejected', 'cancelled'], true)) {
+        if ($this->isFailedStatus($status)) {
             Log::info('Kashier webhook: wallet top-up failed', ['orderId' => $orderId, 'status' => $status]);
             return $this->respond($request, 'OK', 200, false);
         }
 
-        if (!in_array($status, ['success', 'completed', 'captured', 'paid'], true)) {
+        if (!$this->isSuccessfulStatus($status)) {
             return $this->respond($request, 'OK', 200, false);
         }
 
@@ -279,6 +312,8 @@ final class KashierController extends Controller
             
             // Attempt to save credit card token if available
             $this->saveCreditCardIfPresent($user, $data);
+            
+            Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
             
             return $this->respond($request, 'OK', 200, true);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -308,12 +343,12 @@ final class KashierController extends Controller
             return $this->respond($request, 'User or Webinar not found', 404, false);
         }
 
-        if (in_array($status, ['failed', 'rejected', 'cancelled'], true)) {
+        if ($this->isFailedStatus($status)) {
             Log::info('Kashier webhook: webinar payment failed', ['orderId' => $orderId, 'status' => $status]);
             return $this->respond($request, 'OK', 200, false);
         }
 
-        if (!in_array($status, ['success', 'completed', 'captured', 'paid'], true)) {
+        if (!$this->isSuccessfulStatus($status)) {
             return $this->respond($request, 'OK', 200, false);
         }
 
@@ -335,7 +370,7 @@ final class KashierController extends Controller
         try {
             DB::transaction(function () use ($registration, $user, $webinar, $orderId) {
                 // Deduct wallet if it was a split payment
-                $pending = Cache::pull('kashier_pending_' . $orderId);
+                $pending = Cache::get('kashier_pending_' . $orderId);
                 $walletAmount = (float) ($pending['wallet_amount'] ?? 0);
 
                 if ($walletAmount > 0 && $user->wallet_balance >= $walletAmount) {
@@ -358,6 +393,9 @@ final class KashierController extends Controller
             
             // Attempt to save credit card token if available
             $this->saveCreditCardIfPresent($user, $data);
+
+            Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
+            Cache::forget('kashier_pending_' . $orderId);
 
             return $this->respond($request, 'OK', 200, true);
 
@@ -394,6 +432,73 @@ final class KashierController extends Controller
         }
 
         return response($message, $statusCode);
+    }
+
+
+    private function extractOrderId(Request $request, array $data): string
+    {
+        return (string) (
+            $data['merchantOrderId']
+            ?? $data['merchant_order_id']
+            ?? $data['orderId']
+            ?? $data['order_id']
+            ?? data_get($data, 'queryString.merchantOrderId')
+            ?? data_get($data, 'queryString.orderId')
+            ?? $request->input('merchantOrderId')
+            ?? $request->input('merchant_order_id')
+            ?? $request->input('orderId')
+            ?? $request->input('order_id')
+            ?? ''
+        );
+    }
+
+    private function extractTransactionId(array $data): string
+    {
+        return (string) (
+            $data['transactionId']
+            ?? $data['transaction_id']
+            ?? $data['paymentId']
+            ?? $data['payment_id']
+            ?? data_get($data, 'queryString.transactionId')
+            ?? data_get($data, 'queryString.paymentId')
+            ?? ''
+        );
+    }
+
+    private function normalizeKashierStatus(string $status): string
+    {
+        return strtolower(trim(str_replace([' ', '-'], '_', $status)));
+    }
+
+    private function isSuccessfulStatus(string $status): bool
+    {
+        return in_array($this->normalizeKashierStatus($status), [
+            'success',
+            'successful',
+            'succeeded',
+            'completed',
+            'complete',
+            'captured',
+            'capture',
+            'paid',
+            'approved',
+            'authorized',
+            'authorised',
+        ], true);
+    }
+
+    private function isFailedStatus(string $status): bool
+    {
+        return in_array($this->normalizeKashierStatus($status), [
+            'failed',
+            'failure',
+            'rejected',
+            'cancelled',
+            'canceled',
+            'declined',
+            'voided',
+            'expired',
+        ], true);
     }
 
     /**

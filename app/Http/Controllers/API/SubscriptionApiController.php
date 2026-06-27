@@ -33,6 +33,7 @@ final class SubscriptionApiController extends Controller
         private readonly PricingService $pricingService,
         private readonly KashierCheckoutService $kashierService,
         private readonly CountryDetectionService $countryDetectionService,
+        private readonly \App\Services\AffiliateService $affiliateService,
     ) {}
 
     /**
@@ -106,9 +107,13 @@ final class SubscriptionApiController extends Controller
                 ];
             });
 
+            $isAffiliateEnabled = $this->affiliateService->isEnabled();
+
             $responseData = [
                 'plans' => $plans->values()->all(),
                 'detected_country' => $countryCode,
+                'affiliate_system_enabled' => $isAffiliateEnabled,
+                'wallet_payment_enabled' => $isAffiliateEnabled,
                 'pagination' => [
                     'current_page' => $paginator->currentPage(),
                     'per_page' => $paginator->perPage(),
@@ -211,10 +216,16 @@ final class SubscriptionApiController extends Controller
                 ];
             });
 
+            $isAffiliateEnabled = $this->affiliateService->isEnabled();
+
             return ApiResponseService::successResponse('Subscription status retrieved successfully', [
                 'has_access'      => $hasAccess,
                 'currency'        => $displayCurrency,
                 'currency_symbol' => $displaySymbol,
+                'affiliate_system_enabled' => $isAffiliateEnabled,
+                'wallet_payment_enabled' => $isAffiliateEnabled,
+                'can_renew_with_wallet' => $isAffiliateEnabled,
+                'wallet_balance'  => (float) $user->wallet_balance,
                 'subscriptions'   => $formattedSubscriptions,
                 'subscription'    => $formattedSubscriptions->first(),
             ]);
@@ -316,6 +327,10 @@ final class SubscriptionApiController extends Controller
             }
 
             $totalAmount = max($originalAmount - $discountAmount, 0);
+
+            if ($request->boolean('use_wallet') && !$this->affiliateService->isEnabled()) {
+                return ApiResponseService::errorResponse('الدفع من المحفظة متاح فقط عند تفعيل التسويق بالعمولة.', [], 400);
+            }
 
             $split = $this->subscriptionService->walletAndGatewayPayment(
                 $user,
@@ -566,6 +581,11 @@ final class SubscriptionApiController extends Controller
             }
 
             $totalAmount = (float) $countryPricing['price'];
+
+            if ($request->boolean('use_wallet') && !$this->affiliateService->isEnabled()) {
+                return ApiResponseService::errorResponse('الدفع من المحفظة متاح فقط عند تفعيل التسويق بالعمولة.', [], 400);
+            }
+
             $split = $this->subscriptionService->walletAndGatewayPayment(
                 $user,
                 $plan,
