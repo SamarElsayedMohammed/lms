@@ -238,6 +238,33 @@ final class SubscriptionApiController extends Controller
     }
 
     /**
+     * Get available payment methods for subscription
+     */
+    public function getPaymentMethods(): JsonResponse
+    {
+        try {
+            $manualMethods = \App\Models\ManualDepositMethod::where('is_active', true)->get()->map(function ($method) {
+                return [
+                    'id' => $method->id,
+                    'name' => $method->name,
+                    'description' => $method->description,
+                    'details' => $method->details,
+                ];
+            });
+
+            $isAffiliateEnabled = $this->affiliateService->isEnabled();
+
+            return ApiResponseService::successResponse('Payment methods retrieved successfully', [
+                'online' => true, // Kashier
+                'wallet' => $isAffiliateEnabled,
+                'manual_methods' => $manualMethods,
+            ]);
+        } catch (\Exception $e) {
+            return ApiResponseService::errorResponse('Failed to retrieve payment methods: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Subscribe to a plan
      */
     public function subscribe(Request $request): JsonResponse
