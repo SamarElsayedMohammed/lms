@@ -72,14 +72,14 @@ final class KashierController extends Controller
         if (!empty($transactionId)) {
             Log::info('Kashier: Verifying via API', ['transactionId' => $transactionId]);
             $apiData = $this->kashierService->getPaymentDetails($transactionId);
-            $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess);
+            $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess, $data);
         }
 
         // Some Kashier redirects only include merchant order id. Try an order-id lookup before failing.
         if (!$isVerified && !empty($orderId)) {
             Log::info('Kashier: Verifying via merchant order id', ['orderId' => $orderId]);
             $apiData = $this->kashierService->getPaymentDetailsByOrderId($orderId);
-            $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess);
+            $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess, $data);
         }
 
         // Fallback to signature verification if API check didn't happen or failed.
@@ -495,11 +495,13 @@ final class KashierController extends Controller
         }
     }
 
-    private function applyApiPaymentDetails(?array $apiData, string &$orderId, string &$transactionId, string &$status, bool &$isVerified, bool &$isSuccess): void
+    private function applyApiPaymentDetails(?array $apiData, string &$orderId, string &$transactionId, string &$status, bool &$isVerified, bool &$isSuccess, array &$data): void
     {
         if (!$apiData) {
             return;
         }
+
+        $data = array_merge($data, $apiData);
 
         if (!empty($apiData['order_id']) && empty($orderId)) {
             $orderId = (string) $apiData['order_id'];
@@ -661,70 +663,117 @@ final class KashierController extends Controller
     private function saveCreditCardIfPresent(User $user, array $data): void
     {
         try {
-            // Find card data in Kashier payload structure
-            $cardData = $data['cardData'] ?? $data['card_data'] ?? $data['card'] ?? null;
-            $token = $data['cardToken'] ?? $data['card_token'] ?? $data['token'] ?? null;
+            $cardData = $data['cardData']
+                ?? $data['card_data']
+                ?? $data['card']
+                ?? $data['sourceOfFund']
+                ?? $data['source_of_fund']
+                ?? $data['paymentMethod']
+                ?? $data['payment_method']
+                ?? null;
 
-            if (is_array($cardData)) {
-                $token = $token ?? $cardData['cardToken'] ?? $cardData['card_token'] ?? $cardData['token'] ?? null;
-                $maskedCard = $cardData['maskedCard'] ?? $cardData['masked_card'] ?? $cardData['cardNumber'] ?? '';
-                $cardHolderName = $cardData['cardHolderName'] ?? $cardData['card_holder_name'] ?? $cardData['cardHolder'] ?? '';
-                $expMonth = $cardData['expiryMonth'] ?? $cardData['exp_month'] ?? $cardData['expirationMonth'] ?? '';
-                $expYear = $cardData['expiryYear'] ?? $cardData['exp_year'] ?? $cardData['expirationYear'] ?? '';
-                $brand = $cardData['brand'] ?? $cardData['cardBrand'] ?? 'Unknown';
-            } else {
-                // Flat structure fallback
-                $maskedCard = $data['maskedCard'] ?? $data['masked_card'] ?? $data['cardNumber'] ?? '';
-                $cardHolderName = $data['cardHolderName'] ?? $data['card_holder_name'] ?? $data['cardHolder'] ?? '';
-                $expMonth = $data['expiryMonth'] ?? $data['exp_month'] ?? '';
-                $expYear = $data['expiryYear'] ?? $data['exp_year'] ?? '';
-                $brand = $data['brand'] ?? $data['cardBrand'] ?? 'Unknown';
-            }
+            $flat = is_array($cardData) ? array_merge($data, $cardData) : $data;
 
-            if (!$token) {
-                // If there's no token, we cannot save it for future use securely
-                return;
-            }
+            $token = $this->firstFilled($flat, [
+                'cardToken', 'card_token', 'token', 'gateway_token', 'paymentToken',
+                'payment_token', 'cardId', 'card_id', 'savedCardToken', 'saved_card_token',
+            ], recursive: true);
 
-            // Extract the last 4 digits from the masked card
-            $lastFour = '0000';
-            if (preg_match('/(\d{4})$/', (string) $maskedCard, $matches)) {
+            $maskedCard = $this->firstFilled($flat, [
+                'maskedCard', 'masked_card', 'maskedPan', 'masked_pan', 'cardNumber',
+                'card_number', 'pan', 'accountNumber', 'account_number', 'card',
+            ], recursive: true);
+
+            $cardHolderName = $this->firstFilled($flat, [
+                'cardHolderName', 'card_holder_name', 'cardHolder', 'card_holder',
+                'holderName', 'holder_name', 'name',
+            ], recursive: true);
+
+            $expMonth = $this->firstFilled($flat, [
+                'expiryMonth', 'expiry_month', 'expMonth', 'exp_month',
+                'expirationMonth', 'expiration_month',
+            ], recursive: true);
+
+            $expYear = $this->firstFilled($flat, [
+                'expiryYear', 'expiry_year', 'expYear', 'exp_year',
+                'expirationYear', 'expiration_year',
+            ], recursive: true);
+
+            $brand = $this->firstFilled($flat, [
+                'brand', 'cardBrand', 'card_brand', 'scheme', 'cardScheme', 'card_scheme',
+                'paymentScheme', 'payment_scheme',
+            ], recursive: true) ?: 'Unknown';
+
+            $lastFour = $this->firstFilled($flat, [
+                'last4', 'lastFour', 'last_four', 'lastFourDigits', 'last_four_digits',
+            ], recursive: true);
+
+            if (!$lastFour && preg_match('/(\d{4})(?!.*\d)/', (string) $maskedCard, $matches)) {
                 $lastFour = $matches[1];
             }
 
-            // Clean up month/year
-            $expMonth = str_pad((string) $expMonth, 2, '0', STR_PAD_LEFT);
-            $expYear = (string) $expYear;
-            if (strlen($expYear) == 2) {
-                $expYear = '20' . $expYear;
+            $lastFour = preg_replace('/\D/', '', (string) $lastFour);
+            if (strlen($lastFour) > 4) {
+                $lastFour = substr($lastFour, -4);
             }
 
-            // Check if card already exists for this user by token or last four
-            $existingCard = $user->creditCards()->where('gateway_token', $token)
-                ->orWhere(function($query) use ($user, $lastFour, $expMonth, $expYear) {
-                    $query->where('user_id', $user->id)
-                          ->where('last_four_digits', $lastFour)
-                          ->where('exp_month', $expMonth)
-                          ->where('exp_year', $expYear);
-                })->first();
+            if (strlen($lastFour) !== 4) {
+                $this->kashierLog('Kashier card was not saved: missing last four digits', [
+                    'user_id' => $user->id,
+                    'available_keys' => array_keys($flat),
+                ]);
+                return;
+            }
+
+            $expMonth = preg_replace('/\D/', '', (string) $expMonth);
+            $expMonth = $expMonth !== '' ? str_pad(substr($expMonth, -2), 2, '0', STR_PAD_LEFT) : null;
+
+            $expYear = preg_replace('/\D/', '', (string) $expYear);
+            if (strlen($expYear) === 2) {
+                $expYear = '20' . $expYear;
+            }
+            $expYear = strlen($expYear) === 4 ? $expYear : null;
+
+            $brand = ucfirst(strtolower((string) $brand));
+            $fingerprint = hash('sha256', implode('|', [
+                'kashier',
+                $user->id,
+                $lastFour,
+                $expMonth ?: 'xx',
+                $expYear ?: 'xxxx',
+                strtolower($brand),
+            ]));
+            $token = $token ?: 'kashier_fingerprint_' . $fingerprint;
+
+            $existingCard = $user->creditCards()
+                ->where(function ($query) use ($token, $lastFour, $expMonth, $expYear, $brand) {
+                    $query->where('gateway_token', $token)
+                        ->orWhere(function ($cardQuery) use ($lastFour, $expMonth, $expYear, $brand) {
+                            $cardQuery->where('last_four_digits', $lastFour)
+                                ->when($expMonth, fn ($q) => $q->where('exp_month', $expMonth))
+                                ->when($expYear, fn ($q) => $q->where('exp_year', $expYear))
+                                ->when($brand !== 'Unknown', fn ($q) => $q->where('brand', $brand));
+                        });
+                })
+                ->first();
 
             if ($existingCard) {
-                // If it exists, update token in case it changed, and make it default
                 $existingCard->update([
+                    'card_holder_name' => $cardHolderName ?: $existingCard->card_holder_name,
+                    'brand' => $brand ?: $existingCard->brand,
+                    'exp_month' => $expMonth ?: $existingCard->exp_month,
+                    'exp_year' => $expYear ?: $existingCard->exp_year,
                     'gateway_token' => $token,
-                    'is_default' => true
+                    'is_default' => true,
                 ]);
-                // Ensure others are not default
                 $user->creditCards()->where('id', '!=', $existingCard->id)->update(['is_default' => false]);
                 return;
             }
 
-            // Ensure others are not default
             $user->creditCards()->update(['is_default' => false]);
 
-            // Save the new card
             $user->creditCards()->create([
-                'card_holder_name' => $cardHolderName,
+                'card_holder_name' => $cardHolderName ?: null,
                 'last_four_digits' => $lastFour,
                 'brand' => $brand,
                 'exp_month' => $expMonth,
@@ -733,18 +782,56 @@ final class KashierController extends Controller
                 'is_default' => true,
             ]);
 
-            Log::info('Kashier webhook: Successfully saved user credit card token', [
+            $this->kashierLog('Kashier user credit card saved', [
                 'user_id' => $user->id,
-                'last_four' => $lastFour
+                'last_four' => $lastFour,
+                'brand' => $brand,
+                'has_gateway_token' => !str_starts_with($token, 'kashier_fingerprint_'),
             ]);
 
+            Log::info('Kashier webhook: Successfully saved user credit card', [
+                'user_id' => $user->id,
+                'last_four' => $lastFour,
+            ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
+            $this->kashierLog('Kashier failed to auto-save credit card', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
             Log::error('Kashier webhook: Failed to auto-save credit card', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    private function firstFilled(array $data, array $keys, bool $recursive = false): mixed
+    {
+        foreach ($keys as $key) {
+            $value = data_get($data, $key);
+            if ($value !== null && $value !== '') {
+                return $value;
+            }
+        }
+
+        if (!$recursive) {
+            return null;
+        }
+
+        foreach ($data as $value) {
+            if (!is_array($value)) {
+                continue;
+            }
+
+            $found = $this->firstFilled($value, $keys, true);
+            if ($found !== null && $found !== '') {
+                return $found;
+            }
+        }
+
+        return null;
     }
 }
