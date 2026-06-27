@@ -380,9 +380,11 @@ class UserReportApiController extends Controller
                         'course_title'       => $cert->course->title    ?? 'N/A',
                         'course_image'       => $cert->course->thumbnail ?? null,
                         'category'           => $cert->course->category->name ?? 'N/A',
-                        // Frontend sends course_id to: POST /api/certificate/course/download
+                        // Frontend sends course_id to: POST /api/certificate/course/download or GET using download_url
                         'can_download'       => $cert->isActive(),
                         'verify_url'         => url("/api/certificate/verify?code={$cert->certificate_number}"),
+                        'download_url'       => url("/api/certificate/course/download?course_id={$cert->course_id}"),
+                        'view_url'           => url("/api/certificate/course/generate?course_id={$cert->course_id}"),
                     ];
                 });
 

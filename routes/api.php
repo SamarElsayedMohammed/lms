@@ -485,7 +485,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     //Certificate
     Route::group(['prefix' => 'certificate'], function (): void {
         Route::get('/course/generate', [CertificateController::class, 'getCertificate']); // Get/Check certificate for course
-        Route::post('/course/download', [CertificateController::class, 'download']); // Generate and download certificate PDF
+        Route::match(['get', 'post'], '/course/download', [CertificateController::class, 'download']); // Generate and download certificate PDF
         Route::post('/quiz/generate', [CertificateController::class, 'generateQuizCertificate']);
     });
 

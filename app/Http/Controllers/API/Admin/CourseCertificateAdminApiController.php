@@ -19,16 +19,28 @@ class CourseCertificateAdminApiController extends AdminCrudApiController
 
         $perPage = min((int) $request->input('per_page', 15), 100);
         $search = $request->input('search');
+        $userId = $request->input('user_id');
+        $courseId = $request->input('course_id');
 
         $query = CourseCertificate::with(['user:id,name,email', 'course:id,title']);
 
+        if ($userId) {
+            $query->where('user_id', $userId);
+        }
+
+        if ($courseId) {
+            $query->where('course_id', $courseId);
+        }
+
         if ($search) {
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
-            })->orWhereHas('course', function ($q) use ($search) {
-                $q->where('title', 'like', "%{$search}%");
-            })->orWhere('certificate_number', 'like', "%{$search}%");
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('user', function ($uq) use ($search) {
+                    $uq->where('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%");
+                })->orWhereHas('course', function ($cq) use ($search) {
+                    $cq->where('title', 'like', "%{$search}%");
+                })->orWhere('certificate_number', 'like', "%{$search}%");
+            });
         }
 
         $certificates = $query->latest('issued_date')->paginate($perPage);
