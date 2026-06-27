@@ -268,7 +268,15 @@ class AffiliateService
 
             // The amount deducted from commission goes into wallet.
             // Since we transfer whole discrete commission records, the user gets the exact sum of those records.
-            $user->increment('wallet_balance', $sum);
+            \App\Services\WalletService::creditWallet(
+                $user->id,
+                $sum,
+                'commission',
+                'Affiliate commission transferred to wallet',
+                null,
+                'affiliate_commission',
+                'user'
+            );
         });
     }
 

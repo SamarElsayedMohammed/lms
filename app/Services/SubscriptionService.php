@@ -367,7 +367,9 @@ final class SubscriptionService
                 $plan = $subscription->plan;
                 $price = (float) $plan->price;
 
-                if ($user && $user->wallet_balance >= $price) {
+                $walletRenewalEnabled = app(\App\Services\AffiliateService::class)->isEnabled();
+
+                if ($walletRenewalEnabled && $user && $user->wallet_balance >= $price) {
                     try {
                         $this->renewWithPayment($user, $subscription, 'wallet', $price, 0);
 
