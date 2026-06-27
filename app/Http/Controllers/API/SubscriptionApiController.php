@@ -274,7 +274,19 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            // Allow subscription stacking: the SubscriptionService will carry over remaining days.
+            // Prevent subscribing to the same plan if there is already an active or pending subscription
+            $existingSubscription = Subscription::where('user_id', $user->id)
+                ->where('plan_id', $request->plan_id)
+                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+                ->where(function ($query) {
+                    $query->whereNull('ends_at')
+                          ->orWhere('ends_at', '>', now());
+                })
+                ->exists();
+
+            if ($existingSubscription) {
+                return ApiResponseService::errorResponse('أنت مشترك بالفعل في هذه الباقة أو لديك طلب قيد المراجعة. لتجديد الاشتراك، يرجى استخدام صفحة التجديد.', [], 400);
+            }
 
             $plan = SubscriptionPlan::findOrFail($request->plan_id);
 
