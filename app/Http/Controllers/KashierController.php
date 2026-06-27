@@ -654,6 +654,8 @@ final class KashierController extends Controller
             'declined',
             'voided',
             'expired',
+            'error',
+            'servererror',
         ], true);
     }
 
