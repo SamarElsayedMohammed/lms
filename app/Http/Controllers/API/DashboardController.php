@@ -73,7 +73,7 @@ class DashboardController extends Controller
                 'overview_stats' => $this->getOverviewStats(),
                 'financial_stats' => $this->getFinancialStats(),
                 'course_stats' => $this->getCourseStats(),
-                'user_stats' => $this->getUserStats(),
+                'user_stats' => $this->getUserStats($request),
                 'engagement_stats' => $this->getEngagementStats(),
                 'monthly_charts' => $this->getMonthlyCharts(),
                 'recent_activities' => $this->getRecentActivities(),
@@ -249,7 +249,10 @@ class DashboardController extends Controller
                 $currentRevenue,
             );
 
+            $userStatusStats = User::selectRaw('COUNT(CASE WHEN is_active = 1 THEN 1 END) as active, COUNT(CASE WHEN is_active = 0 THEN 1 END) as suspended')->first();
             $totalUsers = $this->getTotalUsersCount();
+            $activeUsers = (int) ($userStatusStats->active ?? 0);
+            $suspendedUsers = (int) ($userStatusStats->suspended ?? 0);
             $totalInstructors = Instructor::count();
             $totalEnrollments = OrderCourse::count() + \App\Models\Course\UserCourseTrack::count();
             $totalCategories = Category::count();
@@ -275,6 +278,27 @@ class DashboardController extends Controller
                     'icon' => 'fas fa-users',
                     'color' => 'primary',
                     'label' => 'Total Users',
+                ],
+                'active_users' => [
+                    'count' => $activeUsers,
+                    'growth' => 0,
+                    'icon' => 'fas fa-user-check',
+                    'color' => 'success',
+                    'label' => 'Active Users',
+                ],
+                'suspended_users' => [
+                    'count' => $suspendedUsers,
+                    'growth' => 0,
+                    'icon' => 'fas fa-user-slash',
+                    'color' => 'danger',
+                    'label' => 'Suspended Users',
+                ],
+                'stopped_users' => [
+                    'count' => $suspendedUsers,
+                    'growth' => 0,
+                    'icon' => 'fas fa-user-slash',
+                    'color' => 'danger',
+                    'label' => 'Stopped Users',
                 ],
                 'total_courses' => [
                     'count' => $totalCourses,
@@ -555,20 +579,57 @@ class DashboardController extends Controller
     /**
      * Get user statistics
      */
-    private function getUserStats()
+    private function getUserStats(Request $request)
     {
         try {
             $userStats = User::selectRaw('
                 COUNT(*) as total,
                 COUNT(CASE WHEN is_active = 1 THEN 1 END) as active,
+                COUNT(CASE WHEN is_active = 0 THEN 1 END) as suspended,
                 COUNT(CASE WHEN created_at >= ? THEN 1 END) as new_this_month
             ', [Carbon::now()->startOfMonth()])->first();
 
-            $totalUsers = $userStats->total;
-            $activeUsers = $userStats->active;
-            $inactiveUsers = $totalUsers - $activeUsers;
-            $newUsersThisMonth = $userStats->new_this_month;
+            $totalUsers = (int) ($userStats->total ?? 0);
+            $activeUsers = (int) ($userStats->active ?? 0);
+            $suspendedUsers = (int) ($userStats->suspended ?? 0);
+            $inactiveUsers = $suspendedUsers;
+            $newUsersThisMonth = (int) ($userStats->new_this_month ?? 0);
             $usersWithOrders = User::has('orders')->count();
+            $usersLimit = min(max((int) $request->input('users_limit', 10), 1), 50);
+
+            $users = User::with([
+                    'activeSubscription:id,user_id,plan_id,status,starts_at,ends_at',
+                    'activeSubscription.plan:id,name',
+                ])
+                ->latest('created_at')
+                ->limit($usersLimit)
+                ->get(['id', 'name', 'email', 'mobile', 'is_active', 'type', 'profile', 'wallet_balance', 'created_at'])
+                ->map(function (User $user): array {
+                    $subscription = $user->activeSubscription;
+
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'mobile' => $user->mobile,
+                        'profile' => $user->profile,
+                        'type' => $user->type,
+                        'is_active' => (bool) $user->is_active,
+                        'status' => $user->is_active ? 'active' : 'suspended',
+                        'status_label' => $user->is_active ? 'نشط' : 'موقوف',
+                        'wallet_balance' => (float) $user->wallet_balance,
+                        'created_at' => $user->created_at?->format('Y-m-d H:i:s'),
+                        'active_subscription' => $subscription ? [
+                            'id' => $subscription->id,
+                            'plan_id' => $subscription->plan_id,
+                            'plan_name' => $subscription->plan?->name,
+                            'status' => $subscription->status,
+                            'starts_at' => $subscription->starts_at?->format('Y-m-d H:i:s'),
+                            'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
+                        ] : null,
+                    ];
+                })
+                ->values();
 
             $instructorStats = Instructor::selectRaw('
                 COUNT(CASE WHEN status = ? THEN 1 END) as pending,
@@ -580,12 +641,31 @@ class DashboardController extends Controller
             $rejectedInstructors = $instructorStats->rejected;
 
             return [
+                'total_users' => $totalUsers,
+                'active_users' => $activeUsers,
+                'suspended_users' => $suspendedUsers,
+                'stopped_users' => $suspendedUsers,
+                'inactive_users' => $inactiveUsers,
+                'new_users_this_month' => $newUsersThisMonth,
+                'users_with_purchases' => $usersWithOrders,
+                'users_limit' => $usersLimit,
+                'users' => $users,
+                'recent_users' => $users,
                 'user_activity' => [
                     'total' => $totalUsers,
+                    'total_users' => $totalUsers,
                     'active' => $activeUsers,
+                    'active_users' => $activeUsers,
                     'inactive' => $inactiveUsers,
+                    'inactive_users' => $inactiveUsers,
+                    'suspended' => $suspendedUsers,
+                    'suspended_users' => $suspendedUsers,
+                    'stopped' => $suspendedUsers,
+                    'stopped_users' => $suspendedUsers,
                     'new_this_month' => $newUsersThisMonth,
+                    'new_users_this_month' => $newUsersThisMonth,
                     'with_purchases' => $usersWithOrders,
+                    'users_with_purchases' => $usersWithOrders,
                 ],
                 'instructor_stats' => [
                     'pending_requests' => $instructorRequests,
@@ -595,7 +675,8 @@ class DashboardController extends Controller
                 'user_growth_chart' => $this->getUserGrowthChartData(),
                 'user_registration_sources' => $this->getUserRegistrationSources(),
             ];
-        } catch (\Exception) {
+        } catch (\Exception $e) {
+            Log::error('Dashboard User Stats Error: ' . $e->getMessage());
             return $this->getDefaultUserStats();
         }
     }
@@ -1322,6 +1403,27 @@ class DashboardController extends Controller
                 'color' => 'primary',
                 'label' => 'Total Users',
             ],
+            'active_users' => [
+                'count' => 0,
+                'growth' => 0,
+                'icon' => 'fas fa-user-check',
+                'color' => 'success',
+                'label' => 'Active Users',
+            ],
+            'suspended_users' => [
+                'count' => 0,
+                'growth' => 0,
+                'icon' => 'fas fa-user-slash',
+                'color' => 'danger',
+                'label' => 'Suspended Users',
+            ],
+            'stopped_users' => [
+                'count' => 0,
+                'growth' => 0,
+                'icon' => 'fas fa-user-slash',
+                'color' => 'danger',
+                'label' => 'Stopped Users',
+            ],
             'total_courses' => [
                 'count' => 0,
                 'growth' => 0,
@@ -1418,12 +1520,31 @@ class DashboardController extends Controller
     private function getDefaultUserStats()
     {
         return [
+            'total_users' => 0,
+            'active_users' => 0,
+            'suspended_users' => 0,
+            'stopped_users' => 0,
+            'inactive_users' => 0,
+            'new_users_this_month' => 0,
+            'users_with_purchases' => 0,
+            'users_limit' => 0,
+            'users' => [],
+            'recent_users' => [],
             'user_activity' => [
                 'total' => 0,
+                'total_users' => 0,
                 'active' => 0,
+                'active_users' => 0,
                 'inactive' => 0,
+                'inactive_users' => 0,
+                'suspended' => 0,
+                'suspended_users' => 0,
+                'stopped' => 0,
+                'stopped_users' => 0,
                 'new_this_month' => 0,
+                'new_users_this_month' => 0,
                 'with_purchases' => 0,
+                'users_with_purchases' => 0,
             ],
             'instructor_stats' => ['pending_requests' => 0, 'approved' => 0, 'rejected' => 0],
             'user_growth_chart' => [],
