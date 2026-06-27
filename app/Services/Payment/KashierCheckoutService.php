@@ -69,7 +69,9 @@ final class KashierCheckoutService implements PaymentGatewayContract
             . '&hash=' . $hash
             . '&merchantRedirect=' . $callbackUrl
             . '&allowedMethods=card,wallet,bank'
-            . '&display=en';
+            . '&display=en'
+            . '&saveCard=true'
+            . '&customerReference=usr_' . $user->id;
 
         $this->kashierLog('Kashier checkout session created', [
             'type' => 'subscription',
@@ -132,7 +134,9 @@ final class KashierCheckoutService implements PaymentGatewayContract
             . '&hash=' . $hash
             . '&merchantRedirect=' . $callbackUrl
             . '&allowedMethods=card,wallet,bank'
-            . '&display=en';
+            . '&display=en'
+            . '&saveCard=true'
+            . '&customerReference=usr_' . $user->id;
 
         return [
             'url' => $url,
@@ -181,7 +185,9 @@ final class KashierCheckoutService implements PaymentGatewayContract
             . '&hash=' . $hash
             . '&merchantRedirect=' . $callbackUrl
             . '&allowedMethods=card,wallet,bank'
-            . '&display=en';
+            . '&display=en'
+            . '&saveCard=true'
+            . '&customerReference=usr_' . $user->id;
 
         return [
             'url' => $url,
