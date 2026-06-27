@@ -59,19 +59,18 @@ final class KashierController extends Controller
         $isSuccess = $this->isSuccessfulStatus($status);
         $transactionId = $this->extractTransactionId($data);
 
-        // ALWAYS try to verify via API if we have a transactionId (most reliable method)
+        // ALWAYS try to verify via API if we have a transactionId (most reliable method).
         if (!empty($transactionId)) {
             Log::info('Kashier: Verifying via API', ['transactionId' => $transactionId]);
             $apiData = $this->kashierService->getPaymentDetails($transactionId);
-            if ($apiData && !empty($apiData['order_id']) && empty($orderId)) {
-                $orderId = (string) $apiData['order_id'];
-            }
-            if ($apiData && $this->isSuccessfulStatus($this->normalizeKashierStatus($apiData['status'] ?? 'unknown'))) {
-                $isVerified = true;
-                $status = $this->normalizeKashierStatus($apiData['status']);
-                $isSuccess = true;
-                Log::info('Kashier: API verification successful');
-            }
+            $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess);
+        }
+
+        // Some Kashier redirects only include merchant order id. Try an order-id lookup before failing.
+        if (!$isVerified && !empty($orderId)) {
+            Log::info('Kashier: Verifying via merchant order id', ['orderId' => $orderId]);
+            $apiData = $this->kashierService->getPaymentDetailsByOrderId($orderId);
+            $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess);
         }
 
         // Fallback to signature verification if API check didn't happen or failed.
@@ -423,6 +422,34 @@ final class KashierController extends Controller
         return response($message, $statusCode);
     }
 
+
+
+    private function applyApiPaymentDetails(?array $apiData, string &$orderId, string &$transactionId, string &$status, bool &$isVerified, bool &$isSuccess): void
+    {
+        if (!$apiData) {
+            return;
+        }
+
+        if (!empty($apiData['order_id']) && empty($orderId)) {
+            $orderId = (string) $apiData['order_id'];
+        }
+
+        if (!empty($apiData['transaction_id']) && empty($transactionId)) {
+            $transactionId = (string) $apiData['transaction_id'];
+        }
+
+        $apiStatus = $this->normalizeKashierStatus((string) ($apiData['status'] ?? 'unknown'));
+        if ($this->isSuccessfulStatus($apiStatus)) {
+            $isVerified = true;
+            $status = $apiStatus;
+            $isSuccess = true;
+            Log::info('Kashier: API verification successful', [
+                'orderId' => $orderId,
+                'transactionId' => $transactionId,
+                'status' => $status,
+            ]);
+        }
+    }
 
     private function extractOrderId(Request $request, array $data): string
     {
