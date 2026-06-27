@@ -77,7 +77,25 @@ final class PricingService
             ];
         }
 
-        // 3. International fallback: USD default price (not EGP base)
+        // 3. Dynamic Currency Conversion Fallback
+        // Convert the base EGP price to the country's active supported currency if available
+        $supportedCurrency = SupportedCurrency::where('country_code', $countryCode)
+            ->where('is_active', true)
+            ->first();
+
+        if ($supportedCurrency !== null && $supportedCurrency->active_exchange_rate > 0) {
+            $convertedPrice = $this->convertFromEgp((float) $plan->price, $supportedCurrency->currency_code);
+            return [
+                'price' => $this->roundUpForDisplay($convertedPrice),
+                'old_price' => null,
+                'currency_code' => $supportedCurrency->currency_code,
+                'currency_symbol' => $supportedCurrency->currency_symbol,
+                'price_source' => 'dynamic_conversion',
+                'can_subscribe' => true,
+            ];
+        }
+
+        // 4. International fallback: USD default price (not EGP base)
         $usdPrice = $plan->usd_price;
 
         return [
