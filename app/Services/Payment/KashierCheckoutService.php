@@ -71,6 +71,17 @@ final class KashierCheckoutService implements PaymentGatewayContract
             . '&allowedMethods=card,wallet,bank'
             . '&display=en';
 
+        $this->kashierLog('Kashier checkout session created', [
+            'type' => 'subscription',
+            'order_id' => $orderId,
+            'plan_id' => $plan->id,
+            'user_id' => $user->id,
+            'amount' => (float) $amount,
+            'currency' => $currency,
+            'callback_url' => urldecode($callbackUrl),
+            'app_url' => config('app.url'),
+        ]);
+
         return [
             'url' => $url,
             'order_id' => $orderId,
@@ -387,6 +398,24 @@ final class KashierCheckoutService implements PaymentGatewayContract
             'order_id' => $res['merchantOrderId'] ?? $res['merchant_order_id'] ?? $res['orderId'] ?? $res['order_id'] ?? null,
             'transaction_id' => $res['transactionId'] ?? $res['transaction_id'] ?? $res['paymentId'] ?? $res['payment_id'] ?? null,
         ];
+    }
+
+
+    private function kashierLog(string $message, array $context = []): void
+    {
+        $line = '[' . now()->format('Y-m-d H:i:s') . '] ' . $message . ' ' . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+        $written = false;
+
+        try {
+            $written = @file_put_contents(storage_path('logs/kashier.log'), $line, FILE_APPEND | LOCK_EX) !== false;
+        } catch (\Throwable) {
+            $written = false;
+        }
+
+        if (!$written) {
+            @file_put_contents('/tmp/kashier.log', $line, FILE_APPEND | LOCK_EX);
+            error_log($line);
+        }
     }
 
     private function getConfig(): array

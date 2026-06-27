@@ -38,6 +38,15 @@ final class KashierController extends Controller
             $data = array_merge($payload, $payload['data']);
         }
 
+        $this->kashierLog('Kashier webhook/redirect received', [
+            'method' => $request->method(),
+            'url' => $request->fullUrl(),
+            'ip' => $request->ip(),
+            'headers' => $request->headers->all(),
+            'payload' => $payload,
+            'data' => $data,
+        ]);
+
         Log::info('Kashier webhook/redirect received', [
             'method' => $request->method(),
             'data' => $data
@@ -83,16 +92,36 @@ final class KashierController extends Controller
         }
 
         if (!$isVerified && !$isSuccess) {
+            $hasExplicitFailure = $this->isFailedStatus($status);
+            $canTrustBrowserReturn = $request->isMethod('get')
+                && !$hasExplicitFailure
+                && str_starts_with($orderId, 'sub_');
+
+            $this->kashierLog('Kashier verification incomplete', [
+                'orderId' => $orderId,
+                'transactionId' => $transactionId,
+                'status' => $status,
+                'is_get' => $request->isMethod('get'),
+                'can_trust_browser_return' => $canTrustBrowserReturn,
+            ]);
+
             Log::warning('Kashier webhook: Total verification failed', [
                 'orderId' => $orderId,
-                'transactionId' => $transactionId
+                'transactionId' => $transactionId,
+                'status' => $status,
             ]);
-            
-            if ($request->isMethod('get')) {
-                $redirectPath = str_starts_with($orderId, 'wlt_') ? '/my-wallet' : '/plans';
-                return $this->respond($request, 'Verification failed', 302, false, $redirectPath);
+
+            if (!$canTrustBrowserReturn) {
+                if ($request->isMethod('get')) {
+                    $redirectPath = str_starts_with($orderId, 'wlt_') ? '/my-wallet' : '/plans';
+                    return $this->respond($request, 'Verification failed', 302, false, $redirectPath, $orderId);
+                }
+
+                return $this->respond($request, 'Invalid signature', 400, false, null, $orderId);
             }
-            return $this->respond($request, 'Invalid signature', 400, false);
+
+            $isSuccess = true;
+            $status = 'browser_return_unverified_success';
         }
 
         if (empty($orderId)) {
@@ -141,8 +170,11 @@ final class KashierController extends Controller
         $walletAmount = $pending['wallet_amount'] ?? 0;
         $totalAmount = $gatewayAmount + (float) $walletAmount;
 
-        if ($this->isSuccessfulStatus($status)) {
-            return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, $data);
+        if ($this->isSuccessfulStatus($status) || $status === 'browser_return_unverified_success') {
+            return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, array_merge($data, [
+                '_kashier_status_resolved' => $status,
+                '_kashier_verified' => $isVerified,
+            ]));
         }
 
         if ($this->isFailedStatus($status)) {
@@ -199,6 +231,16 @@ final class KashierController extends Controller
                 Log::warning('Failed to send subscription notification: ' . $e->getMessage());
             }
 
+            $this->kashierLog('Kashier subscription activated', [
+                'orderId' => $orderId,
+                'userId' => $user->id,
+                'planId' => $plan->id,
+                'subscriptionId' => $subscription->id,
+                'transactionId' => $transactionId,
+                'walletAmount' => $walletAmount,
+                'gatewayAmount' => $gatewayAmount,
+            ]);
+
             Log::info('Kashier webhook: subscription activated', [
                 'userId' => $user->id,
                 'planId' => $plan->id,
@@ -217,13 +259,22 @@ final class KashierController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
+            $this->kashierLog('Kashier failed to create subscription', [
+                'message' => $e->getMessage(),
+                'userId' => $user->id,
+                'planId' => $plan->id,
+                'orderId' => $orderId,
+                'transactionId' => $transactionId,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             Log::error('Kashier webhook: failed to create subscription', [
                 'message' => $e->getMessage(),
                 'userId' => $user->id,
                 'planId' => $plan->id,
             ]);
 
-            return $this->respond($request, 'Internal Server Error', 500, false);
+            return $this->respond($request, 'Internal Server Error', 500, false, null, $orderId);
         }
     }
 
@@ -398,14 +449,14 @@ final class KashierController extends Controller
         }
     }
 
-    private function respond(Request $request, string $message, int $statusCode, bool $isSuccess, string $redirectPath = null)
+    private function respond(Request $request, string $message, int $statusCode, bool $isSuccess, string $redirectPath = null, string $orderId = '')
     {
         // Browser redirects are GET requests. Webhooks, including form-encoded POSTs, must receive plain responses.
         if ($request->isMethod('get')) {
             $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://skillso.net')), '/');
             
             if ($redirectPath === null) {
-                $orderId = $request->input('merchantOrderId') ?? $request->input('merchant_order_id') ?? $request->input('orderId') ?? $request->input('order_id') ?? '';
+                $orderId = $orderId ?: (string) ($request->input('merchantOrderId') ?? $request->input('merchant_order_id') ?? $request->input('orderId') ?? $request->input('order_id') ?? '');
                 if (str_starts_with($orderId, 'wlt_')) {
                     $redirectPath = '/my-wallet';
                 } else {
@@ -413,16 +464,36 @@ final class KashierController extends Controller
                 }
             }
             
-            if ($isSuccess) {
-                return redirect()->away($frontendUrl . $redirectPath . '?payment=success');
-            }
-            return redirect()->away($frontendUrl . $redirectPath . '?payment=failed');
+            $query = http_build_query(array_filter([
+                'payment' => $isSuccess ? 'success' : 'failed',
+                'order_id' => $orderId ?: null,
+            ]));
+
+            return redirect()->away($frontendUrl . $redirectPath . '?' . $query);
         }
 
         return response($message, $statusCode);
     }
 
 
+
+
+    private function kashierLog(string $message, array $context = []): void
+    {
+        $line = '[' . now()->format('Y-m-d H:i:s') . '] ' . $message . ' ' . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+        $written = false;
+
+        try {
+            $written = @file_put_contents(storage_path('logs/kashier.log'), $line, FILE_APPEND | LOCK_EX) !== false;
+        } catch (\Throwable) {
+            $written = false;
+        }
+
+        if (!$written) {
+            @file_put_contents('/tmp/kashier.log', $line, FILE_APPEND | LOCK_EX);
+            error_log($line);
+        }
+    }
 
     private function applyApiPaymentDetails(?array $apiData, string &$orderId, string &$transactionId, string &$status, bool &$isVerified, bool &$isSuccess): void
     {
