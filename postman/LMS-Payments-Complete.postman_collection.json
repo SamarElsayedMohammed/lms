@@ -1,0 +1,1470 @@
+{
+	"info": {
+		"_postman_id": "lms-payments-complete-2025",
+		"name": "LMS - Payments Complete (Admin + User)",
+		"description": "مجموعة Postman شاملة لكل APIs الدفع في LMS:\n\n- إيداع يدوي وتلقائي (Kashier)\n- سحب من المحفظة\n- بطاقات ائتمان\n- بوابات الدفع\n- اشتراكات (يدوي / Kashier / محفظة)\n- طلبات واسترداد\n- لوحة المالية للأدمن\n- محفظة المدرب\n\n**الاستخدام:**\n1. استورد Environment: `LMS-API-Environment.postman_environment.json`\n2. نفّذ Admin Login أو User Login واحفظ الـ token\n3. حدّث المتغيرات: `deposit_method_id`, `withdrawal_request_id`, `plan_id`, `user_id`\n\n**Auth:** Bearer Token (Sanctum)\n**Base URL:** `{{base_url}}` = `http://127.0.0.1:8000/api`",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{"key": "base_url", "value": "http://127.0.0.1:8000/api"},
+		{"key": "user_token", "value": ""},
+		{"key": "admin_token", "value": ""},
+		{"key": "deposit_method_id", "value": "1"},
+		{"key": "deposit_request_id", "value": "1"},
+		{"key": "withdrawal_request_id", "value": "1"},
+		{"key": "credit_card_id", "value": "1"},
+		{"key": "user_id", "value": "1"},
+		{"key": "plan_id", "value": "1"},
+		{"key": "course_id", "value": "1"},
+		{"key": "subscription_id", "value": "1"},
+		{"key": "order_id", "value": "1"},
+		{"key": "affiliate_withdrawal_id", "value": "1"}
+	],
+	"item": [
+		{
+			"name": "0. Auth - تسجيل الدخول",
+			"item": [
+				{
+					"name": "User Login (Email)",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 200) {",
+								"  const json = pm.response.json();",
+								"  const token = json.data?.token || json.token || json.data?.access_token;",
+								"  if (token) pm.collectionVariables.set('user_token', token);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"type\": \"email\",\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"device_type\": \"web\"\n}"
+						},
+						"url": "{{base_url}}/user-login",
+						"description": "تسجيل دخول المستخدم. احفظ الـ token في `user_token`."
+					}
+				},
+				{
+					"name": "Admin Login",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 200) {",
+								"  const json = pm.response.json();",
+								"  const token = json.data?.token || json.token || json.data?.access_token;",
+								"  if (token) pm.collectionVariables.set('admin_token', token);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"password123\",\n  \"device_type\": \"web\"\n}"
+						},
+						"url": "{{base_url}}/admin-login",
+						"description": "تسجيل دخول الأدمن. احفظ الـ token في `admin_token`."
+					}
+				}
+			]
+		},
+		{
+			"name": "1. User - المحفظة (Wallet)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Get Wallet Summary",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/summary",
+						"description": "ملخص المحفظة: الرصيد، الإيداعات، السحوبات المعلقة، آخر المعاملات."
+					}
+				},
+				{
+					"name": "Get Wallet Overview (Alias)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/overview"
+					}
+				},
+				{
+					"name": "Get Wallet History",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/wallet/history?type=&per_page=15&page=1",
+							"host": ["{{base_url}}"],
+							"path": ["wallet", "history"],
+							"query": [
+								{"key": "type", "value": "", "description": "credit | debit"},
+								{"key": "per_page", "value": "15"},
+								{"key": "page", "value": "1"}
+							]
+						},
+						"description": "سجل المحفظة الموحد (إيداعات يدوية + سحوبات + معاملات)."
+					}
+				},
+				{
+					"name": "Get Wallet Transactions (Alias)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/transactions"
+					}
+				},
+				{
+					"name": "Top-Up Wallet (Auto - Kashier)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 100\n}"
+						},
+						"url": "{{base_url}}/wallet/top-up",
+						"description": "إيداع تلقائي عبر Kashier.\n\n**Body:** `amount` (1-50000)\n\n**Response:** `checkout_url`, `order_id`, `amount`, `currency` — وجّه المستخدم للـ checkout_url."
+					}
+				}
+			]
+		},
+		{
+			"name": "2. User - إيداع يدوي (Manual Deposit)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Get Manual Deposit Methods",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/manual-deposits/methods",
+						"description": "طرق الإيداع اليدوي المتاحة (مفلترة حسب دولة المستخدم)."
+					}
+				},
+				{
+					"name": "Get Deposit Methods (Alias)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/deposit-methods"
+					}
+				},
+				{
+					"name": "Submit Manual Deposit Request",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{"key": "method_id", "value": "{{deposit_method_id}}", "type": "text", "description": "required"},
+								{"key": "amount", "value": "500", "type": "text", "description": "required, min:1"},
+								{"key": "transaction_id", "value": "TXN-123456", "type": "text", "description": "optional"},
+								{"key": "receipt", "type": "file", "description": "required - jpeg,png,jpg,webp max 5MB", "src": []}
+							]
+						},
+						"url": "{{base_url}}/wallet/deposit-requests",
+						"description": "تقديم طلب إيداع يدوي.\n\n**multipart/form-data:**\n- `method_id`* (exists:manual_deposit_methods)\n- `amount`* (numeric, min:1)\n- `receipt`* (image)\n- `transaction_id` (optional)\n\nينتظر موافقة الأدمن."
+					}
+				}
+			]
+		},
+		{
+			"name": "3. User - سحب (Withdrawal)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Get Withdrawal Methods",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet/withdrawal-methods",
+						"description": "طرق السحب المتاحة: bank_transfer, paypal, stripe, razorpay + الحقول المطلوبة."
+					}
+				},
+				{
+					"name": "Create Withdrawal Request (Bank Transfer)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 100,\n  \"payment_method\": \"bank_transfer\",\n  \"payment_details\": {\n    \"account_holder_name\": \"Ahmed Ali\",\n    \"account_number\": \"1234567890\",\n    \"bank_name\": \"CIB\",\n    \"other_details\": \"SWIFT: CIBEEGCX\"\n  },\n  \"notes\": \"سحب شهري\"\n}"
+						},
+						"url": "{{base_url}}/wallet/withdrawal-request",
+						"description": "طلب سحب من المحفظة.\n\n**payment_method:** bank_transfer | paypal | stripe | razorpay\n\n**payment_details حسب الطريقة:**\n- bank_transfer: account_holder_name, account_number, bank_name, other_details\n- paypal: paypal_email\n- stripe: stripe_account_id\n- razorpay: razorpay_account_id\n\nالرصيد يُخصم عند موافقة الأدمن فقط."
+					}
+				},
+				{
+					"name": "Create Withdrawal Request (PayPal)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 50,\n  \"payment_method\": \"paypal\",\n  \"payment_details\": {\n    \"paypal_email\": \"user@paypal.com\"\n  }\n}"
+						},
+						"url": "{{base_url}}/wallet/withdrawal-requests"
+					}
+				},
+				{
+					"name": "Get My Withdrawal Requests",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/wallet/withdrawal-requests?status=&per_page=15&page=1",
+							"host": ["{{base_url}}"],
+							"path": ["wallet", "withdrawal-requests"],
+							"query": [
+								{"key": "status", "value": "", "description": "pending|approved|rejected|processing|completed"},
+								{"key": "per_page", "value": "15"},
+								{"key": "page", "value": "1"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Withdrawal Request Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/wallet/withdrawal-request/details?withdrawal_request_id={{withdrawal_request_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["wallet", "withdrawal-request", "details"],
+							"query": [{"key": "withdrawal_request_id", "value": "{{withdrawal_request_id}}"}]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "4. User - بطاقات ائتمان (Credit Cards)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "List My Credit Cards",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/user/credit-cards"
+					}
+				},
+				{
+					"name": "Add Credit Card",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"card_holder_name\": \"Ahmed Ali\",\n  \"last_four_digits\": \"4242\",\n  \"brand\": \"visa\",\n  \"exp_month\": \"12\",\n  \"exp_year\": \"2028\",\n  \"gateway_token\": \"tok_xxxxxxxx\",\n  \"is_default\": true\n}"
+						},
+						"url": "{{base_url}}/user/credit-cards",
+						"description": "حفظ بطاقة tokenized من بوابة الدفع.\n\n**Required:** last_four_digits (4), exp_month (2), exp_year (4), gateway_token"
+					}
+				},
+				{
+					"name": "Update Credit Card",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"card_holder_name\": \"Ahmed Ali Updated\",\n  \"exp_month\": \"06\",\n  \"exp_year\": \"2029\"\n}"
+						},
+						"url": "{{base_url}}/user/credit-cards/{{credit_card_id}}"
+					}
+				},
+				{
+					"name": "Set Default Credit Card",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/user/credit-cards/{{credit_card_id}}/set-default"
+					}
+				},
+				{
+					"name": "Delete Credit Card",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/user/credit-cards/{{credit_card_id}}"
+					}
+				}
+			]
+		},
+		{
+			"name": "5. User - تفاصيل الفواتير (Billing)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Get Billing Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/billing-details"
+					}
+				},
+				{
+					"name": "Create Billing Details",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Ahmed\",\n  \"last_name\": \"Ali\",\n  \"country_code\": \"EG\",\n  \"address\": \"123 Main St\",\n  \"city\": \"Cairo\",\n  \"state\": \"Cairo\",\n  \"postal_code\": \"11511\",\n  \"tax_id\": \"\"\n}"
+						},
+						"url": "{{base_url}}/billing-details",
+						"description": "مطلوب قبل place_order للكورسات المدفوعة."
+					}
+				},
+				{
+					"name": "Update Billing Details",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"city\": \"Alexandria\"\n}"
+						},
+						"url": "{{base_url}}/billing-details"
+					}
+				}
+			]
+		},
+		{
+			"name": "6. User - الطلبات والدفع (Orders)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Place Order (Wallet)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"payment_method\": \"wallet\",\n  \"buy_now\": true,\n  \"course_id\": {{course_id}}\n}"
+						},
+						"url": "{{base_url}}/place_order",
+						"description": "**payment_method:** stripe | razorpay | flutterwave | wallet | free\n\n**buy_now:** true + course_id للشراء المباشر\n\nبدون buy_now: يشتري من السلة."
+					}
+				},
+				{
+					"name": "Place Order (Stripe Gateway)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"payment_method\": \"stripe\",\n  \"buy_now\": true,\n  \"course_id\": {{course_id}},\n  \"promo_code\": \"\"\n}"
+						},
+						"url": "{{base_url}}/place_order"
+					}
+				},
+				{
+					"name": "Get My Orders",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/orders"
+					}
+				},
+				{
+					"name": "Purchase Certificate",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"payment_method\": \"wallet\"\n}"
+						},
+						"url": "{{base_url}}/purchase-certificate"
+					}
+				},
+				{
+					"name": "Get Invoice Data",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/invoice-data"
+					}
+				},
+				{
+					"name": "Download Invoice",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/download-invoice"
+					}
+				},
+				{
+					"name": "Get Payment Intent (Legacy - Single Course)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"course_id\": {{course_id}},\n  \"platform_type\": \"web\",\n  \"description\": \"Course purchase\"\n}"
+						},
+						"url": "{{base_url}}/get-payment-intent",
+						"description": "Legacy API — payment intent لكورس واحد عبر البوابة النشطة (Razorpay/Stripe)."
+					}
+				}
+			]
+		},
+		{
+			"name": "7. User - الاشتراكات (Subscriptions)",
+			"item": [
+				{
+					"name": "Get Subscription Plans (Public)",
+					"request": {
+						"auth": {"type": "noauth"},
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/subscription/plans"
+					}
+				},
+				{
+					"name": "Get My Subscription",
+					"request": {
+						"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/subscription/my-subscription"
+					}
+				},
+				{
+					"name": "Subscribe (Kashier - Auto)",
+					"request": {
+						"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"plan_id\": {{plan_id}},\n  \"payment_method\": \"kashier\",\n  \"promo_code\": \"\"\n}"
+						},
+						"url": "{{base_url}}/subscription/subscribe",
+						"description": "اشتراك تلقائي عبر Kashier → يرجع checkout_url."
+					}
+				},
+				{
+					"name": "Subscribe (Wallet)",
+					"request": {
+						"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"plan_id\": {{plan_id}},\n  \"payment_method\": \"wallet\",\n  \"use_wallet\": true\n}"
+						},
+						"url": "{{base_url}}/subscription/subscribe",
+						"description": "الدفع من المحفظة (يتطلب تفعيل التسويق بالعمولة)."
+					}
+				},
+				{
+					"name": "Subscribe (Manual Deposit)",
+					"request": {
+						"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{"key": "plan_id", "value": "{{plan_id}}", "type": "text"},
+								{"key": "payment_method", "value": "manual", "type": "text"},
+								{"key": "manual_deposit_method_id", "value": "{{deposit_method_id}}", "type": "text"},
+								{"key": "transaction_id", "value": "TXN-SUB-001", "type": "text"},
+								{"key": "receipt", "type": "file", "src": []}
+							]
+						},
+						"url": "{{base_url}}/subscription/subscribe",
+						"description": "اشتراك يدوي — ينتظر موافقة الأدمن."
+					}
+				},
+				{
+					"name": "Renew Subscription",
+					"request": {
+						"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"subscription_id\": {{subscription_id}},\n  \"payment_method\": \"kashier\",\n  \"use_wallet\": false\n}"
+						},
+						"url": "{{base_url}}/subscription/renew"
+					}
+				},
+				{
+					"name": "Cancel Subscription",
+					"request": {
+						"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"No longer needed\"\n}"
+						},
+						"url": "{{base_url}}/subscription/cancel"
+					}
+				},
+				{
+					"name": "Get Subscription History",
+					"request": {
+						"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/subscription/history?per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["subscription", "history"],
+							"query": [{"key": "per_page", "value": "15"}]
+						}
+					}
+				},
+				{
+					"name": "Update Subscription Settings (Auto Renew)",
+					"request": {
+						"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"auto_renew\": true\n}"
+						},
+						"url": "{{base_url}}/subscription/settings"
+					}
+				}
+			]
+		},
+		{
+			"name": "8. User - استرداد (Refunds)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Check Refund Eligibility",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"course_id\": {{course_id}}\n}"
+						},
+						"url": "{{base_url}}/refund/check-eligibility"
+					}
+				},
+				{
+					"name": "Request Refund",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{"key": "course_id", "value": "{{course_id}}", "type": "text"},
+								{"key": "reason", "value": "Not satisfied with content", "type": "text"},
+								{"key": "user_media", "type": "file", "src": []}
+							]
+						},
+						"url": "{{base_url}}/refund/request"
+					}
+				},
+				{
+					"name": "Get My Refunds",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/refund/my-refunds?per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["refund", "my-refunds"],
+							"query": [{"key": "per_page", "value": "15"}]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "9. User - المعاملات المالية",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Get Financial Transactions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/user/financial-transactions?per_page=15&page=1",
+							"host": ["{{base_url}}"],
+							"path": ["user", "financial-transactions"],
+							"query": [
+								{"key": "per_page", "value": "15"},
+								{"key": "page", "value": "1"}
+							]
+						},
+						"description": "سجل موحد: طلبات + اشتراكات + محفظة."
+					}
+				}
+			]
+		},
+		{
+			"name": "10. User - تسويق بالعمولة (Affiliate)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Affiliate Status",
+					"request": {
+						"auth": {"type": "noauth"},
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/affiliate/status"
+					}
+				},
+				{
+					"name": "Request Affiliate Withdrawal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 100\n}"
+						},
+						"url": "{{base_url}}/affiliate/withdraw"
+					}
+				},
+				{
+					"name": "Transfer Commission to Wallet",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 50\n}"
+						},
+						"url": "{{base_url}}/affiliate/transfer-to-wallet"
+					}
+				},
+				{
+					"name": "Get Affiliate Withdrawals",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/affiliate/withdrawals?per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["affiliate", "withdrawals"],
+							"query": [{"key": "per_page", "value": "15"}]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "11. Admin - طرق الإيداع اليدوي (CRUD)",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "List Deposit Methods",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/manual-deposits/methods",
+						"description": "Permission: finance-list"
+					}
+				},
+				{
+					"name": "Create Deposit Method",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{"key": "name", "value": "InstaPay", "type": "text", "description": "required"},
+								{"key": "account_details", "value": "Account: 01234567890\nName: LMS Platform", "type": "text"},
+								{"key": "instructions", "value": "حوّل المبلغ ثم ارفع الإيصال", "type": "text"},
+								{"key": "countries[]", "value": "EG", "type": "text"},
+								{"key": "countries[]", "value": "SA", "type": "text"},
+								{"key": "is_active", "value": "1", "type": "text"},
+								{"key": "image", "type": "file", "src": []}
+							]
+						},
+						"url": "{{base_url}}/admin/manual-deposits/methods",
+						"description": "Permission: finance-create"
+					}
+				},
+				{
+					"name": "Update Deposit Method",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{"key": "name", "value": "InstaPay Updated", "type": "text"},
+								{"key": "is_active", "value": "1", "type": "text"},
+								{"key": "image", "type": "file", "src": []}
+							]
+						},
+						"url": "{{base_url}}/admin/manual-deposits/methods/{{deposit_method_id}}",
+						"description": "Permission: finance-edit"
+					}
+				},
+				{
+					"name": "Delete Deposit Method",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/manual-deposits/methods/{{deposit_method_id}}",
+						"description": "Permission: finance-delete"
+					}
+				}
+			]
+		},
+		{
+			"name": "12. Admin - طلبات الإيداع اليدوي",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "List Manual Deposit Requests",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/admin/manual-deposits?status=pending&per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "manual-deposits"],
+							"query": [
+								{"key": "status", "value": "pending", "description": "pending|approved|rejected"},
+								{"key": "per_page", "value": "15"}
+							]
+						},
+						"description": "Permission: finance-list"
+					}
+				},
+				{
+					"name": "Approve Manual Deposit",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"approved\",\n  \"admin_notes\": \"تم التحقق من الإيصال\"\n}"
+						},
+						"url": "{{base_url}}/admin/manual-deposits/{{deposit_request_id}}/status",
+						"description": "يوافق ويضيف المبلغ للمحفظة.\n\n**status:** approved | rejected\nPermission: finance-edit"
+					}
+				},
+				{
+					"name": "Reject Manual Deposit",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"rejected\",\n  \"admin_notes\": \"الإيصال غير واضح\"\n}"
+						},
+						"url": "{{base_url}}/admin/manual-deposits/{{deposit_request_id}}/status"
+					}
+				},
+				{
+					"name": "[v1] List Deposit Requests",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/v1/admin/wallet/deposit-requests?status=pending",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "admin", "wallet", "deposit-requests"],
+							"query": [{"key": "status", "value": "pending"}]
+						},
+						"description": "Alias لنفس indexDeposits"
+					}
+				},
+				{
+					"name": "[v1] Update Deposit Status (PUT)",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"approved\",\n  \"admin_notes\": \"OK\"\n}"
+						},
+						"url": "{{base_url}}/v1/admin/wallet/deposit-requests/{{deposit_request_id}}/status"
+					}
+				}
+			]
+		},
+		{
+			"name": "13. Admin - طلبات السحب",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "List Withdrawal Requests",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/finance/admin/withdrawal-requests?status=pending&per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["finance", "admin", "withdrawal-requests"],
+							"query": [
+								{"key": "status", "value": "pending"},
+								{"key": "user_id", "value": "", "disabled": true},
+								{"key": "date_from", "value": "", "disabled": true},
+								{"key": "date_to", "value": "", "disabled": true},
+								{"key": "per_page", "value": "15"}
+							]
+						},
+						"description": "Permission: Super Admin أو withdrawals-list"
+					}
+				},
+				{
+					"name": "Get Withdrawal Request Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/finance/admin/withdrawal-request/details?withdrawal_request_id={{withdrawal_request_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["finance", "admin", "withdrawal-request", "details"],
+							"query": [{"key": "withdrawal_request_id", "value": "{{withdrawal_request_id}}"}]
+						}
+					}
+				},
+				{
+					"name": "Approve Withdrawal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"withdrawal_request_id\": {{withdrawal_request_id}},\n  \"status\": \"approved\",\n  \"admin_notes\": \"تم التحويل البنكي\"\n}"
+						},
+						"url": "{{base_url}}/finance/admin/withdrawal-request/update-status",
+						"description": "يخصم من المحفظة عند approved/completed.\n\n**status:** pending|approved|rejected|processing|completed\nPermission: withdrawals-process"
+					}
+				},
+				{
+					"name": "Reject Withdrawal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"withdrawal_request_id\": {{withdrawal_request_id}},\n  \"status\": \"rejected\",\n  \"admin_notes\": \"بيانات الحساب غير صحيحة\"\n}"
+						},
+						"url": "{{base_url}}/finance/admin/withdrawal-request/update-status"
+					}
+				},
+				{
+					"name": "[v1] List Withdrawal Requests",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/v1/admin/wallet/withdrawal-requests"
+					}
+				},
+				{
+					"name": "[v1] Update Withdrawal Status (PUT)",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"approved\",\n  \"admin_notes\": \"Done\"\n}"
+						},
+						"url": "{{base_url}}/v1/admin/wallet/withdrawal-requests/{{withdrawal_request_id}}/status"
+					}
+				}
+			]
+		},
+		{
+			"name": "14. Admin - بوابات الدفع",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Get Payment Gateway Settings",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/settings/payment-gateways",
+						"description": "Permission: settings-payment-gateway-list\n\nيرجع enabled/disabled لـ: kashier, stripe, razorpay, flutterwave, paymob"
+					}
+				},
+				{
+					"name": "Enable/Disable Kashier",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"gateway\": \"kashier\",\n  \"kashier_status\": true\n}"
+						},
+						"url": "{{base_url}}/admin/settings/payment-gateways",
+						"description": "Permission: settings-payment-gateway-edit\n\n**gateway:** kashier|stripe|razorpay|flutterwave|paymob\n\nملاحظة: API يغيّر status فقط — credentials من لوحة الويب."
+					}
+				},
+				{
+					"name": "Enable/Disable Stripe",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"gateway\": \"stripe\",\n  \"stripe_status\": true\n}"
+						},
+						"url": "{{base_url}}/admin/settings/payment-gateways"
+					}
+				},
+				{
+					"name": "Enable/Disable Razorpay",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"gateway\": \"razorpay\",\n  \"razorpay_status\": true\n}"
+						},
+						"url": "{{base_url}}/admin/settings/payment-gateways"
+					}
+				}
+			]
+		},
+		{
+			"name": "15. Admin - اشتراكات يدوية",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "List Manual Subscriptions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/admin/manual-subscriptions?status=pending&per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "manual-subscriptions"],
+							"query": [
+								{"key": "status", "value": "pending"},
+								{"key": "search", "value": "", "disabled": true},
+								{"key": "per_page", "value": "15"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Approve Manual Subscription",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/manual-subscriptions/{{subscription_id}}/approve"
+					}
+				},
+				{
+					"name": "Reject Manual Subscription",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"admin_notes\": \"الإيصال غير مطابق\"\n}"
+						},
+						"url": "{{base_url}}/admin/manual-subscriptions/{{subscription_id}}/reject"
+					}
+				},
+				{
+					"name": "List All Subscriptions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/subscriptions"
+					}
+				}
+			]
+		},
+		{
+			"name": "16. Admin - بطاقات المستخدمين",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "List User Credit Cards",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/users/{{user_id}}/credit-cards"
+					}
+				},
+				{
+					"name": "Add Credit Card for User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"last_four_digits\": \"4242\",\n  \"exp_month\": \"12\",\n  \"exp_year\": \"2028\",\n  \"gateway_token\": \"tok_admin_xxx\",\n  \"card_holder_name\": \"User Name\",\n  \"brand\": \"visa\",\n  \"is_default\": true\n}"
+						},
+						"url": "{{base_url}}/admin/users/{{user_id}}/credit-cards"
+					}
+				},
+				{
+					"name": "Update Credit Card",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"card_holder_name\": \"Updated Name\",\n  \"exp_month\": \"06\",\n  \"exp_year\": \"2029\"\n}"
+						},
+						"url": "{{base_url}}/admin/credit-cards/{{credit_card_id}}"
+					}
+				},
+				{
+					"name": "Set Default Credit Card",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/credit-cards/{{credit_card_id}}/set-default"
+					}
+				},
+				{
+					"name": "Delete Credit Card",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/credit-cards/{{credit_card_id}}"
+					}
+				}
+			]
+		},
+		{
+			"name": "17. Admin - لوحة المالية",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Finance Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/finance/dashboard"
+					}
+				},
+				{
+					"name": "Get Commissions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/finance/commissions?status=&per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["finance", "commissions"],
+							"query": [
+								{"key": "status", "value": ""},
+								{"key": "instructor_id", "value": "", "disabled": true},
+								{"key": "per_page", "value": "15"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Process Commission (Approve/Reject)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"commission_id\": 1,\n  \"action\": \"approve\"\n}"
+						},
+						"url": "{{base_url}}/finance/process-commission",
+						"description": "**action:** approve | reject"
+					}
+				},
+				{
+					"name": "Get Instructor Earnings",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/finance/instructor-earnings"
+					}
+				},
+				{
+					"name": "Get Wallet Transactions (All Users)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/finance/wallet-transactions?user_id=&transaction_type=&per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["finance", "wallet-transactions"],
+							"query": [
+								{"key": "user_id", "value": ""},
+								{"key": "transaction_type", "value": ""},
+								{"key": "per_page", "value": "15"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Finance Reports",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/finance/reports?report_type=monthly",
+							"host": ["{{base_url}}"],
+							"path": ["finance", "reports"],
+							"query": [
+								{"key": "report_type", "value": "monthly", "description": "daily|weekly|monthly|yearly"},
+								{"key": "date_from", "value": "", "disabled": true},
+								{"key": "date_to", "value": "", "disabled": true}
+							]
+						}
+					}
+				},
+				{
+					"name": "Credit Cards Revenue Report",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/reports/credit-cards-revenue"
+					}
+				},
+				{
+					"name": "Revenue Report",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/reports/revenue"
+					}
+				},
+				{
+					"name": "Sales Report (by Payment Method)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/reports/sales?payment_method=",
+							"host": ["{{base_url}}"],
+							"path": ["reports", "sales"],
+							"query": [{"key": "payment_method", "value": ""}]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "18. Admin - الطلبات",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "List Orders",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/orders"
+					}
+				},
+				{
+					"name": "Get Order Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/orders/{{order_id}}"
+					}
+				},
+				{
+					"name": "Update Order Status",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"completed\"\n}"
+						},
+						"url": "{{base_url}}/admin/orders/{{order_id}}/status",
+						"description": "**status:** pending|completed|cancelled|failed"
+					}
+				}
+			]
+		},
+		{
+			"name": "19. Admin - سحوبات التسويق بالعمولة",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "List Pending Affiliate Withdrawals",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/admin/affiliate/withdrawals/pending?per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "affiliate", "withdrawals", "pending"],
+							"query": [{"key": "per_page", "value": "15"}]
+						},
+						"description": "Permission: manage_affiliates"
+					}
+				},
+				{
+					"name": "Approve Affiliate Withdrawal",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/admin/affiliate/withdrawals/{{affiliate_withdrawal_id}}/approve"
+					}
+				},
+				{
+					"name": "Reject Affiliate Withdrawal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"بيانات الحساب غير مكتملة\"\n}"
+						},
+						"url": "{{base_url}}/admin/affiliate/withdrawals/{{affiliate_withdrawal_id}}/reject"
+					}
+				}
+			]
+		},
+		{
+			"name": "20. Instructor - المحفظة والسحب",
+			"auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{user_token}}", "type": "string"}]},
+			"item": [
+				{
+					"name": "Get Wallet Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/wallet-details",
+						"description": "يتطلب حساب مدرب (CheckInstructorAccess)"
+					}
+				},
+				{
+					"name": "Get Wallet History",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/wallet-history?per_page=15",
+							"host": ["{{base_url}}"],
+							"path": ["wallet-history"],
+							"query": [{"key": "per_page", "value": "15"}]
+						}
+					}
+				},
+				{
+					"name": "Get Withdrawal Details",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/withdrawal-details"
+					}
+				},
+				{
+					"name": "Get Withdrawal History",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/withdrawal-history"
+					}
+				},
+				{
+					"name": "Request Withdrawal (Instructor Panel)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 500,\n  \"account_holder_name\": \"Instructor Name\",\n  \"account_number\": \"1234567890\",\n  \"bank_name\": \"CIB\",\n  \"routing_number\": \"CIBEEGCX\",\n  \"notes\": \"Monthly payout\"\n}"
+						},
+						"url": "{{base_url}}/request-withdrawal"
+					}
+				},
+				{
+					"name": "[Finance API] Wallet Summary",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/finance/wallet-summary"
+					}
+				},
+				{
+					"name": "[Finance API] Create Withdrawal Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 500,\n  \"payment_method\": \"bank_transfer\",\n  \"payment_details\": {\n    \"account_holder_name\": \"Instructor\",\n    \"account_number\": \"1234567890\",\n    \"bank_name\": \"CIB\",\n    \"ifsc_code\": \"CIBEEGCX\"\n  },\n  \"notes\": \"\"\n}"
+						},
+						"url": "{{base_url}}/finance/withdrawal-request"
+					}
+				},
+				{
+					"name": "[Finance API] Get Withdrawal Requests",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/finance/withdrawal-requests"
+					}
+				},
+				{
+					"name": "[Alias] Instructor Earnings",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Accept", "value": "application/json"}],
+						"url": "{{base_url}}/instructor/earnings"
+					}
+				}
+			]
+		},
+		{
+			"name": "21. Webhooks",
+			"item": [
+				{
+					"name": "Kashier Webhook",
+					"request": {
+						"auth": {"type": "noauth"},
+						"method": "POST",
+						"header": [
+							{"key": "Accept", "value": "application/json"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"note\": \"Payload comes from Kashier — do not call manually unless testing\"\n}"
+						},
+						"url": "{{base_url}}/webhooks/kashier",
+						"description": "Webhook عام — بدون auth.\nيعالج: wallet top-up, orders, subscriptions.\nKashier يرسل GET أو POST."
+					}
+				}
+			]
+		}
+	]
+}

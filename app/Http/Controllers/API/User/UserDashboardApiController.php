@@ -7,6 +7,7 @@ use App\Models\Course\Course;
 use App\Models\Course\CourseCertificate;
 use App\Models\OrderCourse;
 use App\Models\Subscription;
+use App\Models\UserCourseProgress;
 use App\Models\UserCurriculumTracking;
 use App\Models\WebinarRegistration;
 use App\Models\Wishlist;
@@ -70,9 +71,13 @@ class UserDashboardApiController extends Controller
 
             $data = [
                 'stats' => $stats,
+                'overview_stats' => $stats,
+                'dashboard_stats' => $stats,
                 'subscription' => $subscription,
+                'current_subscription' => $subscription,
                 'wallet' => $wallet,
                 'recent_courses' => $recentCourses,
+                'latest_courses' => $recentCourses,
                 'learning_activity' => $learningActivity,
                 'upcoming_webinars' => $upcomingWebinars,
                 'unread_notifications_count' => $unreadNotificationsCount,
@@ -114,11 +119,18 @@ class UserDashboardApiController extends Controller
         $wishlistCount = Wishlist::where('user_id', $user->id)->count();
 
         return [
-            'enrolled_courses'  => $totalEnrolled,
-            'in_progress'       => $inProgressCount,
-            'completed_courses' => $completedCount,
-            'certificates'      => $certificatesCount,
-            'wishlist_count'    => $wishlistCount,
+            'enrolled_courses'       => $totalEnrolled,
+            'total_courses'          => $totalEnrolled,
+            'total_enrolled_courses' => $totalEnrolled,
+            'in_progress'            => $inProgressCount,
+            'in_learning'            => $inProgressCount,
+            'in_progress_courses'    => $inProgressCount,
+            'completed_courses'      => $completedCount,
+            'certificates'           => $certificatesCount,
+            'total_certificates'     => $certificatesCount,
+            'wishlist_count'         => $wishlistCount,
+            'favorites'              => $wishlistCount,
+            'favorite_courses'       => $wishlistCount,
         ];
     }
 
@@ -139,10 +151,12 @@ class UserDashboardApiController extends Controller
             return [
                 'has_active' => false,
                 'plan_name' => null,
-                'status' => 'inactive',
+                'status' => 'no_subscription',
+                'status_label' => 'لا يوجد اشتراك',
                 'starts_at' => null,
                 'ends_at' => null,
                 'days_remaining' => 0,
+                'plan' => null,
             ];
         }
 
@@ -150,9 +164,14 @@ class UserDashboardApiController extends Controller
             'has_active' => true,
             'plan_name' => $sub->plan->name ?? 'N/A',
             'status' => $sub->status,
+            'status_label' => $sub->status === Subscription::STATUS_ACTIVE ? 'نشط' : $sub->status,
             'starts_at' => $sub->starts_at?->toDateString(),
             'ends_at' => $sub->ends_at?->toDateString(),
             'days_remaining' => $sub->days_remaining,
+            'plan' => $sub->plan ? [
+                'id' => $sub->plan->id,
+                'name' => $sub->plan->name,
+            ] : null,
         ];
     }
 
@@ -161,6 +180,38 @@ class UserDashboardApiController extends Controller
      */
     private function getRecentCourses($user)
     {
+        $enrollmentService = app(UserEnrollmentService::class);
+        $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+        $enrolledCourseIds = $enrolled->pluck('course_id')->values();
+
+        if ($enrolledCourseIds->isEmpty()) {
+            return collect();
+        }
+
+        $coursesById = $enrolled->pluck('course', 'course_id');
+        $recent = UserCourseProgress::where('user_id', $user->id)
+            ->whereIn('course_id', $enrolledCourseIds)
+            ->whereNotNull('last_accessed_at')
+            ->latest('last_accessed_at')
+            ->limit(5)
+            ->get()
+            ->map(function ($progress) use ($coursesById) {
+                $course = $coursesById->get($progress->course_id);
+                if (!$course) return null;
+
+                return [
+                    'id' => $course->id,
+                    'title' => $course->title,
+                    'thumbnail' => $course->thumbnail,
+                    'image' => $course->thumbnail,
+                    'progress' => round((float) $progress->progress_percentage, 2),
+                    'progress_percentage' => round((float) $progress->progress_percentage, 2),
+                    'last_accessed' => $progress->last_accessed_at?->toDateTimeString(),
+                ];
+            })
+            ->filter()
+            ->values();
+
         $recentTrackings = UserCurriculumTracking::where('user_id', $user->id)
             ->with('chapter.course')
             ->latest('updated_at')
@@ -168,20 +219,44 @@ class UserDashboardApiController extends Controller
             ->unique(function ($item) {
                 return $item->chapter->course_id ?? null;
             })
-            ->take(5);
+            ->map(function ($track) use ($user, $enrolledCourseIds) {
+                $course = $track->chapter->course ?? null;
+                if (!$course || !$enrolledCourseIds->contains((int) $course->id)) return null;
 
-        return $recentTrackings->map(function ($track) use ($user) {
-            $course = $track->chapter->course ?? null;
-            if (!$course) return null;
+                $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
 
-            return [
-                'id' => $course->id,
-                'title' => $course->title,
-                'thumbnail' => $course->thumbnail,
-                'progress' => round($this->calculateCourseProgress($user->id, $course->id), 2),
-                'last_accessed' => $track->updated_at->toDateTimeString(),
-            ];
-        })->filter()->values();
+                return [
+                    'id' => $course->id,
+                    'title' => $course->title,
+                    'thumbnail' => $course->thumbnail,
+                    'image' => $course->thumbnail,
+                    'progress' => $progress,
+                    'progress_percentage' => $progress,
+                    'last_accessed' => $track->updated_at->toDateTimeString(),
+                ];
+            })
+            ->filter()
+            ->values();
+
+        return $recent
+            ->merge($recentTrackings)
+            ->merge($enrolled->sortByDesc('purchase_date')->map(function (array $item) use ($user) {
+                $course = $item['course'];
+                $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
+
+                return [
+                    'id' => $course->id,
+                    'title' => $course->title,
+                    'thumbnail' => $course->thumbnail,
+                    'image' => $course->thumbnail,
+                    'progress' => $progress,
+                    'progress_percentage' => $progress,
+                    'last_accessed' => $item['purchase_date']?->toDateTimeString(),
+                ];
+            }))
+            ->unique('id')
+            ->take(5)
+            ->values();
     }
 
     /**
@@ -236,15 +311,41 @@ class UserDashboardApiController extends Controller
      */
     private function calculateCourseProgress($userId, $courseId)
     {
+        $cachedProgress = UserCourseProgress::where('user_id', $userId)
+            ->where('course_id', $courseId)
+            ->first();
+
+        if ($cachedProgress && (float) $cachedProgress->progress_percentage > 0) {
+            return (float) $cachedProgress->progress_percentage;
+        }
+
+        if ($cachedProgress && $cachedProgress->status === 'completed') {
+            return 100.0;
+        }
+
         $totalItems = DB::table('course_chapter_lectures')
             ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
             ->where('course_chapters.course_id', $courseId)
+            ->where('course_chapters.is_active', 1)
             ->where('course_chapter_lectures.is_active', 1)
             ->count()
             + DB::table('course_chapter_quizzes')
             ->join('course_chapters', 'course_chapter_quizzes.course_chapter_id', '=', 'course_chapters.id')
             ->where('course_chapters.course_id', $courseId)
+            ->where('course_chapters.is_active', 1)
             ->where('course_chapter_quizzes.is_active', 1)
+            ->count()
+            + DB::table('course_chapter_assignments')
+            ->join('course_chapters', 'course_chapter_assignments.course_chapter_id', '=', 'course_chapters.id')
+            ->where('course_chapters.course_id', $courseId)
+            ->where('course_chapters.is_active', 1)
+            ->where('course_chapter_assignments.is_active', 1)
+            ->count()
+            + DB::table('course_chapter_resources')
+            ->join('course_chapters', 'course_chapter_resources.course_chapter_id', '=', 'course_chapters.id')
+            ->where('course_chapters.course_id', $courseId)
+            ->where('course_chapters.is_active', 1)
+            ->where('course_chapter_resources.is_active', 1)
             ->count();
 
         if ($totalItems === 0) return 0;

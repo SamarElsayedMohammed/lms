@@ -397,6 +397,14 @@ final class KashierCheckoutService implements PaymentGatewayContract
             'currency' => $res['currency'] ?? 'EGP',
             'order_id' => $res['merchantOrderId'] ?? $res['merchant_order_id'] ?? $res['orderId'] ?? $res['order_id'] ?? null,
             'transaction_id' => $res['transactionId'] ?? $res['transaction_id'] ?? $res['paymentId'] ?? $res['payment_id'] ?? null,
+            'cardData' => $res['cardData'] ?? $res['card_data'] ?? $res['card'] ?? $res['sourceOfFund'] ?? $res['source_of_fund'] ?? $res['paymentMethod'] ?? $res['payment_method'] ?? null,
+            'maskedCard' => $res['maskedCard'] ?? $res['masked_card'] ?? $res['maskedPan'] ?? $res['masked_pan'] ?? $res['cardNumber'] ?? $res['card_number'] ?? null,
+            'last4' => $res['last4'] ?? $res['lastFour'] ?? $res['last_four'] ?? $res['lastFourDigits'] ?? $res['last_four_digits'] ?? null,
+            'cardBrand' => $res['cardBrand'] ?? $res['card_brand'] ?? $res['brand'] ?? $res['scheme'] ?? null,
+            'expiryMonth' => $res['expiryMonth'] ?? $res['expiry_month'] ?? $res['expMonth'] ?? $res['exp_month'] ?? null,
+            'expiryYear' => $res['expiryYear'] ?? $res['expiry_year'] ?? $res['expYear'] ?? $res['exp_year'] ?? null,
+            'cardToken' => $res['cardToken'] ?? $res['card_token'] ?? $res['token'] ?? $res['paymentToken'] ?? $res['payment_token'] ?? null,
+            'raw_response' => $data,
         ];
     }
 
