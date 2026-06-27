@@ -199,7 +199,7 @@ class OrderAdminApiController extends AdminCrudApiController
                     DB::commit();
 
                     try {
-                        $user->notify(new \App\Notifications\ManualSubscriptionStatusNotification($subscription));
+                        $user->notify(new \App\Notifications\SubscriptionActivatedNotification($subscription->loadMissing('plan')));
                     } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                         throw $e;
                     } catch (\Throwable $e) {

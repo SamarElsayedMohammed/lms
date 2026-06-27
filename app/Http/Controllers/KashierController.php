@@ -55,16 +55,7 @@ final class KashierController extends Controller
             return $this->respond($request, 'OK', 200, true);
         }
 
-        $status = $this->normalizeKashierStatus(
-            (string) ($data['paymentStatus']
-                ?? $data['payment_status']
-                ?? $data['transactionStatus']
-                ?? $data['transaction_status']
-                ?? $data['status']
-                ?? data_get($data, 'queryString.paymentStatus')
-                ?? data_get($data, 'queryString.status')
-                ?? 'unknown')
-        );
+        $status = $this->resolveKashierStatus($data);
         $isSuccess = $this->isSuccessfulStatus($status);
         $transactionId = $this->extractTransactionId($data);
 
@@ -83,14 +74,12 @@ final class KashierController extends Controller
             }
         }
 
-        // Fallback to signature verification if API check didn't happen or failed
+        // Fallback to signature verification if API check didn't happen or failed.
         if (!$isVerified) {
-            if ($request->isMethod('get')) {
-                // Signature for GET is complex and unreliable due to param order, 
-                // so we mainly trust the API check above.
-                Log::info('Kashier: GET request without successful API verification');
-            } else {
-                $isVerified = $this->kashierService->verifyPayment($payload);
+            $isVerified = $this->kashierService->verifyPayment($payload);
+
+            if (!$isVerified && $request->isMethod('get')) {
+                Log::info('Kashier: GET request without successful API/signature verification');
             }
         }
 
@@ -204,7 +193,7 @@ final class KashierController extends Controller
 
             // Send notification to user
             try {
-                $user->notify(new \App\Notifications\SubscriptionExpiryNotification($subscription, (int)$plan->getDurationDays()));
+                $user->notify(new \App\Notifications\SubscriptionActivatedNotification($subscription->loadMissing('plan')));
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
             } catch (\Throwable $e) {
@@ -412,8 +401,8 @@ final class KashierController extends Controller
 
     private function respond(Request $request, string $message, int $statusCode, bool $isSuccess, string $redirectPath = null)
     {
-        // If it's a GET request, or a non-JSON POST request (like an HTML form redirect from Kashier), redirect the user
-        if ($request->isMethod('get') || !$request->isJson()) {
+        // Browser redirects are GET requests. Webhooks, including form-encoded POSTs, must receive plain responses.
+        if ($request->isMethod('get')) {
             $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://skillso.net')), '/');
             
             if ($redirectPath === null) {
@@ -463,6 +452,73 @@ final class KashierController extends Controller
             ?? data_get($data, 'queryString.paymentId')
             ?? ''
         );
+    }
+
+
+    private function resolveKashierStatus(array $data): string
+    {
+        $rawStatus = $data['paymentStatus']
+            ?? $data['payment_status']
+            ?? $data['transactionStatus']
+            ?? $data['transaction_status']
+            ?? data_get($data, 'transaction.status')
+            ?? data_get($data, 'payment.status')
+            ?? data_get($data, 'response.status')
+            ?? data_get($data, 'result.status')
+            ?? data_get($data, 'queryString.paymentStatus')
+            ?? data_get($data, 'queryString.payment_status')
+            ?? data_get($data, 'queryString.transactionStatus')
+            ?? data_get($data, 'queryString.status')
+            ?? $data['status']
+            ?? null;
+
+        $status = $this->normalizeKashierStatus((string) ($rawStatus ?? 'unknown'));
+        if ($this->isSuccessfulStatus($status) || $this->isFailedStatus($status)) {
+            return $status;
+        }
+
+        $successFlag = $data['success']
+            ?? $data['isSuccess']
+            ?? $data['is_success']
+            ?? data_get($data, 'queryString.success')
+            ?? data_get($data, 'queryString.isSuccess')
+            ?? null;
+
+        if ($this->isTruthy($successFlag)) {
+            return 'success';
+        }
+
+        $responseCode = (string) (
+            $data['responseCode']
+            ?? $data['response_code']
+            ?? $data['code']
+            ?? data_get($data, 'response.code')
+            ?? data_get($data, 'queryString.responseCode')
+            ?? ''
+        );
+
+        if (in_array(trim($responseCode), ['0', '00', '000', '200'], true)) {
+            return 'success';
+        }
+
+        return $status;
+    }
+
+    private function isTruthy(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value === 1;
+        }
+
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'success', 'successful', 'succeeded'], true);
+        }
+
+        return false;
     }
 
     private function normalizeKashierStatus(string $status): string
