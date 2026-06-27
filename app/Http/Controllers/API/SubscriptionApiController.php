@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Notifications\AdminNewSubscriptionRequestNotification;
 use App\Notifications\AdminSubscriptionRenewedNotification;
 use App\Notifications\ManualRenewalRequestedNotification;
+use App\Notifications\SubscriptionActivatedNotification;
 use App\Notifications\SubscriptionRenewedNotification;
 use App\Services\ApiResponseService;
 use App\Services\CountryDetectionService;
@@ -363,6 +364,16 @@ final class SubscriptionApiController extends Controller
                     0,
                     $discountMeta
                 );
+
+                try {
+                    $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send subscription activation notification to user', [
+                        'user_id' => $user->id,
+                        'subscription_id' => $subscription->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
 
                 return ApiResponseService::successResponse('تم الاشتراك بنجاح!', [
                     'subscription' => [

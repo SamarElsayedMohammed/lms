@@ -10,6 +10,7 @@ use App\Models\SubscriptionPlan;
 use App\Services\ApiResponseService;
 use App\Services\AffiliateService;
 use App\Notifications\ManualSubscriptionStatusNotification;
+use App\Notifications\SubscriptionActivatedNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -240,7 +241,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             DB::commit();
 
             // 7. Notify User
-            $user->notify(new ManualSubscriptionStatusNotification($subscription));
+            $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
 
             return ApiResponseService::successResponse('تمت الموافقة على طلب الاشتراك بنجاح وتفعيله.', $subscription);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

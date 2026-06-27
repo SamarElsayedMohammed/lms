@@ -296,13 +296,21 @@ final class KashierCheckoutService implements PaymentGatewayContract
 
             if ($response->successful()) {
                 $data = $response->json();
-                $res = $data['response'] ?? $data;
-                
+                $res = $data['response'] ?? $data['data'] ?? $data['result'] ?? $data;
+
                 return [
-                    'status' => strtolower((string) ($res['status'] ?? 'unknown')),
-                    'amount' => (float) ($res['amount'] ?? 0),
+                    'status' => strtolower((string) (
+                        $res['paymentStatus']
+                        ?? $res['payment_status']
+                        ?? $res['transactionStatus']
+                        ?? $res['transaction_status']
+                        ?? $res['status']
+                        ?? $data['status']
+                        ?? 'unknown'
+                    )),
+                    'amount' => (float) ($res['amount'] ?? $res['transactionAmount'] ?? 0),
                     'currency' => $res['currency'] ?? 'EGP',
-                    'order_id' => $res['merchantOrderId'] ?? $res['orderId'] ?? null,
+                    'order_id' => $res['merchantOrderId'] ?? $res['merchant_order_id'] ?? $res['orderId'] ?? $res['order_id'] ?? null,
                 ];
             }
         } catch (\Throwable $e) {
