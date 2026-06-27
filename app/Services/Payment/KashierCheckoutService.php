@@ -306,10 +306,12 @@ final class KashierCheckoutService implements PaymentGatewayContract
             return null;
         }
 
+        $baseUrl = $config['mode'] === 'live' ? 'https://api.kashier.io' : 'https://test-api.kashier.io';
+
         try {
             $response = Http::withHeaders([
                 'Authorization' => $config['api_key'],
-            ])->timeout(10)->get('https://api.kashier.io/v1/transaction/' . $transactionId);
+            ])->timeout(10)->get($baseUrl . '/v1/transaction/' . $transactionId);
 
             if ($response->successful()) {
                 return $this->parsePaymentDetails($response->json());
@@ -336,11 +338,12 @@ final class KashierCheckoutService implements PaymentGatewayContract
             return null;
         }
 
+        $baseUrl = $config['mode'] === 'live' ? 'https://api.kashier.io' : 'https://test-api.kashier.io';
         $headers = ['Authorization' => $config['api_key']];
         $urls = [
-            'https://api.kashier.io/v1/transaction?merchantOrderId=' . urlencode($orderId),
-            'https://api.kashier.io/v1/transactions?merchantOrderId=' . urlencode($orderId),
-            'https://api.kashier.io/v1/transaction/order/' . urlencode($orderId),
+            $baseUrl . '/v1/transaction?merchantOrderId=' . urlencode($orderId),
+            $baseUrl . '/v1/transactions?merchantOrderId=' . urlencode($orderId),
+            $baseUrl . '/v1/transaction/order/' . urlencode($orderId),
         ];
 
         foreach ($urls as $url) {
