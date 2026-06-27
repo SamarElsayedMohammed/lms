@@ -663,17 +663,37 @@ final class KashierController extends Controller
     private function saveCreditCardIfPresent(User $user, array $data): void
     {
         try {
+            $this->kashierLog('Kashier starting saveCreditCardIfPresent', [
+                'user_id' => $user->id,
+                'data_keys' => array_keys($data),
+                'cardData' => $data['cardData'] ?? $data['card_data'] ?? $data['card'] ?? null,
+                'sourceOfFund' => $data['sourceOfFund'] ?? $data['source_of_fund'] ?? null,
+                'paymentMethod' => $data['paymentMethod'] ?? $data['payment_method'] ?? null,
+            ]);
+
+            Log::info('Kashier starting saveCreditCardIfPresent', [
+                'user_id' => $user->id,
+                'cardData' => $data['cardData'] ?? null,
+                'card_data' => $data['card_data'] ?? null,
+                'card' => $data['card'] ?? null,
+                'sourceOfFund' => $data['sourceOfFund'] ?? null,
+                'paymentMethod' => $data['paymentMethod'] ?? null,
+            ]);
+
             $cardData = $data['cardData']
                 ?? $data['card_data']
                 ?? $data['card']
                 ?? $data['sourceOfFund']
                 ?? $data['source_of_fund']
+                ?? $data['sourceOfFunds']
+                ?? $data['source_of_funds']
                 ?? $data['paymentMethod']
                 ?? $data['payment_method']
                 ?? null;
 
             $flat = is_array($cardData) ? array_merge($data, $cardData) : $data;
 
+            // Also merge any parsed data that might be present directly on $data
             $token = $this->firstFilled($flat, [
                 'cardToken', 'card_token', 'token', 'gateway_token', 'paymentToken',
                 'payment_token', 'cardId', 'card_id', 'savedCardToken', 'saved_card_token',
@@ -681,27 +701,27 @@ final class KashierController extends Controller
 
             $maskedCard = $this->firstFilled($flat, [
                 'maskedCard', 'masked_card', 'maskedPan', 'masked_pan', 'cardNumber',
-                'card_number', 'pan', 'accountNumber', 'account_number', 'card',
+                'card_number', 'pan', 'accountNumber', 'account_number', 'card', 'number',
             ], recursive: true);
 
             $cardHolderName = $this->firstFilled($flat, [
                 'cardHolderName', 'card_holder_name', 'cardHolder', 'card_holder',
-                'holderName', 'holder_name', 'name',
+                'holderName', 'holder_name', 'name', 'customerName',
             ], recursive: true);
 
             $expMonth = $this->firstFilled($flat, [
                 'expiryMonth', 'expiry_month', 'expMonth', 'exp_month',
-                'expirationMonth', 'expiration_month',
+                'expirationMonth', 'expiration_month', 'month',
             ], recursive: true);
 
             $expYear = $this->firstFilled($flat, [
                 'expiryYear', 'expiry_year', 'expYear', 'exp_year',
-                'expirationYear', 'expiration_year',
+                'expirationYear', 'expiration_year', 'year',
             ], recursive: true);
 
             $brand = $this->firstFilled($flat, [
                 'brand', 'cardBrand', 'card_brand', 'scheme', 'cardScheme', 'card_scheme',
-                'paymentScheme', 'payment_scheme',
+                'paymentScheme', 'payment_scheme', 'type',
             ], recursive: true) ?: 'Unknown';
 
             $lastFour = $this->firstFilled($flat, [
@@ -710,6 +730,15 @@ final class KashierController extends Controller
 
             if (!$lastFour && preg_match('/(\d{4})(?!.*\d)/', (string) $maskedCard, $matches)) {
                 $lastFour = $matches[1];
+            }
+
+            // Fallback: If we couldn't find last four or masked card, try to extract from ANY string that looks like a masked pan in the data
+            if (!$lastFour) {
+                array_walk_recursive($flat, function($value) use (&$lastFour) {
+                    if (!$lastFour && is_string($value) && preg_match('/^[xX*]{4,}\s*-?\s*(\d{4})$/', $value, $m)) {
+                        $lastFour = $m[1];
+                    }
+                });
             }
 
             $lastFour = preg_replace('/\D/', '', (string) $lastFour);
@@ -721,6 +750,14 @@ final class KashierController extends Controller
                 $this->kashierLog('Kashier card was not saved: missing last four digits', [
                     'user_id' => $user->id,
                     'available_keys' => array_keys($flat),
+                    'extracted_last_four' => $lastFour,
+                    'extracted_token' => $token,
+                    'flat_data' => $flat,
+                ]);
+                
+                Log::warning('Kashier card was not saved: missing last four digits', [
+                    'user_id' => $user->id,
+                    'extracted_last_four' => $lastFour,
                 ]);
                 return;
             }
@@ -735,6 +772,24 @@ final class KashierController extends Controller
             $expYear = strlen($expYear) === 4 ? $expYear : null;
 
             $brand = ucfirst(strtolower((string) $brand));
+            
+            $this->kashierLog('Kashier extracted card info', [
+                'user_id' => $user->id,
+                'lastFour' => $lastFour,
+                'expMonth' => $expMonth,
+                'expYear' => $expYear,
+                'brand' => $brand,
+                'token' => $token,
+            ]);
+            
+            Log::info('Kashier extracted card info', [
+                'user_id' => $user->id,
+                'lastFour' => $lastFour,
+                'expMonth' => $expMonth,
+                'expYear' => $expYear,
+                'brand' => $brand,
+            ]);
+
             $fingerprint = hash('sha256', implode('|', [
                 'kashier',
                 $user->id,
