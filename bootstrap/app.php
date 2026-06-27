@@ -42,6 +42,10 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         // Add demo mode middleware to both API and web groups
+        $middleware->api(prepend: [
+            \App\Http\Middleware\AllowQueryToken::class,
+        ]);
+        
         $middleware->api(append: [
             \App\Http\Middleware\DemoModeMiddleware::class,
         ]);
