@@ -280,7 +280,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
         return 'unknown';
     }
     /**
-     * Get full payment details from Kashier API.
+     * Get full payment details from Kashier API using a transaction id.
      */
     public function getPaymentDetails(string $transactionId): ?array
     {
@@ -295,29 +295,98 @@ final class KashierCheckoutService implements PaymentGatewayContract
             ])->timeout(10)->get('https://api.kashier.io/v1/transaction/' . $transactionId);
 
             if ($response->successful()) {
-                $data = $response->json();
-                $res = $data['response'] ?? $data['data'] ?? $data['result'] ?? $data;
-
-                return [
-                    'status' => strtolower((string) (
-                        $res['paymentStatus']
-                        ?? $res['payment_status']
-                        ?? $res['transactionStatus']
-                        ?? $res['transaction_status']
-                        ?? $res['status']
-                        ?? $data['status']
-                        ?? 'unknown'
-                    )),
-                    'amount' => (float) ($res['amount'] ?? $res['transactionAmount'] ?? 0),
-                    'currency' => $res['currency'] ?? 'EGP',
-                    'order_id' => $res['merchantOrderId'] ?? $res['merchant_order_id'] ?? $res['orderId'] ?? $res['order_id'] ?? null,
-                ];
+                return $this->parsePaymentDetails($response->json());
             }
+
+            Log::warning('Kashier getPaymentDetails failed', [
+                'transactionId' => $transactionId,
+                'response' => $response->body(),
+            ]);
         } catch (\Throwable $e) {
             Log::warning('Kashier getPaymentDetails exception: ' . $e->getMessage());
         }
 
         return null;
+    }
+
+    /**
+     * Best-effort lookup when Kashier redirect only returns merchant order id.
+     */
+    public function getPaymentDetailsByOrderId(string $orderId): ?array
+    {
+        $config = $this->getConfig();
+        if (empty($config['api_key'])) {
+            return null;
+        }
+
+        $headers = ['Authorization' => $config['api_key']];
+        $urls = [
+            'https://api.kashier.io/v1/transaction?merchantOrderId=' . urlencode($orderId),
+            'https://api.kashier.io/v1/transactions?merchantOrderId=' . urlencode($orderId),
+            'https://api.kashier.io/v1/transaction/order/' . urlencode($orderId),
+        ];
+
+        foreach ($urls as $url) {
+            try {
+                $response = Http::withHeaders($headers)->timeout(10)->get($url);
+
+                if ($response->successful()) {
+                    $details = $this->parsePaymentDetails($response->json());
+                    if ($details !== null) {
+                        Log::info('Kashier API order lookup succeeded', [
+                            'order_id' => $orderId,
+                            'url' => $url,
+                            'status' => $details['status'] ?? null,
+                        ]);
+
+                        return $details;
+                    }
+                }
+
+                Log::warning('Kashier API order lookup failed', [
+                    'order_id' => $orderId,
+                    'url' => $url,
+                    'response' => $response->body(),
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('Kashier API order lookup exception', [
+                    'order_id' => $orderId,
+                    'url' => $url,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    private function parsePaymentDetails(array $data): ?array
+    {
+        $res = $data['response'] ?? $data['data'] ?? $data['result'] ?? $data;
+
+        if (isset($res[0]) && is_array($res[0])) {
+            $res = $res[0];
+        }
+
+        if (!is_array($res)) {
+            return null;
+        }
+
+        return [
+            'status' => strtolower((string) (
+                $res['paymentStatus']
+                ?? $res['payment_status']
+                ?? $res['transactionStatus']
+                ?? $res['transaction_status']
+                ?? $res['status']
+                ?? $data['status']
+                ?? 'unknown'
+            )),
+            'amount' => (float) ($res['amount'] ?? $res['transactionAmount'] ?? $res['transaction_amount'] ?? 0),
+            'currency' => $res['currency'] ?? 'EGP',
+            'order_id' => $res['merchantOrderId'] ?? $res['merchant_order_id'] ?? $res['orderId'] ?? $res['order_id'] ?? null,
+            'transaction_id' => $res['transactionId'] ?? $res['transaction_id'] ?? $res['paymentId'] ?? $res['payment_id'] ?? null,
+        ];
     }
 
     private function getConfig(): array
