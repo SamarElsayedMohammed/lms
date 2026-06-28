@@ -58,7 +58,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
         );
 
         $baseUrl = $config['mode'] === 'live' ? self::BASE_URL_LIVE : self::BASE_URL_TEST;
-        $callbackUrl = urlencode(url('/api/webhooks/kashier?order_id=' . $orderId));
+        $callbackUrl = urlencode($this->buildCallbackUrl($orderId));
 
         $url = $baseUrl
             . '?merchantId=' . $config['merchant_id']
@@ -123,7 +123,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
         );
 
         $baseUrl = $config['mode'] === 'live' ? self::BASE_URL_LIVE : self::BASE_URL_TEST;
-        $callbackUrl = urlencode(url('/api/webhooks/kashier?order_id=' . $orderId));
+        $callbackUrl = urlencode($this->buildCallbackUrl($orderId));
 
         $url = $baseUrl
             . '?merchantId=' . $config['merchant_id']
@@ -174,7 +174,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
         );
 
         $baseUrl = $config['mode'] === 'live' ? self::BASE_URL_LIVE : self::BASE_URL_TEST;
-        $callbackUrl = urlencode(url('/api/webhooks/kashier?order_id=' . $orderId));
+        $callbackUrl = urlencode($this->buildCallbackUrl($orderId));
 
         $url = $baseUrl
             . '?merchantId=' . $config['merchant_id']
@@ -378,6 +378,14 @@ final class KashierCheckoutService implements PaymentGatewayContract
         }
 
         return null;
+    }
+
+
+    private function buildCallbackUrl(string $orderId): string
+    {
+        $appUrl = rtrim((string) config('app.url'), '/');
+
+        return $appUrl . '/api/webhooks/kashier?order_id=' . urlencode($orderId);
     }
 
     private function parsePaymentDetails(array $data): ?array
