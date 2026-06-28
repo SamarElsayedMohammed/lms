@@ -121,8 +121,17 @@ final class SubscriptionService
                 ]);
             }
 
-            // Server-side tracking
-            $this->trackSubscriptionPurchase($user, $subscription, $plan);
+            // Tracking must never roll back a paid subscription.
+            try {
+                $this->trackSubscriptionPurchase($user, $subscription, $plan);
+            } catch (\Throwable $e) {
+                Log::warning('SubscriptionService: purchase tracking failed after subscription creation', [
+                    'message' => $e->getMessage(),
+                    'user_id' => $user->id,
+                    'subscription_id' => $subscription->id,
+                    'plan_id' => $plan->id,
+                ]);
+            }
 
             return $subscription;
         });

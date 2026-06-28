@@ -61,7 +61,7 @@ final class KashierController extends Controller
         // If it's a GET request and we already successfully processed this via webhook, just redirect to success.
         if ($request->isMethod('get') && !empty($orderId) && Cache::get('kashier_order_processed_' . $orderId)) {
             Log::info('Kashier GET redirect: order already processed via webhook', ['orderId' => $orderId]);
-            return $this->respond($request, 'OK', 200, true);
+            return $this->respond($request, 'OK', 200, true, null, $orderId);
         }
 
         $status = $this->resolveKashierStatus($data);
@@ -196,7 +196,7 @@ final class KashierController extends Controller
                 Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
                 Cache::forget('kashier_pending_' . $orderId);
             }
-            return $this->respond($request, 'OK', 200, true);
+            return $this->respond($request, 'OK', 200, true, null, $orderId);
         }
 
         $paymentMethod = $walletAmount > 0 ? 'wallet_and_kashier' : 'kashier';
@@ -255,7 +255,7 @@ final class KashierController extends Controller
                 Cache::forget('kashier_pending_' . $orderId);
             }
 
-            return $this->respond($request, 'OK', 200, true);
+            return $this->respond($request, 'OK', 200, true, null, $orderId);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -354,7 +354,7 @@ final class KashierController extends Controller
             
             Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
             
-            return $this->respond($request, 'OK', 200, true);
+            return $this->respond($request, 'OK', 200, true, null, $orderId);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -754,7 +754,6 @@ final class KashierController extends Controller
                     'available_keys' => array_keys($flat),
                     'extracted_last_four' => $lastFour,
                     'extracted_token' => $token,
-                    'flat_data' => $flat,
                 ]);
                 
                 Log::warning('Kashier card was not saved: missing last four digits', [
@@ -869,7 +868,7 @@ final class KashierController extends Controller
     {
         foreach ($keys as $key) {
             $value = data_get($data, $key);
-            if ($value !== null && $value !== '') {
+            if ($value !== null && $value !== '' && !is_array($value)) {
                 return $value;
             }
         }
