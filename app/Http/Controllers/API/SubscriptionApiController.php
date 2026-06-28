@@ -259,8 +259,9 @@ final class SubscriptionApiController extends Controller
                 'wallet' => $isAffiliateEnabled,
                 'manual_methods' => $manualMethods,
             ]);
-        } catch (\Exception $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve payment methods: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Payment methods error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ApiResponseService::errorResponse('Failed to retrieve payment methods: ' . $e->getMessage() . ' at ' . basename($e->getFile()) . ':' . $e->getLine());
         }
     }
 
