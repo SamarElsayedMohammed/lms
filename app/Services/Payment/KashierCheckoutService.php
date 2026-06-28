@@ -68,9 +68,10 @@ final class KashierCheckoutService implements PaymentGatewayContract
             . '&currency=' . $currency
             . '&hash=' . $hash
             . '&merchantRedirect=' . $callbackUrl
+            . '&serverWebhook=' . $callbackUrl
             . '&allowedMethods=card,wallet,bank'
             . '&display=en'
-            . '&saveCard=true'
+            . '&saveCard=false'
             . '&customerReference=usr_' . $user->id;
 
         $this->kashierLog('Kashier checkout session created', [
