@@ -281,32 +281,22 @@ class HelperService
     public static function updateFirebasePassword($firebaseId, #[\SensitiveParameter] $newPassword)
     {
         try {
-            $base64 = env("FIREBASE_CREDENTIALS_BASE64");
+            $base64 = env('FIREBASE_CREDENTIALS_BASE64');
             $file = app(FirebaseConfigService::class)->getCredentialsPath();
-            
+
             $factory = new Factory();
             if (!empty($base64)) {
                 $factory = $factory->withServiceAccount(json_decode(base64_decode($base64), true));
-            } elseif (!empty($file) $file = app(FirebaseConfigService::class)->getCredentialsPath();$file = app(FirebaseConfigService::class)->getCredentialsPath(); file_exists($file)) {
+            } elseif (!empty($file) && file_exists($file)) {
                 $factory = $factory->withServiceAccount($file);
             } else {
-                ApiResponseService::errorResponse("Firebase Configuration Error");
+                return false; // No config
             }
-            
+
             $firebase = $factory->createAuth();
-            $verifiedToken = $firebase->verifyIdToken($token);
+            $firebase->updateUser($firebaseId, ['password' => $newPassword]);
 
-            return $verifiedToken;
-            if (!empty($file) && file_exists($file)) {
-                $firebase = (new Factory())
-                    ->withServiceAccount($file)
-                    ->createAuth();
-                $firebase->updateUser($firebaseId, ['password' => $newPassword]);
-
-                return true;
-            }
-
-            return false;
+            return true;
         } catch (\Exception $e) {
             Log::error('Firebase password update error: ' . $e->getMessage());
 
