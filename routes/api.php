@@ -66,6 +66,7 @@ Route::post('reset-password', [ResetPasswordController::class, 'resetPassword'])
     ->middleware('throttle:10,1');
 Route::get('firebase-config', [FirebaseConfigApiController::class, 'show']);
 Route::post('admin-login', [ApiController::class, 'adminLogin']);
+Route::post('logout', [ApiController::class, 'userLogout'])->middleware('auth:sanctum');
 
 /********************************************************************************************* */
 

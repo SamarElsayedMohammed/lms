@@ -21,11 +21,13 @@ final class FirebaseConfigApiController extends Controller
     public function show(): JsonResponse
     {
         $configured = $this->firebaseConfigService->isClientConfigComplete();
+        $config = $this->firebaseConfigService->getClientConfig();
 
         return $this->ok(
             data: [
                 'configured' => $configured,
-                'config' => $configured ? $this->firebaseConfigService->getClientConfig() : null,
+                'config' => empty($config) ? null : $config,
+                'missing_keys' => $this->firebaseConfigService->getMissingClientKeys(),
             ],
             message: 'Firebase configuration retrieved',
         );
