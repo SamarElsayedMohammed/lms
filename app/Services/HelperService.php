@@ -236,17 +236,22 @@ class HelperService
     public static function verifyToken(#[\SensitiveParameter] $token)
     {
         try {
+            $base64 = env('FIREBASE_CREDENTIALS_BASE64');
             $file = app(FirebaseConfigService::class)->getCredentialsPath();
-            if (!empty($file) && file_exists($file)) {
-                $firebase = (new Factory())
-                    ->withServiceAccount($file)
-                    ->createAuth();
-                $verifiedToken = $firebase->verifyIdToken($token);
 
-                return $verifiedToken;
+            $factory = new Factory();
+            if (!empty($base64)) {
+                $factory = $factory->withServiceAccount(json_decode(base64_decode($base64), true));
+            } elseif (!empty($file) && file_exists($file)) {
+                $factory = $factory->withServiceAccount($file);
+            } else {
+                ApiResponseService::errorResponse('Firebase Configuration Error');
             }
 
-            ApiResponseService::errorResponse('Firebase Configuration Error');
+            $firebase = $factory->createAuth();
+            $verifiedToken = $firebase->verifyIdToken($token);
+
+            return $verifiedToken;
         } catch (FailedToVerifyToken $e) {
             throw $e;
         }
@@ -254,7 +259,22 @@ class HelperService
 
     public static function removeUserFromFirebase($firebaseId)
     {
-        $file = app(FirebaseConfigService::class)->getCredentialsPath();
+        $base64 = env("FIREBASE_CREDENTIALS_BASE64");
+            $file = app(FirebaseConfigService::class)->getCredentialsPath();
+            
+            $factory = new Factory();
+            if (!empty($base64)) {
+                $factory = $factory->withServiceAccount(json_decode(base64_decode($base64), true));
+            } elseif (!empty($file) $file = app(FirebaseConfigService::class)->getCredentialsPath();$file = app(FirebaseConfigService::class)->getCredentialsPath(); file_exists($file)) {
+                $factory = $factory->withServiceAccount($file);
+            } else {
+                ApiResponseService::errorResponse("Firebase Configuration Error");
+            }
+            
+            $firebase = $factory->createAuth();
+            $verifiedToken = $firebase->verifyIdToken($token);
+
+            return $verifiedToken;
         if (!empty($file) && file_exists($file)) {
             $firebase = (new Factory())
                 ->withServiceAccount($file)
@@ -269,7 +289,22 @@ class HelperService
     public static function updateFirebasePassword($firebaseId, #[\SensitiveParameter] $newPassword)
     {
         try {
+            $base64 = env("FIREBASE_CREDENTIALS_BASE64");
             $file = app(FirebaseConfigService::class)->getCredentialsPath();
+            
+            $factory = new Factory();
+            if (!empty($base64)) {
+                $factory = $factory->withServiceAccount(json_decode(base64_decode($base64), true));
+            } elseif (!empty($file) $file = app(FirebaseConfigService::class)->getCredentialsPath();$file = app(FirebaseConfigService::class)->getCredentialsPath(); file_exists($file)) {
+                $factory = $factory->withServiceAccount($file);
+            } else {
+                ApiResponseService::errorResponse("Firebase Configuration Error");
+            }
+            
+            $firebase = $factory->createAuth();
+            $verifiedToken = $firebase->verifyIdToken($token);
+
+            return $verifiedToken;
             if (!empty($file) && file_exists($file)) {
                 $firebase = (new Factory())
                     ->withServiceAccount($file)
