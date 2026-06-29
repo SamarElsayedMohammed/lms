@@ -259,28 +259,20 @@ class HelperService
 
     public static function removeUserFromFirebase($firebaseId)
     {
-        $base64 = env("FIREBASE_CREDENTIALS_BASE64");
-            $file = app(FirebaseConfigService::class)->getCredentialsPath();
-            
-            $factory = new Factory();
-            if (!empty($base64)) {
-                $factory = $factory->withServiceAccount(json_decode(base64_decode($base64), true));
-            } elseif (!empty($file) $file = app(FirebaseConfigService::class)->getCredentialsPath();$file = app(FirebaseConfigService::class)->getCredentialsPath(); file_exists($file)) {
-                $factory = $factory->withServiceAccount($file);
-            } else {
-                ApiResponseService::errorResponse("Firebase Configuration Error");
-            }
-            
-            $firebase = $factory->createAuth();
-            $verifiedToken = $firebase->verifyIdToken($token);
+        $base64 = env('FIREBASE_CREDENTIALS_BASE64');
+        $file = app(FirebaseConfigService::class)->getCredentialsPath();
 
-            return $verifiedToken;
-        if (!empty($file) && file_exists($file)) {
-            $firebase = (new Factory())
-                ->withServiceAccount($file)
-                ->createAuth();
-            $firebase->deleteUser($firebaseId);
+        $factory = new Factory();
+        if (!empty($base64)) {
+            $factory = $factory->withServiceAccount(json_decode(base64_decode($base64), true));
+        } elseif (!empty($file) && file_exists($file)) {
+            $factory = $factory->withServiceAccount($file);
+        } else {
+            return; // No config, nothing to remove
         }
+
+        $firebase = $factory->createAuth();
+        $firebase->deleteUser($firebaseId);
     }
 
     /**
