@@ -23,7 +23,8 @@ class ApiService
                 ApiResponseService::errorResponse('Invalid Firebase token');
             }
             return $verifiedToken;
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Firebase token error: ' . $e->getMessage());
             ApiResponseService::errorResponse('Invalid Firebase token');
         }
     }
