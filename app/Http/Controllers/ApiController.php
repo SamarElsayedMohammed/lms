@@ -4001,6 +4001,23 @@ class ApiController extends Controller
         }
     }
 
+    public function userLogout(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            if ($user) {
+                // Revoke all tokens for this user
+                $user->tokens()->delete();
+            }
+
+            return ApiResponseService::successResponse('Logged out from all sessions successfully');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $th) {
+            return ApiResponseService::errorResponse($th->getMessage());
+        }
+    }
+
     public function getNotificationSettings(Request $request)
     {
         try {
