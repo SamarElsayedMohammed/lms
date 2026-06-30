@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Mail\ResetPasswordOtpMail;
 use App\Models\SocialLogin;
 use App\Models\User;
 use App\Services\Mail\BrevoTransactionalMailService;
@@ -117,22 +118,17 @@ final class EmailPasswordResetService
      */
     private function sendViaSmtp(User $user, string $otp, array $from, string $subject, string $mailDriver): void
     {
-        Mail::queue(
-            'emails.reset-password',
-            [
-                'user' => $user,
-                'otp' => $otp,
-                'appName' => $from['name'],
-                'expiryMinutes' => self::OTP_EXPIRY_MINUTES,
-            ],
-            static function ($mail) use ($user, $subject, $from): void {
-                $mail->from($from['address'], $from['name'])
-                    ->to($user->email)
-                    ->subject($subject);
-            },
-        );
+        Mail::to($user->email, (string) ($user->name ?? ""))
+            ->queue(new ResetPasswordOtpMail(
+                $user,
+                $otp,
+                $from['name'],
+                self::OTP_EXPIRY_MINUTES,
+                $from,
+                $subject,
+            ));
 
-        Log::info('Password reset OTP email sent via SMTP', [
+        Log::info('Password reset OTP email queued via SMTP', [
             'user_id' => $user->id,
             'to' => $this->maskEmail((string) $user->email),
             'from' => $from['address'],

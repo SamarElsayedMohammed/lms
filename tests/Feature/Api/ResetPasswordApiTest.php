@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Api;
 
+use App\Mail\ResetPasswordOtpMail;
 use App\Models\User;
 use App\Services\EmailPasswordResetService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,7 +34,7 @@ final class ResetPasswordApiTest extends TestCase
         ]);
 
         $response->assertOk()->assertJsonPath('error', false);
-        Mail::assertNothingSent();
+        Mail::assertNothingQueued();
     }
 
     public function test_forgot_password_sends_otp_email_for_existing_user(): void
@@ -52,7 +53,7 @@ final class ResetPasswordApiTest extends TestCase
         ]);
 
         $response->assertOk()->assertJsonPath('error', false);
-        Mail::assertSentCount(1);
+        Mail::assertQueued(ResetPasswordOtpMail::class);
         $this->assertDatabaseHas('password_reset_tokens', ['email' => 'user@example.com']);
     }
 
