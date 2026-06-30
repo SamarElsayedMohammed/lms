@@ -26,10 +26,14 @@ class ManualCustomNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-                    ->subject($this->data['title'])
-                    ->line($this->data['message'])
-                    ->action('View Details', url($this->data['action_url'] ?? '/'))
-                    ->line('Thank you for being with us!');
+            ->subject($this->data['title'])
+            ->view('emails.general-notification', [
+                'notificationTitle' => $this->data['title'],
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => $this->data['message'],
+                'actionUrl' => isset($this->data['action_url']) ? url($this->data['action_url']) : null,
+                'actionText' => 'عرض التفاصيل',
+            ]);
     }
 
     public function toArray(object $notifiable): array

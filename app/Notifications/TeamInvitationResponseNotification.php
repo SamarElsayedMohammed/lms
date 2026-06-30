@@ -19,6 +19,7 @@ class TeamInvitationResponseNotification extends Notification implements ShouldQ
 
     protected $user;
     protected $action;
+    protected array $defaultChannels = ['database', 'mail'];
 
     /**
      * Create a new notification instance.
@@ -32,15 +33,7 @@ class TeamInvitationResponseNotification extends Notification implements ShouldQ
         $this->action = $action;
     }
 
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
-    public function via(object $notifiable): array
-    {
-        return ['database']; // Only database notifications for now
-    }
+
 
     /**
      * Get the mail representation of the notification.
@@ -48,14 +41,20 @@ class TeamInvitationResponseNotification extends Notification implements ShouldQ
     public function toMail(object $notifiable): MailMessage
     {
         $message = $this->action === 'accepted'
-            ? $this->user->name . ' has accepted your team invitation.'
-            : $this->user->name . ' has rejected your team invitation.';
+            ? "قام المتدرب <strong>{$this->user->name}</strong> بقبول دعوتك للانضمام إلى الفريق."
+            : "قام المتدرب <strong>{$this->user->name}</strong> برفض دعوتك للانضمام إلى الفريق.";
+
+        $title = $this->action === 'accepted' ? 'قبول دعوة الفريق' : 'رفض دعوة الفريق';
 
         return (new MailMessage())
-            ->subject('Team Invitation ' . ucfirst((string) $this->action))
-            ->greeting('Hello ' . $notifiable->name . '!')
-            ->line($message)
-            ->line('Thank you for being part of our platform!');
+            ->subject("{$title} | Team Invitation Response")
+            ->view('emails.general-notification', [
+                'notificationTitle' => $title,
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => $message,
+                'actionUrl' => url('/instructor/team'),
+                'actionText' => 'عرض فريقي',
+            ]);
     }
 
     /**

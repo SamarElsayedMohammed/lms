@@ -25,11 +25,13 @@ class ManualRenewalRequestedNotification extends Notification
 
         return (new MailMessage)
             ->subject("طلب تجديد اشتراكك قيد المراجعة - {$planName}")
-            ->greeting("مرحباً {$notifiable->name}!")
-            ->line("تم استلام طلب تجديد اشتراكك في باقة **{$planName}** بنجاح.")
-            ->line('سيقوم فريقنا بمراجعة إيصال الدفع والرد عليك في أقرب وقت ممكن.')
-            ->action('عرض اشتراكي', url('/subscription/my-subscription'))
-            ->line('شكراً لاستمرارك معنا!');
+            ->view('emails.general-notification', [
+                'notificationTitle' => 'تجديد الاشتراك قيد المراجعة',
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => "تم استلام طلب تجديد اشتراكك في باقة <strong>{$planName}</strong> بنجاح.<br>سيقوم فريقنا بمراجعة إيصال الدفع والرد عليك في أقرب وقت ممكن.",
+                'actionUrl' => url('/subscription/my-subscription'),
+                'actionText' => 'عرض تفاصيل اشتراكي',
+            ]);
     }
 
     public function toArray(object $notifiable): array

@@ -38,26 +38,31 @@ class ManualSubscriptionStatusNotification extends Notification
         $status = $this->subscription->status;
         $planName = $this->subscription->plan->name;
         
-        $subject = $status === 'active' || $status === 'pending'
-            ? "تم تفعيل اشتراكك في باقة: {$planName}"
-            : "تم رفض طلب الاشتراك في باقة: {$planName}";
-
-        $message = (new MailMessage)
-            ->subject($subject);
+        $message = (new MailMessage);
 
         if ($status === 'active' || $status === 'pending') {
-            $message->line("تهانينا! تم تفعيل اشتراكك في باقة {$planName} بنجاح.")
-                ->line("تاريخ البدء: " . $this->subscription->starts_at->format('Y-m-d H:i:s'))
-                ->line($this->subscription->ends_at ? "تاريخ الانتهاء: " . $this->subscription->ends_at->format('Y-m-d H:i:s') : "نوع الاشتراك: مدى الحياة");
+            $message->subject("تم تفعيل اشتراكك في باقة: {$planName}")
+                ->view('emails.manual-payment-approved', [
+                    'userName' => $notifiable->name,
+                    'planName' => $planName,
+                    'subtitle' => "مرحباً {$notifiable->name}، يسعدنا إخبارك بأنه تمت مراجعة إيصال التحويل البنكي الخاص بك بنجاح. لقد تم تفعيل اشتراكك في باقة {$planName}.",
+                    'actionUrl' => url('/subscription/my-subscription'),
+                ]);
         } else {
             $payment = $this->subscription->payments()->orderBy('id', 'desc')->first();
             $adminNotes = $payment?->admin_notes ?? 'لا يوجد سبب محدد.';
-            $message->line("نأسف لإبلاغك بأنه قد تم رفض طلب الاشتراك في باقة {$planName}.")
-                ->line("السبب: " . $adminNotes);
+            
+            $message->subject("تم رفض طلب الاشتراك في باقة: {$planName}")
+                ->view('emails.manual-payment-rejected', [
+                    'userName' => $notifiable->name,
+                    'planName' => $planName,
+                    'subtitle' => "مرحباً {$notifiable->name}، لقد قمنا بمراجعة إيصال التحويل البنكي الخاص بك لاشتراكك في باقة {$planName}، ولكن للأسف لم نتمكن من قبوله.",
+                    'rejectReason' => $adminNotes,
+                    'uploadUrl' => url('/subscription/plans'),
+                ]);
         }
 
-        return $message->action('عرض اشتراكي', url('/subscription/my-subscription'))
-            ->line('شكراً لاستخدامك منصتنا!');
+        return $message;
     }
 
     /**

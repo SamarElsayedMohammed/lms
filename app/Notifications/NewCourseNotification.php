@@ -24,11 +24,14 @@ class NewCourseNotification extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-                    ->subject('New Course Available: ' . $this->course->title)
-                    ->line('A new course has been released on Skillso!')
-                    ->line('Course Title: ' . $this->course->title)
-                    ->action('View Course', url('/courses/' . $this->course->slug))
-                    ->line('Don\'t miss out on this learning opportunity!');
+            ->subject('تم إضافة كورس جديد | New Course Available')
+            ->view('emails.general-notification', [
+                'notificationTitle' => 'تم إضافة كورس جديد!',
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => "نود إعلامك بأنه تم نشر كورس جديد على المنصة بعنوان: <strong>{$this->course->title}</strong>.<br><br>لا تفوت فرصة الاستفادة من هذا المحتوى الرائع وبادر بالتسجيل الآن!",
+                'actionUrl' => url('/courses/' . $this->course->slug),
+                'actionText' => 'عرض تفاصيل الكورس',
+            ]);
     }
 
     public function toArray(object $notifiable): array

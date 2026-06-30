@@ -69,7 +69,7 @@ final class EmailPasswordResetService
 
         $appName = HelperService::systemSettings('app_name') ?? config('app.name');
         $subject = __('Password reset code') . ' - ' . $appName;
-        $html = View::make('emails.password-reset-otp', [
+        $html = View::make('emails.reset-password', [
             'user' => $user,
             'otp' => $otp,
             'appName' => $appName,
@@ -118,7 +118,7 @@ final class EmailPasswordResetService
     private function sendViaSmtp(User $user, string $otp, array $from, string $subject, string $mailDriver): void
     {
         Mail::send(
-            'emails.password-reset-otp',
+            'emails.reset-password',
             [
                 'user' => $user,
                 'otp' => $otp,

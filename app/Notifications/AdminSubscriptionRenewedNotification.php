@@ -32,11 +32,13 @@ class AdminSubscriptionRenewedNotification extends Notification
 
         return (new MailMessage)
             ->subject("تجديد اشتراك - {$planName}")
-            ->greeting("مرحباً {$notifiable->name}!")
-            ->line("قام المستخدم **{$userName}** ({$userEmail}) بتجديد اشتراكه في باقة **{$planName}** بنجاح.")
-            ->line("المبلغ المسدَّد: **{$this->amountPaid} EGP**")
-            ->action('إدارة الاشتراكات', url('/admin/subscriptions'))
-            ->line('شكراً لمتابعتكم الدائمة!');
+            ->view('emails.admin-notification', [
+                'notificationTitle' => 'تجديد اشتراك ناجح',
+                'notificationContent' => "قام المستخدم <strong>{$userName}</strong> ({$userEmail}) بتجديد اشتراكه في باقة <strong>{$planName}</strong> بنجاح.<br><br>المبلغ المسدَّد: <strong>{$this->amountPaid} EGP</strong>",
+                'senderName' => $userName,
+                'actionUrl' => url('/admin/subscriptions'),
+                'actionText' => 'إدارة الاشتراكات',
+            ]);
     }
 
     public function toArray(object $notifiable): array

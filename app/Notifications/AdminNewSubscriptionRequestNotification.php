@@ -43,11 +43,13 @@ class AdminNewSubscriptionRequestNotification extends Notification
 
         return (new MailMessage)
             ->subject("طلب اشتراك يدوي جديد - {$planName}")
-            ->greeting("مرحباً {$notifiable->name}!")
-            ->line("قام المستخدم **{$userName}** ({$userEmail}) بإرسال طلب اشتراك يدوي في باقة **{$planName}**.")
-            ->line('يرجى مراجعة إيصال الدفع والموافقة على الطلب أو رفضه.')
-            ->action('مراجعة الطلبات اليدوية', url('/admin/manual-subscriptions'))
-            ->line('شكراً لمتابعتكم الدائمة!');
+            ->view('emails.admin-notification', [
+                'notificationTitle' => 'طلب اشتراك يدوي جديد',
+                'notificationContent' => "قام المستخدم <strong>{$userName}</strong> ({$userEmail}) بإرسال طلب اشتراك يدوي في باقة <strong>{$planName}</strong>.<br><br>يرجى مراجعة إيصال الدفع والموافقة على الطلب أو رفضه.",
+                'senderName' => $userName,
+                'actionUrl' => url('/admin/manual-subscriptions'),
+                'actionText' => 'مراجعة الطلبات اليدوية',
+            ]);
     }
 
     /**

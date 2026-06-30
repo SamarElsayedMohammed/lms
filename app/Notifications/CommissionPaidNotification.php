@@ -17,6 +17,7 @@ class CommissionPaidNotification extends Notification implements ShouldQueue
     use Queueable, PushesToFirebase, ConfigurableNotification;
 
     protected $commission;
+    protected array $defaultChannels = ['database', 'mail'];
 
     /**
      * Create a new notification instance.
@@ -26,35 +27,31 @@ class CommissionPaidNotification extends Notification implements ShouldQueue
         $this->commission = $commission;
     }
 
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
-    public function via(object $notifiable): array
-    {
-        return ['database']; // Only database notifications for now
-    }
+
 
     /**
      * Get the mail representation of the notification.
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $currencySymbol = HelperService::systemSettings('currency_symbol') ?? '$';
+        $currencySymbol = HelperService::systemSettings('currency_symbol') ?? 'EGP';
+        $amount = number_format($this->commission->instructor_commission_amount, 2);
+
+        $message = "لقد تلقيت عمولة جديدة بقيمة <strong>{$amount} {$currencySymbol}</strong>.<br><br>";
+        $message .= "<strong>تفاصيل العملية:</strong><br>";
+        $message .= "الكورس: {$this->commission->course->title}<br>";
+        $message .= "رقم الطلب: #{$this->commission->order->order_number}<br><br>";
+        $message .= "تم إضافة المبلغ إلى رصيد محفظتك بنجاح.";
 
         return (new MailMessage())
-            ->subject('Commission Payment Received')
-            ->greeting('Hello ' . $notifiable->name . '!')
-            ->line('You have received a commission payment.')
-            ->line('Course: ' . $this->commission->course->title)
-            ->line('Order Number: #' . $this->commission->order->order_number)
-            ->line('Commission Amount: '
-            . $currencySymbol
-            . number_format($this->commission->instructor_commission_amount, 2))
-            ->line('The amount has been credited to your wallet.')
-            ->action('View Commission Details', url('/instructor/commissions'))
-            ->line('Thank you for being part of our platform!');
+            ->subject('إيداع عمولة جديدة | Commission Paid')
+            ->view('emails.general-notification', [
+                'notificationTitle' => 'إيداع عمولة جديدة',
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => $message,
+                'actionUrl' => url('/instructor/commissions'),
+                'actionText' => 'عرض تفاصيل العمولات',
+            ]);
     }
 
     /**

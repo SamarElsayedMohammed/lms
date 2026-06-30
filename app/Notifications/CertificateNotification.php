@@ -34,9 +34,14 @@ class CertificateNotification extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-            ->line('The introduction to the notification.')
-            ->action('Notification Action', url('/'))
-            ->line('Thank you for using our application!');
+            ->subject('إصدار شهادة جديدة | Certificate Issued')
+            ->view('emails.general-notification', [
+                'notificationTitle' => 'إصدار شهادة جديدة',
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => "تهانينا! لقد تم إصدار شهادة جديدة لك لإتمامك أحد الكورسات بنجاح. يمكنك الآن استعراضها وتحميلها من لوحة التحكم الخاصة بك.",
+                'actionUrl' => url('/my-certificates'),
+                'actionText' => 'عرض الشهادات',
+            ]);
     }
 
     /**

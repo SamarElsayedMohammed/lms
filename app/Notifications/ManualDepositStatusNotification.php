@@ -35,19 +35,25 @@ class ManualDepositStatusNotification extends Notification
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $status = ucfirst($this->deposit->status);
-        $message = (new MailMessage)
-            ->subject("Update on your Deposit Request: {$status}")
-            ->line("Your deposit request of {$this->deposit->amount} EGP via {$this->deposit->method->name} has been {$this->deposit->status}.");
+        $statusAr = $this->deposit->status === 'approved' ? 'مقبول' : 'مرفوض';
+        $message = (new MailMessage)->subject("تحديث حالة طلب الإيداع: {$statusAr} | Deposit Status");
 
         if ($this->deposit->status === 'approved') {
-            $message->line("The amount has been added to your wallet balance.");
-        } elseif ($this->deposit->status === 'rejected') {
-            $message->line("Reason: " . ($this->deposit->admin_notes ?? 'No reason provided.'));
+            $message->view('emails.manual-payment-approved', [
+                'userName' => $notifiable->name,
+                'subtitle' => "مرحباً {$notifiable->name}، يسعدنا إخبارك بأنه تمت مراجعة إيصال التحويل البنكي الخاص بك بنجاح. لقد تم شحن محفظتك بمبلغ {$this->deposit->amount} EGP.",
+                'actionUrl' => url('/wallet'),
+            ]);
+        } else {
+            $message->view('emails.manual-payment-rejected', [
+                'userName' => $notifiable->name,
+                'subtitle' => "مرحباً {$notifiable->name}، لقد قمنا بمراجعة إيصال التحويل البنكي الخاص بك لإيداع مبلغ {$this->deposit->amount} EGP، ولكن للأسف لم نتمكن من قبوله.",
+                'rejectReason' => $this->deposit->admin_notes ?? 'لا يوجد سبب محدد.',
+                'uploadUrl' => url('/wallet/deposit'),
+            ]);
         }
 
-        return $message->action('View My Wallet', url('/wallet'))
-            ->line('Thank you for using our platform!');
+        return $message;
     }
 
     /**

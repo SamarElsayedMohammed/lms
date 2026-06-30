@@ -44,12 +44,13 @@ class AdminNewManualDepositNotification extends Notification
 
         return (new MailMessage)
             ->subject("طلب إيداع يدوي جديد - {$amount} EGP")
-            ->greeting("مرحباً {$notifiable->name}!")
-            ->line("قام المستخدم **{$userName}** ({$userEmail}) بإرسال طلب إيداع يدوي في المحفظة.")
-            ->line("المبلغ: **{$amount} EGP** عبر **{$methodName}**.")
-            ->line('يرجى مراجعة إيصال الدفع والموافقة على الطلب أو رفضه.')
-            ->action('مراجعة طلبات الإيداع', url('/admin/manual-deposits'))
-            ->line('شكراً لمتابعتكم الدائمة!');
+            ->view('emails.admin-notification', [
+                'notificationTitle' => 'طلب إيداع يدوي جديد',
+                'notificationContent' => "قام المستخدم <strong>{$userName}</strong> ({$userEmail}) بإرسال طلب إيداع يدوي في المحفظة.<br><br>المبلغ: <strong>{$amount} EGP</strong> عبر <strong>{$methodName}</strong>.<br><br>يرجى مراجعة إيصال الدفع والموافقة على الطلب أو رفضه.",
+                'senderName' => $userName,
+                'actionUrl' => url('/admin/manual-deposits'),
+                'actionText' => 'مراجعة طلبات الإيداع',
+            ]);
     }
 
     /**

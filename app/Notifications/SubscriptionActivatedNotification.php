@@ -21,17 +21,18 @@ class SubscriptionActivatedNotification extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         $planName = $this->subscription->plan->name ?? 'غير محدد';
-        $startsAt = $this->subscription->starts_at?->format('Y-m-d H:i:s') ?? now()->format('Y-m-d H:i:s');
-        $endsAt = $this->subscription->ends_at?->format('Y-m-d H:i:s') ?? 'مدى الحياة';
+        $startsAt = $this->subscription->starts_at?->format('Y-m-d') ?? now()->format('Y-m-d');
+        $endsAt = $this->subscription->ends_at?->format('Y-m-d') ?? 'مدى الحياة';
 
         return (new MailMessage)
-            ->subject("تم الاشتراك في باقة جديدة: {$planName}")
-            ->greeting("مرحباً {$notifiable->name}!")
-            ->line("تم تفعيل اشتراكك في باقة {$planName} بنجاح.")
-            ->line("تاريخ البدء: {$startsAt}")
-            ->line("تاريخ الانتهاء: {$endsAt}")
-            ->action('عرض اشتراكي', url('/subscription/my-subscription'))
-            ->line('شكراً لاستخدامك منصتنا!');
+            ->subject("تم الاشتراك في باقة جديدة: {$planName} | Subscription Activated")
+            ->view('emails.subscription-success', [
+                'userName' => $notifiable->name,
+                'planName' => $planName,
+                'startDate' => $startsAt,
+                'endDate' => $endsAt,
+                'actionUrl' => url('/subscription/my-subscription'),
+            ]);
     }
 
     public function toArray(object $notifiable): array
