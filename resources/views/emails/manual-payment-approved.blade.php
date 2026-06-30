@@ -10,11 +10,11 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'success'])
+        @component('emails.components.badge', ['type' => 'success'])
             الاشتراك مفعل
         @endcomponent
 
-        @include('emails.components.button', ['url' => $actionUrl])
+        @component('emails.components.button', ['url' => $actionUrl])
             الذهاب إلى لوحة التحكم
         @endcomponent
     </td>

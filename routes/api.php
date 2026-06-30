@@ -57,13 +57,14 @@ Route::post('refresh-token', [ApiController::class, 'refreshToken'])->middleware
 Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin']);
 Route::post('mobile-login', [ApiController::class, 'mobileLogin']);
 Route::post('mobile-registration', [ApiController::class, 'mobileRegistration']);
-Route::post('mobile-reset-password', [ApiController::class, 'mobileResetPassword']);
+Route::post('mobile-reset-password', [ApiController::class, 'mobileResetPassword'])
+    ->middleware('throttle:4,1440');
 Route::post('forgot-password', [ResetPasswordController::class, 'forgotPassword'])
     ->middleware('throttle:3,15');
 Route::post('verify-reset-code', [ResetPasswordController::class, 'verifyResetCode'])
     ->middleware('throttle:10,1');
 Route::post('reset-password', [ResetPasswordController::class, 'resetPassword'])
-    ->middleware('throttle:10,1');
+    ->middleware('throttle:4,1440');
 Route::get('firebase-config', [FirebaseConfigApiController::class, 'show']);
 Route::post('admin-login', [ApiController::class, 'adminLogin']);
 Route::post('logout', [ApiController::class, 'userLogout'])->middleware('auth:sanctum');
@@ -295,7 +296,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('get-user-details', [ApiController::class, 'getUserDetails']); // Get User Details
     Route::get('is-email-exist', [ApiController::class, 'isEmailExist']); // Check if logged-in user's email exists
     Route::post('update-profile', [ApiController::class, 'updateProfile']); // Update User Profile (handles both user and instructor details)
-    Route::post('change-password', [ApiController::class, 'changePassword']); // Change User Password
+    Route::post('change-password', [ApiController::class, 'changePassword'])->middleware('throttle:4,1440'); // Change User Password
     Route::get('notifications', [ApiController::class, 'getUserNotifications']); // Get User Notifications
     Route::post('notifications/mark-read', [ApiController::class, 'markNotificationAsRead']); // Mark Notification as Read
     Route::post('notifications/mark-all-read', [ApiController::class, 'markAllNotificationsAsRead']); // Mark All Notifications as Read

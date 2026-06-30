@@ -10,13 +10,13 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'warning'])
+        @component('emails.components.badge', ['type' => 'warning'])
             ملاحظة الإدارة: {{ $rejectReason }}
         @endcomponent
         
         <p>يرجى إعادة رفع إيصال الدفع بصورة واضحة ليتسنى لنا تفعيل اشتراكك في أسرع وقت.</p>
 
-        @include('emails.components.button', ['url' => $uploadUrl])
+        @component('emails.components.button', ['url' => $uploadUrl])
             رفع إيصال جديد
         @endcomponent
     </td>

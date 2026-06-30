@@ -10,11 +10,11 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'warning'])
+        @component('emails.components.badge', ['type' => 'warning'])
             ينتهي خلال {{ $daysRemaining }} أيام
         @endcomponent
         
-        @include('emails.components.card', ['title' => 'مزايا التجديد'])
+        @component('emails.components.card', ['title' => 'مزايا التجديد'])
             <ul>
                 <li>استمرار الوصول غير المحدود إلى دوراتك.</li>
                 <li>الحصول على التحديثات والمحتوى الجديد أولاً بأول.</li>
@@ -22,7 +22,7 @@
             </ul>
         @endcomponent
 
-        @include('emails.components.button', ['url' => $renewUrl])
+        @component('emails.components.button', ['url' => $renewUrl])
             تجديد الاشتراك الآن
         @endcomponent
     </td>

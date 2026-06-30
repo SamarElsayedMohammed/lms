@@ -117,7 +117,7 @@ final class EmailPasswordResetService
      */
     private function sendViaSmtp(User $user, string $otp, array $from, string $subject, string $mailDriver): void
     {
-        Mail::send(
+        Mail::queue(
             'emails.reset-password',
             [
                 'user' => $user,

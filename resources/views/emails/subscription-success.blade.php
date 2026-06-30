@@ -10,7 +10,7 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'success'])
+        @component('emails.components.badge', ['type' => 'success'])
             اشتراك فعال
         @endcomponent
 
@@ -20,7 +20,7 @@
             @include('emails.components.invoice-row', ['label' => 'تاريخ الانتهاء', 'value' => $endDate])
         @endcomponent
 
-        @include('emails.components.button', ['url' => $actionUrl])
+        @component('emails.components.button', ['url' => $actionUrl])
             الذهاب إلى لوحة التحكم
         @endcomponent
     </td>
