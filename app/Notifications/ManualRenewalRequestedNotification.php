@@ -7,13 +7,14 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Traits\PushesToFirebase;
 use App\Traits\ConfigurableNotification;
 
 /**
  * Notifies the user when their manual subscription renewal request is submitted and awaiting admin review.
  */
-class ManualRenewalRequestedNotification extends Notification
+class ManualRenewalRequestedNotification extends Notification implements ShouldQueue
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 

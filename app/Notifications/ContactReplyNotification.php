@@ -9,13 +9,14 @@ use App\Traits\PushesToFirebase;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Traits\ConfigurableNotification;
 
 /**
  * Sent to the registered user when the admin replies to their contact message.
  * Channels: database (in-app) + Firebase FCM push.
  */
-class ContactReplyNotification extends Notification
+class ContactReplyNotification extends Notification implements ShouldQueue
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 

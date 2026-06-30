@@ -7,13 +7,14 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Traits\PushesToFirebase;
 use App\Traits\ConfigurableNotification;
 
 /**
  * Notifies the subscriber when their subscription is successfully renewed (wallet / immediate payment).
  */
-class SubscriptionRenewedNotification extends Notification
+class SubscriptionRenewedNotification extends Notification implements ShouldQueue
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 

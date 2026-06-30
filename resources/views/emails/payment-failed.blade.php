@@ -10,11 +10,11 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'error'])
+        @component('emails.components.badge', ['type' => 'error'])
             السبب: {{ $failReason }}
         @endcomponent
 
-        @include('emails.components.card', ['title' => 'ماذا يجب أن تفعل؟'])
+        @component('emails.components.card', ['title' => 'ماذا يجب أن تفعل؟'])
             <ul>
                 <li>تأكد من وجود رصيد كافٍ في بطاقتك.</li>
                 <li>تأكد من صحة بيانات البطاقة المدخلة.</li>
@@ -22,7 +22,7 @@
             </ul>
         @endcomponent
 
-        @include('emails.components.button', ['url' => $retryUrl])
+        @component('emails.components.button', ['url' => $retryUrl])
             حاول الدفع مرة أخرى
         @endcomponent
     </td>

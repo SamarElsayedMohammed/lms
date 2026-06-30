@@ -10,13 +10,14 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Traits\ConfigurableNotification;
 
 /**
  * Sent to all admin users when a new contact-us message arrives.
  * Channels: database (in-app) + Firebase FCM push.
  */
-class AdminNewContactMessageNotification extends Notification
+class AdminNewContactMessageNotification extends Notification implements ShouldQueue
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 

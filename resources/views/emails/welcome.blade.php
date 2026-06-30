@@ -10,7 +10,7 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.card', ['title' => 'خطواتك القادمة'])
+        @component('emails.components.card', ['title' => 'خطواتك القادمة'])
             <ul>
                 <li><strong>استكشاف الدورات:</strong> تصفح مكتبتنا الشاملة.</li>
                 <li><strong>بناء مسارك التعليمي:</strong> خطط لمستقبلك.</li>
@@ -18,7 +18,7 @@
             </ul>
         @endcomponent
 
-        @include('emails.components.button', ['url' => $actionUrl])
+        @component('emails.components.button', ['url' => $actionUrl])
             ابدأ التعلم الآن
         @endcomponent
     </td>

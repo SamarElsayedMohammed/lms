@@ -10,7 +10,7 @@ use Illuminate\Notifications\Notification;
 use App\Traits\PushesToFirebase;
 use App\Traits\ConfigurableNotification;
 
-class CertificateNotification extends Notification
+class CertificateNotification extends Notification implements ShouldQueue
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 

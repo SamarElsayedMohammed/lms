@@ -422,7 +422,7 @@ class InstructorApiController extends Controller
                     $acceptUrl = url('/api/accept-team-invitation/' . $token);
                     $rejectUrl = url('/api/accept-team-invitation/' . $token);
 
-                    \Illuminate\Support\Facades\Mail::send(
+                    \Illuminate\Support\Facades\Mail::queue(
                         'emails.team-invitation',
                         [
                             'user' => $user,
@@ -476,7 +476,7 @@ class InstructorApiController extends Controller
                 $acceptUrl = url('/api/accept-team-invitation/' . $token);
                 $rejectUrl = url('/api/accept-team-invitation/' . $token);
 
-                \Illuminate\Support\Facades\Mail::send(
+                \Illuminate\Support\Facades\Mail::queue(
                     'emails.team-invitation',
                     [
                         'user' => $user,

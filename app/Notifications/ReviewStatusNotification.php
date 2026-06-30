@@ -10,13 +10,14 @@ use App\Traits\PushesToFirebase;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Traits\ConfigurableNotification;
 
 /**
  * Sent to the user when their review/comment is approved or rejected.
  * Channels: database (in-app) + Firebase FCM push.
  */
-class ReviewStatusNotification extends Notification
+class ReviewStatusNotification extends Notification implements ShouldQueue
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 

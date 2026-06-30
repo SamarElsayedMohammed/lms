@@ -10,12 +10,12 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'primary'])
-            هذا الرابط صالح لمدة 60 دقيقة فقط
+        @component('emails.components.badge', ['type' => 'primary'])
+            هذا الرمز صالح لمدة {{ $expiryMinutes ?? 15 }} دقيقة فقط
         @endcomponent
 
         @if(isset($otp))
-            @include('emails.components.card', ['title' => 'رمز التحقق'])
+            @component('emails.components.card', ['title' => 'رمز التحقق'])
                 <div style="text-align: center; margin: 32px 0;">
                     <span style="display: inline-block; font-size: 32px; letter-spacing: 8px; font-weight: bold; color: #111827; background: #f3f4f6; padding: 16px 24px; border-radius: 8px;">
                         {{ $otp }}
@@ -25,11 +25,11 @@
         @endif
 
         @if(isset($resetUrl))
-            @include('emails.components.button', ['url' => $resetUrl])
+            @component('emails.components.button', ['url' => $resetUrl])
                 إعادة تعيين كلمة المرور
             @endcomponent
         @endif
-        @include('emails.components.card', ['title' => 'نصيحة أمنية'])
+        @component('emails.components.card', ['title' => 'نصيحة أمنية'])
             <p style="margin-bottom: 0;">استخدم كلمة مرور قوية تتكون من أحرف كبيرة وصغيرة وأرقام ورموز لضمان حماية حسابك.</p>
         @endcomponent
         

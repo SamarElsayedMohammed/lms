@@ -8,6 +8,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Traits\PushesToFirebase;
 use App\Traits\ConfigurableNotification;
 
@@ -15,7 +16,7 @@ use App\Traits\ConfigurableNotification;
  * Notifies admin users when a new manual wallet deposit request is submitted.
  * Channels: database (in-app), mail, and Firebase FCM push notification.
  */
-class AdminNewManualDepositNotification extends Notification
+class AdminNewManualDepositNotification extends Notification implements ShouldQueue
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 

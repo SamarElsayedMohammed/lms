@@ -2793,7 +2793,7 @@ class ApiController extends Controller
                     $adminEmail = 'admin@example.com';
                 }
 
-                Mail::send(
+                Mail::queue(
                     'emails.contact-form',
                     [
                         'contactMessage' => $contactMessage,

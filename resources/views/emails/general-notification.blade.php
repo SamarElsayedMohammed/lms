@@ -20,7 +20,7 @@
         </div>
 
         @if(isset($actionUrl))
-            @include('emails.components.button', ['url' => $actionUrl])
+            @component('emails.components.button', ['url' => $actionUrl])
                 {{ $actionText ?? 'عرض التفاصيل' }}
             @endcomponent
         @endif

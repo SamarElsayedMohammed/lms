@@ -9,10 +9,11 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 use App\Traits\ConfigurableNotification;
 
-class TeamInvitationNotification extends Notification
+class TeamInvitationNotification extends Notification implements ShouldQueue
 {
     use Queueable, ConfigurableNotification;
 

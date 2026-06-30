@@ -10,15 +10,15 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'error'])
+        @component('emails.components.badge', ['type' => 'error'])
             اشتراك منتهي
         @endcomponent
 
-        @include('emails.components.card', ['title' => 'ماذا يعني هذا؟'])
+        @component('emails.components.card', ['title' => 'ماذا يعني هذا؟'])
             <p style="margin-bottom: 0;">لن تتمكن من الوصول إلى الدورات المدفوعة والشهادات حتى تقوم بتجديد اشتراكك. بياناتك وتقدمك محفوظة لدينا بأمان ولن تفقدها.</p>
         @endcomponent
 
-        @include('emails.components.button', ['url' => $renewUrl])
+        @component('emails.components.button', ['url' => $renewUrl])
             أعد تفعيل اشتراكك
         @endcomponent
     </td>

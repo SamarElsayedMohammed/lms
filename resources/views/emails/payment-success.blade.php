@@ -10,7 +10,7 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'success'])
+        @component('emails.components.badge', ['type' => 'success'])
             عملية ناجحة
         @endcomponent
 
@@ -20,7 +20,7 @@
             @include('emails.components.invoice-row', ['label' => 'طريقة الدفع', 'value' => $paymentMethod])
         @endcomponent
 
-        @include('emails.components.button', ['url' => $invoiceUrl, 'color' => '#0A2540'])
+        @component('emails.components.button', ['url' => $invoiceUrl, 'color' => '#0A2540'])
             تنزيل الفاتورة
         @endcomponent
     </td>

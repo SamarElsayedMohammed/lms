@@ -11,13 +11,14 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Traits\ConfigurableNotification;
 
 /**
  * Sent to all admin users when a new rating or comment arrives.
  * Channels: database (in-app) + Firebase FCM push.
  */
-class AdminNewReviewNotification extends Notification
+class AdminNewReviewNotification extends Notification implements ShouldQueue
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 

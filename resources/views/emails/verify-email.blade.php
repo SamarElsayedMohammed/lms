@@ -10,11 +10,11 @@
 </tr>
 <tr>
     <td class="content">
-        @include('emails.components.badge', ['type' => 'warning'])
+        @component('emails.components.badge', ['type' => 'warning'])
             ينتهي صلاحية هذا الرابط خلال 60 دقيقة
         @endcomponent
 
-        @include('emails.components.button', ['url' => $verifyUrl])
+        @component('emails.components.button', ['url' => $verifyUrl])
             تأكيد البريد الإلكتروني
         @endcomponent
         
