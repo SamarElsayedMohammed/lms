@@ -29,6 +29,12 @@ class RouteServiceProvider extends ServiceProvider
             $request->user()->id ?: $request->ip(),
         ));
 
+        RateLimiter::for("forgot-password", static function (Request $request) {
+            $email = strtolower(trim((string) $request->input("email", "")));
+
+            return Limit::perMinutes(15, 5)->by($email !== "" ? $email : $request->ip());
+        });
+
         $this->routes(static function (): void {
             Route::middleware('api')->prefix('api')->group(base_path('routes/api.php'));
 

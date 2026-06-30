@@ -60,7 +60,7 @@ Route::post('mobile-registration', [ApiController::class, 'mobileRegistration'])
 Route::post('mobile-reset-password', [ApiController::class, 'mobileResetPassword'])
     ->middleware('throttle:4,1440');
 Route::post('forgot-password', [ResetPasswordController::class, 'forgotPassword'])
-    ->middleware('throttle:3,15');
+    ->middleware('throttle:forgot-password');
 Route::post('verify-reset-code', [ResetPasswordController::class, 'verifyResetCode'])
     ->middleware('throttle:10,1');
 Route::post('reset-password', [ResetPasswordController::class, 'resetPassword'])
