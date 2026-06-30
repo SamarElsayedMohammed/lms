@@ -25,15 +25,18 @@ class SubscriptionRenewedNotification extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         $planName = $this->subscription->plan->name ?? 'غير محدد';
+        $startsAt = $this->subscription->starts_at?->format('Y-m-d') ?? now()->format('Y-m-d');
         $endsAt   = $this->subscription->ends_at?->format('Y-m-d') ?? 'مدى الحياة';
 
         return (new MailMessage)
-            ->subject("تم تجديد اشتراكك في باقة: {$planName}")
-            ->greeting("مرحباً {$notifiable->name}!")
-            ->line("تم تجديد اشتراكك في باقة **{$planName}** بنجاح.")
-            ->line("تاريخ انتهاء الاشتراك الجديد: **{$endsAt}**")
-            ->action('عرض اشتراكي', url('/subscription/my-subscription'))
-            ->line('شكراً لاستمرارك معنا!');
+            ->subject("تم تجديد اشتراكك في باقة: {$planName} | Subscription Renewed")
+            ->view('emails.subscription-success', [
+                'userName' => $notifiable->name,
+                'planName' => $planName,
+                'startDate' => $startsAt,
+                'endDate' => $endsAt,
+                'actionUrl' => url('/subscription/my-subscription'),
+            ]);
     }
 
     public function toArray(object $notifiable): array

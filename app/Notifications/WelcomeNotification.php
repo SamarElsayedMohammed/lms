@@ -23,12 +23,11 @@ class WelcomeNotification extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-                    ->subject('Welcome to Skillso! | أهلاً بك في سكيلسو!')
-                    ->greeting('Hello ' . $this->user->name . '!')
-                    ->line('Welcome to our learning platform. We are excited to have you on board!')
-                    ->line('أهلاً بك في منصتنا التعليمية. نحن متحمسون جداً لانضمامك إلينا!')
-                    ->action('Start Learning | ابدأ التعلم الآن', url('/courses'))
-                    ->line('Thank you for joining us!');
+            ->subject('مرحباً بك في منصة Skillso! | Welcome to Skillso!')
+            ->view('emails.welcome', [
+                'userName' => $this->user->name,
+                'actionUrl' => url('/courses'),
+            ]);
     }
 
     public function toArray(object $notifiable): array

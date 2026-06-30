@@ -23,19 +23,26 @@ class WithdrawalStatusNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $status = ucfirst($this->withdrawalRequest->status);
+        $status = $this->withdrawalRequest->status;
+        $statusAr = $status === 'approved' ? 'مقبول' : ($status === 'rejected' ? 'مرفوض' : $status);
         $amount = $this->withdrawalRequest->amount;
         
-        $message = (new MailMessage)
-                    ->subject('Withdrawal Request Status Updated: ' . $status)
-                    ->line('Your withdrawal request for ' . $amount . ' EGP has been ' . $status . '.');
+        $message = "لقد تم تحديث حالة طلب السحب الخاص بك بقيمة <strong>{$amount} EGP</strong> إلى: <strong>{$statusAr}</strong>.";
 
-        if ($this->withdrawalRequest->status === 'rejected') {
-            $message->line('Reason: ' . ($this->withdrawalRequest->rejection_reason ?? 'No reason provided.'));
+        if ($status === 'rejected') {
+            $reason = $this->withdrawalRequest->rejection_reason ?? 'لا يوجد سبب محدد.';
+            $message .= "<br><br><strong>سبب الرفض:</strong> {$reason}";
         }
 
-        return $message->action('View My Wallet', url('/my-wallet'))
-                    ->line('Thank you for using our platform!');
+        return (new MailMessage)
+            ->subject("تحديث حالة طلب السحب | Withdrawal Request Status")
+            ->view('emails.general-notification', [
+                'notificationTitle' => 'تحديث حالة طلب السحب',
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => $message,
+                'actionUrl' => url('/my-wallet'),
+                'actionText' => 'عرض المحفظة',
+            ]);
     }
 
     public function toArray(object $notifiable): array

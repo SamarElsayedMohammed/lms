@@ -7,6 +7,7 @@ namespace App\Notifications;
 use App\Models\ContactMessage;
 use App\Traits\PushesToFirebase;
 use Illuminate\Bus\Queueable;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\DatabaseMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\ConfigurableNotification;
@@ -19,13 +20,25 @@ class AdminNewContactMessageNotification extends Notification
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 
-    /** Email is sent separately in ApiController::submitContactForm(). */
-    protected array $defaultChannels = ['database'];
+    /** Email is now sent via notification. */
+    protected array $defaultChannels = ['database', 'mail'];
 
     public function __construct(
         private readonly ContactMessage $contactMessage,
         private readonly string $appName,
     ) {}
+
+    public function toMail(object $notifiable): MailMessage
+    {
+        return (new MailMessage)
+            ->subject('رسالة تواصل جديدة | New Contact Message')
+            ->view('emails.admin-notification', [
+                'notificationTitle' => 'رسالة تواصل جديدة',
+                'notificationContent' => "قام <strong>{$this->contactMessage->first_name}</strong> ({$this->contactMessage->email}) بإرسال رسالة جديدة:<br><br><em>{$this->contactMessage->message}</em>",
+                'senderName' => $this->contactMessage->first_name,
+                'actionUrl' => url('/admin/contact-messages'),
+            ]);
+    }
 
     public function toArray(object $notifiable): array
     {

@@ -20,6 +20,7 @@ class InstructorStatusUpdateNotification extends Notification implements ShouldQ
     protected $instructor;
     protected $status;
     protected $reason;
+    protected array $defaultChannels = ['database', 'mail'];
 
     /**
      * Create a new notification instance.
@@ -31,26 +32,36 @@ class InstructorStatusUpdateNotification extends Notification implements ShouldQ
         $this->reason = $reason;
     }
 
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
 
-    /**
-     * Get the mail representation of the notification.
-     */
     public function toMail(object $notifiable): MailMessage
     {
-        $title = ucfirst((string) $this->status) . ' - Instructor Application';
-        $message = $this->getStatusMessage();
+        $statusAr = match ($this->status) {
+            'approved' => 'مقبول',
+            'rejected' => 'مرفوض',
+            'suspended' => 'موقوف',
+            default => 'مُحدّث',
+        };
+
+        $title = "تحديث حالة طلب المدرب: {$statusAr}";
+        $message = "لقد تم تحديث حالة طلب الانضمام كمدرب الخاص بك إلى: <strong>{$statusAr}</strong>.";
+        
+        if ($this->status === 'approved') {
+            $message = "تهانينا! لقد تمت الموافقة على طلبك كمدرب. يمكنك الآن البدء في إنشاء دوراتك الخاصة.";
+        }
+
+        if ($this->reason) {
+            $message .= "<br><br><strong>ملاحظات:</strong> " . $this->reason;
+        }
 
         return (new MailMessage())
-            ->subject($title)
-            ->greeting('Hello ' . $notifiable->name . '!')
-            ->line($message)
-            ->when($this->reason, fn($mail) => $mail->line('Reason: ' . $this->reason))
-            ->line('Thank you for being part of our platform!');
+            ->subject("{$title} | Instructor Status")
+            ->view('emails.general-notification', [
+                'notificationTitle' => 'تحديث حالة طلب المدرب',
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => $message,
+                'actionUrl' => url('/instructor/dashboard'),
+                'actionText' => 'الانتقال للوحة التحكم',
+            ]);
     }
 
     /**

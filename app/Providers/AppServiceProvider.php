@@ -41,6 +41,23 @@ class AppServiceProvider extends ServiceProvider
         }
 
         $this->configureMailFrom();
+
+        \Illuminate\Auth\Notifications\VerifyEmail::toMailUsing(function ($notifiable, $url) {
+            return (new \Illuminate\Notifications\Messages\MailMessage)
+                ->subject('تأكيد البريد الإلكتروني | Verify Email Address')
+                ->view('emails.verify-email', ['verifyUrl' => $url]);
+        });
+
+        \Illuminate\Auth\Notifications\ResetPassword::toMailUsing(function ($notifiable, $token) {
+            $url = url(route('password.reset', [
+                'token' => $token,
+                'email' => $notifiable->getEmailForPasswordReset(),
+            ], false));
+
+            return (new \Illuminate\Notifications\Messages\MailMessage)
+                ->subject('إعادة تعيين كلمة المرور | Reset Password')
+                ->view('emails.reset-password', ['resetUrl' => $url]);
+        });
     }
 
     private function configureMailFrom(): void

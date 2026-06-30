@@ -17,6 +17,7 @@ class WebinarRegistrationNotification extends Notification implements ShouldQueu
 
     private $webinar;
     private $isReminder;
+    protected array $defaultChannels = ['database', 'mail'];
 
     /**
      * Create a new notification instance.
@@ -27,30 +28,30 @@ class WebinarRegistrationNotification extends Notification implements ShouldQueu
         $this->isReminder = $isReminder;
     }
 
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
-    public function via(object $notifiable): array
-    {
-        return ['database']; // Add 'mail' if email is needed
-    }
+
 
     /**
      * Get the mail representation of the notification.
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $subject = $this->isReminder ? 'Reminder: Upcoming Webinar' : 'Registration Confirmed: ' . $this->webinar->title;
-        $greeting = $this->isReminder ? 'Your webinar is starting soon!' : 'You have successfully registered for the webinar: ' . $this->webinar->title;
+        $subject = $this->isReminder ? 'تذكير: ويبينار قادم | Webinar Reminder' : 'تأكيد التسجيل: ' . $this->webinar->title;
+        $title = $this->isReminder ? 'موعد الويبينار اقترب!' : 'تم تأكيد تسجيلك بنجاح';
+        $message = $this->isReminder 
+            ? "نود تذكيرك بأن الويبينار <strong>{$this->webinar->title}</strong> سيبدأ قريباً." 
+            : "لقد قمت بالتسجيل بنجاح في الويبينار: <strong>{$this->webinar->title}</strong>.";
+            
+        $message .= "<br><br>وقت البدء: " . $this->webinar->start_at->format('Y-m-d H:i A');
 
         return (new MailMessage)
             ->subject($subject)
-            ->line($greeting)
-            ->line('Start Time: ' . $this->webinar->start_at->format('Y-m-d H:i A'))
-            ->action('View Dashboard', url('/'))
-            ->line('Thank you for using our platform!');
+            ->view('emails.general-notification', [
+                'notificationTitle' => $title,
+                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationContent' => $message,
+                'actionUrl' => url('/webinars/' . $this->webinar->slug),
+                'actionText' => 'عرض تفاصيل الويبينار',
+            ]);
     }
 
     /**

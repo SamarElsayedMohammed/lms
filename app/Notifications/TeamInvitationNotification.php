@@ -17,6 +17,7 @@ class TeamInvitationNotification extends Notification
     use Queueable, ConfigurableNotification;
 
     protected $instructor;
+    protected array $defaultChannels = ['database', 'mail'];
 
     /**
      * Create a new notification instance.
@@ -28,35 +29,26 @@ class TeamInvitationNotification extends Notification
         $this->instructor = $instructor;
     }
 
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
-    public function via(object $notifiable): array
-    {
-        return ['database']; // Only database notifications for now
-    }
+
 
     /**
      * Get the mail representation of the notification.
      */
     public function toMail(object $notifiable): MailMessage
     {
-        // Ensure token is available - refresh if needed
         $token = $this->teamMember->invitation_token;
         if (empty($token)) {
-            // Refresh the model to get the latest token
             $this->teamMember->refresh();
             $token = $this->teamMember->invitation_token;
         }
 
         return (new MailMessage())
-            ->subject('Team Invitation Received')
-            ->greeting('Hello ' . $notifiable->name . '!')
-            ->line($this->instructor->name . ' has invited you to join their team.')
-            ->action('View Invitation', url('/api/accept-team-invitation/' . $token))
-            ->line('Thank you for being part of our platform!');
+            ->subject('دعوة انضمام لفريق | Team Invitation')
+            ->view('emails.team-invitation', [
+                'userName' => $notifiable->name,
+                'instructorName' => $this->instructor->name,
+                'actionUrl' => url('/api/accept-team-invitation/' . $token),
+            ]);
     }
 
     /**

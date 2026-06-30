@@ -38,14 +38,27 @@ class SubscriptionExpiryNotification extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         $planName = $this->subscription->plan->name;
-        $message = (new MailMessage)
-            ->subject("Your subscription for {$planName} is expiring soon")
-            ->line("Your active subscription for the {$planName} plan will expire in {$this->daysRemaining} days.")
-            ->line("Expiry Date: " . $this->subscription->ends_at->format('Y-m-d'));
+        
+        $message = (new MailMessage);
+        
+        if ($this->daysRemaining <= 0) {
+            $message->subject("انتهى اشتراكك في باقة: {$planName} | Subscription Expired")
+                    ->view('emails.subscription-expired', [
+                        'userName' => $notifiable->name,
+                        'planName' => $planName,
+                        'renewUrl' => url('/subscription/plans'),
+                    ]);
+        } else {
+            $message->subject("تذكير: اقتراب انتهاء اشتراكك في باقة: {$planName} | Subscription Expiring Soon")
+                    ->view('emails.subscription-expiring', [
+                        'userName' => $notifiable->name,
+                        'planName' => $planName,
+                        'daysRemaining' => $this->daysRemaining,
+                        'renewUrl' => url('/subscription/plans'),
+                    ]);
+        }
 
-        return $message->action('Renew Now', url('/plans'))
-            ->line('Keep your learning journey going by renewing your plan today!')
-            ->line('Thank you for being part of our community!');
+        return $message;
     }
 
     /**

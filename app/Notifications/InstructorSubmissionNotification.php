@@ -20,6 +20,7 @@ class InstructorSubmissionNotification extends Notification implements ShouldQue
 
     protected $instructor;
     protected $user;
+    protected array $defaultChannels = ['database', 'mail'];
 
     /**
      * Create a new notification instance.
@@ -30,23 +31,17 @@ class InstructorSubmissionNotification extends Notification implements ShouldQue
         $this->user = $user;
     }
 
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
 
-    /**
-     * Get the mail representation of the notification.
-     */
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage())
-            ->subject('New Instructor Application Submitted')
-            ->greeting('Hello ' . $notifiable->name . '!')
-            ->line($this->user->name . ' has submitted their instructor application for review.')
-            ->line('Please review and approve or reject the application.')
-            ->line('Thank you!');
+            ->subject('طلب انضمام مدرب جديد | New Instructor Application')
+            ->view('emails.admin-notification', [
+                'notificationTitle' => 'طلب انضمام مدرب جديد',
+                'notificationContent' => "قام المستخدم <strong>{$this->user->name}</strong> بتقديم طلب للانضمام كمدرب في المنصة.<br>يرجى مراجعة الطلب واتخاذ الإجراء المناسب (موافقة أو رفض).",
+                'actionUrl' => url('/admin/instructors/requests'),
+                'actionText' => 'مراجعة طلبات المدربين',
+            ]);
     }
 
     /**

@@ -9,6 +9,7 @@ use App\Models\Course\CourseDiscussion;
 use App\Traits\PushesToFirebase;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\DatabaseMessage;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use App\Traits\ConfigurableNotification;
 
@@ -20,12 +21,29 @@ class AdminNewReviewNotification extends Notification
 {
     use Queueable, PushesToFirebase, ConfigurableNotification;
 
-    protected array $defaultChannels = ['database'];
+    protected array $defaultChannels = ['database', 'mail'];
 
     public function __construct(
         private readonly Rating|CourseDiscussion $reviewItem,
         private readonly string $type = 'rating', // 'rating' or 'comment'
     ) {}
+
+    public function toMail(object $notifiable): MailMessage
+    {
+        $senderName = $this->reviewItem->user ? $this->reviewItem->user->name : 'مستخدم';
+        $itemTypeAr = $this->type === 'rating' ? 'تقييم' : 'تعليق';
+        $messagePreview = $this->type === 'rating' ? ($this->reviewItem->review ?? 'تقييم بدون نص') : $this->reviewItem->message;
+
+        return (new MailMessage)
+            ->subject("{$itemTypeAr} جديد بانتظار الموافقة")
+            ->view('emails.admin-notification', [
+                'notificationTitle' => "{$itemTypeAr} جديد بانتظار الموافقة",
+                'notificationContent' => "أضاف <strong>{$senderName}</strong> {$itemTypeAr}اً جديداً يحتاج لمراجعتك.<br><br><em>{$messagePreview}</em>",
+                'senderName' => $senderName,
+                'actionUrl' => $this->type === 'rating' ? url('/admin/ratings') : url('/admin/discussions'),
+                'actionText' => 'مراجعة الآن',
+            ]);
+    }
 
     public function toArray(object $notifiable): array
     {

@@ -180,6 +180,20 @@ final class KashierController extends Controller
         if ($this->isFailedStatus($status)) {
             Log::info('Kashier webhook: payment failed', ['orderId' => $orderId, 'status' => $status]);
             Cache::forget('kashier_pending_' . $orderId);
+            
+            // Notify user of failed payment
+            try {
+                $user->notify(new \App\Notifications\PaymentStatusNotification(
+                    isSuccess: false,
+                    itemName: 'اشتراك باقة ' . ($plan->name ?? ''),
+                    amount: $gatewayAmount,
+                    transactionId: $transactionId,
+                    retryUrl: url('/plans')
+                ));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to send payment failure notification: ' . $e->getMessage());
+            }
+
             return $this->respond($request, 'OK', 200, false);
         }
 
@@ -321,6 +335,20 @@ final class KashierController extends Controller
 
         if ($this->isFailedStatus($status)) {
             Log::info('Kashier webhook: wallet top-up failed', ['orderId' => $orderId, 'status' => $status]);
+            
+            // Notify user of failed payment
+            try {
+                $user->notify(new \App\Notifications\PaymentStatusNotification(
+                    isSuccess: false,
+                    itemName: 'شحن رصيد المحفظة',
+                    amount: $amount,
+                    transactionId: $transactionId,
+                    retryUrl: url('/wallet/deposit')
+                ));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to send payment failure notification: ' . $e->getMessage());
+            }
+            
             return $this->respond($request, 'OK', 200, false);
         }
 
@@ -354,6 +382,19 @@ final class KashierController extends Controller
             
             Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
             
+            // Send successful payment notification
+            try {
+                $user->notify(new \App\Notifications\PaymentStatusNotification(
+                    isSuccess: true,
+                    itemName: 'شحن المحفظة (Wallet Top-up)',
+                    amount: $amount,
+                    transactionId: $transactionId,
+                    invoiceUrl: url('/wallet')
+                ));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to send wallet top-up success notification: ' . $e->getMessage());
+            }
+            
             return $this->respond($request, 'OK', 200, true, null, $orderId);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -384,6 +425,21 @@ final class KashierController extends Controller
 
         if ($this->isFailedStatus($status)) {
             Log::info('Kashier webhook: webinar payment failed', ['orderId' => $orderId, 'status' => $status]);
+            
+            // Notify user of failed payment
+            try {
+                $amount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? $webinar->price);
+                $user->notify(new \App\Notifications\PaymentStatusNotification(
+                    isSuccess: false,
+                    itemName: 'حضور ويبينار ' . ($webinar->title ?? ''),
+                    amount: $amount,
+                    transactionId: $this->extractTransactionId($data) ?: $orderId,
+                    retryUrl: url('/webinars/' . $webinar->slug)
+                ));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to send webinar payment failure notification: ' . $e->getMessage());
+            }
+
             return $this->respond($request, 'OK', 200, false);
         }
 
