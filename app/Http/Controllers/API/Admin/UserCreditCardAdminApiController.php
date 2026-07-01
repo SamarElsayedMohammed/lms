@@ -57,6 +57,26 @@ class UserCreditCardAdminApiController extends Controller
         if ($validator->fails()) {
             return response()->json(['error' => true, 'message' => $validator->errors()->first()], 422);
         }
+        $existingCard = $user->creditCards()
+            ->where(function ($query) use ($request) {
+                $query->where('gateway_token', $request->gateway_token)
+                    ->orWhere(function ($query) use ($request) {
+                        $query->where('last_four_digits', $request->last_four_digits)
+                            ->where('exp_month', $request->exp_month)
+                            ->where('exp_year', $request->exp_year)
+                            ->when($request->filled('brand'), fn ($query) => $query->where('brand', $request->brand));
+                    });
+            })
+            ->first();
+
+        if ($existingCard) {
+            return response()->json([
+                'error' => true,
+                'message' => 'Credit card already exists for this user',
+                'data' => $existingCard
+            ], 409);
+        }
+
 
         $isDefault = $request->boolean('is_default');
 

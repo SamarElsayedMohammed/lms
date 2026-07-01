@@ -46,6 +46,22 @@ class UserCreditCardApiController extends Controller
             }
 
             $user = Auth::user();
+            $existingCard = $user->creditCards()
+                ->where(function ($query) use ($request) {
+                    $query->where('gateway_token', $request->gateway_token)
+                        ->orWhere(function ($query) use ($request) {
+                            $query->where('last_four_digits', $request->last_four_digits)
+                                ->where('exp_month', $request->exp_month)
+                                ->where('exp_year', $request->exp_year)
+                                ->when($request->filled('brand'), fn ($query) => $query->where('brand', $request->brand));
+                        });
+                })
+                ->first();
+
+            if ($existingCard) {
+                return ApiResponseService::errorResponse('Credit card already exists', $existingCard, 409);
+            }
+
             $isDefault = $request->boolean('is_default');
 
             // If this is the user's first card, make it default regardless

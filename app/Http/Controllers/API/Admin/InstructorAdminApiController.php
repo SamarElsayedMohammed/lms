@@ -46,6 +46,24 @@ class InstructorAdminApiController extends AdminCrudApiController
         return $this->jsonSuccess(__('Instructors retrieved'), $instructors);
     }
 
+    public function trashed(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('instructors-list');
+
+        $query = User::whereHas('instructor_details', fn ($q) => $q->onlyTrashed())
+            ->with(['instructor_details' => fn ($q) => $q->onlyTrashed()->with(['personal_details', 'social_medias', 'other_details.custom_form_field', 'other_details.custom_form_field_option'])])
+            ->when($request->search, fn ($q) => $q->where(function ($q) use ($request) {
+                $q->where('name', 'like', "%{$request->search}%")
+                    ->orWhere('email', 'like', "%{$request->search}%");
+            }));
+
+        $perPage = min((int) $request->input('per_page', 15), 100);
+        $instructors = $query->orderBy('id', 'desc')->paginate($perPage);
+
+        return $this->jsonSuccess(__('Deleted instructors retrieved'), $instructors);
+    }
+
     public function show(int $id): JsonResponse
     {
         $this->ensureAdmin();
