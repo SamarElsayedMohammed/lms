@@ -304,9 +304,25 @@ class ReportsApiController extends Controller
     {
         try {
             $data = [
-                'courses'             => Course::without('taxes')->select('id', 'title')->get(),
-                'instructors'         => User::whereHas('instructor_details')->select('id', 'name', 'email')->get(),
-                'categories'          => Category::select('id', 'name')->get(),
+                'courses'             => \Illuminate\Support\Facades\DB::table('courses')
+                                            ->whereNull('deleted_at')
+                                            ->select('id', 'title')
+                                            ->orderBy('title')
+                                            ->get(),
+                'instructors'         => \Illuminate\Support\Facades\DB::table('users')
+                                            ->whereNull('deleted_at')
+                                            ->whereExists(function ($q) {
+                                                $q->select(\Illuminate\Support\Facades\DB::raw(1))
+                                                  ->from('instructors')
+                                                  ->whereColumn('instructors.user_id', 'users.id');
+                                            })
+                                            ->select('id', 'name', 'email')
+                                            ->get(),
+                'categories'          => \Illuminate\Support\Facades\DB::table('categories')
+                                            ->whereNull('deleted_at')
+                                            ->select('id', 'name')
+                                            ->orderBy('name')
+                                            ->get(),
                 'order_statuses'      => ['pending', 'completed', 'cancelled', 'failed'],
                 'commission_statuses' => ['pending', 'paid', 'cancelled'],
                 'payment_methods'     => ['stripe', 'razorpay', 'flutterwave', 'wallet'],
