@@ -343,6 +343,8 @@ class ReportsApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Report filters retrieved successfully', $data);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             $errorInfo = get_class($e) . ' - ' . $e->getMessage() . ' at line ' . $e->getLine();
             return ApiResponseService::errorResponse('Failed to retrieve report filters: ' . $errorInfo);
@@ -793,6 +795,10 @@ class ReportsApiController extends Controller
         $orders = $query->get();
 
         $subscriptionRevenue = 0;
+        $subscriptionCount = 0;
+        $subPaymentMethods = collect();
+        $subTrend = collect();
+        
         // Only include subscription revenue if not explicitly filtering by a specific course or category
         if (!$request->filled('course_id') && !$request->filled('category_id')) {
             $subQuery = \App\Models\SubscriptionPayment::where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED);
@@ -807,20 +813,39 @@ class ReportsApiController extends Controller
                 $subQuery->where('subscription_payments.payment_method', $request->payment_method);
             }
 
-            $subscriptionRevenue = $subQuery
-                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
-                ->sum(\Illuminate\Support\Facades\DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)'));
+            $subs = $subQuery->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->select(
+                    'subscription_payments.*', 
+                    \Illuminate\Support\Facades\DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1) as calculated_final_amount')
+                )->get();
+
+            $subscriptionCount = $subs->count();
+            $subscriptionRevenue = $subs->sum('calculated_final_amount');
+            
+            $subPaymentMethods = $subs->groupBy('payment_method')->map->sum('calculated_final_amount');
+            $subTrend = $subs->groupBy(fn($s) => $s->created_at->format('Y-m-d'))->map->sum('calculated_final_amount');
         }
 
+        $allOrdersCount = $orders->count() + $subscriptionCount;
+        $totalRevenue = $orders->sum('final_price') + $subscriptionRevenue;
+        
+        $orderPaymentMethods = $orders->groupBy('payment_method')->map->sum('final_price');
+        $allPaymentMethods = $orderPaymentMethods->mergeRecursive($subPaymentMethods)
+            ->map(fn($v) => is_array($v) ? array_sum($v) : $v)
+            ->sortDesc();
+            
+        $orderTrend = $this->getRevenueTrend($orders);
+        $allTrend = $orderTrend->mergeRecursive($subTrend)
+            ->map(fn($v) => is_array($v) ? array_sum($v) : $v)
+            ->sortKeys();
+
         return [
-            'total_revenue' => $orders->sum('final_price') + $subscriptionRevenue,
-            'total_orders' => $orders->count(),
-            'average_order_value' => $orders->avg('final_price'),
-            'revenue_by_payment_method' => $orders->groupBy('payment_method')->map(
-                static fn($orders) => $orders->sum('final_price'),
-            ),
-            'revenue_by_category' => $this->getRevenueByCategory($orders),
-            'revenue_trend' => $this->getRevenueTrend($orders),
+            'total_revenue' => $totalRevenue,
+            'total_orders' => $allOrdersCount,
+            'average_order_value' => $allOrdersCount > 0 ? $totalRevenue / $allOrdersCount : 0,
+            'revenue_by_payment_method' => $allPaymentMethods,
+            'revenue_by_category' => $this->getRevenueByCategory($orders), // Only applies to individual courses
+            'revenue_trend' => $allTrend,
             'revenue_distribution' => $this->getRevenueCommissionDistribution($request),
             'subscription_revenue' => $subscriptionRevenue,
         ];

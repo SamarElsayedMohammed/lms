@@ -75,8 +75,10 @@ class FinanceApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Finance dashboard data retrieved successfully', $dashboardData);
-        } catch (\Throwable) {
-            return ApiResponseService::errorResponse('Failed to retrieve finance dashboard data');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to retrieve finance dashboard data: ' . $e->getMessage() . ' at line ' . $e->getLine());
         }
     }
 
@@ -127,8 +129,10 @@ class FinanceApiController extends Controller
             $commissions = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
             return ApiResponseService::successResponse('Commissions retrieved successfully', $commissions);
-        } catch (\Throwable) {
-            return ApiResponseService::errorResponse('Failed to retrieve commissions');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to retrieve commissions: ' . $e->getMessage() . ' at line ' . $e->getLine());
         }
     }
 
@@ -172,8 +176,10 @@ class FinanceApiController extends Controller
             $earnings = $query->groupBy('instructor_id')->orderBy('total_earnings', 'desc')->get();
 
             return ApiResponseService::successResponse('Instructor earnings retrieved successfully', $earnings);
-        } catch (\Throwable) {
-            return ApiResponseService::errorResponse('Failed to retrieve instructor earnings');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to retrieve instructor earnings: ' . $e->getMessage() . ' at line ' . $e->getLine());
         }
     }
 
@@ -224,8 +230,10 @@ class FinanceApiController extends Controller
             $transactions = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
             return ApiResponseService::successResponse('Wallet transactions retrieved successfully', $transactions);
-        } catch (\Throwable) {
-            return ApiResponseService::errorResponse('Failed to retrieve wallet transactions');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to retrieve wallet transactions: ' . $e->getMessage() . ' at line ' . $e->getLine());
         }
     }
 
@@ -286,9 +294,11 @@ class FinanceApiController extends Controller
             DB::commit();
 
             return ApiResponseService::successResponse($message, $commission->fresh());
-        } catch (\Throwable) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
             DB::rollBack();
-            return ApiResponseService::errorResponse('Failed to process commission');
+            return ApiResponseService::errorResponse('Failed to process commission: ' . $e->getMessage() . ' at line ' . $e->getLine());
         }
     }
 
@@ -340,8 +350,10 @@ class FinanceApiController extends Controller
                 ],
                 'data' => $report,
             ]);
-        } catch (\Throwable) {
-            return ApiResponseService::errorResponse('Failed to generate finance report');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to generate finance report: ' . $e->getMessage() . ' at line ' . $e->getLine());
         }
     }
 
