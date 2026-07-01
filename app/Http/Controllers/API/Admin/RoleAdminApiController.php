@@ -145,7 +145,7 @@ class RoleAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('roles-delete');
 
-        $role = Role::withCount('users')->find($id);
+        $role = Role::find($id);
 
         if (!$role) {
             return $this->jsonError(__('Role not found'), 404);
@@ -154,8 +154,11 @@ class RoleAdminApiController extends AdminCrudApiController
         if (!$role->custom_role) {
             return $this->jsonError(__('System roles cannot be deleted'), 422);
         }
+        $assignedUsersCount = DB::table(config('permission.table_names.model_has_roles', 'model_has_roles'))
+            ->where('role_id', $role->id)
+            ->count();
 
-        if ($role->users_count > 0) {
+        if ($assignedUsersCount > 0) {
             return $this->jsonError(__('Cannot delete role that is assigned to users'), 422);
         }
 
