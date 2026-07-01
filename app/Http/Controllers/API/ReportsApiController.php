@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Commission;
 use App\Models\Course\Course;
-use App\Models\Course\UserCourseTrack;
+use App\Models\UserCourseProgress;
 use App\Models\Instructor;
 use App\Models\Order;
 use App\Models\User;
@@ -238,7 +238,7 @@ class ReportsApiController extends Controller
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
-            $query = UserCourseTrack::with(['user', 'course.category', 'course.user']);
+            $query = UserCourseProgress::with(['user', 'course.category', 'course.user']);
 
             // Apply filters
             $this->applyEnrollmentFilters($query, $request);
