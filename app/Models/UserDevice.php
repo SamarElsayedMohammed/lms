@@ -61,6 +61,15 @@ class UserDevice extends Model
             ];
         }
 
+        // Prevent 500 error: enforce max 1 device per type constraint via PHP validation
+        $existingType = self::where('user_id', $userId)->where('device_type', $deviceType)->first();
+        if ($existingType) {
+            return [
+                'allowed' => false,
+                'message' => "لديك بالفعل جهاز مسجل من نوع ({$deviceType}). يرجى تسجيل الخروج من جهازك الآخر لتتمكن من الدخول هنا.",
+            ];
+        }
+
         // Register the new device
         self::create([
             'user_id'     => $userId,

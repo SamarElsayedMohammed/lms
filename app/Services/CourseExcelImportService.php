@@ -65,20 +65,33 @@ final class CourseExcelImportService
 
                 $stableSlug = $this->stableCourseSlug($code);
 
+                $price = (float) ($row['price'] ?? 0);
+                $isFree = $price <= 0;
+                $level = $this->stringCell($row['level'] ?? 'beginner') ?: 'beginner';
+                $status = $this->stringCell($row['status'] ?? 'draft') ?: 'draft';
+                $shortDesc = $this->stringCell($row['short_description'] ?? null) ?: null;
+
+                if (!in_array($level, ['beginner', 'intermediate', 'advanced'], true)) {
+                    $level = 'beginner';
+                }
+                if (!in_array($status, ['draft', 'pending', 'publish'], true)) {
+                    $status = 'draft';
+                }
+
                 $attributes = [
                     'title' => $title,
                     'user_id' => $userId,
                     'category_id' => $categoryId,
                     'language_id' => $languageId,
-                    'level' => 'beginner',
-                    'course_type' => 'paid',
-                    'price' => 0,
+                    'level' => $level,
+                    'course_type' => $isFree ? 'free' : 'paid',
+                    'price' => $price,
                     'discount_price' => null,
-                    'status' => 'draft',
-                    'approval_status' => null,
+                    'status' => $status,
+                    'approval_status' => $status === 'publish' ? 'approved' : null,
                     'is_active' => false,
-                    'is_free' => false,
-                    'short_description' => null,
+                    'is_free' => $isFree,
+                    'short_description' => $shortDesc,
                     'meta_keywords' => $code,
                     'slug' => $stableSlug,
                 ];
@@ -237,6 +250,10 @@ final class CourseExcelImportService
                 str_contains($label, 'course_name') || str_contains($label, 'اسم الكورس') => 'name',
                 str_contains($label, 'lecture_name') || str_contains($label, 'lesson_name') || str_contains($label, 'اسم المحاضرة') => 'lecture_name',
                 str_contains($label, 'lesson_id') || str_contains($label, 'lecture_id') => 'lesson_id',
+                str_contains($label, 'short_description') || str_contains($label, 'وصف') => 'short_description',
+                str_contains($label, 'level') || str_contains($label, 'مستوى') => 'level',
+                str_contains($label, 'price') || str_contains($label, 'سعر') => 'price',
+                str_contains($label, 'status') || str_contains($label, 'حالة') => 'status',
                 default => null,
             };
             if ($key !== null) {

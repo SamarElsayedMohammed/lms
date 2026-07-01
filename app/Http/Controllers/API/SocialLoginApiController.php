@@ -141,6 +141,7 @@ class SocialLoginApiController extends ApiController
                 $user->save();
 
                 $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+                $user->notify(new \App\Notifications\WelcomeNotification($user));
             }
 
             // ── 4. Link Firebase UID to local user ────────────────────────
@@ -221,6 +222,7 @@ class SocialLoginApiController extends ApiController
                 $user->save();
 
                 $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+                $user->notify(new \App\Notifications\WelcomeNotification($user));
             }
 
             UserSocialAccount::updateOrCreate(

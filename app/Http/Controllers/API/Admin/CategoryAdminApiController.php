@@ -135,7 +135,7 @@ class CategoryAdminApiController extends AdminCrudApiController
             'slug' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'image' => 'nullable|mimes:jpg,jpeg,png,webp,svg|max:7168',
-            'parent_category_id' => 'nullable|integer',
+            'parent_category_id' => 'nullable|integer|exists:categories,id',
             'status' => 'nullable|boolean',
         ]);
 

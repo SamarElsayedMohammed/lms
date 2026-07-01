@@ -341,8 +341,8 @@ class Course extends Model
                 $q->where('course_id', $this->id)->whereHas('order', function ($oq) {
                     $oq->where('status', 'completed');
                 });
-            })->orWhereHas('trackedCourses', function ($q) {
-                $q->where('courses.id', $this->id);
+            })->orWhereHas('courseProgress', function ($q) {
+                $q->where('course_id', $this->id);
             });
         });
     }

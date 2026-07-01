@@ -263,6 +263,9 @@ class ApiController extends Controller
                 }
 
                 $user = User::updateOrCreate($unique, $userData);
+                if ($user->wasRecentlyCreated) {
+                    $user->notify(new \App\Notifications\WelcomeNotification($user));
+                }
 
                 // Only link Firebase SocialLogin for non-email types
                 if (!$isEmailType && $firebaseId) {
@@ -739,6 +742,7 @@ class ApiController extends Controller
                 }
             }
             $user = User::create($userData);
+            $user->notify(new \App\Notifications\WelcomeNotification($user));
 
             $firebaseAccount = SocialLogin::where('firebase_id', $firebaseId)
                 ->where('type', 'phone')
