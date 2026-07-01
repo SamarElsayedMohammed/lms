@@ -161,6 +161,29 @@ class ChatbotAdminApiController extends AdminCrudApiController
     }
 
     /**
+     * List only soft-deleted FAQ buttons
+     */
+    public function trashedFaqs(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        $search = $request->input('search');
+        $perPage = min((int) $request->input('per_page', 15), 100);
+        $category = $request->input('category');
+
+        $query = ChatbotFaq::onlyTrashed()
+            ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
+                $q->where('question', 'like', "%{$search}%")
+                  ->orWhere('answer', 'like', "%{$search}%");
+            }))
+            ->when($category, fn ($q) => $q->where('category', $category));
+
+        $faqs = $query->orderBy('sort_order')->orderBy('id', 'desc')->paginate($perPage);
+
+        return $this->jsonSuccess(__('Trashed Chatbot FAQs retrieved'), $faqs);
+    }
+
+    /**
      * Create a new FAQ button
      */
     public function storeFaq(Request $request): JsonResponse
@@ -224,8 +247,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
         }
 
         $validator = Validator::make($request->all(), [
-            'question' => 'required|string|min:2|max:255',
-            'answer' => 'required|string|min:2',
+            'question' => 'sometimes|required|string|min:2|max:255',
+            'answer' => 'sometimes|required|string|min:2',
             'category' => 'nullable|string|max:100',
             'is_active' => 'nullable|boolean',
             'sort_order' => 'nullable|integer|min:0',
@@ -251,7 +274,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('FAQ not found'), 404);
         }
 
-        $faq->forceDelete();
+        $faq->delete();
         return $this->jsonSuccess(__('FAQ deleted successfully'));
     }
 
