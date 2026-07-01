@@ -960,6 +960,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
             // FAQ Buttons
             Route::get('/faqs', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexFaqs']);
+            Route::get('/faqs/trashed', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'trashedFaqs']);
             Route::post('/faqs', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'storeFaq']);
             Route::get('/faqs/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'showFaq']);
             Route::put('/faqs/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateFaq']);
