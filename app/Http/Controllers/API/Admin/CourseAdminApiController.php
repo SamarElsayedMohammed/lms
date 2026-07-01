@@ -478,12 +478,12 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         $query = $course->getActiveStudentsQuery()
-            ->select(['id', 'name', 'email', 'phone', 'created_at', 'type', 'is_active', 'profile_image'])
+            ->select(['id', 'name', 'email', 'mobile', 'created_at', 'type', 'is_active', 'profile_image'])
             ->when($request->search, function ($q) use ($request) {
                 $q->where(function ($sq) use ($request) {
                     $sq->where('name', 'like', "%{$request->search}%")
                        ->orWhere('email', 'like', "%{$request->search}%")
-                       ->orWhere('phone', 'like', "%{$request->search}%");
+                       ->orWhere('mobile', 'like', "%{$request->search}%");
                 });
             });
 
