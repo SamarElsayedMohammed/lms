@@ -75,8 +75,10 @@ class FinanceApiController extends Controller
             ];
 
             return ApiResponseService::successResponse('Finance dashboard data retrieved successfully', $dashboardData);
-        } catch (\Throwable) {
-            return ApiResponseService::errorResponse('Failed to retrieve finance dashboard data');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to retrieve finance dashboard data: ' . $e->getMessage() . ' at line ' . $e->getLine());
         }
     }
 
