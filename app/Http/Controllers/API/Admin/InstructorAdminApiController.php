@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\Instructor;
+use App\Models\CustomFormField;
+use App\Models\CustomFormFieldOption;
 use App\Models\InstructorPersonalDetail;
+use App\Models\InstructorSocialMedia;
 use App\Models\User;
+use App\Models\InstructorOtherDetail;
 use App\Services\HelperService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,7 +51,7 @@ class InstructorAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('instructors-list');
 
-        $user = User::with(['instructor_details.personal_details', 'instructor_details.social_medias', 'instructor_details.other_details', 'courses'])
+        $user = User::with(['instructor_details.personal_details', 'instructor_details.social_medias', 'instructor_details.other_details.custom_form_field', 'instructor_details.other_details.custom_form_field_option', 'courses'])
             ->whereHas('instructor_details')
             ->find($id);
 
@@ -83,6 +87,14 @@ class InstructorAdminApiController extends AdminCrudApiController
             'team_logo'             => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'id_proof'              => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf,doc,docx|max:5120',
             'preview_video'         => 'nullable|file|mimes:mp4,mov,avi,wmv,flv,mpeg,mpg,m4v,webm|max:51200',
+            'social_medias'         => 'nullable|array',
+            'social_medias.*.title' => 'nullable|string|max:255',
+            'social_medias.*.url'   => 'nullable|url',
+            'other_details'         => 'nullable|array',
+            'other_details.*.id'    => 'nullable|exists:custom_form_fields,id',
+            'other_details.*.option_id' => 'nullable|exists:custom_form_field_options,id',
+            'other_details.*.value' => 'nullable|string',
+            'other_details.*.file'  => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,mp4,mov,avi,wmv,flv,mpeg,mpg,m4v,webm|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -142,6 +154,9 @@ class InstructorAdminApiController extends AdminCrudApiController
                 'preview_video_extension'   => $request->hasFile('preview_video') ? $request->file('preview_video')->getClientOriginalExtension() : null,
             ]);
 
+            $this->syncSocialMedias($instructor, $request->input('social_medias', []));
+            $this->syncOtherDetails($instructor, $request);
+
             DB::commit();
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -150,7 +165,7 @@ class InstructorAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Failed to create instructor: ') . $e->getMessage(), 500);
         }
 
-        return $this->jsonSuccess(__('Instructor created successfully'), $instructor->load(['user', 'personal_details']), 201);
+        return $this->jsonSuccess(__('Instructor created successfully'), $instructor->load(['user', 'personal_details', 'social_medias', 'other_details.custom_form_field', 'other_details.custom_form_field_option']), 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -185,6 +200,14 @@ class InstructorAdminApiController extends AdminCrudApiController
             'team_logo'                 => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'id_proof'                  => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf,doc,docx|max:5120',
             'preview_video'             => 'nullable|file|mimes:mp4,mov,avi,wmv,flv,mpeg,mpg,m4v,webm|max:51200',
+            'social_medias'             => 'nullable|array',
+            'social_medias.*.title'     => 'nullable|string|max:255',
+            'social_medias.*.url'       => 'nullable|url',
+            'other_details'             => 'nullable|array',
+            'other_details.*.id'        => 'nullable|exists:custom_form_fields,id',
+            'other_details.*.option_id' => 'nullable|exists:custom_form_field_options,id',
+            'other_details.*.value'     => 'nullable|string',
+            'other_details.*.file'      => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,mp4,mov,avi,wmv,flv,mpeg,mpg,m4v,webm|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -253,6 +276,14 @@ class InstructorAdminApiController extends AdminCrudApiController
                 $personalDetails
             );
 
+            if ($request->has('social_medias')) {
+                $this->syncSocialMedias($instructor, $request->input('social_medias', []));
+            }
+            if ($request->has('other_details')) {
+                $this->syncOtherDetails($instructor, $request);
+            }
+
+
             DB::commit();
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -261,7 +292,7 @@ class InstructorAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Failed to update instructor: ') . $e->getMessage(), 500);
         }
 
-        return $this->jsonSuccess(__('Instructor updated successfully'), $instructor->fresh(['user', 'personal_details']));
+        return $this->jsonSuccess(__('Instructor updated successfully'), $instructor->fresh(['user', 'personal_details', 'social_medias', 'other_details.custom_form_field', 'other_details.custom_form_field_option']));
     }
 
     public function destroy(int $id): JsonResponse
@@ -342,5 +373,86 @@ class InstructorAdminApiController extends AdminCrudApiController
         ]);
 
         return $this->jsonSuccess(__('Instructor rejected'), $instructor->fresh(['user']));
+    }
+
+
+    private function syncSocialMedias(Instructor $instructor, array $socialMedias): void
+    {
+        $socialMediaData = [];
+
+        foreach ($socialMedias as $socialMedia) {
+            if (empty($socialMedia['title']) || empty($socialMedia['url'])) {
+                continue;
+            }
+
+            $socialMediaData[] = [
+                'instructor_id' => $instructor->id,
+                'title' => $socialMedia['title'],
+                'url' => $socialMedia['url'],
+            ];
+        }
+
+        if (empty($socialMediaData)) {
+            return;
+        }
+
+        InstructorSocialMedia::upsert($socialMediaData, ['instructor_id', 'title'], ['url']);
+    }
+
+    private function syncOtherDetails(Instructor $instructor, Request $request): void
+    {
+        $otherDetails = $request->input('other_details', []);
+        $otherDetailsData = [];
+
+        foreach ($otherDetails as $index => $otherDetail) {
+            if (empty($otherDetail['id'])) {
+                continue;
+            }
+
+            $customFormField = CustomFormField::find($otherDetail['id']);
+            if (!$customFormField) {
+                continue;
+            }
+
+            $baseData = [
+                'instructor_id' => $instructor->id,
+                'custom_form_field_id' => $customFormField->id,
+                'custom_form_field_option_id' => null,
+                'value' => null,
+            ];
+
+            if (in_array($customFormField->type, ['dropdown', 'checkbox', 'radio'], true)) {
+                $option = CustomFormFieldOption::where([
+                    'id' => $otherDetail['option_id'] ?? null,
+                    'custom_form_field_id' => $customFormField->id,
+                ])->first();
+
+                if (!$option) {
+                    continue;
+                }
+
+                $baseData['custom_form_field_option_id'] = $option->id;
+                $baseData['value'] = $option->option;
+            } elseif ($customFormField->type === 'file' && $request->hasFile("other_details.{$index}.file")) {
+                $baseData['value'] = FileService::compressAndUpload(
+                    $request->file("other_details.{$index}.file"),
+                    'instructor/other_details_options'
+                );
+            } else {
+                $baseData['value'] = $otherDetail['value'] ?? null;
+            }
+
+            $otherDetailsData[] = $baseData;
+        }
+
+        if (empty($otherDetailsData)) {
+            return;
+        }
+
+        InstructorOtherDetail::upsert(
+            $otherDetailsData,
+            ['instructor_id', 'custom_form_field_id'],
+            ['value', 'custom_form_field_option_id']
+        );
     }
 }
