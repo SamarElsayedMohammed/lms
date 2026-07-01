@@ -48,8 +48,16 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('courses-edit');
 
-        $validator = Validator::make($request->all(), [
-            'country_code' => 'required|char:2',
+        $data = $request->all();
+        if (isset($data['price']) && !isset($data['price_egp'])) {
+            $data['price_egp'] = $data['price'];
+        }
+        if (isset($data['country_code'])) {
+            $data['country_code'] = strtoupper((string) $data['country_code']);
+        }
+
+        $validator = Validator::make($data, [
+            'country_code' => 'required|string|size:2',
             'price_egp' => 'required|numeric|min:0',
             'discount_price_egp' => 'nullable|numeric|min:0',
             'is_active' => 'nullable|boolean'
@@ -65,15 +73,15 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
         }
 
         $countryPrice = CourseCountryPrice::updateOrCreate(
-            ['course_id' => $courseId, 'country_code' => $request->input('country_code')],
+            ['course_id' => $courseId, 'country_code' => $data['country_code']],
             [
-                'price_egp' => $request->input('price_egp'),
-                'discount_price_egp' => $request->input('discount_price_egp'),
+                'price_egp' => $data['price_egp'],
+                'discount_price_egp' => $data['discount_price_egp'] ?? null,
                 'is_active' => $request->boolean('is_active', true)
             ]
         );
 
-        \App\Models\SupportedCurrency::ensureCurrencyExists($request->input('country_code'));
+        \App\Models\SupportedCurrency::ensureCurrencyExists($data['country_code']);
 
         return $this->jsonSuccess(__('Country price saved'), $countryPrice->load('currency'));
     }
@@ -88,7 +96,7 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'prices' => 'required|array',
-            'prices.*.country_code' => 'required|char:2',
+            'prices.*.country_code' => 'required|string|size:2',
             'prices.*.price_egp' => 'required|numeric|min:0',
             'prices.*.discount_price_egp' => 'nullable|numeric|min:0',
         ]);
