@@ -851,6 +851,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Instructors
         Route::get('instructors', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'index']);
         Route::post('instructors', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'store']);
+        Route::get('instructors/trashed', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'trashed']);
         Route::get('instructors/{id}', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'show']);
         Route::put('instructors/{id}', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'update']);
         Route::delete('instructors/{id}', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'destroy']);
