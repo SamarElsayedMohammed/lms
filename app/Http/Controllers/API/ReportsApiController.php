@@ -304,31 +304,35 @@ class ReportsApiController extends Controller
     {
         try {
             $data = [
-                'courses' => Course::select('id', 'title')->get(),
-                'instructors' => User::whereHas('instructor_details')->select('id', 'name', 'email')->get(),
-                'categories' => Category::select('id', 'name')->get(),
-                'order_statuses' => ['pending', 'completed', 'cancelled', 'failed'],
+                'courses'             => Course::without('taxes')->select('id', 'title')->get(),
+                'instructors'         => User::whereHas('instructor_details')->select('id', 'name', 'email')->get(),
+                'categories'          => Category::select('id', 'name')->get(),
+                'order_statuses'      => ['pending', 'completed', 'cancelled', 'failed'],
                 'commission_statuses' => ['pending', 'paid', 'cancelled'],
-                'payment_methods' => ['stripe', 'razorpay', 'flutterwave', 'wallet'],
-                'instructor_types' => ['individual', 'team'],
-                'course_types' => ['free', 'paid'],
-                'course_levels' => ['beginner', 'intermediate', 'advanced'],
+                'payment_methods'     => ['stripe', 'razorpay', 'flutterwave', 'wallet'],
+                'instructor_types'    => ['individual', 'team'],
+                'course_types'        => ['free', 'paid'],
+                'course_levels'       => ['beginner', 'intermediate', 'advanced'],
                 'enrollment_statuses' => ['started', 'in_progress', 'completed'],
-                'approval_statuses' => ['pending', 'approved', 'rejected'],
-                'report_types' => [
-                    'sales' => ['summary', 'detailed', 'chart'],
-                    'commission' => ['summary', 'detailed', 'chart'],
-                    'course' => ['summary', 'detailed', 'performance'],
-                    'instructor' => ['summary', 'detailed', 'performance'],
-                    'enrollment' => ['summary', 'detailed', 'chart'],
-                    'revenue' => ['summary', 'detailed', 'chart', 'comparison'],
+                'approval_statuses'   => ['pending', 'approved', 'rejected'],
+                'report_types'        => [
+                    'sales'       => ['summary', 'detailed', 'chart'],
+                    'commission'  => ['summary', 'detailed', 'chart'],
+                    'course'      => ['summary', 'detailed', 'performance'],
+                    'instructor'  => ['summary', 'detailed', 'performance'],
+                    'enrollment'  => ['summary', 'detailed', 'chart'],
+                    'revenue'     => ['summary', 'detailed', 'chart', 'comparison'],
                 ],
-                'group_by_options' => ['day', 'week', 'month', 'year'],
+                'group_by_options'    => ['day', 'week', 'month', 'year'],
             ];
 
             return ApiResponseService::successResponse('Report filters retrieved successfully', $data);
-        } catch (\Throwable) {
-            return ApiResponseService::errorResponse('Failed to retrieve report filters');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('getReportFilters error: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return ApiResponseService::errorResponse('Failed to retrieve report filters: ' . $e->getMessage());
         }
     }
 
