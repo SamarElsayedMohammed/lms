@@ -646,6 +646,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::prefix('admin/subscription-plans')->group(function (): void {
         Route::get('/', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'index']);
         Route::post('/', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'store']);
+        Route::put('/sort', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'updateSortOrder']);
         Route::get('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'show']);
         Route::put('/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
         Route::patch('/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
@@ -654,7 +655,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::delete('/{id}/trash', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'trash']);
 
         Route::post('/{id}/toggle', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'toggleStatus']);
-        Route::put('/sort', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'updateSortOrder']);
     });
 
     // Admin approval management (T029) — legacy simple approve/reject

@@ -313,18 +313,28 @@ final class SubscriptionPlanController extends Controller
         }
     }
 
-    public function updateSortOrder(Request $request, int $id)
+    public function updateSortOrder(Request $request)
     {
         ResponseService::noPermissionThenSendJson('subscription-plans-edit');
 
-        $validator = Validator::make($request->all(), ['sort_order' => 'required|integer|min:0']);
+        $validator = Validator::make($request->all(), [
+            'items' => 'required|array|min:1',
+            'items.*.id' => 'required|integer|exists:subscription_plans,id',
+            'items.*.order' => 'required|integer|min:0',
+        ]);
+
         if ($validator->fails()) {
             return ResponseService::validationError($validator->errors()->first());
         }
+
         try {
-            $plan = SubscriptionPlan::findOrFail($id);
-            $plan->sort_order = (int)$request->sort_order;
-            $plan->save();
+            DB::transaction(function () use ($request): void {
+                foreach ($request->input('items', []) as $item) {
+                    SubscriptionPlan::whereKey((int) $item['id'])
+                        ->update(['sort_order' => (int) $item['order']]);
+                }
+            });
+
             return ResponseService::successResponse(__('Sort order updated'));
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
