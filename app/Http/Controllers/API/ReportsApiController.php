@@ -514,16 +514,35 @@ class ReportsApiController extends Controller
         $pendingSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_PENDING)->count();
         $failedSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_FAILED)->count();
 
+        $recentOrders = $orders->sortByDesc('created_at')->take(10)->values()->map(fn($o) => [
+            'id'             => $o->id,
+            'status'         => $o->status,
+            'final_price'    => $o->final_price,
+            'payment_method' => $o->payment_method,
+            'created_at'     => $o->created_at,
+            'user'           => $o->user ? ['id' => $o->user->id, 'name' => $o->user->name, 'email' => $o->user->email] : null,
+        ]);
+
+        $recentSubscriptions = $subscriptionPayments->sortByDesc('created_at')->take(10)->values()->map(fn($s) => [
+            'id'             => $s->id,
+            'status'         => $s->status,
+            'amount'         => $s->final_amount,
+            'payment_method' => $s->payment_method,
+            'created_at'     => $s->created_at,
+        ]);
+
         return [
-            'total_orders' => $allOrdersCount,
-            'total_revenue' => $orders->sum('final_price') + $subscriptionRevenue,
+            'total_orders'        => $allOrdersCount,
+            'total_revenue'       => $orders->sum('final_price') + $subscriptionRevenue,
             'average_order_value' => $allOrdersCount > 0 ? ($orders->sum('final_price') + $subscriptionRevenue) / $allOrdersCount : 0,
-            'completed_orders' => $orders->where('status', 'completed')->count() + $completedSubs,
-            'pending_orders' => $orders->where('status', 'pending')->count() + $pendingSubs,
-            'cancelled_orders' => $orders->where('status', 'cancelled')->count() + $failedSubs,
-            'payment_methods' => $orders->groupBy('payment_method')->map->count(),
-            'top_courses' => $this->getTopCoursesSales($orders),
-            'recent_orders' => $orders->sortByDesc('created_at')->take(10)->values(),
+            'completed_orders'    => $orders->where('status', 'completed')->count() + $completedSubs,
+            'pending_orders'      => $orders->where('status', 'pending')->count() + $pendingSubs,
+            'cancelled_orders'    => $orders->where('status', 'cancelled')->count() + $failedSubs,
+            'payment_methods'     => $orders->groupBy('payment_method')->map->count()->filter(),
+            'recent_orders'       => $recentOrders,
+            'recent_subscriptions'=> $recentSubscriptions,
+            'subscription_revenue'=> $subscriptionRevenue,
+            'subscription_count'  => $subscriptionPayments->count(),
         ];
     }
 
@@ -979,12 +998,11 @@ class ReportsApiController extends Controller
     private function getTopCoursesSales($orders)
     {
         return $orders
-            ->flatMap
-            ->orderCourses
+            ->flatMap(fn($o) => $o->orderCourses ?? collect())
             ->groupBy('course_id')
             ->map(static fn($orderCourses) => [
-                'course' => $orderCourses->first()->course,
-                'total_sales' => $orderCourses->sum('price'),
+                'course'       => $orderCourses->first()?->course,
+                'total_sales'  => $orderCourses->sum('price'),
                 'total_orders' => $orderCourses->count(),
             ])
             ->sortByDesc('total_sales')
@@ -1068,9 +1086,8 @@ class ReportsApiController extends Controller
     private function getRevenueByCategory($orders)
     {
         return $orders
-            ->flatMap
-            ->orderCourses
-            ->groupBy('course.category.name')
+            ->flatMap(fn($o) => $o->orderCourses ?? collect())
+            ->groupBy(fn($oc) => optional(optional($oc->course)->category)->name ?? 'Uncategorized')
             ->map(static fn($orderCourses) => $orderCourses->sum('price'))
             ->sortDesc();
     }
@@ -1078,12 +1095,11 @@ class ReportsApiController extends Controller
     private function getTopRevenueCourses($orders)
     {
         return $orders
-            ->flatMap
-            ->orderCourses
+            ->flatMap(fn($o) => $o->orderCourses ?? collect())
             ->groupBy('course_id')
             ->map(static fn($orderCourses) => [
-                'course' => $orderCourses->first()->course,
-                'revenue' => $orderCourses->sum('price'),
+                'course'       => $orderCourses->first()?->course,
+                'revenue'      => $orderCourses->sum('price'),
                 'orders_count' => $orderCourses->count(),
             ])
             ->sortByDesc('revenue')
