@@ -344,11 +344,8 @@ class ReportsApiController extends Controller
 
             return ApiResponseService::successResponse('Report filters retrieved successfully', $data);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('getReportFilters error: ' . $e->getMessage(), [
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
-            return ApiResponseService::errorResponse('Failed to retrieve report filters: ' . $e->getMessage());
+            $errorInfo = get_class($e) . ' - ' . $e->getMessage() . ' at line ' . $e->getLine();
+            return ApiResponseService::errorResponse('Failed to retrieve report filters: ' . $errorInfo);
         }
     }
 
@@ -530,6 +527,21 @@ class ReportsApiController extends Controller
         $pendingSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_PENDING)->count();
         $failedSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_FAILED)->count();
 
+        // دمج طرق الدفع من الأوردرات والاشتراكات معاً
+        $orderPaymentMethods = $orders
+            ->whereNotNull('payment_method')
+            ->groupBy('payment_method')
+            ->map->count();
+
+        $subPaymentMethods = $subscriptionPayments
+            ->whereNotNull('payment_method')
+            ->groupBy('payment_method')
+            ->map->count();
+
+        $allPaymentMethods = $orderPaymentMethods->mergeRecursive($subPaymentMethods)
+            ->map(fn($v) => is_array($v) ? array_sum($v) : $v)
+            ->sortDesc();
+
         $recentOrders = $orders->sortByDesc('created_at')->take(10)->values()->map(fn($o) => [
             'id'             => $o->id,
             'status'         => $o->status,
@@ -554,7 +566,7 @@ class ReportsApiController extends Controller
             'completed_orders'    => $orders->where('status', 'completed')->count() + $completedSubs,
             'pending_orders'      => $orders->where('status', 'pending')->count() + $pendingSubs,
             'cancelled_orders'    => $orders->where('status', 'cancelled')->count() + $failedSubs,
-            'payment_methods'     => $orders->groupBy('payment_method')->map->count()->filter(),
+            'payment_methods'     => $allPaymentMethods,
             'recent_orders'       => $recentOrders,
             'recent_subscriptions'=> $recentSubscriptions,
             'subscription_revenue'=> $subscriptionRevenue,
