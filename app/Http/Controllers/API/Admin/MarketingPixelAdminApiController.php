@@ -82,7 +82,7 @@ final class MarketingPixelAdminApiController extends AdminCrudApiController
 
         return ApiResponseService::successResponse('Marketing pixel created successfully', [
             'pixel' => $this->formatPixel($pixel),
-        ], 201);
+        ], [], 201);
     }
 
     /**
