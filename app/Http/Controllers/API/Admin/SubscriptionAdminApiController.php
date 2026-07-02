@@ -134,7 +134,13 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     {
         $this->ensureAdmin();
 
-        $subscription = Subscription::with(['user', 'plan'])->findOrFail($id);
+        $subscription = Subscription::with(['user', 'plan' => function ($query) {
+            $query->withTrashed();
+        }])->findOrFail($id);
+
+        if (!$subscription->plan) {
+            return ApiResponseService::errorResponse('الباقة المرتبطة بهذا الاشتراك غير موجودة.');
+        }
 
         if ($subscription->status !== Subscription::STATUS_PENDING_APPROVAL) {
             return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.');
