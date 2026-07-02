@@ -544,22 +544,31 @@ class AdminApiController extends Controller
                 return $submission;
             });
 
-            $submission->load(['user:id,name,email', 'assignment.chapter.course:id,title', 'files']);
+            $submission->load([
+                'user:id,name,email',
+                'assignment:id,title,course_chapter_id',
+                'assignment.chapter:id,title,course_id',
+                'assignment.chapter.course:id,title',
+                'files',
+            ]);
+
+            $assignment = $submission->assignment;
+            $course = $assignment?->chapter?->course;
 
             return ApiResponseService::successResponse('Assignment submission created successfully by admin', [
                 'id' => $submission->id,
                 'user' => [
-                    'id' => $submission->user->id,
-                    'name' => $submission->user->name,
-                    'email' => $submission->user->email,
+                    'id' => $submission->user?->id,
+                    'name' => $submission->user?->name,
+                    'email' => $submission->user?->email,
                 ],
                 'assignment' => [
-                    'id' => $submission->assignment->id,
-                    'title' => $submission->assignment->title,
+                    'id' => $assignment?->id,
+                    'title' => $assignment?->title,
                 ],
                 'course' => [
-                    'id' => $submission->assignment->chapter->course->id,
-                    'title' => $submission->assignment->chapter->course->title,
+                    'id' => $course?->id,
+                    'title' => $course?->title,
                 ],
                 'status' => $submission->status,
                 'points' => $submission->points,

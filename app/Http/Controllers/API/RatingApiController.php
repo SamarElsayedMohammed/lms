@@ -39,16 +39,17 @@ class RatingApiController extends Controller
                 $rateableType = \App\Models\Course\Course::class;
                 $rateableId = (int) $request->course_id;
 
-                // Must have purchased this course
-                $hasPurchased = Order::where('user_id', $user?->id)
-                    ->whereIn('status', ['completed'])
-                    ->whereHas('orderCourses', static function ($q) use ($rateableId): void {
-                        $q->where('course_id', $rateableId);
-                    })
-                    ->exists();
+                $course = Course::find($rateableId);
+                if (!$course) {
+                    return ApiResponseService::validationError('Course not found.');
+                }
 
-                if (!$hasPurchased) {
-                    return ApiResponseService::errorResponse('You can only review a course you have purchased.');
+                $canAccessCourse = app(ContentAccessService::class)->canAccessCourse($user, $course);
+
+                if (!$canAccessCourse) {
+                    return ApiResponseService::errorResponse(
+                        'You can only review a course after your purchase is completed.',
+                    );
                 }
 
                 // --- Instructor review flow ---
