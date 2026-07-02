@@ -639,6 +639,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         'bulkUpdateAssignmentSubmissions',
     ]); // Bulk Update Assignment Submissions (Admin)
     Route::get('admin/assignment-statistics', [AdminApiController::class, 'getAssignmentStatistics']); // Get Assignment Statistics (Admin)
+    Route::get('admin/assignments', [AdminApiController::class, 'getAssignments']); // Get Assignments (Admin)
+    Route::post('admin/assignments', [AdminApiController::class, 'createAssignment']); // Create Assignment (Admin)
+    Route::get('admin/assignments/{id}', [AdminApiController::class, 'getAssignmentDetails']); // Get Assignment Details (Admin)
+    Route::put('admin/assignments/{id}', [AdminApiController::class, 'updateAssignment']); // Update Assignment (Admin)
+    Route::delete('admin/assignments/{id}', [AdminApiController::class, 'deleteAssignment']); // Delete Assignment (Admin)
 
     // Admin lecture attachments
     Route::get('admin/lecture/{lectureId}/attachments', [LectureAttachmentController::class, 'index']);
