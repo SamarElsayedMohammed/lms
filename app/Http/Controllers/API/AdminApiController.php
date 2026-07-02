@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment;
+use App\Models\Course\CourseChapter\Assignment\UserAssignmentFile;
 use App\Models\Course\CourseChapter\Assignment\UserAssignmentSubmission;
 use App\Services\ApiResponseService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class AdminApiController extends Controller
@@ -250,6 +254,125 @@ class AdminApiController extends Controller
     }
 
     /**
+     * Create assignment submission by admin.
+     */
+    public function createAssignmentSubmission(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'user_id' => 'required|exists:users,id',
+                'assignment_id' => 'required|exists:course_chapter_assignments,id',
+                'status' => 'nullable|in:pending,submitted,accepted,rejected,suspended',
+                'points' => 'nullable|numeric|min:0',
+                'comment' => 'nullable|string|max:1000',
+                'feedback' => 'nullable|string|max:1000',
+                'files' => 'nullable|array',
+                'files.*' => 'file|max:10240',
+                'urls' => 'nullable|array',
+                'urls.*' => 'url',
+            ]);
+
+            if ($validator->fails()) {
+                return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            if (!Auth::user()->hasRole('Super Admin')) {
+                return ApiResponseService::unauthorizedResponse('Only admins can create assignment submissions.');
+            }
+
+            $assignment = CourseChapterAssignment::find($request->assignment_id);
+            if (!$assignment) {
+                return ApiResponseService::validationError('Assignment not found');
+            }
+
+            $existingSubmission = UserAssignmentSubmission::where('user_id', $request->user_id)
+                ->where('course_chapter_assignment_id', $request->assignment_id)
+                ->first();
+
+            if ($existingSubmission) {
+                return ApiResponseService::validationError('This user already has a submission for this assignment');
+            }
+
+            $submission = DB::transaction(function () use ($request, $assignment) {
+                $submission = UserAssignmentSubmission::create([
+                    'user_id' => $request->user_id,
+                    'course_chapter_assignment_id' => $assignment->id,
+                    'status' => $request->status ?? 'submitted',
+                    'points' => $request->points ?? 0,
+                    'comment' => $request->comment,
+                    'feedback' => $request->feedback,
+                ]);
+
+                if ($request->hasFile('files')) {
+                    foreach ($request->file('files') as $file) {
+                        if (!($file && $file->isValid())) {
+                            continue;
+                        }
+
+                        $fileName = time() . '_' . $file->getClientOriginalName();
+                        $filePath = $file->storeAs('assignments/' . $assignment->id, $fileName, 'public');
+
+                        UserAssignmentFile::create([
+                            'user_id' => $request->user_id,
+                            'user_assignment_submission_id' => $submission->id,
+                            'type' => 'file',
+                            'file' => $filePath,
+                            'file_extension' => $file->getClientOriginalExtension(),
+                        ]);
+                    }
+                }
+
+                if ($request->has('urls') && is_array($request->urls)) {
+                    foreach ($request->urls as $url) {
+                        if (empty($url)) {
+                            continue;
+                        }
+
+                        UserAssignmentFile::create([
+                            'user_id' => $request->user_id,
+                            'user_assignment_submission_id' => $submission->id,
+                            'type' => 'url',
+                            'url' => $url,
+                        ]);
+                    }
+                }
+
+                return $submission;
+            });
+
+            $submission->load(['user:id,name,email', 'assignment.chapter.course:id,title', 'files']);
+
+            return ApiResponseService::successResponse('Assignment submission created successfully by admin', [
+                'id' => $submission->id,
+                'user' => [
+                    'id' => $submission->user->id,
+                    'name' => $submission->user->name,
+                    'email' => $submission->user->email,
+                ],
+                'assignment' => [
+                    'id' => $submission->assignment->id,
+                    'title' => $submission->assignment->title,
+                ],
+                'course' => [
+                    'id' => $submission->assignment->chapter->course->id,
+                    'title' => $submission->assignment->chapter->course->title,
+                ],
+                'status' => $submission->status,
+                'points' => $submission->points,
+                'comment' => $submission->comment,
+                'feedback' => $submission->feedback,
+                'submitted_at' => $submission->created_at,
+                'files' => $submission->files,
+            ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
+            ApiResponseService::logErrorResponse($e, 'Failed to create assignment submission');
+            return ApiResponseService::errorResponse('Failed to create assignment submission');
+        }
+    }
+
+    /**
      * Update assignment submission status by admin
      */
     public function updateAssignmentSubmission(Request $request)
@@ -299,7 +422,7 @@ class AdminApiController extends Controller
 
             // Add admin comment if provided
             if ($request->has('admin_comment')) {
-                $updateData['admin_comment'] = $request->admin_comment;
+                $updateData['comment'] = $request->admin_comment;
             }
 
             $submission->update($updateData);
@@ -326,7 +449,7 @@ class AdminApiController extends Controller
                 'status' => $submission->status,
                 'points' => $submission->points,
                 'comment' => $submission->comment,
-                'admin_comment' => $submission->admin_comment ?? null,
+                'admin_comment' => $request->admin_comment ?? null,
                 'updated_at' => $submission->updated_at,
                 'updated_by' => 'Super Admin',
             ];
@@ -340,6 +463,44 @@ class AdminApiController extends Controller
         } catch (Exception $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to update assignment submission');
             return ApiResponseService::errorResponse('Failed to update assignment submission');
+        }
+    }
+
+    /**
+     * Delete assignment submission by admin.
+     */
+    public function deleteAssignmentSubmission($id)
+    {
+        try {
+            if (!Auth::user()->hasRole('Super Admin')) {
+                return ApiResponseService::unauthorizedResponse('Only admins can delete assignment submissions.');
+            }
+
+            $submission = UserAssignmentSubmission::with('files')->where('id', $id)->first();
+
+            if (!$submission) {
+                return ApiResponseService::validationError('Assignment submission not found');
+            }
+
+            DB::transaction(function () use ($submission): void {
+                foreach ($submission->files as $file) {
+                    if ($file->type === 'file' && !empty($file->file)) {
+                        Storage::disk('public')->delete($file->file);
+                    }
+                }
+
+                $submission->files()->delete();
+                $submission->delete();
+            });
+
+            return ApiResponseService::successResponse('Assignment submission deleted successfully by admin', [
+                'id' => (int) $id,
+            ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Exception $e) {
+            ApiResponseService::logErrorResponse($e, 'Failed to delete assignment submission');
+            return ApiResponseService::errorResponse('Failed to delete assignment submission');
         }
     }
 
@@ -491,7 +652,7 @@ class AdminApiController extends Controller
             }
 
             if ($request->has('admin_comment')) {
-                $updateData['admin_comment'] = $request->admin_comment;
+                $updateData['comment'] = $request->admin_comment;
             }
 
             // Update submissions
