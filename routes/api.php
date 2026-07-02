@@ -629,9 +629,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
      * Admin Assignment Management APIs
      */
     Route::get('admin/assignment-submissions', [AdminApiController::class, 'getAssignmentSubmissions']); // Get All Assignment Submissions (Admin)
+    Route::post('admin/assignment-submission', [AdminApiController::class, 'createAssignmentSubmission']); // Create Assignment Submission (Admin)
     Route::get('admin/assignment-submission/{id}', [AdminApiController::class, 'getAssignmentSubmissionDetails']); // Get Assignment Submission Details (Admin)
     Route::get('admin/assignment-submission', [AdminApiController::class, 'getAssignmentSubmissionDetails']); // Get Assignment Submission Details (Admin Query param)
     Route::put('admin/assignment-submission', [AdminApiController::class, 'updateAssignmentSubmission']); // Update Assignment Submission Status (Admin)
+    Route::delete('admin/assignment-submission/{id}', [AdminApiController::class, 'deleteAssignmentSubmission']); // Delete Assignment Submission (Admin)
     Route::put('admin/assignment-submissions/bulk-update', [
         AdminApiController::class,
         'bulkUpdateAssignmentSubmissions',
@@ -639,7 +641,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('admin/assignment-statistics', [AdminApiController::class, 'getAssignmentStatistics']); // Get Assignment Statistics (Admin)
 
     // Admin lecture attachments
+    Route::get('admin/lecture/{lectureId}/attachments', [LectureAttachmentController::class, 'index']);
     Route::post('admin/lecture/{lectureId}/attachments', [LectureAttachmentController::class, 'store']);
+    Route::get('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'show']);
+    Route::put('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'update']);
     Route::delete('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'destroy']);
 
     // Admin subscription plan management (T018)
