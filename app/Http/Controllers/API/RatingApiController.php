@@ -7,6 +7,7 @@ use App\Models\Course\Course;
 use App\Models\Order;
 use App\Models\Rating;
 use App\Services\ApiResponseService;
+use App\Services\ContentAccessService;
 use App\Services\FeatureFlagService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
