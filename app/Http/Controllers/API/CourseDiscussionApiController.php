@@ -58,10 +58,13 @@ class CourseDiscussionApiController extends Controller
             }
 
             $applyApproval = app(FeatureFlagService::class)->isEnabled('comments_require_approval');
+            $userId = Auth::id();
 
             // Get total count of all discussions for this course (without search filter)
             $baseQuery = CourseDiscussion::where('course_id', $courseId)->whereNull('parent_id');
-            $allDiscussionCount = $applyApproval ? $baseQuery->approved()->count() : $baseQuery->count();
+            $allDiscussionCount = $applyApproval
+                ? $this->visibleDiscussions($baseQuery, $userId)->count()
+                : $baseQuery->count();
 
             // Get filtered count if search is applied
             $filteredDiscussionCount = null;
@@ -77,18 +80,20 @@ class CourseDiscussionApiController extends Controller
                             $replyQuery->where('message', 'LIKE', "%{$searchTerm}%");
                         });
                     });
-                $filteredDiscussionCount = $applyApproval ? $searchQuery->approved()->count() : $searchQuery->count();
+                $filteredDiscussionCount = $applyApproval
+                    ? $this->visibleDiscussions($searchQuery, $userId)->count()
+                    : $searchQuery->count();
             }
 
             // Build query for discussions
             $repliesConstraint = $applyApproval
-                ? fn($q) => $q->with('user')->approved()
+                ? fn($q) => $this->visibleDiscussions($q->with('user'), $userId)
                 : fn($q) => $q->with('user');
             $discussionsQuery = CourseDiscussion::with(['user', 'replies' => $repliesConstraint])
                 ->where('course_id', $courseId)
                 ->whereNull('parent_id');
             if ($applyApproval) {
-                $discussionsQuery->approved();
+                $this->visibleDiscussions($discussionsQuery, $userId);
             }
 
             // Apply search filter if search term is provided
@@ -142,6 +147,19 @@ class CourseDiscussionApiController extends Controller
             ApiResponseService::logErrorResponse($e, 'Failed to get course discussions');
             return ApiResponseService::errorResponse('Failed to get course discussions');
         }
+    }
+
+    private function visibleDiscussions($query, $userId)
+    {
+        return $query->where(static function ($statusQuery) use ($userId): void {
+            $statusQuery->approved();
+
+            if ($userId !== null) {
+                $statusQuery->orWhere(static function ($ownQuery) use ($userId): void {
+                    $ownQuery->pending()->where('user_id', $userId);
+                });
+            }
+        });
     }
 
     public function storeCourseDiscussion(Request $request)
