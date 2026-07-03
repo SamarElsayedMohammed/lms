@@ -37,6 +37,11 @@ class PromoCode extends Model
         return $this->belongsToMany(Course\Course::class, 'promo_code_course');
     }
 
+    public function subscriptionPlans()
+    {
+        return $this->belongsToMany(SubscriptionPlan::class, 'promo_code_subscription_plan');
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'user_id');
