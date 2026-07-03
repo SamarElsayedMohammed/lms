@@ -695,7 +695,9 @@ class CourseApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'id' => 'nullable|exists:courses,id',
+                'course_id' => 'nullable|exists:courses,id',
                 'slug' => 'nullable|string|exists:courses,slug',
+                'course_slug' => 'nullable|string|exists:courses,slug',
             ]);
 
             if ($validator->fails()) {
@@ -1694,7 +1696,9 @@ class CourseApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'id' => 'nullable|exists:courses,id',
+                'course_id' => 'nullable|exists:courses,id',
                 'slug' => 'nullable|string|exists:courses,slug',
+                'course_slug' => 'nullable|string|exists:courses,slug',
                 'user_team_slug' => 'nullable|string|exists:users,slug', // Add user_team_slug parameter
                 'statistics' => 'nullable|boolean', // Add statistics parameter
                 'quiz_reports' => 'nullable|boolean', // Add quiz reports parameter
@@ -2600,13 +2604,23 @@ class CourseApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'id' => 'nullable|exists:courses,id',
+                'course_id' => 'nullable|exists:courses,id',
                 'slug' => 'nullable|string|exists:courses,slug',
+                'course_slug' => 'nullable|string|exists:courses,slug',
                 'per_page' => 'nullable|integer|min:1|max:100',
                 'page' => 'nullable|integer|min:1',
             ]);
 
             if ($validator->fails()) {
                 return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            if ($request->filled('course_id') && !$request->filled('id')) {
+                $request->merge(['id' => $request->course_id]);
+            }
+
+            if ($request->filled('course_slug') && !$request->filled('slug')) {
+                $request->merge(['slug' => $request->course_slug]);
             }
 
             // Get course by ID or slug
@@ -2703,7 +2717,9 @@ class CourseApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'id' => 'nullable|exists:courses,id',
+                'course_id' => 'nullable|exists:courses,id',
                 'slug' => 'nullable|string|exists:courses,slug',
+                'course_slug' => 'nullable|string|exists:courses,slug',
                 'team_user_slug' => 'nullable|string|exists:users,slug',
                 'per_page' => 'nullable|integer|min:1|max:100',
                 'page' => 'nullable|integer|min:1',
@@ -3177,7 +3193,9 @@ class CourseApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'id' => 'nullable|exists:courses,id',
+                'course_id' => 'nullable|exists:courses,id',
                 'slug' => 'nullable|string|exists:courses,slug',
+                'course_slug' => 'nullable|string|exists:courses,slug',
                 'team_user_slug' => 'nullable|string|exists:users,slug',
                 'assignment_id' => 'nullable|exists:course_chapter_assignments,id',
                 'assignment_slug' => 'nullable|string|exists:course_chapter_assignments,slug',
@@ -3872,7 +3890,9 @@ class CourseApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'id' => 'nullable|exists:courses,id',
+                'course_id' => 'nullable|exists:courses,id',
                 'slug' => 'nullable|string|exists:courses,slug',
+                'course_slug' => 'nullable|string|exists:courses,slug',
                 'team_user_slug' => 'nullable|string|exists:users,slug',
                 'category_id' => 'nullable|exists:categories,id',
                 'per_page' => 'nullable|integer|min:1|max:100',
@@ -4235,12 +4255,22 @@ class CourseApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'id' => 'nullable|exists:courses,id',
+                'course_id' => 'nullable|exists:courses,id',
                 'slug' => 'nullable|string|exists:courses,slug',
+                'course_slug' => 'nullable|string|exists:courses,slug',
                 'lecture_id' => 'nullable|exists:course_chapter_lectures,id',
             ]);
 
             if ($validator->fails()) {
                 return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            if ($request->filled('course_id') && !$request->filled('id')) {
+                $request->merge(['id' => $request->course_id]);
+            }
+
+            if ($request->filled('course_slug') && !$request->filled('slug')) {
+                $request->merge(['slug' => $request->course_slug]);
             }
 
             // Get course by ID or slug
@@ -8597,6 +8627,14 @@ class CourseApiController extends Controller
 
             if ($validator->fails()) {
                 return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            if ($request->filled('course_id') && !$request->filled('id')) {
+                $request->merge(['id' => $request->course_id]);
+            }
+
+            if ($request->filled('course_slug') && !$request->filled('slug')) {
+                $request->merge(['slug' => $request->course_slug]);
             }
 
             // Get course by ID or slug
