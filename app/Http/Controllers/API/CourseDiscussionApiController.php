@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course\Course;
 use App\Models\Course\CourseDiscussion;
 use App\Models\Order;
+use App\Models\Subscription;
 use App\Services\ApiResponseService;
 use App\Services\FeatureFlagService;
 use Illuminate\Http\Request;
@@ -56,7 +57,7 @@ class CourseDiscussionApiController extends Controller
                 $courseId = $course->id;
             }
 
-            $applyApproval = FeatureFlagService::isEnabled('comments_require_approval');
+            $applyApproval = app(FeatureFlagService::class)->isEnabled('comments_require_approval');
 
             // Get total count of all discussions for this course (without search filter)
             $baseQuery = CourseDiscussion::where('course_id', $courseId)->whereNull('parent_id');
@@ -214,14 +215,36 @@ class CourseDiscussionApiController extends Controller
         }
     }
 
-    // 🔒 Check order-based access
     private function userHasAccess($userId, $courseId): bool
     {
-        return Order::where('user_id', $userId)
-            ->where('status', 'completed') // or 'completed' based on your order system
+        if (!$userId) {
+            return false;
+        }
+
+        $hasPurchasedCourse = Order::where('user_id', $userId)
+            ->where('status', 'completed')
             ->whereHas('orderCourses', static function ($q) use ($courseId): void {
                 $q->where('course_id', $courseId);
             })
+            ->exists();
+
+        if ($hasPurchasedCourse) {
+            return true;
+        }
+
+        $hasActiveSubscription = Subscription::forUser((int) $userId)
+            ->active()
+            ->exists();
+
+        if (!$hasActiveSubscription) {
+            return false;
+        }
+
+        return Course::where('id', $courseId)
+            ->where('status', 'publish')
+            ->where('approval_status', 'approved')
+            ->where('is_active', true)
+            ->whereHasContent()
             ->exists();
     }
 }
