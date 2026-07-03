@@ -26,7 +26,7 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         $perPage = min((int) $request->input('per_page', 15), 100);
         $withTrashed = $request->boolean('with_trashed');
 
-        $query = PromoCode::with(['creator', 'courses'])
+        $query = PromoCode::with(['creator', 'subscriptionPlans'])
             ->when($withTrashed, fn ($q) => $q->withTrashed())
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $q->where('promo_code', 'like', "%{$search}%")->orWhere('message', 'like', "%{$search}%");
@@ -58,7 +58,7 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('promo-codes-list');
 
-        $promoCode = PromoCode::with(['creator', 'courses'])->withTrashed()->find($id);
+        $promoCode = PromoCode::with(['creator', 'subscriptionPlans'])->withTrashed()->find($id);
         if (!$promoCode) {
             return $this->jsonError(__('Promo code not found'), 404);
         }
@@ -74,7 +74,7 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         $search = $request->input('search');
         $perPage = min((int) $request->input('per_page', 15), 100);
 
-        $query = PromoCode::with(['creator', 'courses'])
+        $query = PromoCode::with(['creator', 'subscriptionPlans'])
             ->onlyTrashed()
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $q->where('promo_code', 'like', "%{$search}%")->orWhere('message', 'like', "%{$search}%");
@@ -97,9 +97,11 @@ class PromoCodeAdminApiController extends AdminCrudApiController
             'end_date' => 'required|date|after_or_equal:start_date',
             'no_of_users' => 'nullable|integer|min:0',
             'discount' => 'required|numeric|min:0',
-            'discount_type' => 'required|in:percentage,fixed',
-            'course_ids' => 'nullable|array',
-            'course_ids.*' => 'exists:courses,id',
+            'discount_type' => 'required|in:percentage,fixed,amount',
+            'subscription_plan_ids' => 'nullable|array',
+            'subscription_plan_ids.*' => 'exists:subscription_plans,id',
+            'plan_ids' => 'nullable|array',
+            'plan_ids.*' => 'exists:subscription_plans,id',
         ];
         if ($request->discount_type === 'percentage') {
             $rules['discount'] = 'required|numeric|min:0|max:100';
@@ -111,19 +113,22 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         }
 
         $data = $validator->validated();
+        if (($data['discount_type'] ?? null) === 'fixed') {
+            $data['discount_type'] = 'amount';
+        }
         $data['user_id'] = Auth::id();
         $data['repeat_usage'] = $request->boolean('repeat_usage', false);
         $data['no_of_repeat_usage'] = $request->input('no_of_repeat_usage', 0);
         $data['status'] = $request->boolean('status', true);
-        $courseIds = $data['course_ids'] ?? [];
-        unset($data['course_ids']);
+        $planIds = $data['subscription_plan_ids'] ?? $data['plan_ids'] ?? [];
+        unset($data['subscription_plan_ids'], $data['plan_ids']);
 
         $promoCode = PromoCode::create($data);
-        if (!empty($courseIds)) {
-            $promoCode->courses()->sync($courseIds);
+        if (!empty($planIds)) {
+            $promoCode->subscriptionPlans()->sync($planIds);
         }
 
-        return $this->jsonSuccess(__('Promo code created successfully'), $promoCode->load('courses'), 201);
+        return $this->jsonSuccess(__('Promo code created successfully'), $promoCode->load('subscriptionPlans'), 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -143,9 +148,11 @@ class PromoCodeAdminApiController extends AdminCrudApiController
             'end_date' => 'required|date|after_or_equal:start_date',
             'no_of_users' => 'nullable|integer|min:0',
             'discount' => 'required|numeric|min:0',
-            'discount_type' => 'required|in:percentage,fixed',
-            'course_ids' => 'nullable|array',
-            'course_ids.*' => 'exists:courses,id',
+            'discount_type' => 'required|in:percentage,fixed,amount',
+            'subscription_plan_ids' => 'nullable|array',
+            'subscription_plan_ids.*' => 'exists:subscription_plans,id',
+            'plan_ids' => 'nullable|array',
+            'plan_ids.*' => 'exists:subscription_plans,id',
         ];
         if ($request->discount_type === 'percentage') {
             $rules['discount'] = 'required|numeric|min:0|max:100';
@@ -157,14 +164,17 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         }
 
         $data = $validator->validated();
-        $courseIds = $data['course_ids'] ?? [];
-        unset($data['course_ids']);
+        if (($data['discount_type'] ?? null) === 'fixed') {
+            $data['discount_type'] = 'amount';
+        }
+        $planIds = $data['subscription_plan_ids'] ?? $data['plan_ids'] ?? [];
+        unset($data['subscription_plan_ids'], $data['plan_ids']);
         $data['status'] = $request->boolean('status', $promoCode->status);
 
         $promoCode->update($data);
-        $promoCode->courses()->sync($courseIds);
+        $promoCode->subscriptionPlans()->sync($planIds);
 
-        return $this->jsonSuccess(__('Promo code updated successfully'), $promoCode->fresh(['courses']));
+        return $this->jsonSuccess(__('Promo code updated successfully'), $promoCode->fresh(['subscriptionPlans']));
     }
 
     public function destroy(int $id): JsonResponse
