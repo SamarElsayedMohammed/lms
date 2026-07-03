@@ -191,7 +191,7 @@ class ContactMessageAdminApiController extends AdminCrudApiController
             ]);
 
             // 2️⃣ Send email reply
-            Mail::queue(
+            Mail::send(
                 'emails.contact-reply',
                 [
                     'contactMessage' => $message,
