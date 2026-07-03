@@ -188,9 +188,23 @@ class CourseDiscussionApiController extends Controller
                 'parent_id' => $validated['parent_id'] ?? null,
             ]);
 
-            // Notify admins
-            $admins = \App\Models\User::role(['Super Admin', 'Admin'])->get();
-            \Illuminate\Support\Facades\Notification::send($admins, new \App\Notifications\AdminNewReviewNotification($discussion, 'comment'));
+            try {
+                $admins = \App\Models\User::whereHas("roles", static function ($query): void {
+                    $query->whereIn("name", ["Super Admin", "Staff", "Supervisor"]);
+                })->get();
+
+                if ($admins->isNotEmpty()) {
+                    \Illuminate\Support\Facades\Notification::send(
+                        $admins,
+                        new \App\Notifications\AdminNewReviewNotification($discussion, "comment")
+                    );
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Failed to notify admins about new discussion", [
+                    "discussion_id" => $discussion->id,
+                    "error" => $e->getMessage(),
+                ]);
+            }
 
             // Reload the discussion with relationships to match GET API format
             $discussion = CourseDiscussion::with(['user', 'replies.user'])->find($discussion->id);
