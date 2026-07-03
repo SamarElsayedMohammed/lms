@@ -1205,13 +1205,12 @@ class ApiController extends Controller
             }
 
             // ============ UPDATE USER PROFILE ============
-            $userData = [
-                'name' => $request->name,
-                'email' => $request->email,
-                'mobile' => $request->mobile,
-                'country_calling_code' => $request->input('country_calling_code'),
-                'country_code' => $request->input('country_code'),
-            ];
+            $userData = [];
+            foreach (['name', 'email', 'mobile', 'country_calling_code', 'country_code'] as $field) {
+                if ($request->has($field)) {
+                    $userData[$field] = $request->input($field);
+                }
+            }
 
             // Handle profile image upload
             if ($request->hasFile('profile')) {
