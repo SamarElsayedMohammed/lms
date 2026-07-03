@@ -392,7 +392,15 @@ final class AffiliateApiController extends Controller
         session()->put('affiliate_code', $code);
         Cookie::queue('affiliate_code', $code, 60 * 24 * 30); // 30 days
 
-        $redirectUrl = config('app.url', url('/'));
+        $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://skillso.net')), '/');
+        $redirectUrl = $frontendUrl . '/auth/sign-up?referral=' . $code;
+
+        if (request()->expectsJson() || request()->is('api/*')) {
+            return ApiResponseService::successResponse('Referral tracked successfully', [
+                'referral_code' => $code,
+                'redirect_url' => $redirectUrl,
+            ]);
+        }
 
         return redirect()->away($redirectUrl);
     }
