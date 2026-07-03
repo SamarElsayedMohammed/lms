@@ -210,7 +210,8 @@ class UserDashboardApiController extends Controller
                 ];
             })
             ->filter()
-            ->values();
+            ->values()
+            ->toBase();
 
         $recentTrackings = UserCurriculumTracking::where('user_id', $user->id)
             ->with('chapter.course')
@@ -236,7 +237,8 @@ class UserDashboardApiController extends Controller
                 ];
             })
             ->filter()
-            ->values();
+            ->values()
+            ->toBase();
 
         return $recent
             ->merge($recentTrackings)
