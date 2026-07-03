@@ -2729,6 +2729,14 @@ class ApiController extends Controller
 
         $message->update(['status' => 'waiting_admin']);
 
+        \App\Models\UserNotification::create([
+            'user_id' => $user->id,
+            'type' => 'support_message',
+            'title' => 'تم إرسال ردك',
+            'message' => 'تم إرسال ردك لفريق الدعم',
+            'url' => '/contact-us?tab=conversations',
+        ]);
+
         // Optional: Notify admin here
 
         return response()->json(['success' => true]);
@@ -2765,6 +2773,16 @@ class ApiController extends Controller
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            if ($authUser) {
+                \App\Models\UserNotification::create([
+                    'user_id' => $authUser->id,
+                    'type' => 'support_message',
+                    'title' => 'تم إرسال رسالتك',
+                    'message' => 'تم استلام رسالتك وسيتم الرد عليك قريبًا',
+                    'url' => '/contact-us?tab=conversations',
+                ]);
+            }
 
             $appName = \App\Services\HelperService::systemSettings('app_name') ?? 'LMS';
 
