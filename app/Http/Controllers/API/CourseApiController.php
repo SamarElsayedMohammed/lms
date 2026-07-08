@@ -747,7 +747,7 @@ class CourseApiController extends Controller
             }
 
             // Check if course is active (allow instructor to access their own course)
-            $user = Auth::user();
+            $user = Auth::guard('sanctum')->user() ?? Auth::user();
             if ($course->is_active != 1) {
                 // If user is authenticated and is the instructor of this course, allow access
                 if (!$user || $course->user_id != $user->id) {
@@ -759,15 +759,20 @@ class CourseApiController extends Controller
             $isWishlist = false;
             $hasAccess = false;
             $isSubscribed = false;
+            $hasPurchasedDirectly = false;
             
-            // Check wishlist and subscription for logged-in users
+            // Check wishlist, subscription, and direct purchase for logged-in users
             if ($user) {
                 $isWishlist = Wishlist::where('user_id', $user->id)->where('course_id', $course->id)->exists();
                 $isSubscribed = $user->activeSubscription()->exists();
+                $hasPurchasedDirectly = OrderCourse::where('course_id', $course->id)
+                    ->whereHas('order', static function ($q) use ($user): void {
+                        $q->where('user_id', $user->id)->where('status', 'completed');
+                    })->exists();
             }
 
-            // [NEW LOGIC] Automatically grant access if course is free or user is the instructor
-            if ($course->course_type === 'free' || ($user && $course->user_id == $user->id)) {
+            // [NEW LOGIC] Automatically grant access if course is free, user is the instructor, or has purchased directly
+            if ($course->course_type === 'free' || ($user && $course->user_id == $user->id) || $hasPurchasedDirectly) {
                 $hasAccess = true;
                 $isPurchased = true;
             }
