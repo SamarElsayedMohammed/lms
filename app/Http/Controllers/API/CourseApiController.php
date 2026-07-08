@@ -771,6 +771,26 @@ class CourseApiController extends Controller
                     })->exists();
             }
 
+            // ===== TEMPORARY DEBUG — REMOVE AFTER FIX IS CONFIRMED =====
+            if ($request->boolean('_debug')) {
+                $subscriptionQuery = $user ? $user->activeSubscription() : null;
+                return response()->json([
+                    'debug' => true,
+                    'bearer_token_present' => !empty($request->bearerToken()),
+                    'bearer_token_value'   => $request->bearerToken() ? substr($request->bearerToken(), 0, 10) . '...' : null,
+                    'auth_user_id'         => Auth::user()?->id,
+                    'sanctum_user_id'      => Auth::guard('sanctum')->user()?->id,
+                    'resolved_user_id'     => $user?->id,
+                    'resolved_user_email'  => $user?->email,
+                    'is_subscribed'        => $isSubscribed,
+                    'has_purchased_directly' => $hasPurchasedDirectly,
+                    'subscription_sql'     => $subscriptionQuery?->toSql(),
+                    'subscription_bindings' => $subscriptionQuery?->getBindings(),
+                    'raw_subscription_row' => $user ? \App\Models\Subscription::where('user_id', $user->id)->get(['id','status','starts_at','ends_at','deleted_at'])->toArray() : [],
+                ]);
+            }
+            // ===== END TEMPORARY DEBUG =====
+
             // [NEW LOGIC] Automatically grant access if course is free, user is the instructor, or has purchased directly
             if ($course->course_type === 'free' || ($user && $course->user_id == $user->id) || $hasPurchasedDirectly) {
                 $hasAccess = true;
