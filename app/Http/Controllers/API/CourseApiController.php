@@ -747,7 +747,7 @@ class CourseApiController extends Controller
             }
 
             // Check if course is active (allow instructor to access their own course)
-            $user = Auth::guard('sanctum')->user() ?? Auth::user();
+            $user = Auth::user() ?? Auth::guard('sanctum')->user();
             if ($course->is_active != 1) {
                 // If user is authenticated and is the instructor of this course, allow access
                 if (!$user || $course->user_id != $user->id) {
