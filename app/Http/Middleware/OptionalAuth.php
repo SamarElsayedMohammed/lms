@@ -17,7 +17,12 @@ class OptionalAuth
     public function handle(Request $request, Closure $next): Response
     {
         if ($request->bearerToken()) {
-            Auth::shouldUse('sanctum'); // or 'api' if you're using Passport
+            try {
+                // Explicitly authenticate via Sanctum so Auth::user() is populated
+                Auth::guard('sanctum')->authenticate();
+            } catch (\Throwable $e) {
+                // Invalid or expired token — treat as guest (optional auth)
+            }
         }
         return $next($request);
     }
