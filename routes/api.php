@@ -159,7 +159,64 @@ Route::prefix('subscription')->group(function (): void {
     });
 });
 
-// Debug endpoints — local/staging only
+// ===== PRICING DEBUG — Remove after issue is resolved =====
+Route::get('/debug/subscription-pricing', function (\Illuminate\Http\Request $request) {
+    // Basic protection: require a secret key
+    if ($request->query('_key') !== 'pricing_debug_2024') {
+        abort(404);
+    }
+
+    $countryService = app(\App\Services\CountryDetectionService::class);
+    $pricingService = app(\App\Services\PricingService::class);
+
+    $detectedCountry = $countryService->detect($request);
+
+    $plans = \App\Models\SubscriptionPlan::active()->ordered()->get();
+
+    $result = [];
+    foreach ($plans as $plan) {
+        $pricing = $pricingService->getPriceForCountry($plan, $detectedCountry);
+
+        // Also check what DB rows exist for this plan
+        $countryPrices = \App\Models\SubscriptionPlanPrice::where('plan_id', $plan->id)->get()
+            ->map(fn($cp) => [
+                'country_code'  => $cp->country_code,
+                'currency_code' => $cp->currency_code,
+                'price'         => $cp->price,
+                'old_price'     => $cp->old_price,
+                'is_active'     => $cp->is_active,
+                'can_subscribe' => $cp->can_subscribe,
+            ])->toArray();
+
+        $result[] = [
+            'plan_id'              => $plan->id,
+            'plan_name'            => $plan->name,
+            'plan_base_egp_price'  => $plan->price,
+            'plan_usd_price'       => $plan->usd_price,
+            'detected_country'     => $detectedCountry,
+            'resolved_pricing'     => $pricing,
+            'all_country_prices'   => $countryPrices,
+        ];
+    }
+
+    // SupportedCurrency for detected country
+    $currency = \App\Models\SupportedCurrency::where('country_code', $detectedCountry)->first();
+
+    return response()->json([
+        'detected_country'      => $detectedCountry,
+        'detection_debug'       => $countryService->debug($request),
+        'detected_currency'     => $currency ? [
+            'currency_code'        => $currency->currency_code,
+            'currency_symbol'      => $currency->currency_symbol,
+            'active_exchange_rate' => $currency->active_exchange_rate,
+            'is_active'            => $currency->is_active,
+        ] : null,
+        'plans'                 => $result,
+    ]);
+});
+// ===== END PRICING DEBUG =====
+
+
 if (app()->environment('local', 'staging', 'development')) {
     Route::get('/debug/geo-headers', function (\Illuminate\Http\Request $request) {
         $countryService = app(\App\Services\CountryDetectionService::class);
