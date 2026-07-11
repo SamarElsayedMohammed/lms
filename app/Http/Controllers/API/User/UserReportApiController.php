@@ -389,7 +389,7 @@ class UserReportApiController extends Controller
                     'can_download'       => $cert->isActive(),
                     'verify_url'         => url("/api/certificate/verify?code={$cert->certificate_number}"),
                     'download_url'       => url("/api/certificate/course/download?course_id={$cert->course_id}"),
-                    'view_url'           => url("/api/certificate/course/generate?course_id={$cert->course_id}"),
+                    'view_url'           => url("/api/certificate/course/view?course_id={$cert->course_id}"),
                 ];
             }
 
@@ -429,7 +429,7 @@ class UserReportApiController extends Controller
                         'can_download'       => true,
                         'verify_url'         => null,
                         'download_url'       => url("/api/certificate/course/download?course_id={$course->id}"),
-                        'view_url'           => url("/api/certificate/course/generate?course_id={$course->id}"),
+                        'view_url'           => url("/api/certificate/course/view?course_id={$course->id}"),
                     ];
                 }
             }

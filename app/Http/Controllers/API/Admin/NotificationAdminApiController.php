@@ -27,7 +27,7 @@ class NotificationAdminApiController extends Controller
     public function sendBulkNotification(Request $request)
     {
         $rules = [
-            'target_type' => 'required|in:all,free_users,any_plan,by_plan,students,instructors',
+            'target_type' => 'required|in:all,free_users,expired_subscriptions,any_plan,by_plan,students,instructors',
             'plan_id'     => 'required_if:target_type,by_plan|exists:subscription_plans,id',
             'title'       => 'required|string|max:255',
             'message'     => 'required|string',
@@ -57,7 +57,12 @@ class NotificationAdminApiController extends Controller
 
         switch ($request->target_type) {
             case 'free_users':
-                $query->whereDoesntHave('subscriptions', function($q) {
+                $query->whereDoesntHave('subscriptions');
+                break;
+            case 'expired_subscriptions':
+                $query->whereHas('subscriptions', function($q) {
+                    $q->where('status', 'expired');
+                })->whereDoesntHave('subscriptions', function($q) {
                     $q->where('status', 'active');
                 });
                 break;

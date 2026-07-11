@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\ContactMessage;
+use App\Services\NotificationSettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -191,7 +192,8 @@ class ContactMessageAdminApiController extends AdminCrudApiController
             ]);
 
             // 2️⃣ Send email reply
-            Mail::send(
+            if (in_array('mail', NotificationSettingsService::getChannelsFor('ContactReplyNotification', ['mail', 'database']), true)) {
+                Mail::send(
                 'emails.contact-reply',
                 [
                     'contactMessage' => $message,
@@ -203,9 +205,10 @@ class ContactMessageAdminApiController extends AdminCrudApiController
                         ->subject("Reply to your inquiry - {$appName}");
                 }
             );
+            }
 
             // 3️⃣ Send in-app + FCM notification to the user (only if logged-in user sent the message)
-            if ($message->user_id) {
+            if ($message->user_id && in_array('database', NotificationSettingsService::getChannelsFor('ContactReplyNotification', ['mail', 'database']), true)) {
                 // Create support_reply notification
                 \App\Models\UserNotification::create([
                     'user_id' => $message->user_id,
