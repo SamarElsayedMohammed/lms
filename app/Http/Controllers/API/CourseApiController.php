@@ -7,6 +7,7 @@ use App\Http\Resources\CourseChapterLectureResource;
 use App\Models\Category;
 use App\Models\Commission;
 use App\Models\Course\Course;
+use App\Models\Course\CourseCertificate;
 use App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment;
 use App\Models\Course\CourseChapter\Assignment\UserAssignmentSubmission;
 use App\Models\Course\CourseChapter\CourseChapter;
@@ -9074,6 +9075,32 @@ class CourseApiController extends Controller
 
             $courseId = $request->course_id;
             $certificateId = $request->certificate_id;
+
+            $existingCertificate = CourseCertificate::with('course:id,title')
+                ->where('user_id', $user->id)
+                ->where('course_id', $courseId)
+                ->first();
+
+            if ($existingCertificate) {
+                if ($existingCertificate->isRevoked()) {
+                    return ApiResponseService::errorResponse(
+                        'Your certificate for this course has been revoked. Please contact support.',
+                        null,
+                        403,
+                    );
+                }
+
+                return ApiResponseService::successResponse('Certificate already exists', [
+                    'certificate_url' => url("/api/certificate/course/download?course_id={$courseId}"),
+                    'certificate_data' => [
+                        'certificate_number' => $existingCertificate->certificate_number,
+                        'course_id' => $existingCertificate->course_id,
+                        'course_name' => $existingCertificate->course->title ?? null,
+                        'issued_date' => $existingCertificate->issued_date?->format('Y-m-d'),
+                        'status' => $existingCertificate->status,
+                    ],
+                ]);
+            }
 
             // Generate certificate (service will check course completion using user_curriculum_trackings)
             $certificateService = new CertificateService();

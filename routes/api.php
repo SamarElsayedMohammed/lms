@@ -545,6 +545,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     //Certificate
     Route::group(['prefix' => 'certificate'], function (): void {
         Route::get('/course/generate', [CertificateController::class, 'getCertificate']); // Get/Check certificate for course
+        Route::get('/course/view', [CertificateController::class, 'view']); // View certificate HTML
         Route::match(['get', 'post'], '/course/download', [CertificateController::class, 'download']); // Generate and download certificate PDF
         Route::post('/quiz/generate', [CertificateController::class, 'generateQuizCertificate']);
     });
@@ -880,6 +881,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Admin: Certificate revoke / restore
         Route::post('certificates/{id}/revoke', [\App\Http\Controllers\API\Admin\AdminCertificateController::class, 'revoke']);
         Route::post('certificates/{id}/restore', [\App\Http\Controllers\API\Admin\AdminCertificateController::class, 'restore']);
+
+        // Admin: Certificate Templates
+        Route::get('certificate-templates', [\App\Http\Controllers\API\Admin\CertificateTemplateAdminApiController::class, 'getTemplate']);
+        Route::post('certificate-templates', [\App\Http\Controllers\API\Admin\CertificateTemplateAdminApiController::class, 'upsertTemplate']);
 
         // Courses
         Route::get('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'index']);

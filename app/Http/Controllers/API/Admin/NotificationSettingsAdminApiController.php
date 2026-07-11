@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Services\ApiResponseService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class NotificationSettingsAdminApiController extends Controller
 {
@@ -29,16 +30,22 @@ class NotificationSettingsAdminApiController extends Controller
         foreach ($notificationFiles as $file) {
             $className = basename($file, '.php');
             
-            // Exclude some manually dispatched notifications that might not be configurable globally
-            // or we can just list all of them
-            $mailEnabled = isset($config[$className]['mail']) ? (bool) $config[$className]['mail'] : true;
-            $pushEnabled = isset($config[$className]['database']) ? (bool) $config[$className]['database'] : true;
+            $channels = $this->notificationChannels($className);
+            $mailEnabled = $channels['mail'] && (isset($config[$className]['mail']) ? (bool) $config[$className]['mail'] : true);
+            $pushEnabled = $channels['database'] && (isset($config[$className]['database']) ? (bool) $config[$className]['database'] : true);
 
             $notifications[] = [
                 'class_name' => $className,
-                'name' => preg_replace('/(?<!^)[A-Z]/', ' $0', $className), // Make it human readable
+                'name' => $this->notificationDisplayName($className),
+                'available_channels' => [
+                    'mail' => $channels['mail'],
+                    'database' => $channels['database'],
+                ],
                 'mail_enabled' => $mailEnabled,
+                'email_enabled' => $mailEnabled,
                 'push_enabled' => $pushEnabled,
+                'notification_enabled' => $pushEnabled,
+                'database_enabled' => $pushEnabled,
             ];
         }
 
@@ -57,8 +64,11 @@ class NotificationSettingsAdminApiController extends Controller
             'subscription_expiry_days' => 'nullable|string',
             'notifications' => 'nullable|array',
             'notifications.*.class_name' => 'required|string',
-            'notifications.*.mail_enabled' => 'required|boolean',
-            'notifications.*.push_enabled' => 'required|boolean',
+            'notifications.*.mail_enabled' => 'nullable|boolean',
+            'notifications.*.email_enabled' => 'nullable|boolean',
+            'notifications.*.push_enabled' => 'nullable|boolean',
+            'notifications.*.notification_enabled' => 'nullable|boolean',
+            'notifications.*.database_enabled' => 'nullable|boolean',
         ]);
 
         if ($request->has('subscription_expiry_days')) {
@@ -75,8 +85,8 @@ class NotificationSettingsAdminApiController extends Controller
             foreach ($request->notifications as $notificationData) {
                 $className = $notificationData['class_name'];
                 $config[$className] = [
-                    'mail' => $notificationData['mail_enabled'],
-                    'database' => $notificationData['push_enabled']
+                    'mail' => (bool) ($notificationData['mail_enabled'] ?? $notificationData['email_enabled'] ?? $config[$className]['mail'] ?? true),
+                    'database' => (bool) ($notificationData['push_enabled'] ?? $notificationData['notification_enabled'] ?? $notificationData['database_enabled'] ?? $config[$className]['database'] ?? true),
                 ];
             }
 
@@ -90,5 +100,19 @@ class NotificationSettingsAdminApiController extends Controller
         Cache::forget(config('constants.CACHE.SETTINGS', 'system_settings'));
 
         return ApiResponseService::successResponse('Notification settings updated successfully');
+    }
+    private function notificationDisplayName(string $className): string
+    {
+        return trim(Str::headline(str_replace('Notification', '', $className)));
+    }
+
+    private function notificationChannels(string $className): array
+    {
+        $fqcn = "App\\Notifications\\{$className}";
+
+        return [
+            'mail' => $className === 'ContactReplyNotification' || method_exists($fqcn, 'toMail'),
+            'database' => method_exists($fqcn, 'toDatabase') || method_exists($fqcn, 'toArray'),
+        ];
     }
 }
