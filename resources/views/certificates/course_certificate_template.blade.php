@@ -62,13 +62,7 @@
             font-weight: 600;
         }
 
-        .logo-container {
-            margin-bottom: 20px;
-        }
-        .logo {
-            max-height: 45px;
-            max-width: 200px;
-        }
+        /* تم إزالة لوجو المنتصف */
 
         .certifies-text {
             font-size: 16px;
@@ -107,30 +101,14 @@
             left: 0;
         }
 
-        /* ===== اللوجو الدائري أسفل اليسار ===== */
-        .bottom-logo-circle {
+        /* ===== اللوجو أسفل اليسار ===== */
+        .bottom-logo-img {
             position: absolute;
             bottom: 0px;
             left: 40px;
-            width: 65px;
-            height: 65px;
-            border-radius: 50%;
-            background-color: #db3b2c;
-            text-align: center;
-        }
-        .bottom-logo-arrow {
-            color: #ffffff;
-            font-size: 22px;
-            font-weight: bold;
-            margin-top: 8px;
-            display: block;
-        }
-        .bottom-logo-text {
-            color: #ffffff;
-            font-size: 11px;
-            font-weight: bold;
-            margin-top: -2px;
-            display: block;
+            max-width: 100px;
+            max-height: 65px;
+            object-fit: contain;
         }
 
         /* ===== قسم المدرب بالمنتصف ===== */
@@ -192,13 +170,11 @@
         <div class="inner-content">
             
             <div class="header">
-                <div class="title">C E R T I F I C A T E</div>
+                <div class="title">CERTIFICATE</div>
                 <div class="subtitle">OF COMPLETION</div>
             </div>
 
-            <div class="logo-container">
-                <img src="{{ asset('img/logo.png') }}" class="logo" alt="Skillso" onerror="this.style.display='none'">
-            </div>
+            <!-- تم إزالة اللوجو من المنتصف بناءً على الطلب -->
 
             <div class="certifies-text">Certifies That</div>
 
@@ -209,11 +185,8 @@
             <div class="course-name">{{ $course->title ?? '[Course Name]' }}</div>
 
             <div class="footer">
-                {{-- اللوجو الدائري الأحمر --}}
-                <div class="bottom-logo-circle">
-                    <span class="bottom-logo-arrow">&#8599;</span>
-                    <span class="bottom-logo-text">Skills</span>
-                </div>
+                {{-- اللوجو في أسفل اليسار --}}
+                <img src="{{ asset('img/logo.png') }}" class="bottom-logo-img" alt="Skillso" onerror="this.src='{{ asset('images/logo-3.png') }}'">
 
                 {{-- توقيع المدرب --}}
                 <div class="instructor-section">
