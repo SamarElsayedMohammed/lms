@@ -158,9 +158,11 @@ class FaqAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('faqs-edit');
 
-        $validator = Validator::make($request->all(), [
-            'order'   => 'required|array',
-            'order.*' => 'integer|exists:faqs,id',
+        $order = $request->input('order', $request->input('ids', []));
+
+        $validator = Validator::make(['order' => $order], [
+            'order'   => 'required|array|min:1',
+            'order.*' => 'integer|distinct|exists:faqs,id',
         ]);
 
         if ($validator->fails()) {
@@ -169,11 +171,16 @@ class FaqAdminApiController extends AdminCrudApiController
 
         try {
             DB::beginTransaction();
-            foreach ($request->order as $index => $faqId) {
+            foreach ($order as $index => $faqId) {
                 Faq::where('id', $faqId)->update(['sequence' => $index + 1]);
             }
             DB::commit();
-            return $this->jsonSuccess(__('FAQ order updated successfully'));
+
+            $faqs = Faq::whereIn('id', $order)
+                ->orderBy('sequence')
+                ->get(['id', 'question', 'sequence']);
+
+            return $this->jsonSuccess(__('FAQ order updated successfully'), $faqs);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
