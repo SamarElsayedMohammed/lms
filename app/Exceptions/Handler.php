@@ -38,6 +38,15 @@ class Handler extends ExceptionHandler
     #[\Override]
     public function render($request, Throwable $e)
     {
+        // Handle authentication exceptions FIRST — before anything else
+        // to prevent "Route [login] not defined" crash on API routes.
+        if ($e instanceof \Illuminate\Auth\AuthenticationException) {
+            return response()->json([
+                'error'   => true,
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+
         if ($request->is('api/*')) {
             if ($e instanceof ApiException) {
                 return ResponseService::errorResponse($e->getMessage(), $e->getData(), $e->getStatusCode());
@@ -57,15 +66,11 @@ class Handler extends ExceptionHandler
      */
     protected function unauthenticated($request, \Illuminate\Auth\AuthenticationException $exception)
     {
-        if ($request->expectsJson() || $request->is('api/*')) {
-            return response()->json(['error' => true, 'message' => 'Unauthenticated.'], 401);
-        }
-
-        if (!\Illuminate\Support\Facades\Route::has('login')) {
-            return response()->json(['error' => true, 'message' => 'Unauthenticated.'], 401);
-        }
-
-        return redirect()->guest(route('login'));
+        // Always return JSON for API routes — never redirect to 'login'.
+        return response()->json([
+            'error'   => true,
+            'message' => 'Unauthenticated.',
+        ], 401);
     }
 
     /**

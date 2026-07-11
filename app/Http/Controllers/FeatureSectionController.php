@@ -31,11 +31,21 @@ class FeatureSectionController extends Controller
             'searching_based',
             'recommend_for_you',
             'my_learning',
+            'courses',
         ];
 
         $rules = [
             'type' => 'required|string|max:255',
             'title' => 'required|string|max:255',
+            'layout' => 'nullable|in:carousel,grid',
+            'grid_columns' => 'nullable|integer|min:1|max:6',
+            'background' => 'nullable|in:white,section,transparent',
+            'sorting' => 'nullable|string|max:50',
+            'visibility_permissions' => 'nullable|array',
+            'visibility_devices' => 'nullable|array',
+            'responsive_limits' => 'nullable|array',
+            'manual_courses' => 'nullable|array',
+            'manual_courses.*' => 'exists:courses,id',
         ];
 
         // Make limit required only for types that need it
@@ -55,8 +65,20 @@ class FeatureSectionController extends Controller
         $request->validate($rules);
 
         try {
-            $data = $request->only(['type', 'title', 'limit']);
+            $data = $request->only([
+                'type',
+                'title',
+                'limit',
+                'layout',
+                'grid_columns',
+                'background',
+                'sorting',
+                'responsive_limits',
+                'visibility_permissions',
+                'visibility_devices',
+            ]);
             $featureSection = FeatureSection::create($data);
+            $this->syncManualCourses($featureSection, $request->input('manual_courses', []));
 
             // Store image if type is offer
             if ($request->type === 'offer' && $request->hasFile('offer_image')) {
@@ -165,12 +187,22 @@ class FeatureSectionController extends Controller
             'searching_based',
             'recommend_for_you',
             'my_learning',
+            'courses',
         ];
 
         $rules = [
             'type' => 'required|string|max:255',
             'title' => 'required|string|max:255',
             'offer_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp,svg|max:2048',
+            'layout' => 'nullable|in:carousel,grid',
+            'grid_columns' => 'nullable|integer|min:1|max:6',
+            'background' => 'nullable|in:white,section,transparent',
+            'sorting' => 'nullable|string|max:50',
+            'visibility_permissions' => 'nullable|array',
+            'visibility_devices' => 'nullable|array',
+            'responsive_limits' => 'nullable|array',
+            'manual_courses' => 'nullable|array',
+            'manual_courses.*' => 'exists:courses,id',
         ];
 
         // Make limit required only for types that need it
@@ -189,11 +221,14 @@ class FeatureSectionController extends Controller
         try {
             $data = $validator->validated();
             // Remove offer_image from update data - it's not a column in feature_sections table
-            unset($data['offer_image']);
+            unset($data['offer_image'], $data['manual_courses']);
 
             // Remove is_active from update data - status should not be changed from edit modal
 
             $featureSection->update($data);
+            if ($request->has('manual_courses')) {
+                $this->syncManualCourses($featureSection, $request->input('manual_courses', []));
+            }
 
             // Handle offer image update if type is offer and image is uploaded
             if ($request->type === 'offer' && $request->hasFile('offer_image')) {
@@ -263,6 +298,18 @@ class FeatureSectionController extends Controller
             ResponseService::logErrorRedirect($th, 'FeatureSectionController -> trash()');
             return ResponseService::errorResponse('Failed to permanently delete Feature Section');
         }
+    }
+
+    private function syncManualCourses(FeatureSection $featureSection, array $courseIds): void
+    {
+        $sync = [];
+        foreach (array_values(array_unique(array_map('intval', $courseIds))) as $index => $courseId) {
+            if ($courseId > 0) {
+                $sync[$courseId] = ['sort_order' => $index + 1];
+            }
+        }
+
+        $featureSection->manualCourses()->sync($sync);
     }
 
     public function updateRankOfFeatureSections(Request $request)

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Course\Course;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -18,6 +19,21 @@ class FeatureSection extends Model
         'limit',
         'row_order',
         'is_active',
+        'layout',
+        'grid_columns',
+        'background',
+        'sorting',
+        'responsive_limits',
+        'visibility_permissions',
+        'visibility_devices',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+        'grid_columns' => 'integer',
+        'responsive_limits' => 'array',
+        'visibility_permissions' => 'array',
+        'visibility_devices' => 'array',
     ];
 
     #[\Override]
@@ -34,5 +50,13 @@ class FeatureSection extends Model
     public function images()
     {
         return $this->hasMany(FeatureSectionImage::class);
+    }
+
+    public function manualCourses()
+    {
+        return $this->belongsToMany(Course::class, 'feature_section_manual_courses')
+            ->withPivot('sort_order')
+            ->withTimestamps()
+            ->orderBy('feature_section_manual_courses.sort_order');
     }
 }
