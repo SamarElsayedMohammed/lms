@@ -116,7 +116,7 @@ class CertificateController extends Controller
             $videoProgress = app(VideoProgressService::class)->getCourseProgress($user, $course);
             if ($videoProgress < VideoProgressService::COMPLETION_THRESHOLD) {
                 return ApiResponseService::validationError(
-                    'You must watch all video lectures to ' . VideoProgressService::COMPLETION_THRESHOLD . '% before generating a certificate. Current progress: ' . $videoProgress . %',
+                    'You must watch all video lectures to ' . VideoProgressService::COMPLETION_THRESHOLD . '% before generating a certificate. Current progress: ' . $videoProgress  . '%',
                 );
             }
 
