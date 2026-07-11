@@ -255,34 +255,50 @@ class CertificateController extends Controller
             // Fallback to the default blade template
             $html = view('certificates.course_certificate_template', [
                 'certificate' => $courseCertificate,
-                'user' => $courseCertificate->user,
-                'course' => $courseCertificate->course,
+                'user'        => $courseCertificate->user,
+                'course'      => $courseCertificate->course,
             ])->render();
-            
+
             $widthPx  = 800; // Standard fallback width
-            $heightPx = 600; // Standard fallback height
+            $heightPx = 566; // Matches course_certificate_template dimensions
         }
 
         $widthMM  = round($widthPx  * 0.264583, 2);
         $heightMM = round($heightPx * 0.264583, 2);
 
-        $mpdf = new Mpdf([
-            'mode'            => 'utf-8',
-            'format'          => [$widthMM, $heightMM],
-            'margin_left'     => 0,
-            'margin_right'    => 0,
-            'margin_top'      => 0,
-            'margin_bottom'   => 0,
-            'autoScriptToLang' => true,
-            'autoLangToFont'   => true,
-        ]);
+        try {
+            $mpdf = new Mpdf([
+                'mode'             => 'utf-8',
+                'format'           => [$widthMM, $heightMM],
+                'margin_left'      => 0,
+                'margin_right'     => 0,
+                'margin_top'       => 0,
+                'margin_bottom'    => 0,
+                'autoScriptToLang' => true,
+                'autoLangToFont'   => true,
+                'tempDir'          => storage_path('app/temp'),
+            ]);
 
-        $mpdf->WriteHTML($html);
+            $mpdf->WriteHTML($html);
 
-        return response($mpdf->Output('', 'S'), 200, [
-            'Content-Type'        => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="certificate.pdf"',
-        ]);
+            return response($mpdf->Output('', 'S'), 200, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="certificate.pdf"',
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Certificate PDF generation failed', [
+                'user_id'   => $user->id,
+                'course_id' => $course_id,
+                'error'     => $e->getMessage(),
+                'file'      => $e->getFile() . ':' . $e->getLine(),
+            ]);
+
+            return ApiResponseService::errorResponse(
+                'Failed to generate certificate PDF. Please try again.',
+                ['debug' => config('app.debug') ? $e->getMessage() : null],
+                500
+            );
+        }
     }
 
     /**
