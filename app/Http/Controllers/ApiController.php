@@ -429,8 +429,8 @@ class ApiController extends Controller
                 'type'          => 'required|in:google,apple,email',
                 'platform_type' => 'nullable|in:android,ios',
                 'firebase_token'=> ($isEmailType || $isWebOAuth) ? 'nullable|string' : 'required|string',
-                'device_type'   => 'nullable|in:web,android,ios,desktop',
-                'device_id'     => 'nullable|string|max:255',
+                'device_type'   => 'required|string|in:web,android,ios',
+                'device_id'     => 'required|string|max:255',
                 'device_name'   => 'nullable|string|max:255',
             ];
 
