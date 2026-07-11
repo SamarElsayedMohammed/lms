@@ -126,14 +126,20 @@ class HomeApiController extends Controller
             ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $sections = FeatureSection::where('is_active', 1)->orderBy('row_order')->get();
+        $sections = FeatureSection::with('manualCourses')->where('is_active', 1)->orderBy('row_order')->get();
 
         $user = Auth::user();
 
         $result = $sections->map(function ($section) use ($user, $request) {
             $limit = $section->limit ?? 10;
 
-            switch ($section->type) {
+            if ($section->sorting === 'manual' && $section->manualCourses->isNotEmpty()) {
+                $data = $section->manualCourses()
+                    ->with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
+                    ->take($limit)
+                    ->get();
+            } else {
+                switch ($section->type) {
                 case 'newly_added_courses':
                     $query = Course::with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
                         ->where('is_active', 1)
@@ -1278,6 +1284,7 @@ class HomeApiController extends Controller
                 default:
                     $data = collect();
                     break;
+                }
             }
 
             // Map courses only (skip for offers/instructors since structure is different)
@@ -1290,6 +1297,7 @@ class HomeApiController extends Controller
                 'recommend_for_you',
                 'searching_based',
                 'most_viewed_courses',
+                'courses',
             ])) {
                 $data = $data->map(function ($course) {
                     $discountPercentage = 0;
@@ -1349,6 +1357,17 @@ class HomeApiController extends Controller
                 'id' => $section->id,
                 'title' => $section->title,
                 'type' => $section->type,
+                'layout' => $section->layout,
+                'grid_columns' => $section->grid_columns,
+                'background' => $section->background,
+                'sorting' => $section->sorting,
+                'responsive_limits' => $section->responsive_limits,
+                'visibility_permissions' => $section->visibility_permissions,
+                'visibility_devices' => $section->visibility_devices,
+                'manual_courses' => $section->manualCourses->map(static fn ($course) => [
+                    'id' => $course->id,
+                    'sort_order' => $course->pivot->sort_order ?? null,
+                ])->values(),
                 'data' => $data,
             ];
         });
