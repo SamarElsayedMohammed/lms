@@ -351,6 +351,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('get-resources', [CourseApiController::class, 'getResources']); // Get Course Resources
     Route::post('instructor/update-details', [InstructorApiController::class, 'updateDetails']);
     Route::get('get-user-details', [ApiController::class, 'getUserDetails']); // Get User Details
+    Route::get('user/profile', [ApiController::class, 'getUserDetails']); // Backward-compatible alias for user details
     Route::get('is-email-exist', [ApiController::class, 'isEmailExist']); // Check if logged-in user's email exists
     Route::post('update-profile', [ApiController::class, 'updateProfile']); // Update User Profile (handles both user and instructor details)
     Route::post('change-password', [ApiController::class, 'changePassword'])->middleware('throttle:4,1440'); // Change User Password

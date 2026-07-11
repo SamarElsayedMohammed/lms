@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Tests\Feature\Api;
 
 use App\Models\User;
+use App\Models\UserDevice;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -54,6 +56,90 @@ final class AuthenticationSecurityTest extends TestCase
             'password' => 'Password#123',
         ])->assertStatus(422)
             ->assertJsonPath('message', 'User Not Found');
+    }
+
+    public function test_user_login_requires_device_tracking_fields(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'tracked@example.com',
+            'password' => Hash::make('Password#123'),
+            'is_active' => 1,
+        ]);
+        $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+
+        $this->postJson('/api/user-login', [
+            'type' => 'email',
+            'email' => 'tracked@example.com',
+            'password' => 'Password#123',
+        ])->assertStatus(422)
+            ->assertJsonPath('error', true)
+            ->assertJsonPath('message', 'The device type field is required.');
+
+        $this->postJson('/api/user-login', [
+            'type' => 'email',
+            'email' => 'tracked@example.com',
+            'password' => 'Password#123',
+            'device_type' => '',
+            'device_id' => '',
+        ])->assertStatus(422)
+            ->assertJsonPath('error', true);
+
+        $this->assertDatabaseMissing('user_devices', ['user_id' => $user->id]);
+    }
+
+    public function test_user_login_tracks_device_and_blocks_second_web_device(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'device-limit@example.com',
+            'password' => Hash::make('Password#123'),
+            'is_active' => 1,
+            'allowed_devices_count' => 3,
+        ]);
+        $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+
+        $this->postJson('/api/user-login', [
+            'type' => 'email',
+            'email' => 'device-limit@example.com',
+            'password' => 'Password#123',
+            'device_type' => 'web',
+            'device_id' => 'browser-a',
+        ])->assertOk()
+            ->assertJsonPath('error', false)
+            ->assertJsonPath('data.email', 'device-limit@example.com');
+
+        $this->assertDatabaseHas('user_devices', [
+            'user_id' => $user->id,
+            'device_type' => 'web',
+            'device_id' => 'browser-a',
+        ]);
+
+        $this->postJson('/api/user-login', [
+            'type' => 'email',
+            'email' => 'device-limit@example.com',
+            'password' => 'Password#123',
+            'device_type' => 'web',
+            'device_id' => 'browser-b',
+        ])->assertStatus(422)
+            ->assertJsonPath('error', true);
+
+        $this->assertSame(1, UserDevice::where('user_id', $user->id)->count());
+    }
+
+    public function test_user_profile_route_alias_returns_user_details(): void
+    {
+        $user = User::factory()->create(['is_active' => 1]);
+        $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+        Sanctum::actingAs($user);
+
+        $details = $this->getJson('/api/get-user-details');
+        $profile = $this->getJson('/api/user/profile');
+
+        $details->assertOk()
+            ->assertJsonPath('error', false)
+            ->assertJsonPath('data.id', $user->id);
+
+        $profile->assertOk()
+            ->assertExactJson($details->json());
     }
 
     public function test_duplicate_email_signup_is_rejected(): void

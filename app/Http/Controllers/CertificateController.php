@@ -145,7 +145,16 @@ class CertificateController extends Controller
             ->first();
 
         if (!$certificateTemplate) {
-            return ApiResponseService::errorResponse('No active certificate template found.');
+            // Fallback to the default blade template
+            $html = view('certificates.course_certificate_template', [
+                'certificate' => $courseCertificate,
+                'user' => $courseCertificate->user,
+                'course' => $courseCertificate->course,
+            ])->render();
+            
+            return response($html, 200, [
+                'Content-Type' => 'text/html; charset=UTF-8',
+            ]);
         }
 
         return response($this->generateCertificateHtml($certificateTemplate, $courseCertificate), 200, [
@@ -232,19 +241,28 @@ class CertificateController extends Controller
             ->orderBy('created_at', 'desc')
             ->first();
 
-        if (!$certificateTemplate) {
-            return ApiResponseService::errorResponse('No active certificate template found.');
+        if ($certificateTemplate) {
+            // Generate HTML → PDF from database template
+            $html = $this->generateCertificateHtml($certificateTemplate, $courseCertificate);
+
+            $templateSettings = is_string($certificateTemplate->template_settings)
+                ? json_decode($certificateTemplate->template_settings, true)
+                : $certificateTemplate->template_settings;
+
+            $widthPx  = $templateSettings['width']  ?? 800;
+            $heightPx = $templateSettings['height'] ?? 600;
+        } else {
+            // Fallback to the default blade template
+            $html = view('certificates.course_certificate_template', [
+                'certificate' => $courseCertificate,
+                'user' => $courseCertificate->user,
+                'course' => $courseCertificate->course,
+            ])->render();
+            
+            $widthPx  = 800; // Standard fallback width
+            $heightPx = 600; // Standard fallback height
         }
 
-        // Generate HTML → PDF
-        $html = $this->generateCertificateHtml($certificateTemplate, $courseCertificate);
-
-        $templateSettings = is_string($certificateTemplate->template_settings)
-            ? json_decode($certificateTemplate->template_settings, true)
-            : $certificateTemplate->template_settings;
-
-        $widthPx  = $templateSettings['width']  ?? 800;
-        $heightPx = $templateSettings['height'] ?? 600;
         $widthMM  = round($widthPx  * 0.264583, 2);
         $heightMM = round($heightPx * 0.264583, 2);
 
