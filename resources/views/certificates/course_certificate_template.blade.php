@@ -10,235 +10,228 @@
             box-sizing: border-box;
         }
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Arial', sans-serif;
             background-color: #ffffff;
             width: 800px;
             height: 566px;
             position: relative;
-            overflow: hidden;
         }
 
-        /* ===== البوردر الأحمر الخارجي عبر table ===== */
-        .outer-border {
-            position: absolute;
-            top: 14px;
-            left: 14px;
-            right: 14px;
-            bottom: 14px;
-            border: 3px solid #e01a0f;
-            border-radius: 12px;
-        }
-
-        /* ===== خلفية النقوش الدائرية ===== */
-        .watermark-row {
-            font-size: 0;
-            line-height: 0;
-            color: #ececec;
-            letter-spacing: 0;
-        }
-        .watermark-cell {
-            display: inline-block;
-            width: 32px;
-            height: 32px;
-            border: 1px solid #e5e5e5;
-            border-radius: 50%;
-        }
-
-        /* ===== المحتوى الرئيسي ===== */
-        .content {
+        /* ===== الحاوية الرمادية الخارجية ===== */
+        .wrapper {
+            background-color: #e8e8e8; /* رمادي خفيف حول الشهادة */
+            width: 800px;
+            height: 566px;
+            padding: 10px;
             position: absolute;
             top: 0;
             left: 0;
-            right: 0;
-            bottom: 0;
+        }
+
+        /* ===== الحاوية البيضاء الداخلية بالبوردر الأحمر ===== */
+        .inner-content {
+            background-color: #ffffff;
+            width: 100%;
+            height: 100%;
+            border-radius: 12px;
+            border: 3px solid #db3b2c; /* لون البوردر الأحمر */
+            position: relative;
             text-align: center;
-            padding-top: 62px;
         }
 
-        /* ===== عنوان CERTIFICATE ===== */
+        /* ===== المحتوى ===== */
+        .header {
+            margin-top: 40px;
+        }
+
         .title {
-            font-family: "Times New Roman", Times, serif;
-            font-size: 36px;
-            letter-spacing: 10px;
-            color: #111111;
-            font-weight: normal;
-            margin-bottom: 4px;
+            font-family: 'Times New Roman', Times, serif;
+            font-size: 38px;
+            letter-spacing: 8px;
+            color: #1a1a1a;
+            font-weight: bold;
+            text-transform: uppercase;
         }
 
-        /* ===== OF COMPLETION ===== */
         .subtitle {
-            font-size: 12px;
-            letter-spacing: 5px;
-            color: #333333;
-            margin-bottom: 24px;
+            font-size: 14px;
+            letter-spacing: 4px;
+            color: #4a4a4a;
+            margin-top: 5px;
+            margin-bottom: 25px;
+            font-weight: 600;
         }
 
-        /* ===== اللوجو ===== */
         .logo-container {
-            margin-bottom: 16px;
+            margin-bottom: 20px;
         }
         .logo {
-            max-height: 50px;
+            max-height: 45px;
             max-width: 200px;
         }
 
-        /* ===== Certifies That ===== */
         .certifies-text {
-            font-size: 14px;
-            color: #555555;
-            margin-bottom: 16px;
-            letter-spacing: 1px;
+            font-size: 16px;
+            color: #333333;
+            margin-bottom: 10px;
+            font-weight: bold;
         }
 
-        /* ===== اسم الطالب ===== */
+        /* ===== اسم الطالب باللون الأحمر ===== */
         .student-name {
             font-size: 28px;
             font-weight: bold;
-            color: #111111;
-            margin-bottom: 14px;
-            font-family: "Times New Roman", Times, serif;
+            color: #db3b2c; /* اللون الأحمر */
+            margin-bottom: 15px;
+            font-family: 'Arial', sans-serif;
         }
 
-        /* ===== نص إتمام الكورس ===== */
         .completion-text {
             font-size: 14px;
+            color: #333333;
             font-weight: bold;
-            color: #222222;
-            margin-bottom: 5px;
+            margin-bottom: 25px;
         }
 
-        /* ===== اسم الكورس ===== */
         .course-name {
-            font-size: 13px;
-            color: #444444;
+            font-size: 18px;
+            color: #222222;
+            font-weight: bold;
         }
 
-        /* ===== اللوجو الدائري الأحمر ===== */
+        /* ===== أسفل الشهادة ===== */
+        .footer {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            left: 0;
+        }
+
+        /* ===== اللوجو الدائري أسفل اليسار ===== */
         .bottom-logo-circle {
             position: absolute;
-            bottom: 24px;
-            left: 42px;
-            width: 72px;
-            height: 72px;
+            bottom: 0px;
+            left: 40px;
+            width: 65px;
+            height: 65px;
             border-radius: 50%;
-            background-color: #cc1f10;
+            background-color: #db3b2c;
             text-align: center;
-            padding-top: 14px;
         }
         .bottom-logo-arrow {
-            font-size: 22px;
             color: #ffffff;
+            font-size: 22px;
             font-weight: bold;
-            line-height: 1;
+            margin-top: 8px;
+            display: block;
         }
         .bottom-logo-text {
             color: #ffffff;
-            font-size: 10px;
+            font-size: 11px;
             font-weight: bold;
-            letter-spacing: 0.5px;
+            margin-top: -2px;
+            display: block;
         }
 
-        /* ===== قسم المدرب ===== */
+        /* ===== قسم المدرب بالمنتصف ===== */
         .instructor-section {
             position: absolute;
-            bottom: 28px;
+            bottom: 0px;
             left: 50%;
-            margin-left: -90px;
-            width: 180px;
+            margin-left: -75px;
+            width: 150px;
             text-align: center;
         }
         .instructor-line {
-            border-top: 1px solid #999999;
-            margin-bottom: 6px;
+            border-top: 1px solid #000000;
+            margin-bottom: 8px;
         }
         .instructor-text {
-            font-size: 11px;
+            font-size: 12px;
             font-weight: bold;
-            color: #666666;
-            letter-spacing: 3px;
+            color: #444444;
+            letter-spacing: 2px;
         }
 
-        /* ===== رقم الشهادة والتاريخ ===== */
-        .cert-number {
+        /* ===== الكيو آر كود ورقم الشهادة أسفل اليمين ===== */
+        .qr-section {
             position: absolute;
-            top: 22px;
-            left: 42px;
-            font-size: 10px;
-            color: #888888;
+            bottom: 0px;
+            right: 40px;
+            text-align: center;
+        }
+        .qr-image {
+            width: 60px;
+            height: 60px;
+            margin-bottom: 5px;
+        }
+        .cert-number {
+            font-size: 9px;
+            color: #666666;
         }
         .cert-date {
-            position: absolute;
-            bottom: 34px;
-            right: 42px;
-            font-size: 11px;
-            color: #555555;
+            font-size: 9px;
+            color: #666666;
+            margin-top: 2px;
         }
     </style>
 </head>
 <body>
 
-    {{-- خلفية النقوش الدائرية (CSS circles) --}}
-    <div style="position:absolute;top:0;left:0;width:800px;height:566px;overflow:hidden;">
-        @php $cols = 25; $rows = 18; @endphp
-        @for($r = 0; $r < $rows; $r++)
-            <div style="position:absolute;top:{{ $r * 32 }}px;left:0;width:800px;height:32px;">
-                @for($c = 0; $c < $cols; $c++)
-                    <div style="position:absolute;left:{{ $c * 32 }}px;top:0;width:30px;height:30px;border:1px solid #e8e8e8;border-radius:50%;"></div>
-                @endfor
+    @php
+        // توليد QR Code داخل القالب مباشرة
+        $verifyUrl = url('/certificate/verify/' . ($certificate->certificate_number ?? ''));
+        $qrDataUri = '';
+        try {
+            $result = (new \Endroid\QrCode\Builder\Builder(data: $verifyUrl, size: 100))->build();
+            $qrDataUri = 'data:' . $result->getMimeType() . ';base64,' . base64_encode($result->getString());
+        } catch (\Throwable $e) {}
+    @endphp
+
+    <div class="wrapper">
+        <div class="inner-content">
+            
+            <div class="header">
+                <div class="title">C E R T I F I C A T E</div>
+                <div class="subtitle">OF COMPLETION</div>
             </div>
-        @endfor
-        {{-- تدرج أبيض في المنتصف --}}
-        <div style="position:absolute;top:0;left:0;width:800px;height:566px;background:radial-gradient(ellipse at 50% 45%, rgba(255,255,255,0.95) 40%, rgba(255,255,255,0.6) 75%, rgba(255,255,255,0) 100%);"></div>
-    </div>
 
-    {{-- البوردر الأحمر --}}
-    <div class="outer-border"></div>
+            <div class="logo-container">
+                <img src="{{ asset('img/logo.png') }}" class="logo" alt="Skillso" onerror="this.style.display='none'">
+            </div>
 
-    {{-- رقم الشهادة --}}
-    <div class="cert-number">
-        {{ $certificate->certificate_number ?? '' }}
-    </div>
+            <div class="certifies-text">Certifies That</div>
 
-    {{-- المحتوى الرئيسي --}}
-    <div class="content">
-        <div class="title">C E R T I F I C A T E</div>
-        <div class="subtitle">OF COMPLETION</div>
+            <div class="student-name">{{ $user->name ?? '[Student Name]' }}</div>
 
-        {{-- اللوجو --}}
-        <div class="logo-container">
-            <img src="{{ asset('img/logo.png') }}"
-                 class="logo"
-                 alt="Logo"
-                 onerror="this.style.display='none'">
+            <div class="completion-text">Has successfully completed the course</div>
+
+            <div class="course-name">{{ $course->title ?? '[Course Name]' }}</div>
+
+            <div class="footer">
+                {{-- اللوجو الدائري الأحمر --}}
+                <div class="bottom-logo-circle">
+                    <span class="bottom-logo-arrow">&#8599;</span>
+                    <span class="bottom-logo-text">Skills</span>
+                </div>
+
+                {{-- توقيع المدرب --}}
+                <div class="instructor-section">
+                    <div class="instructor-line"></div>
+                    <div class="instructor-text">INSTRUCTOR</div>
+                </div>
+
+                {{-- QR Code ورقم الشهادة --}}
+                <div class="qr-section">
+                    @if($qrDataUri)
+                        <img src="{{ $qrDataUri }}" class="qr-image" alt="QR Code">
+                    @endif
+                    <div class="cert-number">{{ $certificate->certificate_number ?? '' }}</div>
+                    <div class="cert-date">{{ \Carbon\Carbon::parse($certificate->issued_date ?? now())->format('Y/m/d') }}</div>
+                </div>
+            </div>
+
         </div>
-
-        <div class="certifies-text">Certifies That</div>
-
-        {{-- اسم الطالب --}}
-        <div class="student-name">{{ $user->name ?? '[Student Name]' }}</div>
-
-        {{-- نص إتمام الكورس --}}
-        <div class="completion-text">Has successfully completed the course</div>
-
-        {{-- اسم الكورس --}}
-        <div class="course-name">{{ $course->title ?? '' }}</div>
-    </div>
-
-    {{-- اللوجو الدائري في أسفل اليسار --}}
-    <div class="bottom-logo-circle">
-        <div class="bottom-logo-arrow">&#8599;</div>
-        <div class="bottom-logo-text">Skills</div>
-    </div>
-
-    {{-- قسم المدرب --}}
-    <div class="instructor-section">
-        <div class="instructor-line"></div>
-        <div class="instructor-text">INSTRUCTOR</div>
-    </div>
-
-    {{-- التاريخ --}}
-    <div class="cert-date">
-        {{ \Carbon\Carbon::parse($certificate->issued_date ?? now())->format('F d, Y') }}
     </div>
 
 </body>
