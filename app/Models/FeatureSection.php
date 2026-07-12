@@ -29,11 +29,13 @@ class FeatureSection extends Model
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
-        'grid_columns' => 'integer',
-        'responsive_limits' => 'array',
+        'is_active'              => 'boolean',
+        'limit'                  => 'integer',   // was arriving as string from MySQL
+        'row_order'              => 'integer',   // was arriving as string from MySQL
+        'grid_columns'           => 'integer',
+        'responsive_limits'      => 'array',
         'visibility_permissions' => 'array',
-        'visibility_devices' => 'array',
+        'visibility_devices'     => 'array',
     ];
 
     #[\Override]

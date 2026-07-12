@@ -156,6 +156,11 @@ final class PricingCalculationService
             'tax_amount' => round($taxAmount, 2),
             'total' => round($total, 2),
             'promo_code_details' => $promoCodeDetails,
+            // Standardization for frontend expected fields
+            'display_price' => round($total, 2), // Typically the frontend needs the total as display_price for cart/course
+            'display_currency' => $localized['currency_code'],
+            'display_symbol' => $localized['currency_symbol'],
+            'formatted_price' => number_format(round($total, 2), 2) . ' ' . $localized['currency_symbol'],
             // Localization metadata
             'currency_code' => $localized['currency_code'],
             'currency_symbol' => $localized['currency_symbol'],
@@ -278,6 +283,10 @@ final class PricingCalculationService
             'tax_percentage' => $pricing['tax_percentage'],
             'tax_amount' => $pricing['tax_amount'],
             'total' => $pricing['total'],
+            'display_price' => $pricing['display_price'] ?? $pricing['total'],
+            'display_currency' => $pricing['display_currency'] ?? $pricing['currency_code'],
+            'display_symbol' => $pricing['display_symbol'] ?? $pricing['currency_symbol'],
+            'formatted_price' => $pricing['formatted_price'] ?? (number_format($pricing['total'], 2) . ' ' . ($pricing['currency_symbol'] ?? '')),
         ];
 
         return [...$formatted, ...$additionalFields];
@@ -305,12 +314,19 @@ final class PricingCalculationService
         $promoDiscount = 0;
         $taxAmount = 0;
 
+        $currencyCode = 'EGP';
+        $currencySymbol = 'ج.م';
+
         foreach ($coursePricingData as $data) {
             $pricing = $data['pricing'];
             $originalPrice += $pricing['original_price'];
             $subtotal += $pricing['subtotal'];
             $promoDiscount += $pricing['promo_discount'];
             $taxAmount += $pricing['tax_amount'];
+            
+            // Grab currency from the first item
+            $currencyCode = $pricing['display_currency'] ?? $pricing['currency_code'] ?? $currencyCode;
+            $currencySymbol = $pricing['display_symbol'] ?? $pricing['currency_symbol'] ?? $currencySymbol;
         }
 
         $courseDiscount = $originalPrice - $subtotal;
@@ -326,6 +342,10 @@ final class PricingCalculationService
             'tax_percentage' => $taxPercentage,
             'tax_amount' => round($taxAmount, 2),
             'total' => round($total, 2),
+            'display_price' => round($total, 2),
+            'display_currency' => $currencyCode,
+            'display_symbol' => $currencySymbol,
+            'formatted_price' => number_format(round($total, 2), 2) . ' ' . $currencySymbol,
         ];
     }
 
@@ -336,6 +356,17 @@ final class PricingCalculationService
      */
     public function buildEmptyPricingResponse(float $taxPercentage = 0, null|string $countryCode = null): array
     {
+        $currencyCode = 'EGP';
+        $currencySymbol = 'ج.م';
+        
+        if ($countryCode) {
+            $currency = SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
+            if ($currency) {
+                $currencyCode = $currency->currency_code;
+                $currencySymbol = $currency->currency_symbol;
+            }
+        }
+
         return [
             'courses' => [],
             'detected_country_code' => $countryCode,
@@ -350,6 +381,10 @@ final class PricingCalculationService
             'tax_percentage' => $taxPercentage,
             'tax_amount' => 0,
             'total' => 0,
+            'display_price' => 0,
+            'display_currency' => $currencyCode,
+            'display_symbol' => $currencySymbol,
+            'formatted_price' => '0.00 ' . $currencySymbol,
         ];
     }
 }

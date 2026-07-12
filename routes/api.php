@@ -1044,6 +1044,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
             // Knowledge Base
             Route::get('/knowledge', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexKnowledge']);
             Route::post('/knowledge', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'storeKnowledge']);
+            Route::post('/knowledge/upload-course-file', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'uploadCourseKnowledge']); // ← course knowledge upload
             Route::get('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'showKnowledge']);
             Route::put('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']);
             Route::post('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']); // POST variant for file uploads

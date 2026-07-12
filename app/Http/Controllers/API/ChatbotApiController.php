@@ -244,9 +244,11 @@ class ChatbotApiController extends Controller
         $courseId = $request->input('course_id');
 
         $conversations = ChatbotConversation::where('user_id', $userId)
+            ->withCount('messages')   // needed by ChatbotConversations.tsx for display
             ->when($type, fn ($q) => $q->where('type', $type))
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->orderBy('last_message_at', 'desc')
+            ->limit(50)   // safety cap to prevent unbounded queries
             ->get();
 
         return response()->json([
@@ -271,9 +273,30 @@ class ChatbotApiController extends Controller
             return response()->json(['status' => false, 'message' => 'Conversation not found'], 404);
         }
 
+        // Expand each message-reply pair into two separate chat turns for the frontend
+        $messages = [];
+        foreach ($conversation->messages as $msg) {
+            // User turn
+            $messages[] = [
+                'id' => $msg->id . '_user',
+                'conversation_id' => $id,
+                'sender' => 'user',
+                'message' => $msg->message,
+                'created_at' => $msg->created_at,
+            ];
+            // Bot turn
+            $messages[] = [
+                'id' => $msg->id . '_bot',
+                'conversation_id' => $id,
+                'sender' => 'bot',
+                'message' => $msg->reply,
+                'created_at' => $msg->created_at,
+            ];
+        }
+
         return response()->json([
             'status' => true,
-            'data' => $conversation->messages,
+            'data' => $messages,
         ], 200, [], JSON_UNESCAPED_UNICODE);
     }
 

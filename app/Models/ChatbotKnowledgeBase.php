@@ -17,6 +17,8 @@ class ChatbotKnowledgeBase extends Model
         'file_path',
         'file_type',
         'is_active',
+        'target_audience',   // 'visitor' | 'subscriber' | 'course'
+        'course_id',         // for course-specific knowledge entries
     ];
 
     protected $casts = [
@@ -29,5 +31,13 @@ class ChatbotKnowledgeBase extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * Relationship with course (for course-specific knowledge entries)
+     */
+    public function course(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Course\Course::class);
     }
 }

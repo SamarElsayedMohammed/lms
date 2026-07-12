@@ -54,6 +54,10 @@ final class ApiResponseService
     }
 
     /**
+     * Send a successful JSON response using the standard API envelope.
+     *
+     * Shape: { status: true, message, data }
+     *
      * @param array<string, mixed> $customData
      * @param array<string, string> $headers
      */
@@ -67,17 +71,16 @@ final class ApiResponseService
     ): void {
         $code ??= (int) config('constants.RESPONSE_CODE.SUCCESS');
         $response = [
-            'error' => false,
+            'status'  => true,
             'message' => trans($message),
-            'data' => $data ?? (object) [],
-            'code' => $code,
+            'data'    => $data ?? null,
         ];
 
         if ($redirectUrl) {
             $response['redirect_url'] = $redirectUrl;
         }
 
-        $jsonResponse = response()->json([...$response, ...$customData], $code);
+        $jsonResponse = response()->json([...$response, ...$customData], $code, [], JSON_UNESCAPED_UNICODE);
 
         foreach ($headers as $headerName => $headerValue) {
             $jsonResponse->header($headerName, $headerValue);
@@ -97,6 +100,11 @@ final class ApiResponseService
         throw new HttpResponseException($jsonResponse);
     }
 
+    /**
+     * Send an error JSON response using the standard API envelope.
+     *
+     * Shape: { status: false, message, data? }
+     */
     public static function errorResponse(
         string $message = 'Error Occurred',
         mixed $data = null,
@@ -104,20 +112,21 @@ final class ApiResponseService
         Throwable|null $exception = null,
         string|null $redirectUrl = null,
     ): void {
-        // Controllers commonly catch Throwable around the whole action. Preserve
-        // responses intentionally raised by successResponse/validationError
-        // instead of wrapping them as an unrelated HTTP 500 response.
+        // Preserve responses intentionally raised via successResponse/validationError
+        // instead of wrapping them as an unrelated error response.
         if ($exception instanceof HttpResponseException) {
             throw $exception;
         }
 
         $code ??= (int) config('constants.RESPONSE_CODE.ERROR');
         $response = [
-            'error' => true,
+            'status'  => false,
             'message' => trans($message),
-            'data' => $data ?? (object) [],
-            'code' => $code,
         ];
+
+        if ($data !== null) {
+            $response['data'] = $data;
+        }
 
         if ($redirectUrl) {
             $response['redirect_url'] = $redirectUrl;
@@ -126,13 +135,13 @@ final class ApiResponseService
         if (config('app.debug') === true && $exception instanceof Throwable) {
             $response['debug'] = [
                 'message' => $exception->getMessage(),
-                'file' => $exception->getFile(),
-                'line' => $exception->getLine(),
-                'trace' => $exception->getTrace(),
+                'file'    => $exception->getFile(),
+                'line'    => $exception->getLine(),
+                'trace'   => $exception->getTrace(),
             ];
         }
 
-        $jsonResponse = response()->json($response, $code);
+        $jsonResponse = response()->json($response, $code, [], JSON_UNESCAPED_UNICODE);
 
         // Preserve CORS headers when raising the response from a service.
         try {
@@ -148,7 +157,12 @@ final class ApiResponseService
         throw new HttpResponseException($jsonResponse);
     }
 
-    public static function validationError(string $message = 'Error Occurred', mixed $data = null): void
+    /**
+     * Send a validation error response.
+     *
+     * Shape: { status: false, message, errors: {...} }
+     */
+    public static function validationError(string $message = 'Validation Failed', mixed $data = null): void
     {
         self::errorResponse($message, $data, (int) config('constants.RESPONSE_CODE.VALIDATION_ERROR'));
     }

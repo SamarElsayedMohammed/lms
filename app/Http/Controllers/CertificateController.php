@@ -22,19 +22,26 @@ class CertificateController extends Controller
     public function getCertificate(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'course_id' => 'required|exists:courses,id',
+            'course_id' => 'required|integer',
         ]);
 
         if ($validator->fails()) {
-            return ApiResponseService::validationError($validator->errors());
+            return response()->json([
+                'ok' => false,
+                'message' => 'course_id is required',
+            ], 422);
         }
 
         $user = Auth::user();
         if (!$user) {
-            return ApiResponseService::errorResponse(__('User not authenticated.'), null, 401);
+            return response()->json(['ok' => false, 'message' => 'Unauthenticated'], 401);
         }
 
-        $course_id = $request->input('course_id');
+        $course_id = (int) $request->input('course_id');
+        $course = Course::with('user')->find($course_id);
+        if (!$course) {
+            return response()->json(['ok' => false, 'message' => 'Course not found'], 404);
+        }
 
         // Get certificate if exists
         $certificate = CourseCertificate::with(['user', 'course'])
@@ -43,33 +50,50 @@ class CertificateController extends Controller
             ->first();
 
         if (!$certificate) {
-            // Check if course is completed
-            $isCompleted = $this->isCourseCompleted($user->id, $course_id);
+            // Check enrollment
+            if (!CourseCertificate::userIsEnrolled($user->id, $course_id)) {
+                return response()->json(['ok' => false, 'message' => 'User is not enrolled in this course'], 403);
+            }
 
-            return ApiResponseService::successResponse(__('Certificate not found.'), [
-                'certificate_exists' => false,
-                'course_completed' => $isCompleted,
-                'message' => $isCompleted
-                    ? __('Course is completed. You can generate certificate.')
-                    : __('Course is not completed yet.'),
+            // Check completion
+            if (!$this->isCourseCompleted($user->id, $course_id)) {
+                return response()->json(['ok' => false, 'message' => 'Course not completed yet'], 403);
+            }
+
+            $videoProgress = app(VideoProgressService::class)->getCourseProgress($user, $course);
+            if ($videoProgress < VideoProgressService::COMPLETION_THRESHOLD) {
+                return response()->json(['ok' => false, 'message' => 'Course not completed yet'], 403);
+            }
+
+            // Create certificate with snapshot fields
+            $certificate = CourseCertificate::create([
+                'user_id'            => $user->id,
+                'course_id'          => $course_id,
+                'certificate_number' => CourseCertificate::generateCertificateNumber(),
+                'student_name'       => $user->name,
+                'arabic_title'       => $course->arabic_title ?? $course->title,
+                'english_title'      => $course->english_title ?? $course->title,
+                'instructor_name'    => $course->user ? $course->user->name : 'Unknown Instructor',
+                'issued_date'        => now()->toDateString(),
+                'status'             => 'active',
             ]);
+            
+            // Reload relationships if needed
+            $certificate->load(['user', 'course', 'course.user']);
         }
 
-        return ApiResponseService::successResponse(__('Certificate found.'), [
-            'certificate_exists' => true,
-            'certificate' => [
-                'id' => $certificate->id,
-                'certificate_number' => $certificate->certificate_number,
-                'issued_date' => $certificate->issued_date,
-                'course' => [
-                    'id' => $certificate->course->id ?? null,
-                    'title' => $certificate->course->title ?? null,
-                ],
-                'user' => [
-                    'id' => $certificate->user->id ?? null,
-                    'name' => $certificate->user->name ?? null,
-                ],
-            ],
+        return response()->json([
+            'ok' => true,
+            'message' => 'Certificate issued successfully',
+            'data' => [
+                'studentName'        => $certificate->student_name ?? ($certificate->user->name ?? ''),
+                'arabicCourseTitle'  => $certificate->arabic_title ?? ($certificate->course->arabic_title ?? $certificate->course->title ?? ''),
+                'englishCourseTitle' => $certificate->english_title ?? ($certificate->course->english_title ?? $certificate->course->title ?? ''),
+                'date'               => $certificate->issued_date ? \Carbon\Carbon::parse($certificate->issued_date)->format('Y-m-d') : null,
+                'instructorName'     => $certificate->instructor_name ?? ($certificate->course->user->name ?? ''),
+                'certificateId'      => $certificate->certificate_number,
+                'courseId'           => $certificate->course_id,
+            ]
         ]);
     }
 
@@ -335,29 +359,38 @@ class CertificateController extends Controller
         $code = trim((string) ($request->input('code') ?: $request->input('certificate_number') ?: ''));
 
         if (empty($code)) {
-            return ApiResponseService::errorResponse('Verification code is required.', null, 422);
+            return response()->json([
+                'ok' => false,
+                'is_valid' => false,
+                'message' => 'Verification code is required.'
+            ], 422);
         }
 
-        $certificate = CourseCertificate::with(['user', 'course'])
+        $certificate = CourseCertificate::with(['user', 'course', 'course.user'])
             ->where('certificate_number', $code)
             ->first();
 
-        if (!$certificate) {
-            return ApiResponseService::errorResponse(
-                'No certificate found with this verification code.',
-                null,
-                404,
-            );
+        if (!$certificate || $certificate->revoked_at !== null || !$certificate->isActive()) {
+            return response()->json([
+                'ok' => false,
+                'is_valid' => false,
+                'message' => 'Certificate not found or has been revoked'
+            ], 404);
         }
 
-        // Return only safe public fields — no email, no user_id, no internal IDs
-        return ApiResponseService::successResponse('Certificate verified.', [
-            'certificate_number' => $certificate->certificate_number,
-            'status'             => $certificate->status,   // 'active' | 'revoked'
-            'issue_date'         => optional($certificate->issued_date)->format('Y-m-d'),
-            'student_name'       => $certificate->user->name ?? 'N/A',
-            'course_title'       => $certificate->course->title ?? 'N/A',
-            'is_valid'           => $certificate->isActive(),
+        return response()->json([
+            'ok' => true,
+            'is_valid' => true,
+            'data' => [
+                'studentName'        => $certificate->student_name ?? ($certificate->user->name ?? ''),
+                'arabicCourseTitle'  => $certificate->arabic_title ?? ($certificate->course->arabic_title ?? $certificate->course->title ?? ''),
+                'englishCourseTitle' => $certificate->english_title ?? ($certificate->course->english_title ?? $certificate->course->title ?? ''),
+                'date'               => $certificate->issued_date ? \Carbon\Carbon::parse($certificate->issued_date)->format('Y-m-d') : null,
+                'instructorName'     => $certificate->instructor_name ?? ($certificate->course->user->name ?? ''),
+                'certificateId'      => $certificate->certificate_number,
+                'courseId'           => $certificate->course_id,
+                'issued_at'          => $certificate->created_at ? $certificate->created_at->toISOString() : null,
+            ]
         ]);
     }
 

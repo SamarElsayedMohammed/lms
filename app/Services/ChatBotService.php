@@ -51,7 +51,9 @@ class ChatBotService
     public function processMessage(string $message, ?int $conversationId = null): array
     {
         $settings = $this->getChatbotSettings();
-        $knowledgeContext = $this->buildKnowledgeContext();
+        // Use 'subscriber' knowledge for logged-in users, 'visitor' for guests
+        $audience = Auth::check() ? 'subscriber' : 'visitor';
+        $knowledgeContext = $this->buildKnowledgeContext($audience);
         $systemPrompt = $this->buildSystemPrompt($settings, $knowledgeContext);
 
         try {
@@ -169,7 +171,8 @@ class ChatBotService
 
             return [
                 'reply' => $reply,
-                'type' => 'ai',
+                'type' => 'ai_course',                                              // specific type for course chatbot
+                'conversation_id' => isset($conversation) ? $conversation->id : null, // required for frontend continuity
                 'course_id' => $course->id,
             ];
         } catch (\Throwable $e) {
@@ -182,6 +185,8 @@ class ChatBotService
             return [
                 'reply' => 'عذراً، حصل مشكلة تقنية. حاول تاني أو تواصل مع الدعم الفني. 🙏',
                 'type' => 'error',
+                'conversation_id' => null, // consistent shape
+                'course_id' => $course->id,
             ];
         }
     }
@@ -206,9 +211,12 @@ class ChatBotService
     /**
      * Build knowledge context from all active knowledge base entries
      */
-    private function buildKnowledgeContext(): string
+    private function buildKnowledgeContext(string $audience = 'visitor'): string
     {
-        $entries = ChatbotKnowledgeBase::active()->get();
+        $entries = ChatbotKnowledgeBase::active()
+            ->where('target_audience', $audience)
+            ->whereNull('course_id')  // exclude course-specific knowledge from general context
+            ->get();
 
         if ($entries->isEmpty()) {
             return '';
