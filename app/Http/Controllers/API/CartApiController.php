@@ -626,6 +626,10 @@ class CartApiController extends Controller
             'tax_percentage' => $pricing['tax_percentage'],
             'tax_amount' => $pricing['tax_amount'],
             'total' => $pricing['total'],
+            'display_price' => $pricing['display_price'],
+            'display_currency' => $pricing['display_currency'],
+            'display_symbol' => $pricing['display_symbol'],
+            'formatted_price' => $pricing['formatted_price'],
         ];
     }
 }

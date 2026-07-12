@@ -34,24 +34,89 @@ class Handler extends ExceptionHandler
 
     /**
      * Render an exception into an HTTP response.
+     *
+     * All API error responses follow the standard envelope:
+     * { status: false, message: string, errors?: object }
      */
     #[\Override]
     public function render($request, Throwable $e)
     {
-        // Handle authentication exceptions FIRST — before anything else
-        // to prevent "Route [login] not defined" crash on API routes.
-        if ($e instanceof \Illuminate\Auth\AuthenticationException) {
-            return response()->json([
-                'error'   => true,
-                'message' => 'Unauthenticated.',
-            ], 401);
-        }
+        // Always return JSON for API routes — never redirect to login pages.
+        if ($request->is('api/*') || $request->expectsJson()) {
 
-        if ($request->is('api/*')) {
-            if ($e instanceof ApiException) {
-                return ResponseService::errorResponse($e->getMessage(), $e->getData(), $e->getStatusCode());
+            // 1. Intentional API responses raised via ApiResponseService/HttpResponseException
+            if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
+                return $e->getResponse();
             }
-            return ResponseService::errorResponse($e->getMessage());
+
+            // 2. Authentication — unauthenticated user
+            if ($e instanceof \Illuminate\Auth\AuthenticationException) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Unauthenticated.',
+                ], 401, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // 3. Authorization — forbidden action
+            if ($e instanceof \Illuminate\Auth\Access\AuthorizationException) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => $e->getMessage() ?: 'Forbidden.',
+                ], 403, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // 4. Validation — structured field errors
+            if ($e instanceof \Illuminate\Validation\ValidationException) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => $e->getMessage(),
+                    'errors'  => $e->errors(),
+                ], 422, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // 5. Model not found (route model binding or findOrFail)
+            if ($e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
+                $model = class_basename($e->getModel());
+                return response()->json([
+                    'status'  => false,
+                    'message' => "{$model} not found.",
+                ], 404, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // 6. Route not found
+            if ($e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'The requested endpoint does not exist.',
+                ], 404, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // 7. Method not allowed
+            if ($e instanceof \Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'HTTP method not allowed.',
+                ], 405, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // 8. Named ApiException (legacy)
+            if ($e instanceof ApiException) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => $e->getMessage(),
+                    'data'    => $e->getData(),
+                ], $e->getStatusCode(), [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // 9. Catch-all — avoid leaking stack traces in production
+            $message = config('app.debug')
+                ? $e->getMessage()
+                : 'An unexpected server error occurred.';
+
+            return response()->json([
+                'status'  => false,
+                'message' => $message,
+            ], 500, [], JSON_UNESCAPED_UNICODE);
         }
 
         return parent::render($request, $e);
@@ -59,18 +124,14 @@ class Handler extends ExceptionHandler
 
     /**
      * Convert an authentication exception into a response.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \Illuminate\Auth\AuthenticationException  $exception
-     * @return \Symfony\Component\HttpFoundation\Response
+     * Always returns JSON — never redirects to a login route.
      */
     protected function unauthenticated($request, \Illuminate\Auth\AuthenticationException $exception)
     {
-        // Always return JSON for API routes — never redirect to 'login'.
         return response()->json([
-            'error'   => true,
+            'status'  => false,
             'message' => 'Unauthenticated.',
-        ], 401);
+        ], 401, [], JSON_UNESCAPED_UNICODE);
     }
 
     /**

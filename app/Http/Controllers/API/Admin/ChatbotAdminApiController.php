@@ -43,12 +43,18 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'chatbot_max_tokens',
             'chatbot_position',
             'chatbot_icon',
+            'openai_api_key',   // returned masked for security
         ];
 
         $settings = [];
         foreach ($settingKeys as $key) {
             $setting = Setting::where('name', $key)->first();
-            $settings[$key] = $setting?->value;
+            if ($key === 'openai_api_key' && !empty($setting?->value)) {
+                // Mask the API key — return only first 10 chars for confirmation
+                $settings[$key] = substr($setting->value, 0, 10) . '...';
+            } else {
+                $settings[$key] = $setting?->value;
+            }
         }
 
         return $this->jsonSuccess(__('Chatbot settings retrieved'), $settings);
@@ -70,6 +76,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'chatbot_max_tokens' => 'nullable|integer|min:100|max:2000',
             'chatbot_position' => 'nullable|string|in:bottom-right,bottom-left,top-right,top-left',
             'chatbot_icon' => 'nullable|image|mimes:jpg,jpeg,png,svg,webp,gif|max:2048',
+            'openai_api_key' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -87,6 +94,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
                 'chatbot_subscriber_system_prompt',
                 'chatbot_max_tokens',
                 'chatbot_position',
+                'openai_api_key',   // stored in settings table (admin-only key)
             ];
 
             foreach ($settingKeys as $key) {
@@ -122,7 +130,23 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
-            return $this->jsonSuccess(__('Chatbot settings updated successfully'));
+            // Re-fetch and return the updated settings so the frontend can update its local state
+            $updatedSettings = [];
+            $returnKeys = [
+                'chatbot_enabled', 'chatbot_name', 'chatbot_welcome_message',
+                'chatbot_system_prompt', 'chatbot_subscriber_system_prompt',
+                'chatbot_max_tokens', 'chatbot_position', 'chatbot_icon', 'openai_api_key',
+            ];
+            foreach ($returnKeys as $key) {
+                $setting = Setting::where('name', $key)->first();
+                if ($key === 'openai_api_key' && !empty($setting?->value)) {
+                    $updatedSettings[$key] = substr($setting->value, 0, 10) . '...';
+                } else {
+                    $updatedSettings[$key] = $setting?->value;
+                }
+            }
+
+            return $this->jsonSuccess(__('Chatbot settings updated successfully'), $updatedSettings);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -307,12 +331,16 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
         $search = $request->input('search');
         $perPage = min((int) $request->input('per_page', 15), 100);
+        $targetAudience = $request->input('target_audience'); // filter by audience: visitor|subscriber|course
+        $courseId = $request->input('course_id');             // filter by specific course
 
         $query = ChatbotKnowledgeBase::query()
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
                   ->orWhere('content', 'like', "%{$search}%");
-            }));
+            }))
+            ->when($targetAudience, fn ($q) => $q->where('target_audience', $targetAudience))
+            ->when($courseId !== null, fn ($q) => $q->where('course_id', $courseId));
 
         $entries = $query->orderBy('id', 'desc')->paginate($perPage);
 
@@ -340,6 +368,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'content' => 'required_without:file|nullable|string',
             'file' => 'required_without:content|nullable|file|mimes:txt,md,csv,json,xml|max:5120', // 5MB max
             'is_active' => 'nullable|boolean',
+            'target_audience' => 'nullable|in:visitor,subscriber,course', // audience segmentation
+            'course_id' => 'nullable|integer|exists:courses,id',           // required when target_audience=course
         ]);
 
         if ($validator->fails()) {
@@ -352,6 +382,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             $data = [
                 'title' => $request->input('title'),
                 'is_active' => $request->boolean('is_active', true),
+                'target_audience' => $request->input('target_audience', 'visitor'),  // default visitor
+                'course_id' => $request->input('course_id'),
             ];
 
             if ($request->hasFile('file')) {
@@ -411,6 +443,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'content' => 'nullable|string',
             'file' => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
             'is_active' => 'nullable|boolean',
+            'target_audience' => 'nullable|in:visitor,subscriber,course',  // audience segmentation
+            'course_id' => 'nullable|integer|exists:courses,id',            // for course-specific entries
         ]);
 
         if ($validator->fails()) {
@@ -428,6 +462,14 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             if ($request->has('is_active')) {
                 $data['is_active'] = $request->boolean('is_active');
+            }
+
+            if ($request->has('target_audience')) {
+                $data['target_audience'] = $request->input('target_audience');
+            }
+
+            if ($request->has('course_id')) {
+                $data['course_id'] = $request->input('course_id');
             }
 
             if ($request->hasFile('file')) {
@@ -550,5 +592,63 @@ class ChatbotAdminApiController extends AdminCrudApiController
         $result = $service->processMessage($request->input('message'));
 
         return $this->jsonSuccess(__('Chat test response'), $result);
+    }
+
+    /**
+     * Upload a knowledge file for a specific course.
+     * Creates or replaces the ChatbotKnowledgeBase entry for the course,
+     * and also updates Course.ai_knowledge_content so processCourseMessage works.
+     */
+    public function uploadCourseKnowledge(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        $validator = Validator::make($request->all(), [
+            'course_id' => 'required|integer|exists:courses,id',
+            'file' => 'required|file|mimes:txt,md,csv,json,xml|max:10240', // 10MB max
+        ]);
+
+        if ($validator->fails()) {
+            return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $file = $request->file('file');
+            $courseId = (int) $request->input('course_id');
+
+            // Read text content from file
+            $content = file_get_contents($file->getRealPath());
+            $filePath = FileService::upload($file, 'chatbot/course-knowledge');
+            $fileType = $file->getClientOriginalExtension();
+
+            // Upsert: one entry per course in the knowledge base
+            $entry = ChatbotKnowledgeBase::updateOrCreate(
+                ['course_id' => $courseId, 'target_audience' => 'course'],
+                [
+                    'title' => $file->getClientOriginalName(),
+                    'content' => $content,
+                    'file_path' => $filePath,
+                    'file_type' => $fileType,
+                    'is_active' => true,
+                ]
+            );
+
+            // Also update the course's ai_knowledge_content so processCourseMessage works
+            \App\Models\Course\Course::where('id', $courseId)->update([
+                'ai_knowledge_content' => $content,
+                'chatbot_enabled' => true,
+            ]);
+
+            DB::commit();
+
+            return $this->jsonSuccess(__('Course knowledge file uploaded successfully'), $entry, 201);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return $this->jsonError(__('Failed to upload course knowledge file') . ': ' . $e->getMessage(), 500);
+        }
     }
 }

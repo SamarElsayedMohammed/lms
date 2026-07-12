@@ -67,11 +67,12 @@ final class PricingService
 
         // 2. Egypt fallback: base EGP price stored on the plan
         if ($countryCode === 'EG') {
+            $currency = SupportedCurrency::where('country_code', 'EG')->where('is_active', true)->first();
             return [
                 'price' => $this->roundUpForDisplay((float) $plan->price),
                 'old_price' => null,
                 'currency_code' => 'EGP',
-                'currency_symbol' => CachingService::getSystemSettings('currency_symbol') ?: 'EGP',
+                'currency_symbol' => $currency?->currency_symbol ?: 'EGP',
                 'price_source' => 'default',
                 'can_subscribe' => true,
             ];
