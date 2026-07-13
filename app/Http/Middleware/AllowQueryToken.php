@@ -9,9 +9,7 @@ class AllowQueryToken
 {
     public function handle(Request $request, Closure $next)
     {
-        if ($request->has('token') && !$request->headers->has('Authorization')) {
-            $request->headers->set('Authorization', 'Bearer ' . $request->query('token'));
-        }
+        // Security Fix: Do not allow tokens in query string to prevent token leakage
 
         return $next($request);
     }

@@ -50,7 +50,7 @@ use Illuminate\Support\Facades\Route;
  * User Authentication APIs
  */
 
-Route::post('user-exists', [ApiController::class, 'userExists']);
+Route::post('user-exists', [ApiController::class, 'userExists'])->middleware('throttle:5,1');
 Route::post('user-signup', [ApiController::class, 'userSignup'])->middleware('throttle:5,1');
 Route::post('user-login', [ApiController::class, 'userLogin'])->middleware('throttle:5,1');
 Route::post('refresh-token', [ApiController::class, 'refreshToken'])->middleware('auth:sanctum');
@@ -66,7 +66,7 @@ Route::post('verify-reset-code', [ResetPasswordController::class, 'verifyResetCo
 Route::post('reset-password', [ResetPasswordController::class, 'resetPassword'])
     ->middleware('throttle:4,1440');
 Route::get('firebase-config', [FirebaseConfigApiController::class, 'show']);
-Route::post('admin-login', [ApiController::class, 'adminLogin']);
+Route::post('admin-login', [ApiController::class, 'adminLogin'])->middleware('throttle:5,1');
 Route::post('logout', [ApiController::class, 'userLogout'])->middleware('auth:sanctum');
 
 /********************************************************************************************* */
@@ -130,10 +130,19 @@ Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO
 Route::get('certificate/verify', [CertificateController::class, 'verifyApi']);
 
 // Webinars Public / User APIs
-Route::get('webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);
-Route::get('webinars/{id}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
-Route::post('webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register'])->middleware('auth:sanctum');
-Route::delete('webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'cancelRegistration'])->middleware('auth:sanctum');
+Route::get('webinars', [\App\Http\Controllers\API\PublicWebinarController::class, 'index']);
+Route::get('webinars/{webinar:slug}', [\App\Http\Controllers\API\PublicWebinarController::class, 'show']);
+Route::get('webinars/{webinar:slug}/join', [\App\Http\Controllers\API\PublicWebinarController::class, 'join'])->middleware('auth:sanctum');
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'register'])
+        ->middleware('throttle:5,1');
+    Route::delete('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'cancelRegistration']);
+    
+    // Wallet registration
+    Route::post('user/wallet/webinars/{webinar:slug}/register', [\App\Http\Controllers\API\User\WalletRegistrationController::class, 'register'])
+        ->middleware([\App\Http\Middleware\IdempotencyMiddleware::class]);
+});
 
 Route::prefix('helpdesk')->group(function (): void {
     Route::get('groups', [HelpdeskApiController::class, 'groups']);
@@ -280,6 +289,7 @@ Route::get('ref/{code}', [AffiliateApiController::class, 'trackReferral'])->wher
  */
 
 Route::middleware(OptionalAuth::class)->group(function (): void {
+    Route::post('feature-sections/interact', [HomeApiController::class, 'interact']);
     Route::get('get-feature-sections', [HomeApiController::class, 'getFeatureSections']);
     Route::get('get-courses', [CourseApiController::class, 'getCourses']);
     Route::get('get-course', [CourseApiController::class, 'getCourse']);
@@ -297,8 +307,7 @@ Route::middleware(OptionalAuth::class)->group(function (): void {
  */
 Route::options('/hls/{uuid}/{path?}', function () {
     return response('', 200, [
-        'Access-Control-Allow-Origin' => request()->header('Origin') ?? '*',
-        'Access-Control-Allow-Credentials' => 'true',
+        'Access-Control-Allow-Origin' => config('cors.allowed_origins')[0] ?? '*',
         'Access-Control-Allow-Methods' => 'GET, OPTIONS',
         'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
         'Access-Control-Max-Age' => '86400',
@@ -336,8 +345,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Handle CORS preflight for video streaming
     Route::options('/video/{lectureId}/stream', function () {
         return response('', 200, [
-            'Access-Control-Allow-Origin' => request()->header('Origin') ?? '*',
-            'Access-Control-Allow-Credentials' => 'true',
+            'Access-Control-Allow-Origin' => config('cors.allowed_origins')[0] ?? '*',
             'Access-Control-Allow-Methods' => 'GET, OPTIONS',
             'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
             'Access-Control-Max-Age' => '86400',
@@ -595,7 +603,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('update-course-chapter', [CourseChaptersController::class, 'update']);
         Route::get('get-added-course-chapters', [CourseChapterApiController::class, 'getAddedCourseChapters']);
         Route::delete('delete-course-chapter', [CourseChapterApiController::class, 'deleteCourseChapter']);
-        Route::post('update-curriculum', [CourseChapterApiController::class, 'updateCurriculum']);
+        // Route removed: update-curriculum does not exist
         Route::put('/common/change-status', [Controller::class, 'changeStatus']);
 
         // Instructor Earnings APIs
@@ -952,6 +960,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('tags/{id}/restore', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'restore']);
 
         // Feature Sections
+        Route::put('feature-sections/reorder', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'reorder']);
+        Route::get('feature-sections/{id}/analytics', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'analytics']);
         Route::get('feature-sections', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'index']);
         Route::get('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'show']);
         Route::post('feature-sections', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'store']);
@@ -1002,18 +1012,23 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Webinars (Admin/Instructor)
         Route::prefix('webinars')->group(function (): void {
-            Route::get('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'update']);
-            Route::match(['put', 'patch'], '{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'destroy']);
-            Route::post('{id}/change-status', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'updateStatus']);
-            Route::post('{id}/cancel', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'cancel']);
-            Route::post('{id}/toggle-publish', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'togglePublish']);
-            Route::post('{id}/toggle-featured', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'toggleFeatured']);
-            Route::get('{id}/registrants', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'registrants']);
-            Route::get('{id}/registrants/export', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'exportRegistrants']);
+            Route::post('upload-image', [\App\Http\Controllers\API\Admin\WebinarMediaController::class, 'upload']);
+            Route::get('/', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'store']);
+            Route::get('{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'show']);
+            Route::put('{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'update']);
+            Route::match(['put', 'patch'], '{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'update']);
+            Route::delete('{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'destroy']);
+            
+            // Actions
+            Route::post('{webinar:slug}/change-status', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'changeStatus']);
+            Route::post('{webinar:slug}/toggle-publish', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'togglePublish']);
+            Route::post('{webinar:slug}/set-default', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'setDefault']);
+            Route::put('{slug}/restore', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'restore']); // No model binding since it's soft deleted
+            
+            Route::get('{webinar:slug}/registrants', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'registrants']);
+            Route::delete('{webinar:slug}/registrants', [\App\Http\Controllers\API\Admin\WebinarRegistrantController::class, 'destroy']);
+            Route::get('{webinar:slug}/registrants/export', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'exportRegistrants']);
         });
 
         // Popup Campaigns (Admin)
