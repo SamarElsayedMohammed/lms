@@ -253,30 +253,9 @@ class CourseDiscussionApiController extends Controller
             return false;
         }
 
-        $hasPurchasedCourse = Order::where('user_id', $userId)
-            ->where('status', 'completed')
-            ->whereHas('orderCourses', static function ($q) use ($courseId): void {
-                $q->where('course_id', $courseId);
-            })
-            ->exists();
-
-        if ($hasPurchasedCourse) {
-            return true;
-        }
-
-        $hasActiveSubscription = Subscription::forUser((int) $userId)
-            ->active()
-            ->exists();
-
-        if (!$hasActiveSubscription) {
-            return false;
-        }
-
-        return Course::where('id', $courseId)
-            ->where('status', 'publish')
-            ->where('approval_status', 'approved')
-            ->where('is_active', true)
-            ->whereHasContent()
-            ->exists();
+        $enrollmentService = app(\App\Services\UserEnrollmentService::class);
+        $enrolledCourses = $enrollmentService->resolveEnrolledCourses((int) $userId);
+        
+        return $enrolledCourses->contains('course_id', $courseId);
     }
 }

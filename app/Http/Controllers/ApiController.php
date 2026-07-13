@@ -207,7 +207,7 @@ class ApiController extends Controller
                 $unique['email'] = $request->email;
 
                 // Prepare user data
-                $userData = $request->except(['password', 'firebase_token', 'platform_type', 'fcm_id']); // Exclude sensitive/pass-through fields
+                $userData = $request->except(['password', 'firebase_token', 'platform_type', 'fcm_id', 'wallet_balance', 'is_active', 'allowed_devices_count', 'role_id']); // Exclude sensitive/pass-through fields
 
                 // Ensure name is always set - this is required field in database
                 if (empty($userData['name'])) {
@@ -283,7 +283,7 @@ class ApiController extends Controller
                 $deviceError = $this->verifyDeviceLimits($auth, $request);
                 if ($deviceError) {
                     DB::rollBack();
-                    ApiResponseService::validationError($deviceError);
+                    ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
                 }
 
                 DB::commit();
@@ -315,10 +315,10 @@ class ApiController extends Controller
             // Verify device limits
             $deviceError = $this->verifyDeviceLimits($auth, $request);
             if ($deviceError) {
-                ApiResponseService::validationError($deviceError);
+                ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
             }
 
-            $pair          = $this->createTokenPair($auth, $auth->name ?? '', $request);
+            $pair          = $this->createTokenPair($auth, $request->device_id ?? $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -341,9 +341,6 @@ class ApiController extends Controller
      */
     protected function createTokenPair($user, string $baseName, Request $request): array
     {
-        // Revoke ALL previous tokens (access + refresh) for this user so only
-        // one active session exists at a time (single-session policy).
-        $user->tokens()->delete();
 
         $accessMinutes  = (int) config('sanctum.access_token_lifetime',  60);
         $refreshMinutes = (int) config('sanctum.refresh_token_lifetime', 43200);
@@ -376,7 +373,7 @@ class ApiController extends Controller
      */
     private function createTokenWithMetadata($user, $name, Request $request): string
     {
-        $pair = $this->createTokenPair($user, $name, $request);
+        $pair = $this->createTokenPair($user, $request->device_id ?? $name, $request);
         return $pair['access'];
     }
 
@@ -386,33 +383,7 @@ class ApiController extends Controller
      */
     private function verifyDeviceLimits(User $user, Request $request)
     {
-        $deviceType = $request->input('device_type');
-        $deviceId   = $request->input('device_id');
-
-        // If client doesn't send device info, skip verification (backward compatibility)
-        if (empty($deviceType) || empty($deviceId)) {
-            return null;
-        }
-
-        // Determine max devices for this user
-        $maxDevices = $user->allowed_devices_count ?? (int) HelperService::systemSettings('default_device_limit', 3);
-        if ($maxDevices <= 0) {
-            $maxDevices = 3;
-        }
-
-        $result = UserDevice::verifyDevice(
-            $user->id,
-            $deviceType,
-            $deviceId,
-            $request->input('device_name'),
-            $maxDevices
-        );
-
-        if (!$result['allowed']) {
-            return $result['message'];
-        }
-
-        return null;
+        return \App\Services\AuthDeviceService::verifyDeviceLimits($user, $request);
     }
 
     public function userLogin(Request $request)
@@ -526,10 +497,10 @@ class ApiController extends Controller
 
             $deviceError = $this->verifyDeviceLimits($auth, $request);
             if ($deviceError) {
-                ApiResponseService::validationError($deviceError);
+                ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
             }
 
-            $pair          = $this->createTokenPair($auth, $auth->name ?? '', $request);
+            $pair          = $this->createTokenPair($auth, $request->device_id ?? $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -585,11 +556,11 @@ class ApiController extends Controller
             // Verify device limits
             $deviceError = $this->verifyDeviceLimits($user, $request);
             if ($deviceError) {
-                ApiResponseService::validationError($deviceError);
+                ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
             }
 
             // Generate new token pair
-            $pair          = $this->createTokenPair($user, $user->name ?? '', $request);
+            $pair          = $this->createTokenPair($user, $request->device_id ?? $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('Login successful', $formattedUser);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -634,8 +605,8 @@ class ApiController extends Controller
             }
 
             // ── 2. Revoke old pair + issue new pair ───────────────────────
-            // createTokenPair() deletes ALL tokens first, then creates new pair.
-            $pair = $this->createTokenPair($user, $user->name ?? 'refresh', $request);
+            // createTokenPair() used to delete ALL tokens. Now it issues a new pair for the session.
+            $pair = $this->createTokenPair($user, $request->device_id ?? $user->name ?? 'refresh', $request);
 
             // ── 3. Return new token pair ──────────────────────────────────
             return response()->json([
@@ -775,13 +746,13 @@ class ApiController extends Controller
             $deviceError = $this->verifyDeviceLimits($user, $request);
             if ($deviceError) {
                 DB::rollBack();
-                ApiResponseService::validationError($deviceError);
+                ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
             }
 
             DB::commit();
 
             // Generate new token pair
-            $pair          = $this->createTokenPair($user, $user->name ?? '', $request);
+            $pair          = $this->createTokenPair($user, $request->device_id ?? $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
             ApiResponseService::successResponse('Registration successful', $formattedUser);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -908,10 +879,10 @@ class ApiController extends Controller
             // Verify device limits
             $deviceError = $this->verifyDeviceLimits($user, $request);
             if ($deviceError) {
-                ApiResponseService::validationError($deviceError);
+                ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
             }
 
-            $pair          = $this->createTokenPair($user, 'admin-dashboard', $request);
+            $pair          = $this->createTokenPair($user, $request->device_id ?? 'admin-dashboard', $request);
             $userData      = $user->toArray();
             $userData['token']         = $pair['access'];
             $userData['refresh_token'] = $pair['refresh'];
@@ -1215,8 +1186,9 @@ class ApiController extends Controller
             // Handle profile image upload
             if ($request->hasFile('profile')) {
                 // Delete old profile image if exists
-                if ($user->profile && !filter_var($user->profile, FILTER_VALIDATE_URL)) {
-                    Storage::disk('public')->delete($user->profile);
+                $oldProfile = $user->getRawOriginal('profile');
+                if ($oldProfile && !filter_var($oldProfile, FILTER_VALIDATE_URL)) {
+                    Storage::disk('public')->delete($oldProfile);
                 }
 
                 $profileImage = $request->file('profile');

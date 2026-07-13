@@ -28,7 +28,10 @@ class WebinarAdminApiController extends AdminCrudApiController
 
         $isInstructor = Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'));
 
-        $query = Webinar::with('instructor:id,name');
+        $query = Webinar::with([
+            'instructor:id,name',
+            'course:id,title'
+        ]);
         if ($isInstructor) {
             $query->where('instructor_id', Auth::id());
         }
@@ -79,6 +82,7 @@ class WebinarAdminApiController extends AdminCrudApiController
 
         $webinar = Webinar::with([
             'instructor:id,name,email',
+            'course:id,title',
             'registrations',
         ])->find($id);
 
@@ -110,6 +114,7 @@ class WebinarAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'title'         => 'required|string|max:255',
+            'course_id'     => 'nullable|exists:courses,id',
             'description'   => 'nullable|string',
             'start_at'      => 'required|date|after:now',
             'duration'      => 'required|integer|min:5',
@@ -200,6 +205,7 @@ class WebinarAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'title'         => 'sometimes|required|string|max:255',
+            'course_id'     => 'nullable|exists:courses,id',
             'description'   => 'nullable|string',
             'start_at'      => 'sometimes|required|date',
             'duration'      => 'sometimes|required|integer|min:5',

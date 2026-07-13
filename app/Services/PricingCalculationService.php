@@ -9,6 +9,8 @@ use App\Models\Course\CourseCountryPrice;
 use App\Models\SupportedCurrency;
 use App\Models\PromoCode;
 use App\Models\Tax;
+use App\Models\Country;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
@@ -17,6 +19,75 @@ final class PricingCalculationService
     public function __construct(
         private GeoLocationService $geoLocationService,
     ) {}
+
+    /**
+     * Resolve the display currency for the user.
+     * Logic:
+     * 1. Authenticated user's country
+     * 2. IP detection
+     * 3. Fallback to EG
+     * 4. Find country and its currency
+     *
+     * @return array{code: string, symbol: string, exchange_rate: float, country_code: string}
+     */
+    public function resolveDisplayCurrency(?User $user, Request $request): array
+    {
+        $countryCode = null;
+
+        if ($user && !empty($user->country_code)) {
+            $countryCode = $user->country_code;
+        }
+
+        if (!$countryCode) {
+            $countryCode = $this->geoLocationService->getCountryCodeFromRequest($request);
+        }
+
+        if (!$countryCode) {
+            $countryCode = 'EG';
+        }
+
+        $countryCode = strtoupper($countryCode);
+
+        $country = Country::where('iso_code', $countryCode)
+            ->where('status', 1)
+            ->first();
+
+        $currencyCode = 'EGP';
+        $currencySymbol = 'ج.م';
+        $exchangeRate = 1.0;
+
+        if ($country && $country->currency_code) {
+            $supportedCurrency = SupportedCurrency::where('currency_code', $country->currency_code)
+                ->where('is_active', true)
+                ->first();
+
+            if ($supportedCurrency) {
+                $currencyCode = $supportedCurrency->currency_code;
+                $currencySymbol = $supportedCurrency->currency_symbol;
+                $exchangeRate = (float) ($supportedCurrency->active_exchange_rate ?? 1.0);
+            } else {
+                $currencyCode = $country->currency_code;
+                $currencySymbol = $country->currency_code;
+            }
+        } else {
+            $supportedCurrency = SupportedCurrency::where('country_code', $countryCode)
+                ->where('is_active', true)
+                ->first();
+
+            if ($supportedCurrency) {
+                $currencyCode = $supportedCurrency->currency_code;
+                $currencySymbol = $supportedCurrency->currency_symbol;
+                $exchangeRate = (float) ($supportedCurrency->active_exchange_rate ?? 1.0);
+            }
+        }
+
+        return [
+            'code' => $currencyCode,
+            'symbol' => $currencySymbol,
+            'exchange_rate' => $exchangeRate,
+            'country_code' => $countryCode,
+        ];
+    }
 
     /**
      * Get localized pricing based on country code.
@@ -46,20 +117,40 @@ final class PricingCalculationService
             $discountPriceEgp = $course->discount_price ? (float) $course->discount_price : null;
         }
 
-        // 3. Get currency and exchange rate
+        // 3. Get currency and exchange rate via generic resolution (if we don't have user/request context here, we just use the countryCode directly)
+        // Since we don't have Request here, we just mimic the resolution logic for the given countryCode
         $currencyCode = 'EGP';
         $currencySymbol = 'ج.م';
         $exchangeRate = 1.0;
 
         if ($countryCode) {
-            $currency = SupportedCurrency::where('country_code', $countryCode)
-                ->where('is_active', true)
+            $country = Country::where('iso_code', strtoupper($countryCode))
+                ->where('status', 1)
                 ->first();
 
-            if ($currency) {
-                $currencyCode = $currency->currency_code;
-                $currencySymbol = $currency->currency_symbol;
-                $exchangeRate = (float) ($currency->active_exchange_rate ?? 1.0);
+            if ($country && $country->currency_code) {
+                $supportedCurrency = SupportedCurrency::where('currency_code', $country->currency_code)
+                    ->where('is_active', true)
+                    ->first();
+
+                if ($supportedCurrency) {
+                    $currencyCode = $supportedCurrency->currency_code;
+                    $currencySymbol = $supportedCurrency->currency_symbol;
+                    $exchangeRate = (float) ($supportedCurrency->active_exchange_rate ?? 1.0);
+                } else {
+                    $currencyCode = $country->currency_code;
+                    $currencySymbol = $country->currency_code;
+                }
+            } else {
+                $supportedCurrency = SupportedCurrency::where('country_code', $countryCode)
+                    ->where('is_active', true)
+                    ->first();
+
+                if ($supportedCurrency) {
+                    $currencyCode = $supportedCurrency->currency_code;
+                    $currencySymbol = $supportedCurrency->currency_symbol;
+                    $exchangeRate = (float) ($supportedCurrency->active_exchange_rate ?? 1.0);
+                }
             }
         }
 
@@ -156,14 +247,12 @@ final class PricingCalculationService
             'tax_amount' => round($taxAmount, 2),
             'total' => round($total, 2),
             'promo_code_details' => $promoCodeDetails,
-            // Standardization for frontend expected fields
-            'display_price' => round($total, 2), // Typically the frontend needs the total as display_price for cart/course
+            // Localization metadata
+            'currency_code' => 'EGP',
             'display_currency' => $localized['currency_code'],
             'display_symbol' => $localized['currency_symbol'],
-            'formatted_price' => number_format(round($total, 2), 2) . ' ' . $localized['currency_symbol'],
-            // Localization metadata
-            'currency_code' => $localized['currency_code'],
-            'currency_symbol' => $localized['currency_symbol'],
+            'display_price' => round($total, 2),
+            'formatted_price' => number_format($total, 2) . ' ' . $localized['currency_symbol'],
             'price_egp' => $localized['price_egp'],
             'discount_price_egp' => $localized['discount_price_egp'],
             'exchange_rate' => $localized['exchange_rate'],
@@ -283,10 +372,11 @@ final class PricingCalculationService
             'tax_percentage' => $pricing['tax_percentage'],
             'tax_amount' => $pricing['tax_amount'],
             'total' => $pricing['total'],
+            'currency_code' => $pricing['currency_code'] ?? 'EGP',
+            'display_currency' => $pricing['display_currency'] ?? ($pricing['currency_code'] ?? 'EGP'),
+            'display_symbol' => $pricing['display_symbol'] ?? '$',
             'display_price' => $pricing['display_price'] ?? $pricing['total'],
-            'display_currency' => $pricing['display_currency'] ?? $pricing['currency_code'],
-            'display_symbol' => $pricing['display_symbol'] ?? $pricing['currency_symbol'],
-            'formatted_price' => $pricing['formatted_price'] ?? (number_format($pricing['total'], 2) . ' ' . ($pricing['currency_symbol'] ?? '')),
+            'formatted_price' => $pricing['formatted_price'] ?? (number_format($pricing['total'], 2) . ' $'),
         ];
 
         return [...$formatted, ...$additionalFields];
@@ -314,24 +404,22 @@ final class PricingCalculationService
         $promoDiscount = 0;
         $taxAmount = 0;
 
-        $currencyCode = 'EGP';
-        $currencySymbol = 'ج.م';
-
         foreach ($coursePricingData as $data) {
             $pricing = $data['pricing'];
             $originalPrice += $pricing['original_price'];
             $subtotal += $pricing['subtotal'];
             $promoDiscount += $pricing['promo_discount'];
             $taxAmount += $pricing['tax_amount'];
-            
-            // Grab currency from the first item
-            $currencyCode = $pricing['display_currency'] ?? $pricing['currency_code'] ?? $currencyCode;
-            $currencySymbol = $pricing['display_symbol'] ?? $pricing['currency_symbol'] ?? $currencySymbol;
         }
 
         $courseDiscount = $originalPrice - $subtotal;
         $taxableAmount = max(0, $subtotal - $promoDiscount);
         $total = $taxableAmount + $taxAmount;
+
+        $firstPricing = $coursePricingData->first()['pricing'] ?? null;
+        $currencyCode = $firstPricing['currency_code'] ?? 'EGP';
+        $displayCurrency = $firstPricing['display_currency'] ?? $currencyCode;
+        $displaySymbol = $firstPricing['display_symbol'] ?? '$';
 
         return [
             'original_price' => round($originalPrice, 2),
@@ -342,10 +430,11 @@ final class PricingCalculationService
             'tax_percentage' => $taxPercentage,
             'tax_amount' => round($taxAmount, 2),
             'total' => round($total, 2),
+            'currency_code' => $currencyCode,
+            'display_currency' => $displayCurrency,
+            'display_symbol' => $displaySymbol,
             'display_price' => round($total, 2),
-            'display_currency' => $currencyCode,
-            'display_symbol' => $currencySymbol,
-            'formatted_price' => number_format(round($total, 2), 2) . ' ' . $currencySymbol,
+            'formatted_price' => number_format($total, 2) . ' ' . $displaySymbol,
         ];
     }
 
@@ -356,17 +445,6 @@ final class PricingCalculationService
      */
     public function buildEmptyPricingResponse(float $taxPercentage = 0, null|string $countryCode = null): array
     {
-        $currencyCode = 'EGP';
-        $currencySymbol = 'ج.م';
-        
-        if ($countryCode) {
-            $currency = SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
-            if ($currency) {
-                $currencyCode = $currency->currency_code;
-                $currencySymbol = $currency->currency_symbol;
-            }
-        }
-
         return [
             'courses' => [],
             'detected_country_code' => $countryCode,
@@ -381,10 +459,11 @@ final class PricingCalculationService
             'tax_percentage' => $taxPercentage,
             'tax_amount' => 0,
             'total' => 0,
+            'currency_code' => 'EGP',
+            'display_currency' => 'EGP',
+            'display_symbol' => 'ج.م',
             'display_price' => 0,
-            'display_currency' => $currencyCode,
-            'display_symbol' => $currencySymbol,
-            'formatted_price' => '0.00 ' . $currencySymbol,
+            'formatted_price' => '0.00 ج.م',
         ];
     }
 }

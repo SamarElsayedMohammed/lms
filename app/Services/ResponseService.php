@@ -149,13 +149,48 @@ class ResponseService
         array $customData = [],
         int|null $code = null,
     ): void {
-        response()->json([
+        $meta = [];
+
+        if ($data instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $meta = [
+                'current_page' => $data->currentPage(),
+                'last_page' => $data->lastPage(),
+                'per_page' => $data->perPage(),
+                'total' => $data->total(),
+            ];
+            $data = $data->items();
+        } elseif ($data instanceof \Illuminate\Http\Resources\Json\ResourceCollection && $data->resource instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $meta = [
+                'current_page' => $data->resource->currentPage(),
+                'last_page' => $data->resource->lastPage(),
+                'per_page' => $data->resource->perPage(),
+                'total' => $data->resource->total(),
+            ];
+            $data = $data->resolve();
+        } elseif (is_array($data) && isset($data['data']) && isset($data['current_page'])) {
+            $meta = [
+                'current_page' => $data['current_page'],
+                'last_page' => $data['last_page'] ?? null,
+                'per_page' => $data['per_page'] ?? null,
+                'total' => $data['total'] ?? null,
+            ];
+            $data = $data['data'];
+        }
+
+        $response = [
+            'success' => true,
             'error' => false,
             'message' => trans($message),
             'data' => $data,
             'code' => $code ?? config('constants.RESPONSE_CODE.SUCCESS'),
             ...$customData,
-        ])->send();
+        ];
+
+        if (!empty($meta)) {
+            $response['meta'] = $meta;
+        }
+
+        response()->json($response)->send();
         exit();
     }
 
@@ -189,10 +224,15 @@ class ResponseService
     public static function errorResponse(string $message = 'Error Occurred', $data = null, $exception = null)
     {
         $response = [
+            'success' => false,
             'error' => true,
             'message' => trans($message),
             'data' => $data,
         ];
+
+        if (is_array($data) || is_object($data)) {
+            $response['errors'] = $data;
+        }
 
         if (config('app.debug') && !empty($exception) && is_object($exception)) {
             $response['debug'] = [

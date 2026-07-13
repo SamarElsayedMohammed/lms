@@ -140,6 +140,60 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
         return $this->jsonSuccess(__('Feature section restored successfully'), $section->fresh(['images', 'manualCourses']));
     }
 
+    public function reorder(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('feature-sections-edit');
+
+        $validator = Validator::make($request->all(), [
+            'orders' => 'required|array',
+            'orders.*.id' => 'required|integer|exists:feature_sections,id',
+            'orders.*.order' => 'required|integer',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        foreach ($request->input('orders') as $item) {
+            FeatureSection::where('id', $item['id'])->update(['row_order' => $item['order']]);
+        }
+
+        return $this->jsonSuccess(__('Successfully reordered'));
+    }
+
+    public function analytics(int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('feature-sections-list');
+
+        $section = FeatureSection::find($id);
+        if (!$section) {
+            return $this->jsonError(__('Feature section not found'), 404);
+        }
+
+        $analytics = $section->analyticsDaily()->orderBy('date')->get();
+
+        $views = $analytics->sum('views');
+        $clicks = $analytics->sum('clicks');
+        $enrollments = $analytics->sum('enrollments');
+        $revenue = $analytics->sum('revenue');
+        
+        $ctr = $views > 0 ? round(($clicks / $views) * 100, 2) : 0;
+        $conversionRate = $clicks > 0 ? round(($enrollments / $clicks) * 100, 2) : 0;
+
+        return $this->jsonSuccess(__('Analytics retrieved'), [
+            'views' => $views,
+            'clicks' => $clicks,
+            'ctr' => $ctr,
+            'enrollments' => $enrollments,
+            'sales' => $enrollments,
+            'conversion_rate' => $conversionRate,
+            'revenue' => $revenue,
+            'daily_stats' => $analytics
+        ]);
+    }
+
     private function rules(bool $required): array
     {
         $presence = $required ? 'required' : 'sometimes';

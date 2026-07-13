@@ -21,7 +21,6 @@ final class FirebaseConfigService
         'firebase_app_id',
     ];
 
-    /** @var array<string, string> DB setting name => Firebase SDK key */
     private const array CLIENT_KEY_MAP = [
         'firebase_api_key' => 'apiKey',
         'firebase_auth_domain' => 'authDomain',
@@ -30,6 +29,7 @@ final class FirebaseConfigService
         'firebase_messaging_sender_id' => 'messagingSenderId',
         'firebase_app_id' => 'appId',
         'firebase_measurement_id' => 'measurementId',
+        'firebase_fcm_server_key' => 'fcmServerKey',
     ];
 
     /**

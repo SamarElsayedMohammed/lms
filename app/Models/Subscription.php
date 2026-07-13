@@ -60,6 +60,8 @@ final class Subscription extends Model
         'queued_expires_at',
         'parent_subscription_id',
         'paid_at',
+        'locked_price',
+        'locked_currency',
     ];
 
     protected $casts = [

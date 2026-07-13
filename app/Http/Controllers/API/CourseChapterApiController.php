@@ -230,7 +230,7 @@ class CourseChapterApiController extends Controller
             $course = Course::findOrFail($request->course_id);
 
             $authUser = Auth::user();
-            $isAdmin = $authUser->hasRole('admin');
+            $isAdmin = $authUser->hasAnyRole(['Super Admin', 'Supervisor', 'Staff']);
             $isCourseOwner = $course->user_id === $authUser?->id;
 
             // Check if user is a team member of the course instructor OR course owner is team member of auth instructor
@@ -331,7 +331,7 @@ class CourseChapterApiController extends Controller
             $course = $chapter->course;
 
             $authUser = Auth::user();
-            $isAdmin = $authUser->hasRole('admin');
+            $isAdmin = $authUser->hasAnyRole(['Super Admin', 'Supervisor', 'Staff']);
             $isCourseOwner = $course->user_id === $authUser?->id;
 
             // Check if user is a team member of the course instructor OR course owner is team member of auth instructor
@@ -740,6 +740,13 @@ class CourseChapterApiController extends Controller
                 return ApiResponseService::validationError(
                     'Refund is approved for this course. Progress tracking is disabled.',
                 );
+            }
+
+            // Verify enrollment (covers orders, subscriptions, and free tracks)
+            $enrollmentService = app(\App\Services\UserEnrollmentService::class);
+            $enrolledCourses = $enrollmentService->resolveEnrolledCourses((int) $userId);
+            if (!$enrolledCourses->contains('course_id', $chapter->course_id)) {
+                return ApiResponseService::validationError('You must be enrolled in this course to track progress.');
             }
 
             // Assuming you have a CourseChapterTracking model and table
@@ -2128,35 +2135,10 @@ class CourseChapterApiController extends Controller
                 $isEnrolled = true;
             }
             
-            // 2. Has active subscription?
-            if (!$isEnrolled && Auth::user()?->activeSubscription()->exists()) {
-                $isEnrolled = true;
-            }
-            
-            // 3. Has UserCourseTrack (manual enrollment, etc.)
-            if (!$isEnrolled && \App\Models\Course\UserCourseTrack::where('user_id', $userId)->where('course_id', $courseId)->exists()) {
-                $isEnrolled = true;
-            }
-            
-            // 4. Has completed order (not refunded)
+            // 2. Check Enrollment Service
             if (!$isEnrolled) {
-                $hasCompletedOrder = \App\Models\Order::where('user_id', $userId)
-                    ->whereHas('orderCourses', static function ($query) use ($courseId): void {
-                        $query->where('course_id', $courseId);
-                    })
-                    ->where('status', 'completed')
-                    ->exists();
-                
-                if ($hasCompletedOrder) {
-                    $isRefunded = \App\Models\RefundRequest::where('user_id', $userId)
-                        ->where('course_id', $courseId)
-                        ->where('status', 'approved')
-                        ->exists();
-                    
-                    if (!$isRefunded) {
-                        $isEnrolled = true;
-                    }
-                }
+                $enrollments = app(\App\Services\UserEnrollmentService::class)->resolveEnrolledCourses($userId);
+                $isEnrolled = $enrollments->contains('course_id', (int)$courseId);
             }
 
             if (!$isEnrolled) {

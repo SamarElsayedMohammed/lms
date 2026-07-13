@@ -51,32 +51,63 @@ class UserDevice extends Model
             return ['allowed' => true];
         }
 
-        // New device — check if the user has reached the limit
-        $deviceCount = self::where('user_id', $userId)->count();
+        try {
+            \Illuminate\Support\Facades\DB::beginTransaction();
 
-        if ($deviceCount >= $maxDevices) {
+            // Explicit Block: 1 device per type limit
+            $existingType = self::where('user_id', $userId)->where('device_type', $deviceType)->first();
+            if ($existingType) {
+                // B2 Grace: If the device_id changed but device_name and device_type match exactly,
+                // we assume it's the same physical device getting a new ID. Overwrite the old one.
+                if ($existingType->device_name === $deviceName) {
+                    // Revoke old tokens associated with the old device_id
+                    \Illuminate\Support\Facades\DB::table('personal_access_tokens')
+                        ->where('tokenable_id', $userId)
+                        ->where('tokenable_type', \App\Models\User::class)
+                        ->where('name', 'like', $existingType->device_id . '%')
+                        ->delete();
+
+                    $existingType->update(['device_id' => $deviceId]);
+                    \Illuminate\Support\Facades\DB::commit();
+                    return ['allowed' => true];
+                }
+
+                \Illuminate\Support\Facades\DB::rollBack();
+                return [
+                    'allowed' => false,
+                    'code' => 'DEVICE_LIMIT_EXCEEDED',
+                    'message' => 'لقد وصلت إلى الحد الأقصى للأجهزة المسموح بها من هذا النوع. يرجى تسجيل الخروج من الجهاز الآخر أو إدارة أجهزتك من لوحة التحكم.'
+                ];
+            }
+
+            // Explicit Block: Max devices overall limit
+            $deviceCount = self::where('user_id', $userId)->count();
+            if ($deviceCount >= $maxDevices) {
+                \Illuminate\Support\Facades\DB::rollBack();
+                return [
+                    'allowed' => false,
+                    'code' => 'DEVICE_LIMIT_EXCEEDED',
+                    'message' => 'لقد وصلت إلى الحد الأقصى الإجمالي للأجهزة المسموح بها. يرجى إدارة أجهزتك من لوحة التحكم.'
+                ];
+            }
+
+            // Register the new device
+            self::create([
+                'user_id'     => $userId,
+                'device_type' => $deviceType,
+                'device_id'   => $deviceId,
+                'device_name' => $deviceName,
+            ]);
+
+            \Illuminate\Support\Facades\DB::commit();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\DB::rollBack();
             return [
                 'allowed' => false,
-                'message' => "لقد وصلت إلى الحد الأقصى المسموح به من الأجهزة ({$maxDevices} أجهزة). يرجى التواصل مع الدعم الفني لإدارة أجهزتك.",
+                'code' => 'DEVICE_ERROR',
+                'message' => 'حدث خطأ أثناء إدارة الأجهزة. يرجى المحاولة مرة أخرى.',
             ];
         }
-
-        // Prevent 500 error: enforce max 1 device per type constraint via PHP validation
-        $existingType = self::where('user_id', $userId)->where('device_type', $deviceType)->first();
-        if ($existingType) {
-            return [
-                'allowed' => false,
-                'message' => "لديك بالفعل جهاز مسجل من نوع ({$deviceType}). يرجى تسجيل الخروج من جهازك الآخر لتتمكن من الدخول هنا.",
-            ];
-        }
-
-        // Register the new device
-        self::create([
-            'user_id'     => $userId,
-            'device_type' => $deviceType,
-            'device_id'   => $deviceId,
-            'device_name' => $deviceName,
-        ]);
 
         return ['allowed' => true];
     }

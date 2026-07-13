@@ -12,11 +12,16 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
-class AdminCourseProgressController extends Controller
+class AdminCourseProgressController extends AdminCrudApiController
 {
     public function __construct(
         private readonly CourseProgressService $progressService,
-    ) {}
+    ) {
+        $this->middleware(function ($request, $next) {
+            $this->ensureAdmin();
+            return $next($request);
+        });
+    }
 
     /**
      * Get enrollment overview for all courses

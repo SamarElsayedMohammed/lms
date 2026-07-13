@@ -10,30 +10,65 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Helpers\FirebaseHelper;
 use App\Models\UserFcmToken;
 use Illuminate\Support\Facades\Log;
-use App\Traits\ConfigurableNotification;
+use App\Services\NotificationSettingsService;
 
 class ManualCustomNotification extends Notification implements ShouldQueue
 {
-    use Queueable, ConfigurableNotification;
+    use Queueable;
 
-    protected $data;
+    protected array $data;
 
-    public function __construct(array $data)
+    /**
+     * Channels explicitly chosen by the admin when dispatching this campaign.
+     * When set, they override the global notification_channels_config setting.
+     * Allowed values: 'mail', 'database'
+     * Note: 'web' in the UI maps to the 'database' channel internally.
+     */
+    protected ?array $forcedChannels;
+
+    /**
+     * @param array       $data           Notification payload
+     * @param array|null  $forcedChannels e.g. ['mail','database'] or null to fall back to global config
+     */
+    public function __construct(array $data, ?array $forcedChannels = null)
     {
-        $this->data = $data;
+        $this->data          = $data;
+        $this->forcedChannels = $forcedChannels;
+    }
+
+    /**
+     * Resolve delivery channels.
+     * Priority: per-send override → global notification_channels_config → default ['mail','database']
+     */
+    public function via(object $notifiable): array
+    {
+        if ($this->forcedChannels !== null) {
+            return array_values(array_intersect($this->forcedChannels, ['mail', 'database']));
+        }
+
+        $default = ['mail', 'database'];
+        return NotificationSettingsService::getChannelsFor(
+            class_basename(self::class),
+            $default
+        );
     }
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
+        $message = (new MailMessage)
             ->subject($this->data['title'])
             ->view('emails.general-notification', [
-                'notificationTitle' => $this->data['title'],
-                'greeting' => "مرحباً {$notifiable->name}،",
+                'notificationTitle'   => $this->data['title'],
+                'greeting'            => "مرحباً {$notifiable->name}،",
                 'notificationContent' => $this->data['message'],
-                'actionUrl' => isset($this->data['action_url']) ? url($this->data['action_url']) : null,
-                'actionText' => 'عرض التفاصيل',
+                'actionUrl'           => isset($this->data['action_url']) && $this->data['action_url'] !== '#'
+                                            ? url($this->data['action_url'])
+                                            : null,
+                'actionText'          => 'عرض التفاصيل',
+                'imageUrl'            => $this->data['image'] ?? null,
             ]);
+
+        return $message;
     }
 
     public function toArray(object $notifiable): array
@@ -47,7 +82,7 @@ class ManualCustomNotification extends Notification implements ShouldQueue
             'image'      => $this->data['image'] ?? null,
             'icon'       => $this->data['icon'] ?? null,
             'icon_color' => $this->data['icon_color'] ?? null,
-            'type'       => $this->data['type'] ?? 'admin_manual'
+            'type'       => $this->data['type'] ?? 'admin_manual',
         ];
     }
 
@@ -57,7 +92,7 @@ class ManualCustomNotification extends Notification implements ShouldQueue
         return new DatabaseMessage($this->toArray($notifiable));
     }
 
-    private function sendFcmNotification($notifiable)
+    private function sendFcmNotification($notifiable): void
     {
         try {
             $fcmData = [
@@ -81,26 +116,26 @@ class ManualCustomNotification extends Notification implements ShouldQueue
             foreach ($tokens as $token) {
                 try {
                     $platform = match (strtolower((string) $token->platform_type)) {
-                        'ios' => 'ios',
+                        'ios'     => 'ios',
                         'android' => 'android',
-                        default => 'web',
+                        default   => 'web',
                     };
-                    
+
                     FirebaseHelper::send($platform, $token->fcm_token, $fcmData, [
                         'title' => $this->data['title'],
-                        'body' => $this->data['message'],
+                        'body'  => $this->data['message'],
                     ]);
                 } catch (\Throwable $e) {
                     Log::warning('Failed to send FCM bulk notification', [
                         'user_id' => $notifiable->id,
-                        'error' => $e->getMessage(),
+                        'error'   => $e->getMessage(),
                     ]);
                 }
             }
         } catch (\Throwable $e) {
-            Log::error('Failed to process FCM bulk notifications', [
+            Log::error('ManualCustomNotification FCM error', [
                 'user_id' => $notifiable->id ?? null,
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
             ]);
         }
     }

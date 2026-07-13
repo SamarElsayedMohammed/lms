@@ -54,10 +54,6 @@ final class ApiResponseService
     }
 
     /**
-     * Send a successful JSON response using the standard API envelope.
-     *
-     * Shape: { status: true, message, data }
-     *
      * @param array<string, mixed> $customData
      * @param array<string, string> $headers
      */
@@ -69,18 +65,52 @@ final class ApiResponseService
         string|null $redirectUrl = null,
         array $headers = [],
     ): void {
+        $meta = [];
+
+        if ($data instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $meta = [
+                'current_page' => $data->currentPage(),
+                'last_page' => $data->lastPage(),
+                'per_page' => $data->perPage(),
+                'total' => $data->total(),
+            ];
+            $data = $data->items();
+        } elseif ($data instanceof \Illuminate\Http\Resources\Json\ResourceCollection && $data->resource instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $meta = [
+                'current_page' => $data->resource->currentPage(),
+                'last_page' => $data->resource->lastPage(),
+                'per_page' => $data->resource->perPage(),
+                'total' => $data->resource->total(),
+            ];
+            $data = $data->resolve();
+        } elseif (is_array($data) && isset($data['data']) && isset($data['current_page'])) {
+            $meta = [
+                'current_page' => $data['current_page'],
+                'last_page' => $data['last_page'] ?? null,
+                'per_page' => $data['per_page'] ?? null,
+                'total' => $data['total'] ?? null,
+            ];
+            $data = $data['data'];
+        }
+
         $code ??= (int) config('constants.RESPONSE_CODE.SUCCESS');
         $response = [
-            'status'  => true,
+            'success' => true,
+            'error' => false,
             'message' => trans($message),
-            'data'    => $data ?? null,
+            'data' => $data ?? (object) [],
+            'code' => $code,
         ];
+
+        if (!empty($meta)) {
+            $response['meta'] = $meta;
+        }
 
         if ($redirectUrl) {
             $response['redirect_url'] = $redirectUrl;
         }
 
-        $jsonResponse = response()->json([...$response, ...$customData], $code, [], JSON_UNESCAPED_UNICODE);
+        $jsonResponse = response()->json([...$response, ...$customData], $code);
 
         foreach ($headers as $headerName => $headerValue) {
             $jsonResponse->header($headerName, $headerValue);
@@ -100,11 +130,6 @@ final class ApiResponseService
         throw new HttpResponseException($jsonResponse);
     }
 
-    /**
-     * Send an error JSON response using the standard API envelope.
-     *
-     * Shape: { status: false, message, data? }
-     */
     public static function errorResponse(
         string $message = 'Error Occurred',
         mixed $data = null,
@@ -112,20 +137,25 @@ final class ApiResponseService
         Throwable|null $exception = null,
         string|null $redirectUrl = null,
     ): void {
-        // Preserve responses intentionally raised via successResponse/validationError
-        // instead of wrapping them as an unrelated error response.
+        // Controllers commonly catch Throwable around the whole action. Preserve
+        // responses intentionally raised by successResponse/validationError
+        // instead of wrapping them as an unrelated HTTP 500 response.
         if ($exception instanceof HttpResponseException) {
             throw $exception;
         }
 
         $code ??= (int) config('constants.RESPONSE_CODE.ERROR');
         $response = [
-            'status'  => false,
+            'success' => false,
+            'error' => true,
             'message' => trans($message),
+            'data' => $data ?? (object) [],
+            'code' => $code,
         ];
 
-        if ($data !== null) {
-            $response['data'] = $data;
+        // Ensure errors object is present for validation structure
+        if (is_array($data) || is_object($data)) {
+            $response['errors'] = $data;
         }
 
         if ($redirectUrl) {
@@ -135,13 +165,13 @@ final class ApiResponseService
         if (config('app.debug') === true && $exception instanceof Throwable) {
             $response['debug'] = [
                 'message' => $exception->getMessage(),
-                'file'    => $exception->getFile(),
-                'line'    => $exception->getLine(),
-                'trace'   => $exception->getTrace(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'trace' => $exception->getTrace(),
             ];
         }
 
-        $jsonResponse = response()->json($response, $code, [], JSON_UNESCAPED_UNICODE);
+        $jsonResponse = response()->json($response, $code);
 
         // Preserve CORS headers when raising the response from a service.
         try {
@@ -157,12 +187,7 @@ final class ApiResponseService
         throw new HttpResponseException($jsonResponse);
     }
 
-    /**
-     * Send a validation error response.
-     *
-     * Shape: { status: false, message, errors: {...} }
-     */
-    public static function validationError(string $message = 'Validation Failed', mixed $data = null): void
+    public static function validationError(string $message = 'Error Occurred', mixed $data = null): void
     {
         self::errorResponse($message, $data, (int) config('constants.RESPONSE_CODE.VALIDATION_ERROR'));
     }

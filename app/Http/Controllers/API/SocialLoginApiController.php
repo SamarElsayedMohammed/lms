@@ -162,8 +162,13 @@ class SocialLoginApiController extends ApiController
             return ApiResponseService::validationError('Invalid Login Credentials');
         }
 
+        $deviceError = \App\Services\AuthDeviceService::verifyDeviceLimits($user, $request);
+        if ($deviceError) {
+            return ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
+        }
+
         // ── Issue Sanctum token ──────────────────────────────────────────
-        $pair = $this->createTokenPair($user, $user->name ?? $provider, $request);
+        $pair = $this->createTokenPair($user, $request->device_id ?? $user->name ?? $provider, $request);
         $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
 
         ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
@@ -243,7 +248,7 @@ class SocialLoginApiController extends ApiController
         }
 
         // ── Issue Sanctum token ──────────────────────────────────────────
-        $pair = $this->createTokenPair($user, $user->name ?? $provider, $request);
+        $pair = $this->createTokenPair($user, $request->device_id ?? $user->name ?? $provider, $request);
         $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
 
         ApiResponseService::successResponse('User logged-in successfully', $formattedUser);

@@ -85,7 +85,7 @@ final class SubscriptionApiController extends Controller
                     'id' => $plan->id,
                     'name' => $plan->name,
                     'price' => $localized['price'],
-                    'currency_code' => $localized['currency_code'],
+                    'currency_code' => 'EGP',
                     'old_price' => $localized['old_price'],
                     'display_price' => $localized['price'],
                     'display_currency' => $localized['currency_code'],
@@ -303,18 +303,27 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            // Prevent subscribing to the same plan if there is already an active or pending subscription
-            $existingSubscription = Subscription::where('user_id', $user->id)
+            // Prevent subscribing if the user already has a pending or pending_approval subscription (enforce max 1 scheduled)
+            $hasPendingSubscription = Subscription::where('user_id', $user->id)
+                ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+                ->exists();
+
+            if ($hasPendingSubscription) {
+                return ApiResponseService::errorResponse('لديك بالفعل اشتراك مجدول أو طلب قيد المراجعة. لا يمكنك تقديم طلب جديد حتى يتم تفعيل أو إلغاء الطلب الحالي.', [], 400);
+            }
+
+            // Prevent subscribing to the same plan if there is already an active subscription
+            $existingActiveSamePlan = Subscription::where('user_id', $user->id)
                 ->where('plan_id', $request->plan_id)
-                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+                ->where('status', Subscription::STATUS_ACTIVE)
                 ->where(function ($query) {
                     $query->whereNull('ends_at')
                           ->orWhere('ends_at', '>', now());
                 })
                 ->exists();
 
-            if ($existingSubscription) {
-                return ApiResponseService::errorResponse('أنت مشترك بالفعل في هذه الباقة أو لديك طلب قيد المراجعة. لتجديد الاشتراك، يرجى استخدام صفحة التجديد.', [], 400);
+            if ($existingActiveSamePlan) {
+                return ApiResponseService::errorResponse('أنت مشترك بالفعل في هذه الباقة. لتجديد الاشتراك، يرجى استخدام صفحة التجديد.', [], 400);
             }
 
             $plan = SubscriptionPlan::findOrFail($request->plan_id);
@@ -447,17 +456,23 @@ final class SubscriptionApiController extends Controller
                 try {
                     $receiptPath = \App\Services\FileService::compressAndUpload(
                         $request->file('receipt'),
-                        'subscriptions/receipts'
+                        'subscriptions/receipts',
+                        'local'
                     );
+
+                    $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
 
                     // Create subscription with pending_approval status
                     $subscription = Subscription::create([
                         'user_id' => $user->id,
                         'plan_id' => $plan->id,
+                        'locked_price' => $originalAmount,
+                        'locked_currency' => $resolvedCurrency,
                         'starts_at' => now(), // Placeholders, will be updated upon admin approval
                         'ends_at' => null,   // Will be updated upon admin approval
                         'status' => Subscription::STATUS_PENDING_APPROVAL,
                         'auto_renew' => true,
+                        'parent_subscription_id' => $existingSubscription?->id,
                     ]);
 
                     // Create payment record in pending status
@@ -618,6 +633,15 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('لا يوجد اشتراك للتجديد. يرجى الاشتراك أولاً.', [], 400);
             }
 
+            // Prevent renewing if the user already has a pending or pending_approval subscription
+            $hasPendingSubscription = Subscription::where('user_id', $user->id)
+                ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+                ->exists();
+
+            if ($hasPendingSubscription) {
+                return ApiResponseService::errorResponse('لديك بالفعل اشتراك مجدول أو طلب قيد المراجعة. لا يمكنك تقديم طلب تجديد حتى يتم تفعيل أو إلغاء الطلب الحالي.', [], 400);
+            }
+
             $plan = $subscription->plan;
 
             if ($plan->isLifetime()) {
@@ -626,13 +650,21 @@ final class SubscriptionApiController extends Controller
 
             $countryCode = $this->countryDetectionService->detect($request);
             $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
-            $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
 
-            if (!$plan->is_active || !$countryPricing['can_subscribe']) {
-                return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
+            if ($subscription->locked_price !== null && $subscription->locked_currency !== null) {
+                $totalAmount = (float) $subscription->locked_price;
+                $resolvedCurrency = strtoupper($subscription->locked_currency);
+                $countryPricing['price_source'] = 'locked';
+                $canSubscribe = $plan->is_active;
+            } else {
+                $totalAmount = (float) $countryPricing['price'];
+                $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
+                $canSubscribe = $plan->is_active && $countryPricing['can_subscribe'];
             }
 
-            $totalAmount = (float) $countryPricing['price'];
+            if (!$canSubscribe) {
+                return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
+            }
 
             if ($request->boolean('use_wallet') && !$this->affiliateService->isEnabled()) {
                 return ApiResponseService::errorResponse('الدفع من المحفظة متاح فقط عند تفعيل التسويق بالعمولة.', [], 400);
@@ -703,13 +735,25 @@ final class SubscriptionApiController extends Controller
                 try {
                     $receiptPath = \App\Services\FileService::compressAndUpload(
                         $request->file('receipt'),
-                        'subscriptions/receipts'
+                        'subscriptions/receipts',
+                        'local'
                     );
 
-                    // For renewal, we create a pending payment record linked to the existing subscription
-                    // The subscription itself remains active until its expiry date. If approved, the expiry is extended.
+                    // For renewal via manual payment, create a NEW pending_approval subscription
+                    $newSubscription = Subscription::create([
+                        'user_id' => $user->id,
+                        'plan_id' => $plan->id,
+                        'locked_price' => $subscription->locked_price ?? $totalAmount,
+                        'locked_currency' => $subscription->locked_currency ?? $resolvedCurrency,
+                        'starts_at' => now(), // Placeholder, updated on approval
+                        'ends_at' => null,    // Placeholder, updated on approval
+                        'status' => Subscription::STATUS_PENDING_APPROVAL,
+                        'auto_renew' => true,
+                        'parent_subscription_id' => $subscription->id, // Link to previous sub
+                    ]);
+
                     \App\Models\SubscriptionPayment::create([
-                        'subscription_id' => $subscription->id,
+                        'subscription_id' => $newSubscription->id,
                         'user_id' => $user->id,
                         'amount' => $totalAmount,
                         'wallet_amount' => $walletAmount,
@@ -725,14 +769,13 @@ final class SubscriptionApiController extends Controller
                         'paid_at' => null,
                         'tax' => 0,
                         'final_amount' => $totalAmount,
-                        'is_renewal' => true, // We should add this column or handle logic in admin approval
                     ]);
 
                     // Notify admins about the new manual renewal request
                     try {
                         $admins = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
                         foreach ($admins as $admin) {
-                            $admin->notify(new AdminNewSubscriptionRequestNotification($subscription, $user));
+                            $admin->notify(new AdminNewSubscriptionRequestNotification($newSubscription, $user));
                         }
                     } catch (\Throwable $e) {
                         Log::error('Failed to notify admins of manual renewal request', [
@@ -743,7 +786,7 @@ final class SubscriptionApiController extends Controller
 
                     // Notify user that their renewal request is under review
                     try {
-                        $user->notify(new ManualRenewalRequestedNotification($subscription));
+                        $user->notify(new ManualRenewalRequestedNotification($newSubscription));
                     } catch (\Throwable $e) {
                         Log::error('Failed to send manual renewal pending notification to user', [
                             'user_id' => $user->id,
@@ -755,9 +798,9 @@ final class SubscriptionApiController extends Controller
                     return ApiResponseService::successResponse('تم إنشاء طلب تجديد الاشتراك بنجاح وجاري مراجعة الإيصال من قبل الإدارة.', [
                         'requires_checkout' => false,
                         'subscription' => [
-                            'id' => $subscription->id,
-                            'plan_name' => $subscription->plan->name,
-                            'status' => $subscription->status, // It remains active until it expires naturally
+                            'id' => $newSubscription->id,
+                            'plan_name' => $newSubscription->plan->name,
+                            'status' => $newSubscription->status,
                         ],
                         'payment' => [
                             'total_amount' => $totalAmount,

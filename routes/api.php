@@ -50,13 +50,13 @@ use Illuminate\Support\Facades\Route;
  * User Authentication APIs
  */
 
-Route::post('user-exists', [ApiController::class, 'userExists']);
-Route::post('user-signup', [ApiController::class, 'userSignup']);
-Route::post('user-login', [ApiController::class, 'userLogin']);
+Route::post('user-exists', [ApiController::class, 'userExists'])->middleware('throttle:5,1');
+Route::post('user-signup', [ApiController::class, 'userSignup'])->middleware('throttle:5,1');
+Route::post('user-login', [ApiController::class, 'userLogin'])->middleware('throttle:5,1');
 Route::post('refresh-token', [ApiController::class, 'refreshToken'])->middleware('auth:sanctum');
-Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin']);
-Route::post('mobile-login', [ApiController::class, 'mobileLogin']);
-Route::post('mobile-registration', [ApiController::class, 'mobileRegistration']);
+Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin'])->middleware('throttle:5,1');
+Route::post('mobile-login', [ApiController::class, 'mobileLogin'])->middleware('throttle:5,1');
+Route::post('mobile-registration', [ApiController::class, 'mobileRegistration'])->middleware('throttle:5,1');
 Route::post('mobile-reset-password', [ApiController::class, 'mobileResetPassword'])
     ->middleware('throttle:4,1440');
 Route::post('forgot-password', [ResetPasswordController::class, 'forgotPassword'])
@@ -66,7 +66,7 @@ Route::post('verify-reset-code', [ResetPasswordController::class, 'verifyResetCo
 Route::post('reset-password', [ResetPasswordController::class, 'resetPassword'])
     ->middleware('throttle:4,1440');
 Route::get('firebase-config', [FirebaseConfigApiController::class, 'show']);
-Route::post('admin-login', [ApiController::class, 'adminLogin']);
+Route::post('admin-login', [ApiController::class, 'adminLogin'])->middleware('throttle:5,1');
 Route::post('logout', [ApiController::class, 'userLogout'])->middleware('auth:sanctum');
 
 /********************************************************************************************* */
@@ -128,6 +128,21 @@ Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO
 
 // Public certificate verification — returns only safe fields, no auth needed
 Route::get('certificate/verify', [CertificateController::class, 'verifyApi']);
+
+// Webinars Public / User APIs
+Route::get('webinars', [\App\Http\Controllers\API\PublicWebinarController::class, 'index']);
+Route::get('webinars/{webinar:slug}', [\App\Http\Controllers\API\PublicWebinarController::class, 'show']);
+Route::get('webinars/{webinar:slug}/join', [\App\Http\Controllers\API\PublicWebinarController::class, 'join'])->middleware('auth:sanctum');
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'register'])
+        ->middleware('throttle:5,1');
+    Route::delete('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'cancelRegistration']);
+    
+    // Wallet registration
+    Route::post('user/wallet/webinars/{webinar:slug}/register', [\App\Http\Controllers\API\User\WalletRegistrationController::class, 'register'])
+        ->middleware([\App\Http\Middleware\IdempotencyMiddleware::class]);
+});
 
 Route::prefix('helpdesk')->group(function (): void {
     Route::get('groups', [HelpdeskApiController::class, 'groups']);
@@ -274,6 +289,7 @@ Route::get('ref/{code}', [AffiliateApiController::class, 'trackReferral'])->wher
  */
 
 Route::middleware(OptionalAuth::class)->group(function (): void {
+    Route::post('feature-sections/interact', [HomeApiController::class, 'interact']);
     Route::get('get-feature-sections', [HomeApiController::class, 'getFeatureSections']);
     Route::get('get-courses', [CourseApiController::class, 'getCourses']);
     Route::get('get-course', [CourseApiController::class, 'getCourse']);
@@ -291,8 +307,7 @@ Route::middleware(OptionalAuth::class)->group(function (): void {
  */
 Route::options('/hls/{uuid}/{path?}', function () {
     return response('', 200, [
-        'Access-Control-Allow-Origin' => request()->header('Origin') ?? '*',
-        'Access-Control-Allow-Credentials' => 'true',
+        'Access-Control-Allow-Origin' => config('cors.allowed_origins')[0] ?? '*',
         'Access-Control-Allow-Methods' => 'GET, OPTIONS',
         'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
         'Access-Control-Max-Age' => '86400',
@@ -330,8 +345,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Handle CORS preflight for video streaming
     Route::options('/video/{lectureId}/stream', function () {
         return response('', 200, [
-            'Access-Control-Allow-Origin' => request()->header('Origin') ?? '*',
-            'Access-Control-Allow-Credentials' => 'true',
+            'Access-Control-Allow-Origin' => config('cors.allowed_origins')[0] ?? '*',
             'Access-Control-Allow-Methods' => 'GET, OPTIONS',
             'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
             'Access-Control-Max-Age' => '86400',
@@ -391,6 +405,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Account Security & Sessions
     Route::get('user/active-sessions', [ApiController::class, 'getActiveSessions']);
     Route::post('user/active-sessions/{id}/logout', [ApiController::class, 'logoutSession']);
+    Route::get('user/devices', [\App\Http\Controllers\API\UserDeviceApiController::class, 'index']);
+    Route::delete('user/devices/{id}', [\App\Http\Controllers\API\UserDeviceApiController::class, 'destroy']);
 
     // Notification Settings
     Route::get('user/notification-settings', [ApiController::class, 'getNotificationSettings']);
@@ -587,7 +603,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('update-course-chapter', [CourseChaptersController::class, 'update']);
         Route::get('get-added-course-chapters', [CourseChapterApiController::class, 'getAddedCourseChapters']);
         Route::delete('delete-course-chapter', [CourseChapterApiController::class, 'deleteCourseChapter']);
-        Route::post('update-curriculum', [CourseChapterApiController::class, 'updateCurriculum']);
+        // Route removed: update-curriculum does not exist
         Route::put('/common/change-status', [Controller::class, 'changeStatus']);
 
         // Instructor Earnings APIs
@@ -734,19 +750,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
     });
 
     // Admin Ratings CRUD API — used by Next.js dashboard (/api/admin/ratings)
-    Route::prefix('admin/ratings')->group(function (): void {
+    Route::prefix('admin/ratings')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('/',     [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'index']);   // List all (paginated, searchable)
         Route::put('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'update']);  // Approve / edit
         Route::delete('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'destroy']); // Delete
     });
-    Route::prefix('admin/comments')->group(function (): void {
+    Route::prefix('admin/comments')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingComments']);
         Route::post('/{id}/approve', [\App\Http\Controllers\Admin\ApprovalController::class, 'approveComment']);
         Route::post('/{id}/reject', [\App\Http\Controllers\Admin\ApprovalController::class, 'rejectComment']);
     });
 
     // Admin affiliate management
-    Route::prefix('admin/affiliate')->group(function (): void {
+    Route::prefix('admin/affiliate')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('settings', [AffiliateController::class, 'settings']);
         Route::put('settings', [AffiliateController::class, 'updateSettings']);
         Route::get('withdrawals/pending', [AffiliateController::class, 'pendingWithdrawals']);
@@ -770,10 +786,23 @@ Route::middleware('auth:sanctum')->group(function (): void {
     /**
      * Admin Dashboard CRUD APIs
      */
-    Route::prefix('admin')->group(function (): void {
+    Route::prefix('admin')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
+        // System Settings
+        Route::get('app-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'getAppSettings']);
+        Route::post('app-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'updateAppSettings']);
+        Route::get('web-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'getWebSettings']);
+        Route::post('web-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'updateWebSettings']);
+        Route::get('seo-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'getSeoSettings']);
+        Route::post('seo-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'updateSeoSettings']);
+
+        // Payment Gateways Settings
+        Route::get('settings/payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'index']);
+        Route::put('settings/payment-gateway', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'update']);
+
         // Notification Global Settings
         Route::get('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'getSettings']);
         Route::put('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'updateSettings']);
+        Route::post('settings/notifications/preview', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'previewEmail']);
         Route::get('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'show']);
         Route::put('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'update']);
         Route::post('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'update']);
@@ -902,6 +931,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('notifications', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'index']);
         Route::post('notifications/send-bulk', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'sendBulkNotification']);
         Route::delete('notifications/{id}', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'destroy']);
+        Route::get('notifications/email-preview', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'emailPreview']);
         Route::match(['put', 'patch'], 'courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
         Route::get('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'show']);
         Route::get('courses/{id}/students', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'students']);
@@ -942,6 +972,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('tags/{id}/restore', [\App\Http\Controllers\API\Admin\TagAdminApiController::class, 'restore']);
 
         // Feature Sections
+        Route::put('feature-sections/reorder', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'reorder']);
+        Route::get('feature-sections/{id}/analytics', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'analytics']);
         Route::get('feature-sections', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'index']);
         Route::get('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'show']);
         Route::post('feature-sections', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'store']);
@@ -992,18 +1024,23 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Webinars (Admin/Instructor)
         Route::prefix('webinars')->group(function (): void {
-            Route::get('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'update']);
-            Route::match(['put', 'patch'], '{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'destroy']);
-            Route::post('{id}/change-status', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'updateStatus']);
-            Route::post('{id}/cancel', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'cancel']);
-            Route::post('{id}/toggle-publish', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'togglePublish']);
-            Route::post('{id}/toggle-featured', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'toggleFeatured']);
-            Route::get('{id}/registrants', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'registrants']);
-            Route::get('{id}/registrants/export', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'exportRegistrants']);
+            Route::post('upload-image', [\App\Http\Controllers\API\Admin\WebinarMediaController::class, 'upload']);
+            Route::get('/', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'store']);
+            Route::get('{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'show']);
+            Route::put('{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'update']);
+            Route::match(['put', 'patch'], '{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'update']);
+            Route::delete('{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'destroy']);
+            
+            // Actions
+            Route::post('{webinar:slug}/change-status', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'changeStatus']);
+            Route::post('{webinar:slug}/toggle-publish', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'togglePublish']);
+            Route::post('{webinar:slug}/set-default', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'setDefault']);
+            Route::put('{slug}/restore', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'restore']); // No model binding since it's soft deleted
+            
+            Route::get('{webinar:slug}/registrants', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'registrants']);
+            Route::delete('{webinar:slug}/registrants', [\App\Http\Controllers\API\Admin\WebinarRegistrantController::class, 'destroy']);
+            Route::get('{webinar:slug}/registrants/export', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'exportRegistrants']);
         });
 
         // Popup Campaigns (Admin)
@@ -1044,15 +1081,21 @@ Route::middleware('auth:sanctum')->group(function (): void {
             // Knowledge Base
             Route::get('/knowledge', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexKnowledge']);
             Route::post('/knowledge', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'storeKnowledge']);
-            Route::post('/knowledge/upload-course-file', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'uploadCourseKnowledge']); // ← course knowledge upload
+            Route::post('/knowledge/upload-course-file', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'uploadCourseKnowledge']);
             Route::get('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'showKnowledge']);
             Route::put('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']);
             Route::post('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']); // POST variant for file uploads
             Route::delete('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'destroyKnowledge']);
             Route::post('/knowledge/{id}/toggle', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'toggleKnowledge']);
 
+            // Conversations
+            Route::get('/conversations', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexConversations']);
+            Route::get('/conversations/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'showConversation']);
+
             // Chat History (Logs)
             Route::get('/logs', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexLogs']);
+            
+            Route::get('/stats', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'getStats']);
 
             // Test Chat
             Route::post('/test', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'testChat']);
@@ -1115,7 +1158,7 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
     });
 
     // Reports APIs (Admin)
-    Route::prefix('reports')->group(function (): void {
+    Route::prefix('reports')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('filters', [ReportsApiController::class, 'getReportFilters']); // Get all filter options
         Route::get('sales', [ReportsApiController::class, 'getSalesReport']); // Sales reports
         Route::get('commission', [ReportsApiController::class, 'getCommissionReport']); // Commission reports
@@ -1131,17 +1174,9 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
         Route::get('students', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'index']);
     });
 
-    // [9] Payment Gateway Settings API (Admin)
-    Route::prefix('admin/settings')->group(function (): void {
-        Route::get('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'index']);
-        Route::put('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'update']);
-        Route::post('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'update']); // POST variant
-    });
 
 
     // Certificate Generation APIs (Requires Authentication)
-    Route::post('generate-course-certificate', [CourseApiController::class, 'generateCourseCertificate']); // Generate Course Completion Certificate
-    Route::post('generate-exam-certificate', [CourseApiController::class, 'generateExamCertificate']); // Generate Exam Completion Certificate
 });
 
 // Certificate Templates (Public - no authentication required)

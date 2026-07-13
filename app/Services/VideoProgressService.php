@@ -9,6 +9,7 @@ use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\User;
 use App\Models\UserCurriculumTracking;
 use App\Models\VideoProgress;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -50,6 +51,30 @@ class VideoProgressService
         int $totalSeconds
     ): VideoProgress {
         $existing = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
+
+        // Anti-Cheat: Validate realistic watch time
+        $cacheKey = "progress_tracking_legacy_user_{$user->id}_lecture_{$lecture->id}";
+        $lastUpdate = Cache::get($cacheKey);
+        $now = now()->timestamp;
+        
+        $previouslyWatched = $existing ? $existing->watched_seconds : 0;
+        $reportedSeconds = max(0, $watchedSeconds - $previouslyWatched);
+
+        if ($lastUpdate && $reportedSeconds > 0) {
+            $timePassed = $now - $lastUpdate;
+            // Allow a buffer of 10 seconds for legacy tracking
+            if ($timePassed + 10 < $reportedSeconds) {
+                Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported in legacy method', [
+                    'user_id' => $user->id,
+                    'lecture_id' => $lecture->id,
+                    'reported_diff' => $reportedSeconds,
+                    'time_passed' => $timePassed
+                ]);
+                return $existing ?: new VideoProgress(); // Reject update and return current state
+            }
+        }
+
+        Cache::put($cacheKey, $now, 3600);
 
         $effectiveWatched = $existing !== null
             ? max($existing->watched_seconds, $watchedSeconds)
@@ -205,25 +230,6 @@ class VideoProgressService
         return $previousChapter->lectures()->orderByDesc('chapter_order')->first();
     }
 
-    /**
-     * Generate progress challenge (stub for anti-cheat).
-     */
-    public function generateProgressChallenge(User $user, CourseChapterLecture $lecture): array
-    {
-        return [
-            'token' => Str::random(32),
-            'timestamp' => now()->timestamp,
-            'expected_position' => 0,
-        ];
-    }
-
-    /**
-     * Validate progress challenge (stub).
-     */
-    public function validateProgressChallenge(User $user, CourseChapterLecture $lecture, array $response): bool
-    {
-        return true;
-    }
 
     /**
      * Update progress using segment-based tracking.
@@ -243,6 +249,28 @@ class VideoProgressService
         array $newlyWatchedSegments
     ): VideoProgress {
         $progress = $this->getOrCreateSegmentProgress($user, $lecture, $totalDuration);
+
+        // Anti-Cheat: Validate realistic watch time
+        $cacheKey = "progress_tracking_user_{$user->id}_lecture_{$lecture->id}";
+        $lastUpdate = Cache::get($cacheKey);
+        $now = now()->timestamp;
+        $reportedSeconds = count($newlyWatchedSegments) * self::DEFAULT_SEGMENT_SIZE;
+
+        if ($lastUpdate && $reportedSeconds > 0) {
+            $timePassed = $now - $lastUpdate;
+            // Allow a small buffer of 5 seconds for network latency
+            if ($timePassed + 5 < $reportedSeconds) {
+                Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported', [
+                    'user_id' => $user->id,
+                    'lecture_id' => $lecture->id,
+                    'reported_seconds' => $reportedSeconds,
+                    'time_passed' => $timePassed
+                ]);
+                return $progress; // Reject update and return current state
+            }
+        }
+
+        Cache::put($cacheKey, $now, 3600);
 
         // Get existing watched segments or initialize
         $watchedSegments = $progress->watched_segments ??

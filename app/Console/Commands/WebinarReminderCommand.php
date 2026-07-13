@@ -31,16 +31,14 @@ class WebinarReminderCommand extends Command
 
         $webinars = \App\Models\Webinar::where('status', 'scheduled')
             ->whereBetween('start_at', [$start, $end])
-            ->with('registrations.user')
             ->get();
 
         foreach ($webinars as $webinar) {
-            foreach ($webinar->registrations as $registration) {
-                if ($registration->payment_status !== 'pending' && $registration->user) {
-                    $registration->user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar, true));
-                }
+            // Fire event instead of handling directly to decouple logic and use the queue
+            if (class_exists(\App\Events\WebinarStartingSoon::class)) {
+                event(new \App\Events\WebinarStartingSoon($webinar));
             }
-            $this->info("Reminders sent for webinar: {$webinar->title}");
+            $this->info("WebinarStartingSoon event fired for webinar: {$webinar->title}");
         }
 
         return Command::SUCCESS;

@@ -72,13 +72,13 @@ final class SubscriptionPlanController extends Controller
         ];
 
         $messages = [
-            'countries.required' => __('يجب اختيار دولة واحدة على الأقل'),
-            'countries.min' => __('يجب اختيار دولة واحدة على الأقل'),
-            'countries.*.country_id.required' => __('يجب اختيار الدولة'),
-            'countries.*.country_id.exists' => __('الدولة المختارة غير صالحة أو غير مفعلة'),
-            'countries.*.price.required' => __('السعر الأساسي مطلوب لكل دولة'),
-            'countries.*.price.min' => __('السعر الأساسي يجب أن يكون 0 أو أكثر'),
-            'countries.*.offer_price.min' => __('سعر العرض يجب أن يكون 0 أو أكثر'),
+            'countries.required' => __('validation.countries_required'),
+            'countries.min' => __('validation.countries_min_1'),
+            'countries.*.country_id.required' => __('validation.country_id_required'),
+            'countries.*.country_id.exists' => __('validation.country_id_exists'),
+            'countries.*.price.required' => __('validation.country_price_required'),
+            'countries.*.price.min' => __('validation.country_price_min'),
+            'countries.*.offer_price.min' => __('validation.country_offer_price_min'),
         ];
 
         $validator = Validator::make($request->all(), $rules, $messages);
@@ -89,14 +89,14 @@ final class SubscriptionPlanController extends Controller
             foreach ($countries as $index => $entry) {
                 $countryId = $entry['country_id'] ?? null;
                 if ($countryId && in_array($countryId, $seenCountryIds)) {
-                    $validator->errors()->add("countries.{$index}.country_id", __('لا يجوز تكرار نفس الدولة'));
+                    $validator->errors()->add("countries.{$index}.country_id", __('validation.country_duplicate'));
                 }
                 $seenCountryIds[] = $countryId;
                 $price = isset($entry['price']) ? (float)$entry['price'] : 0;
                 $offerPrice = isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null
                     ? (float)$entry['offer_price'] : null;
                 if ($offerPrice !== null && $offerPrice >= $price) {
-                    $validator->errors()->add("countries.{$index}.offer_price", __('سعر العرض يجب أن يكون أقل من السعر الأساسي'));
+                    $validator->errors()->add("countries.{$index}.offer_price", __('validation.offer_price_must_be_less_than_price'));
                 }
             }
         });
@@ -184,13 +184,13 @@ final class SubscriptionPlanController extends Controller
         ];
 
         $messages = [
-            'countries.required' => __('يجب اختيار دولة واحدة على الأقل'),
-            'countries.min' => __('يجب اختيار دولة واحدة على الأقل'),
-            'countries.*.country_id.required' => __('يجب اختيار الدولة'),
-            'countries.*.country_id.exists' => __('الدولة المختارة غير صالحة أو غير مفعلة'),
-            'countries.*.price.required' => __('السعر الأساسي مطلوب لكل دولة'),
-            'countries.*.price.min' => __('السعر الأساسي يجب أن يكون 0 أو أكثر'),
-            'countries.*.offer_price.min' => __('سعر العرض يجب أن يكون 0 أو أكثر'),
+            'countries.required' => __('validation.countries_required'),
+            'countries.min' => __('validation.countries_min_1'),
+            'countries.*.country_id.required' => __('validation.country_id_required'),
+            'countries.*.country_id.exists' => __('validation.country_id_exists'),
+            'countries.*.price.required' => __('validation.country_price_required'),
+            'countries.*.price.min' => __('validation.country_price_min'),
+            'countries.*.offer_price.min' => __('validation.country_offer_price_min'),
         ];
 
         $validator = Validator::make($request->all(), $rules, $messages);
@@ -201,14 +201,14 @@ final class SubscriptionPlanController extends Controller
             foreach ($countries as $index => $entry) {
                 $countryId = $entry['country_id'] ?? null;
                 if ($countryId && in_array($countryId, $seenCountryIds)) {
-                    $validator->errors()->add("countries.{$index}.country_id", __('لا يجوز تكرار نفس الدولة'));
+                    $validator->errors()->add("countries.{$index}.country_id", __('validation.country_duplicate'));
                 }
                 $seenCountryIds[] = $countryId;
                 $price = isset($entry['price']) ? (float)$entry['price'] : 0;
                 $offerPrice = isset($entry['offer_price']) && $entry['offer_price'] !== '' && $entry['offer_price'] !== null
                     ? (float)$entry['offer_price'] : null;
                 if ($offerPrice !== null && $offerPrice >= $price) {
-                    $validator->errors()->add("countries.{$index}.offer_price", __('سعر العرض يجب أن يكون أقل من السعر الأساسي'));
+                    $validator->errors()->add("countries.{$index}.offer_price", __('validation.offer_price_must_be_less_than_price'));
                 }
             }
         });

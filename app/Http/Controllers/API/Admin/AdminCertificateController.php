@@ -135,11 +135,17 @@ class AdminCertificateController extends AdminCrudApiController
 
         $certificate = CourseCertificate::find($id);
         if (!$certificate) {
-            return ApiResponseService::errorResponse('Certificate not found.', null, 404);
+            return response()->json([
+                'ok' => false,
+                'message' => 'Certificate not found.'
+            ], 404);
         }
 
         if ($certificate->isRevoked()) {
-            return ApiResponseService::errorResponse('Certificate is already revoked.', null, 409);
+            return response()->json([
+                'ok' => false,
+                'message' => 'Certificate is already revoked.'
+            ], 409);
         }
 
         $certificate->update([
@@ -148,10 +154,14 @@ class AdminCertificateController extends AdminCrudApiController
             'revoked_reason' => $request->input('reason', 'Revoked by admin'),
         ]);
 
-        return ApiResponseService::successResponse('Certificate revoked successfully.', [
-            'certificate_number' => $certificate->certificate_number,
-            'revoked_at'         => $certificate->revoked_at->toDateTimeString(),
-        ]);
+        return response()->json([
+            'ok' => true,
+            'message' => 'Certificate revoked successfully.',
+            'data' => [
+                'certificate_number' => $certificate->certificate_number,
+                'revoked_at'         => $certificate->revoked_at->toDateTimeString(),
+            ]
+        ], 200);
     }
 
     /**
@@ -165,11 +175,17 @@ class AdminCertificateController extends AdminCrudApiController
 
         $certificate = CourseCertificate::find($id);
         if (!$certificate) {
-            return ApiResponseService::errorResponse('Certificate not found.', null, 404);
+            return response()->json([
+                'ok' => false,
+                'message' => 'Certificate not found.'
+            ], 404);
         }
 
         if ($certificate->isActive()) {
-            return ApiResponseService::errorResponse('Certificate is already active.', null, 409);
+            return response()->json([
+                'ok' => false,
+                'message' => 'Certificate is already active.'
+            ], 409);
         }
 
         $certificate->update([
@@ -178,8 +194,12 @@ class AdminCertificateController extends AdminCrudApiController
             'revoked_reason' => null,
         ]);
 
-        return ApiResponseService::successResponse('Certificate restored successfully.', [
-            'certificate_number' => $certificate->certificate_number,
-        ]);
+        return response()->json([
+            'ok' => true,
+            'message' => 'Certificate restored successfully.',
+            'data' => [
+                'certificate_number' => $certificate->certificate_number,
+            ]
+        ], 200);
     }
 }

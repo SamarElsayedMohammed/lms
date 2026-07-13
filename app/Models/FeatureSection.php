@@ -61,4 +61,9 @@ class FeatureSection extends Model
             ->withTimestamps()
             ->orderBy('feature_section_manual_courses.sort_order');
     }
+
+    public function analyticsDaily()
+    {
+        return $this->hasMany(FeatureSectionAnalyticsDaily::class);
+    }
 }

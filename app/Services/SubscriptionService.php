@@ -86,6 +86,8 @@ final class SubscriptionService
             $subscription = Subscription::create([
                 'user_id' => $user->id,
                 'plan_id' => $plan->id,
+                'locked_price' => $discountMeta['original_amount'] ?? $plan->price,
+                'locked_currency' => $discountMeta['currency_code'] ?? 'EGP',
                 'starts_at' => $startsAt,
                 'ends_at' => $endsAt,
                 'status' => $status,
@@ -315,10 +317,97 @@ final class SubscriptionService
      */
     public function getActiveSubscription(User $user): ?Subscription
     {
+        $this->syncQueuedSubscriptions($user);
+
         return Subscription::forUser($user->id)
             ->active()
             ->with('plan')
             ->first();
+    }
+
+    /**
+     * Lazy evaluation to transition expired active subscriptions and activate queued ones.
+     */
+    public function syncQueuedSubscriptions(User $user): void
+    {
+        $needsSync = Subscription::where('user_id', $user->id)
+            ->where(function ($query) {
+                $query->where(function ($q) {
+                    $q->where('status', Subscription::STATUS_ACTIVE)
+                      ->whereNotNull('ends_at')
+                      ->where('ends_at', '<=', now());
+                })->orWhere(function ($q) {
+                    $q->where('status', Subscription::STATUS_PENDING)
+                      ->where('starts_at', '<=', now());
+                });
+            })->exists();
+
+        if (!$needsSync) {
+            return;
+        }
+
+        DB::transaction(function () use ($user) {
+            // 0. Lock User first to prevent deadlocks
+            $userLock = User::where('id', $user->id)->lockForUpdate()->first();
+
+            // 1. Handle expired subscriptions
+            $expiredSubscriptions = Subscription::where('user_id', $user->id)
+                ->where('status', Subscription::STATUS_ACTIVE)
+                ->whereNotNull('ends_at')
+                ->where('ends_at', '<=', now())
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($expiredSubscriptions as $subscription) {
+                // Check if user has a queued subscription
+                $hasQueued = Subscription::where('user_id', $user->id)
+                    ->where('status', Subscription::STATUS_PENDING)
+                    ->exists();
+
+                if (!$hasQueued && $subscription->auto_renew && $subscription->plan && !$subscription->plan->isLifetime()) {
+                    $walletRenewalEnabled = app(\App\Services\AffiliateService::class)->isEnabled();
+                    $price = (float) $subscription->plan->price;
+                    
+                    if ($walletRenewalEnabled && $user->wallet_balance >= $price) {
+                        try {
+                            $this->renewWithPayment($user, $subscription, 'wallet', $price, 0);
+                            
+                            Log::info('Subscription auto-renewed via wallet (Lazy Eval)', [
+                                'subscription_id' => $subscription->id,
+                                'user_id' => $user->id,
+                                'amount' => $price,
+                            ]);
+                            continue; // successfully renewed, not expired
+                        } catch (\Throwable $e) {
+                            Log::warning('Auto-renewal failed (Lazy Eval), marking as expired', [
+                                'subscription_id' => $subscription->id,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+                }
+
+                $subscription->status = Subscription::STATUS_EXPIRED;
+                $subscription->save();
+            }
+
+            // 2. Activate pending/queued subscriptions whose starts_at is in the past/now
+            $pendingToActivate = Subscription::where('user_id', $user->id)
+                ->where('status', Subscription::STATUS_PENDING)
+                ->where('starts_at', '<=', now())
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($pendingToActivate as $sub) {
+                $sub->status = Subscription::STATUS_ACTIVE;
+                $sub->save();
+                
+                Log::info('Queued subscription activated (Lazy Eval)', [
+                    'subscription_id' => $sub->id,
+                    'user_id' => $user->id,
+                ]);
+            }
+        });
     }
 
     /**

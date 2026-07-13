@@ -92,17 +92,11 @@ final class KashierController extends Controller
         }
 
         if (!$isVerified && !$isSuccess) {
-            $hasExplicitFailure = $this->isFailedStatus($status);
-            $canTrustBrowserReturn = $request->isMethod('get')
-                && !$hasExplicitFailure
-                && str_starts_with($orderId, 'sub_');
-
             $this->kashierLog('Kashier verification incomplete', [
                 'orderId' => $orderId,
                 'transactionId' => $transactionId,
                 'status' => $status,
                 'is_get' => $request->isMethod('get'),
-                'can_trust_browser_return' => $canTrustBrowserReturn,
             ]);
 
             Log::warning('Kashier webhook: Total verification failed', [
@@ -111,17 +105,12 @@ final class KashierController extends Controller
                 'status' => $status,
             ]);
 
-            if (!$canTrustBrowserReturn) {
-                if ($request->isMethod('get')) {
-                    $redirectPath = str_starts_with($orderId, 'wlt_') ? '/my-wallet' : '/plans';
-                    return $this->respond($request, 'Verification failed', 302, false, $redirectPath, $orderId);
-                }
-
-                return $this->respond($request, 'Invalid signature', 400, false, null, $orderId);
+            if ($request->isMethod('get')) {
+                $redirectPath = str_starts_with($orderId, 'wlt_') ? '/my-wallet' : '/plans';
+                return $this->respond($request, 'Verification failed', 302, false, $redirectPath, $orderId);
             }
 
-            $isSuccess = true;
-            $status = 'browser_return_unverified_success';
+            return $this->respond($request, 'Invalid signature', 400, false, null, $orderId);
         }
 
         if (empty($orderId)) {
@@ -170,7 +159,7 @@ final class KashierController extends Controller
         $walletAmount = $pending['wallet_amount'] ?? 0;
         $totalAmount = $gatewayAmount + (float) $walletAmount;
 
-        if ($this->isSuccessfulStatus($status) || $status === 'browser_return_unverified_success') {
+        if ($this->isSuccessfulStatus($status)) {
             return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, array_merge($data, [
                 '_kashier_status_resolved' => $status,
                 '_kashier_verified' => $isVerified,

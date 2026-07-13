@@ -18,9 +18,14 @@ class WebinarApiController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Webinar::with('instructor:id,name,profile')
+            $query = Webinar::with(['instructor:id,name,profile', 'course:id,title'])
+                ->where('is_published', true)
                 ->whereIn('status', ['scheduled', 'live'])
                 ->where('start_at', '>=', now()->subHours(2));
+
+            if ($request->has('course_id')) {
+                $query->where('course_id', $request->input('course_id'));
+            }
 
             $perPage = min((int) $request->input('per_page', 15), 50);
             $webinars = $query->orderBy('start_at', 'asc')->paginate($perPage);
@@ -223,6 +228,37 @@ class WebinarApiController extends Controller
             throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to join webinar: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Cancel registration for a webinar
+     */
+    public function cancelRegistration(Request $request, $param)
+    {
+        try {
+            $user = Auth::guard('sanctum')->user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('Unauthorized.', [], 401);
+            }
+
+            $webinar = Webinar::where('id', $param)->orWhere('slug', $param)->firstOrFail();
+
+            $registration = WebinarRegistration::where('user_id', $user->id)
+                ->where('webinar_id', $webinar->id)
+                ->first();
+
+            if (!$registration) {
+                return ApiResponseService::errorResponse('Not registered for this webinar.', [], 400);
+            }
+
+            $registration->delete();
+
+            return ApiResponseService::successResponse('Registration cancelled successfully.');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to cancel registration: ' . $e->getMessage());
         }
     }
 }

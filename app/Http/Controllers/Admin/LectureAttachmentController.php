@@ -43,7 +43,7 @@ class LectureAttachmentController extends Controller
     public function store(Request $request, int $lectureId): JsonResponse
     {
         $request->validate([
-            'file' => 'required|file|max:51200', // 50MB
+            'file' => 'required|file|mimes:pdf,doc,docx,ppt,pptx,zip,rar,jpeg,png,jpg,mp4,mp3,wav|max:51200', // 50MB
         ]);
 
         $lecture = CourseChapterLecture::find($lectureId);

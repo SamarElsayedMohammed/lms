@@ -198,4 +198,11 @@ final class SubscriptionPlan extends Model
 
         return $this->duration_days ?? self::CYCLE_DAYS[$this->billing_cycle] ?? null;
     }
+    public function toArray()
+    {
+        $array = parent::toArray();
+        $array['is_active'] = $array['is_active'] ?? false;
+        $array['is_available'] = $array['is_available'] ?? false;
+        return $array;
+    }
 }

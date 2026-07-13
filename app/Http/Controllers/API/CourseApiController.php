@@ -123,10 +123,6 @@ class CourseApiController extends Controller
             'taxes',
             'ratings.user',
             'wishlistedByUsers',
-            'chapters.lectures',
-            'chapters.quizzes',
-            'chapters.assignments',
-            'chapters.resources',
         ])
             ->withAvg('ratings', 'rating')
             ->withCount(['ratings', 'views', 'orderCourses' => static function ($q): void {
@@ -239,6 +235,12 @@ class CourseApiController extends Controller
 
         if ($request->filled('language_id')) {
             $query->whereIn('language_id', explode(',', $request->language_id));
+        }
+
+        if ($request->filled('tag')) {
+            $query->whereHas('tags', static function ($tagQuery) use ($request): void {
+                $tagQuery->where('tag', $request->tag);
+            });
         }
 
         if ($request->filled('search')) {
@@ -516,11 +518,11 @@ class CourseApiController extends Controller
             // Apply rating filter
             if ($request->filled('rating_filter')) {
                 $ratingFilters = array_map(intval(...), explode(',', $request->rating_filter));
-                $allCourses = $allCourses->filter(static function ($course) use ($ratingFilters) {
+                // Use the lowest selected rating as a minimum threshold (e.g., 4 means 4+ stars)
+                $minRating = min($ratingFilters);
+                $allCourses = $allCourses->filter(static function ($course) use ($minRating) {
                     $avgRating = $course->ratings_avg_rating ?? 0;
-                    $roundedRating = (int) floor($avgRating);
-
-                    return in_array($roundedRating, $ratingFilters);
+                    return $avgRating >= $minRating;
                 })->values(); // Reset collection keys to 0, 1, 2, ...
             }
 
@@ -609,14 +611,26 @@ class CourseApiController extends Controller
 
         // Check active subscription once to avoid N+1 queries
         $hasActiveSubscription = false;
+        $purchasedCourseIds = [];
+        $refundedCourseIds = [];
         if (Auth::check()) {
-            $hasActiveSubscription = Auth::user()->activeSubscription()->exists();
+            $user = Auth::user();
+            $hasActiveSubscription = $user->activeSubscription()->exists();
+            
+            $purchasedCourseIds = \App\Models\Course\OrderCourse::whereHas('order', static function ($q) use ($user): void {
+                $q->where('user_id', $user->id)->where('status', 'completed');
+            })->pluck('course_id')->toArray();
+            
+            $refundedCourseIds = \App\Models\RefundRequest::where('user_id', $user->id)
+                ->where('status', 'approved')
+                ->pluck('course_id')
+                ->toArray();
         }
 
         // Transform data
         $courses
             ->getCollection()
-            ->transform(function ($course) use ($totalTaxPercentage, $countryCode, $hasActiveSubscription) {
+            ->transform(function ($course) use ($totalTaxPercentage, $countryCode, $hasActiveSubscription, $purchasedCourseIds, $refundedCourseIds) {
                 $discountPercentage = 0;
                 if ($course->has_discount) {
                     $discountPercentage = round((($course->price - $course->discount_price) / $course->price) * 100, 2);
@@ -626,7 +640,8 @@ class CourseApiController extends Controller
                     ? Wishlist::where('user_id', Auth::id())->where('course_id', $course->id)->exists()
                     : false;
 
-                $isEnrolled = Auth::check() ? $hasActiveSubscription : false;
+                $isPurchased = in_array($course->id, $purchasedCourseIds);
+                $isEnrolled = $isPurchased || $hasActiveSubscription;
 
                 // Calculate total course duration
                 $totalDuration = 0;
@@ -637,15 +652,6 @@ class CourseApiController extends Controller
                             + (($lecture->minutes ?? 0) * 60)
                             + ($lecture->seconds ?? 0);
                     }
-                }
-
-                // Build refunded course list for this user
-                $refundedCourseIds = [];
-                if (Auth::check()) {
-                    $refundedCourseIds = RefundRequest::where('user_id', Auth::id())
-                        ->where('status', 'approved')
-                        ->pluck('course_id')
-                        ->toArray();
                 }
 
                 // Calculate pricing using service
@@ -681,7 +687,8 @@ class CourseApiController extends Controller
                     'total_duration' => $totalDuration, // in seconds
                     'total_duration_formatted' => $this->formatDuration($totalDuration),
                     'is_wishlisted' => $isWishlisted,
-                    'is_enrolled' => ($isEnrolled || $hasActiveSubscription) && !in_array($course->id, $refundedCourseIds),
+                    'is_purchased' => $isPurchased,
+                    'is_enrolled' => $isEnrolled && !in_array($course->id, $refundedCourseIds),
                     // Currency specific fields (explicitly copied for clarity)
                     'currency_code' => $coursePricingData['currency_code'],
                     'currency_symbol' => $coursePricingData['currency_symbol'],
@@ -4438,14 +4445,29 @@ class CourseApiController extends Controller
 
         $lectureResources = [];
 
-        // TODO: add type for audio, video, image, doc, rather than just file and url
         foreach ($lecture->resources as $resource) {
+            $detailedType = 'external_link';
+            if ($resource->type === 'file') {
+                $ext = strtolower((string) $resource->file_extension);
+                if (in_array($ext, ['mp4', 'mkv', 'avi', 'mov', 'webm'])) {
+                    $detailedType = 'video';
+                } elseif (in_array($ext, ['mp3', 'wav', 'ogg'])) {
+                    $detailedType = 'audio';
+                } elseif (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'])) {
+                    $detailedType = 'image';
+                } elseif (in_array($ext, ['pdf', 'doc', 'docx', 'txt', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'rar'])) {
+                    $detailedType = 'doc';
+                } else {
+                    $detailedType = 'download';
+                }
+            }
+
             $lectureResources[] = [
                 'id' => $resource->id,
                 'title' => $resource->file_extension
                     ? $resource->title . '.' . $resource->file_extension
                     : $resource->title,
-                'type' => $resource->type === 'file' ? 'download' : 'external_link',
+                'type' => $detailedType,
                 'file_url' => $resource->type === 'file' ? $resource->file : null,
                 'external_url' => $resource->type === 'url' ? $resource->url : null,
                 'file_extension' => $resource->file_extension,
@@ -5226,6 +5248,10 @@ class CourseApiController extends Controller
         }
         try {
             $course = Course::onlyTrashed()->findOrFail($request->id);
+            $user = Auth::user();
+            if (!$user->hasAnyRole(['Super Admin', 'Supervisor', 'Staff']) && $course->user_id !== $user->id) {
+                return ApiResponseService::errorResponse('You do not have permission to delete this course.', null, 403);
+            }
             $course->forceDelete();
             ApiResponseService::successResponse('Course permanently deleted successfully');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

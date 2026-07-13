@@ -19,22 +19,24 @@ class FileService
      * @param $folder
      * @return string
      */
-    public static function compressAndUpload($requestFile, $folder)
+    public static function compressAndUpload($requestFile, $folder, $disk = 'public')
     {
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
         $ext = strtolower($requestFile->getClientOriginalExtension() ?? '');
 
+        self::sanitizeIfSvg($requestFile, $ext);
+
         if (in_array($ext, ['jpg', 'jpeg', 'png']) && self::imageExtensionAvailable()) {
             try {
                 $image = Image::make($requestFile)->encode(null, 60);
-                Storage::disk('public')->put($folder . '/' . $file_name, (string) $image);
+                Storage::disk($disk)->put($folder . '/' . $file_name, (string) $image);
                 return ltrim($folder, '/') . '/' . $file_name;
             } catch (Exception $e) {
                 // Fallback to plain upload if Image fails (e.g. GD not available)
             }
         }
 
-        $requestFile->storeAs($folder, $file_name, 'public');
+        $requestFile->storeAs($folder, $file_name, $disk);
         return ltrim($folder, '/') . '/' . $file_name;
     }
 
@@ -51,11 +53,38 @@ class FileService
      * @param $folder
      * @return string
      */
-    public static function upload($requestFile, $folder)
+    public static function upload($requestFile, $folder, $disk = 'public')
     {
+        $ext = strtolower($requestFile->getClientOriginalExtension() ?? '');
+        self::sanitizeIfSvg($requestFile, $ext);
+        
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
-        $requestFile->storeAs($folder, $file_name, 'public');
+        $requestFile->storeAs($folder, $file_name, $disk);
         return $folder . '/' . $file_name;
+    }
+
+    /**
+     * Basic SVG sanitization
+     */
+    protected static function sanitizeIfSvg($file, $ext)
+    {
+        if ($ext === 'svg') {
+            $user = \Illuminate\Support\Facades\Auth::user();
+            if (!$user || (!$user->hasRole('Super Admin') && !$user->hasRole('Supervisor'))) {
+                throw new \Exception('SVG uploads are restricted to administrators for security reasons.');
+            }
+            
+            $content = file_get_contents($file->getRealPath());
+            if ($content) {
+                // Remove <script> tags
+                $content = preg_replace('/<script[\s\S]*?<\/script>/i', '', $content);
+                // Remove javascript: references
+                $content = preg_replace('/href\s*=\s*[\'"]javascript:[^\'"]*[\'"]/i', 'href="#"', $content);
+                // Remove onEvent attributes
+                $content = preg_replace('/\son[a-zA-Z]+\s*=\s*[\'"][^\'"]*[\'"]/i', '', $content);
+                file_put_contents($file->getRealPath(), $content);
+            }
+        }
     }
 
     /**

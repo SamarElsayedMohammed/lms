@@ -5,7 +5,11 @@ namespace App\Services;
 use App\Models\Certificate;
 use App\Models\Course\Course;
 use App\Models\User;
-use App\Services\VideoProgressService;
+use App\Models\OrderCourse;
+use App\Models\Course\CourseCertificate;
+use App\Models\UserNotification;
+use App\Notifications\ManualCustomNotification;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Facades\Image;
 
@@ -21,67 +25,102 @@ class CertificateService
     }
 
     /**
-     * Generate a certificate for course completion
+     * Auto generate certificate upon 100% completion or payment.
+     * Evaluates course completeness, checks purchase requirement, and creates DB record.
      */
-    public function generateCourseCompletionCertificate($userId, $courseId, $certificateId = null)
+    public function autoGenerateCertificate(int $userId, int $courseId): ?CourseCertificate
     {
         try {
             $user = User::findOrFail($userId);
             $course = Course::findOrFail($courseId);
 
-            // Check if course is completed using user_curriculum_trackings
-            $isCompleted = $this->checkCourseCompletionFromTracking($userId, $courseId);
-
-            if (!$isCompleted) {
-                return [
-                    'success' => false,
-                    'error' => 'Course must be completed before generating certificate. Please complete all curriculum items and submit all assignments.',
-                ];
+            // 1. Check if already generated
+            $existing = CourseCertificate::where('user_id', $userId)
+                ->where('course_id', $courseId)
+                ->first();
+                
+            if ($existing) {
+                return $existing;
             }
 
-            // Get certificate template
-            if ($certificateId) {
-                $certificate = Certificate::find($certificateId);
-
-                if (!$certificate) {
-                    return [
-                        'success' => false,
-                        'error' => 'Certificate template not found.',
-                    ];
-                }
-
-                // Verify certificate type is correct
-                if ($certificate->type !== 'course_completion') {
-                    return [
-                        'success' => false,
-                        'error' => 'Invalid certificate template type. Expected course_completion certificate.',
-                    ];
-                }
-
-                if (!$certificate->is_active) {
-                    return [
-                        'success' => false,
-                        'error' => 'The selected certificate template is not active.',
-                    ];
-                }
-            } else {
-                // Get default active course completion certificate
-                $certificate = Certificate::where('type', 'course_completion')->where('is_active', true)->first();
+            // 2. Check if certificate is enabled for course
+            if (!$course->certificate_enabled) {
+                return null;
             }
 
-            if (!$certificate) {
-                return [
-                    'success' => false,
-                    'error' => 'No active course completion certificate template found. Please contact administrator to create a certificate template.',
-                ];
+            // 3. Check if user actually completed the course (includes video watch time and assignments)
+            if (!$this->checkCourseCompletionFromTracking($userId, $courseId)) {
+                return null;
             }
 
-            return $this->generateCertificate($user, $course, $certificate, 'course_completion');
+            $videoProgress = app(VideoProgressService::class)->getCourseProgress($user, $course);
+            if ($videoProgress < VideoProgressService::COMPLETION_THRESHOLD) {
+                return null;
+            }
+
+            // 4. Check if course requires a fee for the certificate
+            if ($course->certificate_fee > 0) {
+                // Must check if user purchased it
+                $purchased = OrderCourse::where('course_id', $courseId)
+                    ->whereHas('order', fn ($query) => $query->where('user_id', $userId))
+                    ->where('certificate_purchased', true)
+                    ->exists();
+
+                if (!$purchased) {
+                    return null; // Awaiting purchase
+                }
+            }
+
+            // 5. Create Certificate Record
+            $certificate = CourseCertificate::create([
+                'user_id'            => $userId,
+                'course_id'          => $courseId,
+                'certificate_number' => CourseCertificate::generateCertificateNumber($userId),
+                'student_name'       => $user->name,
+                'arabic_title'       => $course->title,
+                'english_title'      => $course->title,
+                'instructor_name'    => $course->user->name ?? '',
+                'issued_date'        => now()->toDateString(),
+                'status'             => 'active',
+            ]);
+
+            // 6. Notify User
+            $this->notifyUserOfCertificate($user, $course, $certificate);
+
+            return $certificate;
+
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'error' => $e->getMessage(),
-            ];
+            Log::error('Auto Generate Certificate Error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    private function notifyUserOfCertificate(User $user, Course $course, CourseCertificate $certificate)
+    {
+        try {
+            $title = 'تهانينا! شهادتك جاهزة 🎓';
+            $message = "لقد أتممت بنجاح دورة: {$course->title}. يمكنك الآن عرض وتحميل شهادتك من لوحة التحكم.";
+            
+            // App notification
+            UserNotification::create([
+                'user_id' => $user->id,
+                'title' => $title,
+                'message' => $message,
+                'type' => 'certificate_earned',
+                'url' => '/student/my-certificates',
+                'icon' => 'Award',
+                'icon_color' => '#22c55e', // Success green
+            ]);
+            
+            // Email
+            $user->notify(new ManualCustomNotification([
+                'title' => $title,
+                'message' => $message,
+                'channels' => ['mail'],
+                'url' => config('app.frontend_url') . '/student/my-certificates',
+            ]));
+        } catch (\Exception $e) {
+            Log::error('Failed to notify user of certificate: ' . $e->getMessage());
         }
     }
 

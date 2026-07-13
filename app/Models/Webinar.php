@@ -11,10 +11,12 @@ class Webinar extends Model
 
     protected $fillable = [
         'instructor_id',
+        'course_id',
         'title',
         'slug',
         'description',
         'features',
+        'config',
         'image',
         'start_at',
         'duration',
@@ -37,10 +39,19 @@ class Webinar extends Model
         'is_free' => 'boolean',
         'price' => 'decimal:2',
         'features' => 'array',
+        'config' => 'array',
         'max_attendees' => 'integer',
         'is_published' => 'boolean',
         'is_featured' => 'boolean',
     ];
+
+    /**
+     * Enforce Route Model Binding by slug instead of ID.
+     */
+    public function getRouteKeyName()
+    {
+        return 'slug';
+    }
 
     /**
      * Ensure start_at is always treated and saved as UTC.
@@ -76,6 +87,11 @@ class Webinar extends Model
             return false;
         }
         return $this->registrations()->count() >= $this->max_attendees;
+    }
+
+    public function course()
+    {
+        return $this->belongsTo(Course::class, 'course_id');
     }
 
     public function instructor()

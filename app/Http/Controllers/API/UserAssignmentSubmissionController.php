@@ -63,17 +63,14 @@ class UserAssignmentSubmissionController extends Controller
             $user = Auth::user();
             $assignment = CourseChapterAssignment::findOrFail($request->assignment_id);
 
-            // Check if user has purchased the course
+            // Check if user has purchased the course or has active subscription
             $course = $assignment->chapter->course;
-            $hasPurchased = Order::where('user_id', $user?->id)
-                ->whereHas('orderCourses', static function ($query) use ($course): void {
-                    $query->where('course_id', $course->id);
-                })
-                ->where('status', 'completed')
-                ->exists();
+            $enrollmentService = app(\App\Services\UserEnrollmentService::class);
+            $enrolledCourses = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+            $hasPurchased = $enrolledCourses->contains('course_id', $course->id);
 
             if (!$hasPurchased) {
-                ApiResponseService::errorResponse('You must purchase this course to submit assignments');
+                ApiResponseService::errorResponse('You must be enrolled in this course to submit assignments');
             }
 
             // Check if user already has a submission for this assignment
@@ -312,13 +309,9 @@ class UserAssignmentSubmissionController extends Controller
 
             $user = Auth::user();
 
-            // Check if user has purchased the course
-            $hasPurchased = Order::where('user_id', $user?->id)
-                ->whereHas('orderCourses', static function ($query) use ($courseId): void {
-                    $query->where('course_id', $courseId);
-                })
-                ->where('status', 'completed')
-                ->exists();
+            // Check if user has access to the course
+            $enrollments = app(\App\Services\UserEnrollmentService::class)->resolveEnrolledCourses($user->id);
+            $hasPurchased = $enrollments->contains('course_id', (int)$courseId);
 
             if (!$hasPurchased) {
                 ApiResponseService::errorResponse('You must purchase this course to view assignments');

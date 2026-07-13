@@ -121,4 +121,10 @@ class Category extends Model
     // public function custom_fields() {
     //     return $this->hasMany(CustomFieldCategory::class);
     // }
+    public function toArray()
+    {
+        $array = parent::toArray();
+        $array['has_subcategory'] = $this->has_subcategory ?? false;
+        return $array;
+    }
 }

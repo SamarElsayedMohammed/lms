@@ -167,4 +167,11 @@ class ContactMessage extends Model
     {
         return $this->hasMany(ContactMessageReply::class);
     }
+    public function toArray()
+    {
+        $array = parent::toArray();
+        $array['reply_message'] = $array['reply_message'] ?? null;
+        $array['user_id'] = $array['user_id'] ?? null;
+        return $array;
+    }
 }
