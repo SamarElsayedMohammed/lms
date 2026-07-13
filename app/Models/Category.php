@@ -26,8 +26,10 @@ class Category extends Model
     ];
 
     protected $casts = [
-        'status' => 'boolean',
-        'is_featured' => 'boolean',
+        'status'             => 'boolean',
+        'is_featured'        => 'boolean',
+        'sequence'           => 'integer',        // was arriving as string from MySQL
+        'parent_category_id' => 'integer',        // ensure IDs are always integers
     ];
 
     protected $appends = ['has_subcategory', 'has_parent_category'];
@@ -86,9 +88,9 @@ class Category extends Model
             ->orderBy('sequence', 'ASC');
     }
 
-    public function getHasSubcategoryAttribute()
+    public function getHasSubcategoryAttribute(): bool
     {
-        return $this->subcategories()->where('status', 1)->count() > 0 ? true : false;
+        return $this->subcategories()->where('status', true)->exists();
     }
 
     public function getHasParentCategoryAttribute()

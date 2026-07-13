@@ -408,6 +408,22 @@ class OrderApiController extends Controller
                 Log::info('No horizontal_logo found in app settings');
             }
 
+            // Dynamically resolve currency based on user country
+            $countryCode = app(\App\Services\GeoLocationService::class)->getCountryCodeFromRequest($request);
+            $currencySymbol = $appSettings['currency_symbol'] ?? '$';
+            $currencyCode = 'USD';
+            
+            if ($countryCode) {
+                $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
+                if ($currency) {
+                    $currencySymbol = $currency->currency_symbol;
+                    $currencyCode = $currency->currency_code;
+                } elseif ($countryCode === 'EG') {
+                    $currencySymbol = 'ج.م';
+                    $currencyCode = 'EGP';
+                }
+            }
+
             // Get approved refunds for this user with their approval dates
             $approvedRefunds = RefundRequest::where('user_id', $order->user_id)
                 ->where('status', 'approved')
@@ -467,7 +483,8 @@ class OrderApiController extends Controller
                 'invoice_date' => $order->created_at->format('Y-m-d'),
                 'app_name' => $appSettings['app_name'] ?? 'Learning Management System',
                 'app_logo' => $logoBase64,
-                'currency_symbol' => $appSettings['currency_symbol'] ?? '$',
+                'currency_symbol' => $currencySymbol,
+                'currency_code' => $currencyCode,
                 'customer' => [
                     'name' => $order->user ? $order->user->name : 'Unknown User',
                     'email' => $order->user ? $order->user->email : 'unknown@example.com',
@@ -600,6 +617,22 @@ class OrderApiController extends Controller
                 $logoUrl = url(Storage::url($appSettings['horizontal_logo']));
             }
 
+            // Dynamically resolve currency based on user country
+            $countryCode = app(\App\Services\GeoLocationService::class)->getCountryCodeFromRequest($request);
+            $currencySymbol = $appSettings['currency_symbol'] ?? '$';
+            $currencyCode = 'USD';
+            
+            if ($countryCode) {
+                $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
+                if ($currency) {
+                    $currencySymbol = $currency->currency_symbol;
+                    $currencyCode = $currency->currency_code;
+                } elseif ($countryCode === 'EG') {
+                    $currencySymbol = 'ج.م';
+                    $currencyCode = 'EGP';
+                }
+            }
+
             // Get approved refunds for this user with their approval dates
             $approvedRefunds = RefundRequest::where('user_id', $order->user_id)
                 ->where('status', 'approved')
@@ -659,7 +692,8 @@ class OrderApiController extends Controller
                 'invoice_date' => $order->created_at->format('Y-m-d'),
                 'app_name' => $appSettings['app_name'] ?? 'Learning Management System',
                 'app_logo' => $logoUrl,
-                'currency_symbol' => $appSettings['currency_symbol'] ?? '$',
+                'currency_symbol' => $currencySymbol,
+                'currency_code' => $currencyCode,
                 'customer' => [
                     'name' => $order->user ? $order->user->name : 'Unknown User',
                     'email' => $order->user ? $order->user->email : 'unknown@example.com',
@@ -745,6 +779,22 @@ class OrderApiController extends Controller
                 $logoUrl = url(Storage::url($appSettings['horizontal_logo']));
             }
 
+            // Dynamically resolve currency based on user country
+            $countryCode = app(\App\Services\GeoLocationService::class)->getCountryCodeFromRequest($request);
+            $currencySymbol = $appSettings['currency_symbol'] ?? '$';
+            $currencyCode = 'USD';
+            
+            if ($countryCode) {
+                $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
+                if ($currency) {
+                    $currencySymbol = $currency->currency_symbol;
+                    $currencyCode = $currency->currency_code;
+                } elseif ($countryCode === 'EG') {
+                    $currencySymbol = 'ج.م';
+                    $currencyCode = 'EGP';
+                }
+            }
+
             // Get approved refunds for this user with their approval dates
             $approvedRefunds = RefundRequest::where('user_id', $order->user_id)
                 ->where('status', 'approved')
@@ -805,7 +855,8 @@ class OrderApiController extends Controller
                 'transaction_date' => $order->created_at,
                 'app_name' => $appSettings['app_name'] ?? 'Learning Management System',
                 'app_logo' => $logoUrl,
-                'currency_symbol' => $appSettings['currency_symbol'] ?? '$',
+                'currency_symbol' => $currencySymbol,
+                'currency_code' => $currencyCode,
                 'customer' => [
                     'name' => $order->user ? $order->user->name : 'Unknown User',
                     'email' => $order->user ? $order->user->email : 'unknown@example.com',
