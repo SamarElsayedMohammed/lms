@@ -24,8 +24,8 @@ class ReportsApiController extends Controller
     {
         try {
             $request->merge([
-                \'date_from\' => $request->date_from ?? $request->from_date,
-                \'date_to\' => $request->date_to ?? $request->to_date
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to' => $request->date_to ?? $request->to_date
             ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
@@ -100,8 +100,8 @@ class ReportsApiController extends Controller
     {
         try {
             $request->merge([
-                \'date_from\' => $request->date_from ?? $request->from_date,
-                \'date_to\' => $request->date_to ?? $request->to_date
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to' => $request->date_to ?? $request->to_date
             ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
@@ -145,8 +145,8 @@ class ReportsApiController extends Controller
     {
         try {
             $request->merge([
-                \'date_from\' => $request->date_from ?? $request->from_date,
-                \'date_to\' => $request->date_to ?? $request->to_date
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to' => $request->date_to ?? $request->to_date
             ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
@@ -194,8 +194,8 @@ class ReportsApiController extends Controller
     {
         try {
             $request->merge([
-                \'date_from\' => $request->date_from ?? $request->from_date,
-                \'date_to\' => $request->date_to ?? $request->to_date
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to' => $request->date_to ?? $request->to_date
             ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
@@ -239,8 +239,8 @@ class ReportsApiController extends Controller
     {
         try {
             $request->merge([
-                \'date_from\' => $request->date_from ?? $request->from_date,
-                \'date_to\' => $request->date_to ?? $request->to_date
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to' => $request->date_to ?? $request->to_date
             ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
@@ -286,8 +286,8 @@ class ReportsApiController extends Controller
     {
         try {
             $request->merge([
-                \'date_from\' => $request->date_from ?? $request->from_date,
-                \'date_to\' => $request->date_to ?? $request->to_date
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to' => $request->date_to ?? $request->to_date
             ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',

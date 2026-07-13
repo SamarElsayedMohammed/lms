@@ -1330,7 +1330,16 @@ class HomeApiController extends Controller
                 $id = (int) $interaction['id'];
                 $type = $interaction['type'];
                 $key = "feature_section:{$id}:{$type}s";
-                \Illuminate\Support\Facades\Redis::incr($key);
+                try {
+                    \Illuminate\Support\Facades\Redis::incr($key);
+                } catch (\Throwable $e) {
+                    // Redis may not be available in all environments (local/staging).
+                    // Interaction tracking is non-critical — log and continue silently.
+                    \Illuminate\Support\Facades\Log::warning('interact: Redis unavailable, skipping counter increment.', [
+                        'key' => $key,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
 

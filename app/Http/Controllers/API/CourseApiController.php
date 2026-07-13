@@ -99,7 +99,7 @@ class CourseApiController extends Controller
         ]);
 
         if ($validator->fails()) {
-            ApiResponseService::validationError($validator->errors()->first());
+            return ApiResponseService::validationError($validator->errors()->first());
         }
 
         // Apply feature section filtering if provided
@@ -123,6 +123,7 @@ class CourseApiController extends Controller
             'taxes',
             'ratings.user',
             'wishlistedByUsers',
+            'chapters.lectures',
         ])
             ->withAvg('ratings', 'rating')
             ->withCount(['ratings', 'views', 'orderCourses' => static function ($q): void {
@@ -691,7 +692,7 @@ class CourseApiController extends Controller
                     'is_enrolled' => $isEnrolled && !in_array($course->id, $refundedCourseIds),
                     // Currency specific fields (explicitly copied for clarity)
                     'currency_code' => $coursePricingData['currency_code'],
-                    'currency_symbol' => $coursePricingData['currency_symbol'],
+                    'currency_symbol' => $coursePricingData['display_symbol'] ?? null,
                 ];
             });
 
