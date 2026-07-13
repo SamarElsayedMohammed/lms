@@ -177,7 +177,7 @@ class OrderAdminApiController extends AdminCrudApiController
                     }
 
                     $durationDays = $subscription->plan->getDurationDays();
-                    $endsAt = $subscription->plan->isLifetime() ? null : ($durationDays !== null ? $startsAt->copy()->addDays($durationDays) : null);
+                    $endsAt = $durationDays !== null ? $startsAt->copy()->addDays($durationDays) : null;
 
                     $subscription->starts_at = $startsAt;
                     $subscription->ends_at = $endsAt;

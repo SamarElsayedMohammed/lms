@@ -55,7 +55,7 @@ final class SubscriptionPlanController extends Controller
         $rules = [
             'name' => 'required|string|max:255|unique:subscription_plans,name',
             'description' => 'nullable|string',
-            'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,yearly,lifetime,custom',
+            'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,yearly,custom',
             'duration_days' => 'required_if:billing_cycle,custom|nullable|integer|min:1',
             'price' => 'nullable|numeric|min:0',
             'commission_rate' => 'nullable|numeric|min:0|max:100',
@@ -167,7 +167,7 @@ final class SubscriptionPlanController extends Controller
         $rules = [
             'name' => 'required|string|max:255|unique:subscription_plans,name,' . $subscriptionPlan->id,
             'description' => 'nullable|string',
-            'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,yearly,lifetime,custom',
+            'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,yearly,custom',
             'duration_days' => 'required_if:billing_cycle,custom|nullable|integer|min:1',
             'price' => 'nullable|numeric|min:0',
             'commission_rate' => 'nullable|numeric|min:0|max:100',
