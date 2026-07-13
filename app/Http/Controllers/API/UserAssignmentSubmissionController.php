@@ -309,13 +309,9 @@ class UserAssignmentSubmissionController extends Controller
 
             $user = Auth::user();
 
-            // Check if user has purchased the course
-            $hasPurchased = Order::where('user_id', $user?->id)
-                ->whereHas('orderCourses', static function ($query) use ($courseId): void {
-                    $query->where('course_id', $courseId);
-                })
-                ->where('status', 'completed')
-                ->exists();
+            // Check if user has access to the course
+            $enrollments = app(\App\Services\UserEnrollmentService::class)->resolveEnrolledCourses($user->id);
+            $hasPurchased = $enrollments->contains('course_id', (int)$courseId);
 
             if (!$hasPurchased) {
                 ApiResponseService::errorResponse('You must purchase this course to view assignments');

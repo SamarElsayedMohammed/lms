@@ -456,8 +456,11 @@ final class SubscriptionApiController extends Controller
                 try {
                     $receiptPath = \App\Services\FileService::compressAndUpload(
                         $request->file('receipt'),
-                        'subscriptions/receipts'
+                        'subscriptions/receipts',
+                        'local'
                     );
+
+                    $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
 
                     // Create subscription with pending_approval status
                     $subscription = Subscription::create([
@@ -469,6 +472,7 @@ final class SubscriptionApiController extends Controller
                         'ends_at' => null,   // Will be updated upon admin approval
                         'status' => Subscription::STATUS_PENDING_APPROVAL,
                         'auto_renew' => true,
+                        'parent_subscription_id' => $existingSubscription?->id,
                     ]);
 
                     // Create payment record in pending status
@@ -731,7 +735,8 @@ final class SubscriptionApiController extends Controller
                 try {
                     $receiptPath = \App\Services\FileService::compressAndUpload(
                         $request->file('receipt'),
-                        'subscriptions/receipts'
+                        'subscriptions/receipts',
+                        'local'
                     );
 
                     // For renewal via manual payment, create a NEW pending_approval subscription

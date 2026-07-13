@@ -137,7 +137,25 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         try {
             DB::beginTransaction();
 
-            $subscription = Subscription::with(['user', 'plan' => function ($query) {
+            $subscriptionData = Subscription::find($id);
+
+            if (!$subscriptionData) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('الاشتراك غير موجود.');
+            }
+
+            // 1. Lock User first to prevent deadlocks
+            $user = User::where('id', $subscriptionData->user_id)->lockForUpdate()->first();
+
+            // 2. Lock Active Subscription
+            $existingSubscription = Subscription::forUser($user->id)
+                ->active()
+                ->where('id', '!=', $id)
+                ->lockForUpdate()
+                ->first();
+
+            // 3. Lock Pending Subscription
+            $subscription = Subscription::with(['plan' => function ($query) {
                 $query->withTrashed();
             }])->lockForUpdate()->find($id);
 
@@ -166,9 +184,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 return ApiResponseService::errorResponse('لا يوجد عملية دفع معلقة لهذا الاشتراك.');
             }
 
-            $user = $subscription->user;
-
-            // 1. If user used wallet balance, deduct it now
+            // 4. If user used wallet balance, deduct it now
             if ($payment->wallet_amount > 0) {
                 if ($user->wallet_balance < $payment->wallet_amount) {
                     return ApiResponseService::errorResponse('رصيد محفظة المستخدم غير كافٍ لإتمام هذه المعاملة.');
@@ -176,7 +192,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 $user->decrement('wallet_balance', $payment->wallet_amount);
             }
 
-            // 2. Mark payment completed
+            // 5. Mark payment completed
             $payment->status = SubscriptionPayment::STATUS_COMPLETED;
             $payment->paid_at = now();
             if ($request->filled('admin_notes')) {
@@ -184,12 +200,8 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
             $payment->save();
 
-            // 3. Determine starts_at and ends_at (Handles stacking)
-            $existingSubscription = Subscription::forUser($subscription->user_id)
-                ->active()
-                ->where('id', '!=', $subscription->id)
-                ->lockForUpdate()
-                ->first();
+            // 6. Determine starts_at and ends_at (Handles stacking)
+
 
             $startsAt = now();
             $status = Subscription::STATUS_ACTIVE;

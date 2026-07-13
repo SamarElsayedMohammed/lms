@@ -350,6 +350,12 @@ class RefundApiController extends Controller
                     'course_id' => $refundRequest->course_id,
                 ])->delete();
 
+                // Delete certificates
+                \App\Models\CourseCertificate::where([
+                    'user_id' => $refundRequest->user_id,
+                    'course_id' => $refundRequest->course_id,
+                ])->delete();
+
                 $refundRequest->update([
                     'status' => 'approved',
                     'admin_notes' => $request->admin_notes,

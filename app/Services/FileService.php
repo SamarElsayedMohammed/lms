@@ -19,7 +19,7 @@ class FileService
      * @param $folder
      * @return string
      */
-    public static function compressAndUpload($requestFile, $folder)
+    public static function compressAndUpload($requestFile, $folder, $disk = 'public')
     {
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
         $ext = strtolower($requestFile->getClientOriginalExtension() ?? '');
@@ -27,14 +27,14 @@ class FileService
         if (in_array($ext, ['jpg', 'jpeg', 'png']) && self::imageExtensionAvailable()) {
             try {
                 $image = Image::make($requestFile)->encode(null, 60);
-                Storage::disk('public')->put($folder . '/' . $file_name, (string) $image);
+                Storage::disk($disk)->put($folder . '/' . $file_name, (string) $image);
                 return ltrim($folder, '/') . '/' . $file_name;
             } catch (Exception $e) {
                 // Fallback to plain upload if Image fails (e.g. GD not available)
             }
         }
 
-        $requestFile->storeAs($folder, $file_name, 'public');
+        $requestFile->storeAs($folder, $file_name, $disk);
         return ltrim($folder, '/') . '/' . $file_name;
     }
 
@@ -51,10 +51,10 @@ class FileService
      * @param $folder
      * @return string
      */
-    public static function upload($requestFile, $folder)
+    public static function upload($requestFile, $folder, $disk = 'public')
     {
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
-        $requestFile->storeAs($folder, $file_name, 'public');
+        $requestFile->storeAs($folder, $file_name, $disk);
         return $folder . '/' . $file_name;
     }
 

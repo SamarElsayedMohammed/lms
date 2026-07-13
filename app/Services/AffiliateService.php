@@ -310,15 +310,19 @@ class AffiliateService
      */
     public function processWithdrawal(AffiliateWithdrawal $withdrawal, User $admin): void
     {
-        if ($withdrawal->status !== 'pending') {
-            throw new \InvalidArgumentException('Withdrawal is not pending.');
-        }
+        DB::transaction(function () use ($withdrawal, $admin) {
+            $lockedWithdrawal = AffiliateWithdrawal::where('id', $withdrawal->id)->lockForUpdate()->first();
 
-        $withdrawal->update([
-            'status' => 'completed',
-            'processed_at' => now(),
-            'processed_by' => $admin->id,
-        ]);
+            if ($lockedWithdrawal->status !== 'pending') {
+                throw new \InvalidArgumentException('Withdrawal is not pending.');
+            }
+
+            $lockedWithdrawal->update([
+                'status' => 'completed',
+                'processed_at' => now(),
+                'processed_by' => $admin->id,
+            ]);
+        });
     }
 
     /**
@@ -326,19 +330,21 @@ class AffiliateService
      */
     public function rejectWithdrawal(AffiliateWithdrawal $withdrawal, string $reason, User $admin): void
     {
-        if ($withdrawal->status !== 'pending') {
-            throw new \InvalidArgumentException('Withdrawal is not pending.');
-        }
-
         DB::transaction(function () use ($withdrawal, $reason, $admin) {
-            $withdrawal->update([
+            $lockedWithdrawal = AffiliateWithdrawal::where('id', $withdrawal->id)->lockForUpdate()->first();
+
+            if ($lockedWithdrawal->status !== 'pending') {
+                throw new \InvalidArgumentException('Withdrawal is not pending.');
+            }
+
+            $lockedWithdrawal->update([
                 'status' => 'rejected',
                 'rejection_reason' => $reason,
                 'processed_at' => now(),
                 'processed_by' => $admin->id,
             ]);
 
-            AffiliateCommission::whereIn('id', $withdrawal->commission_ids)
+            AffiliateCommission::whereIn('id', $lockedWithdrawal->commission_ids)
                 ->update([
                     'status' => 'available',
                     'withdrawn_at' => null,

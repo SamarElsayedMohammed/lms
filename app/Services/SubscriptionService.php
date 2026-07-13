@@ -347,6 +347,9 @@ final class SubscriptionService
         }
 
         DB::transaction(function () use ($user) {
+            // 0. Lock User first to prevent deadlocks
+            $userLock = User::where('id', $user->id)->lockForUpdate()->first();
+
             // 1. Handle expired subscriptions
             $expiredSubscriptions = Subscription::where('user_id', $user->id)
                 ->where('status', Subscription::STATUS_ACTIVE)

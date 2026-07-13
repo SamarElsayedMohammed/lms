@@ -2135,35 +2135,10 @@ class CourseChapterApiController extends Controller
                 $isEnrolled = true;
             }
             
-            // 2. Has active subscription?
-            if (!$isEnrolled && Auth::user()?->activeSubscription()->exists()) {
-                $isEnrolled = true;
-            }
-            
-            // 3. Has UserCourseTrack (manual enrollment, etc.)
-            if (!$isEnrolled && \App\Models\Course\UserCourseTrack::where('user_id', $userId)->where('course_id', $courseId)->exists()) {
-                $isEnrolled = true;
-            }
-            
-            // 4. Has completed order (not refunded)
+            // 2. Check Enrollment Service
             if (!$isEnrolled) {
-                $hasCompletedOrder = \App\Models\Order::where('user_id', $userId)
-                    ->whereHas('orderCourses', static function ($query) use ($courseId): void {
-                        $query->where('course_id', $courseId);
-                    })
-                    ->where('status', 'completed')
-                    ->exists();
-                
-                if ($hasCompletedOrder) {
-                    $isRefunded = \App\Models\RefundRequest::where('user_id', $userId)
-                        ->where('course_id', $courseId)
-                        ->where('status', 'approved')
-                        ->exists();
-                    
-                    if (!$isRefunded) {
-                        $isEnrolled = true;
-                    }
-                }
+                $enrollments = app(\App\Services\UserEnrollmentService::class)->resolveEnrolledCourses($userId);
+                $isEnrolled = $enrollments->contains('course_id', (int)$courseId);
             }
 
             if (!$isEnrolled) {

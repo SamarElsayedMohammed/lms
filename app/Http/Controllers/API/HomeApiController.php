@@ -986,102 +986,26 @@ class HomeApiController extends Controller
                     if ($user) {
                         // Get enrolled courses through completed orders (same as getMyLearning)
                         // Load all order courses first, then filter in application logic
-                        $enrolledCoursesQuery = Order::where('user_id', $user->id)
-                            ->where('status', 'completed')
-                            ->with([
-                                'orderCourses.course' => static function ($query): void {
-                                    $query
-                                        ->with([
-                                            'category',
-                                            'user',
-                                            'taxes',
-                                            'ratings.user',
-                                            'chapters' => static function ($chapterQuery): void {
-                                                $chapterQuery
-                                                    ->where('is_active', true)
-                                                    ->with(['lectures', 'quizzes', 'assignments', 'resources']);
-                                            },
-                                        ])
-                                        ->withAvg('ratings', 'rating')
-                                        ->withCount('ratings')
-                                        ->where('is_active', 1) // Only active courses
-                                        ->where('status', 'publish'); // Only published courses
-
-                                    // Removed strict whereHas constraints - user has already purchased these courses
-                                    // We'll filter out courses without proper instructor details in application logic if needed
+                        $enrolledCoursesCollection = app(\App\Services\UserEnrollmentService::class)->resolveEnrolledCourses($user->id, static function($query) {
+                            $query->with([
+                                'category',
+                                'user',
+                                'taxes',
+                                'ratings.user',
+                                'chapters' => static function ($chapterQuery): void {
+                                    $chapterQuery
+                                        ->where('is_active', true)
+                                        ->with(['lectures', 'quizzes', 'assignments', 'resources']);
                                 },
-                            ]);
-
-                        // Get refunded order IDs (orders that have approved refunds)
-                        // RefundRequest -> transaction_id -> Transaction -> order_id
-                        $refundedOrderIds = DB::table('refund_requests')
-                            ->join('transactions', 'refund_requests.transaction_id', '=', 'transactions.id')
-                            ->where('refund_requests.user_id', $user->id)
-                            ->where('refund_requests.status', 'approved')
-                            ->whereNotNull('refund_requests.transaction_id')
-                            ->whereNotNull('transactions.order_id')
-                            ->select('transactions.order_id')
-                            ->distinct()
-                            ->pluck('order_id')
-                            ->map(static function ($id) {
-                                return (int) $id; // Ensure integer type
-                            })
-                            ->toArray();
-
-                        // Get all enrolled courses and filter based on refunded orders
-                        $orders = $enrolledCoursesQuery->get();
-                        $enrolledCoursesWithPurchaseDate = collect();
-
-                        foreach ($orders as $order) {
-                            // Skip if this order has been refunded
-                            $orderId = (int) $order->id; // Ensure integer type for comparison
-                            if (in_array($orderId, $refundedOrderIds, true)) {
-                                continue; // Skip this order as it has been refunded
-                            }
-
-                            foreach ($order->orderCourses as $orderCourse) {
-                                // Check if course exists and is valid (active and published)
-                                if (
-                                    !(
-                                        $orderCourse->course
-                                        && $orderCourse->course->is_active == 1
-                                        && $orderCourse->course->status == 'publish'
-                                    )
-                                ) {
-                                    continue;
-                                }
-
-                                $courseId = $orderCourse->course->id;
-                                $purchaseDate = $order->created_at;
-
-                                // Find existing entry index
-                                $existingIndex = $enrolledCoursesWithPurchaseDate->search(
-                                    static fn($item) => $item['course_id'] == $courseId,
-                                );
-
-                                if ($existingIndex !== false) {
-                                    // Update if this purchase is more recent
-                                    $existing = $enrolledCoursesWithPurchaseDate[$existingIndex];
-                                    if ($purchaseDate->gt($existing['purchase_date'])) {
-                                        $enrolledCoursesWithPurchaseDate[$existingIndex] = [
-                                            'course_id' => $courseId,
-                                            'course' => $orderCourse->course,
-                                            'purchase_date' => $purchaseDate,
-                                        ];
-                                    }
-                                } else {
-                                    // Add new course with purchase date
-                                    $enrolledCoursesWithPurchaseDate->push([
-                                        'course_id' => $courseId,
-                                        'course' => $orderCourse->course,
-                                        'purchase_date' => $purchaseDate,
-                                    ]);
-                                }
-                            }
-                        }
+                            ])
+                            ->withAvg('ratings', 'rating')
+                            ->withCount('ratings')
+                            ->where('is_active', 1)
+                            ->where('status', 'publish');
+                        });
 
                         // Sort by purchase date (most recent first) and extract courses
-                        $enrolledCourses = $enrolledCoursesWithPurchaseDate
+                        $enrolledCourses = $enrolledCoursesCollection
                             ->sortByDesc('purchase_date')
                             ->pluck('course')
                             ->filter()
