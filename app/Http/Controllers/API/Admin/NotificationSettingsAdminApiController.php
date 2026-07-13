@@ -9,8 +9,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
-class NotificationSettingsAdminApiController extends Controller
+class NotificationSettingsAdminApiController extends AdminCrudApiController
 {
+    public function __construct()
+    {
+        $this->middleware(function ($request, $next) {
+            $this->ensureAdmin();
+            return $next($request);
+        });
+    }
     /**
      * Get global notification settings
      */

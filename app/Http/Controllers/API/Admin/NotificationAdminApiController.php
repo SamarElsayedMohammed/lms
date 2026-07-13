@@ -12,8 +12,15 @@ use App\Services\FileService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
-class NotificationAdminApiController extends Controller
+class NotificationAdminApiController extends AdminCrudApiController
 {
+    public function __construct()
+    {
+        $this->middleware(function ($request, $next) {
+            $this->ensureAdmin();
+            return $next($request);
+        });
+    }
     /**
      * Get list of sent notification campaigns (paginated)
      */

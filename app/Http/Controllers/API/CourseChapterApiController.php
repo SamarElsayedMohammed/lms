@@ -230,7 +230,7 @@ class CourseChapterApiController extends Controller
             $course = Course::findOrFail($request->course_id);
 
             $authUser = Auth::user();
-            $isAdmin = $authUser->hasRole('admin');
+            $isAdmin = $authUser->hasAnyRole(['Super Admin', 'Supervisor', 'Staff']);
             $isCourseOwner = $course->user_id === $authUser?->id;
 
             // Check if user is a team member of the course instructor OR course owner is team member of auth instructor
@@ -331,7 +331,7 @@ class CourseChapterApiController extends Controller
             $course = $chapter->course;
 
             $authUser = Auth::user();
-            $isAdmin = $authUser->hasRole('admin');
+            $isAdmin = $authUser->hasAnyRole(['Super Admin', 'Supervisor', 'Staff']);
             $isCourseOwner = $course->user_id === $authUser?->id;
 
             // Check if user is a team member of the course instructor OR course owner is team member of auth instructor

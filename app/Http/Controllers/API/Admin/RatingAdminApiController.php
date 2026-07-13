@@ -24,8 +24,15 @@ use Throwable;
  *   PUT    /api/admin/ratings/{id}      → update()  — update status / rating / review text
  *   DELETE /api/admin/ratings/{id}      → destroy() — hard delete
  */
-class RatingAdminApiController extends Controller
+class RatingAdminApiController extends AdminCrudApiController
 {
+    public function __construct()
+    {
+        $this->middleware(function ($request, $next) {
+            $this->ensureAdmin();
+            return $next($request);
+        });
+    }
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/admin/ratings
     // ─────────────────────────────────────────────────────────────────────────

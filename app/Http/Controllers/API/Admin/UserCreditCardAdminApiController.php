@@ -11,8 +11,15 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
-class UserCreditCardAdminApiController extends Controller
+class UserCreditCardAdminApiController extends AdminCrudApiController
 {
+    public function __construct()
+    {
+        $this->middleware(function ($request, $next) {
+            $this->ensureAdmin();
+            return $next($request);
+        });
+    }
     /**
      * Get credit cards for a specific user
      */
