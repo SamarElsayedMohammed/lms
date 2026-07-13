@@ -25,7 +25,7 @@ class RouteServiceProvider extends ServiceProvider
     #[\Override]
     public function boot(): void
     {
-        RateLimiter::for('api', static fn(Request $request) => Limit::perMinute(60)->by(
+        RateLimiter::for('api', static fn(Request $request) => Limit::perMinute(300)->by(
             $request->user()->id ?: $request->ip(),
         ));
 

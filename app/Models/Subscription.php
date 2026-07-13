@@ -228,7 +228,7 @@ final class Subscription extends Model
      */
     public function isLifetime(): bool
     {
-        return $this->ends_at === null;
+        return false;
     }
 
     /**

@@ -1198,6 +1198,35 @@ class CourseChapterApiController extends Controller
                 ],
             );
 
+            // Sync VideoProgress if it's a lecture
+            if ($modelTypeKey === 'lecture') {
+                $lecture = $chapter->lectures()->where('id', $modelId)->first();
+                if ($lecture) {
+                    $totalDuration = $lecture->duration ?? 1; // Prevent division by zero
+                    $segmentSize = \App\Services\VideoProgressService::DEFAULT_SEGMENT_SIZE;
+                    $totalSegments = (int) ceil($totalDuration / $segmentSize);
+                    $watchedSegments = array_fill(0, $totalSegments, 1);
+
+                    \App\Models\VideoProgress::updateOrCreate(
+                        [
+                            'user_id' => $userId,
+                            'lecture_id' => $modelId,
+                        ],
+                        [
+                            'is_completed' => true,
+                            'watch_percentage' => 100.0,
+                            'completed_at' => now(),
+                            'watched_seconds' => $totalDuration,
+                            'total_seconds' => $totalDuration,
+                            'watched_segments' => $watchedSegments,
+                            'total_segments' => $totalSegments,
+                            'completed_segments' => $totalSegments,
+                            'segment_size' => $segmentSize,
+                        ]
+                    );
+                }
+            }
+
             // Update or create chapter-level tracking
             $chapterTracking = UserCourseChapterTrack::updateOrCreate([
                 'course_chapter_id' => $chapterId,

@@ -73,7 +73,7 @@ class UserAdminApiController extends AdminCrudApiController
                 $days = \Illuminate\Support\Carbon::now()->diffInDays($user->activeSubscription->ends_at, false);
                 $user->active_subscription_days_left = $days > 0 ? (int) $days : 0;
             } else {
-                $user->active_subscription_days_left = 'Lifetime';
+                $user->active_subscription_days_left = 'N/A';
             }
         } else {
             $user->active_subscription_type = null;

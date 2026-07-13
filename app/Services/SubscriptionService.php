@@ -41,7 +41,7 @@ final class SubscriptionService
             
             // 1. Same Plan Stacking (Extension)
             // If the last subscription in the queue is the same plan, extend it.
-            if ($lastSubscription && $lastSubscription->plan_id === $plan->id && !$lastSubscription->isLifetime()) {
+            if ($lastSubscription && $lastSubscription->plan_id === $plan->id) {
                 $baseDays = $plan->getDurationDays();
                 if ($baseDays) {
                     $lastSubscription->extend($baseDays);
@@ -72,15 +72,13 @@ final class SubscriptionService
             } elseif ($existingSubscription) {
                 // Fallback for lifetime active subscriptions
                 $startsAt = $existingSubscription->ends_at ?? now();
-                if (!$existingSubscription->isLifetime()) {
-                    $status = Subscription::STATUS_PENDING;
-                    $parentSubscriptionId = $existingSubscription->id;
-                }
+                $status = Subscription::STATUS_PENDING;
+                $parentSubscriptionId = $existingSubscription->id;
             }
 
             // Calculate dates
             $baseDays = $plan->getDurationDays();
-            $endsAt = $plan->isLifetime() ? null : ($baseDays !== null ? $startsAt->copy()->addDays($baseDays) : null);
+            $endsAt = $baseDays !== null ? $startsAt->copy()->addDays($baseDays) : null;
 
             // Create subscription
             $subscription = Subscription::create([
@@ -205,10 +203,6 @@ final class SubscriptionService
     {
         $plan = $subscription->plan;
 
-        if ($plan->isLifetime()) {
-            return $subscription; // No need to renew lifetime
-        }
-
         $days = $plan->getDurationDays();
         $subscription->extend($days);
 
@@ -231,10 +225,6 @@ final class SubscriptionService
         ?float $gatewayAmount = null
     ): Subscription {
         $plan = $subscription->plan;
-
-        if ($plan->isLifetime()) {
-            throw new \InvalidArgumentException('لا يمكن تجديد اشتراك مدى الحياة.');
-        }
 
         if ($subscription->user_id !== $user->id) {
             throw new \InvalidArgumentException('الاشتراك لا ينتمي لهذا المستخدم.');
@@ -364,7 +354,7 @@ final class SubscriptionService
                     ->where('status', Subscription::STATUS_PENDING)
                     ->exists();
 
-                if (!$hasQueued && $subscription->auto_renew && $subscription->plan && !$subscription->plan->isLifetime()) {
+                if (!$hasQueued && $subscription->auto_renew && $subscription->plan) {
                     $walletRenewalEnabled = app(\App\Services\AffiliateService::class)->isEnabled();
                     $price = (float) $subscription->plan->price;
                     
@@ -439,7 +429,6 @@ final class SubscriptionService
             'status' => 'active',
             'subscription' => $subscription,
             'days_remaining' => $subscription->days_remaining,
-            'is_lifetime' => $subscription->isLifetime(),
             'auto_renew' => $subscription->auto_renew,
         ];
     }
@@ -460,7 +449,7 @@ final class SubscriptionService
             ->get();
 
         foreach ($expiredSubscriptions as $subscription) {
-            if ($subscription->auto_renew && $subscription->plan && !$subscription->plan->isLifetime()) {
+            if ($subscription->auto_renew && $subscription->plan) {
                 $user = $subscription->user;
                 $plan = $subscription->plan;
                 $price = (float) $plan->price;

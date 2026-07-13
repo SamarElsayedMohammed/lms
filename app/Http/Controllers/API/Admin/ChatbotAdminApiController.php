@@ -330,7 +330,15 @@ class ChatbotAdminApiController extends AdminCrudApiController
                   ->orWhere('content', 'like', "%{$search}%");
             }))
             ->when($targetAudience, fn ($q) => $q->where('target_audience', $targetAudience))
-            ->when($courseId !== null, fn ($q) => $q->where('course_id', $courseId));
+            ->when($request->has('course_id'), function ($q) use ($courseId) {
+                if ($courseId === 'null' || $courseId === null) {
+                    $q->whereNull('course_id');
+                } else if ($courseId === 'not_null') {
+                    $q->whereNotNull('course_id');
+                } else {
+                    $q->where('course_id', $courseId);
+                }
+            });
 
         if ($request->boolean('count_only')) {
             return $this->jsonSuccess(__('Knowledge base count retrieved'), [

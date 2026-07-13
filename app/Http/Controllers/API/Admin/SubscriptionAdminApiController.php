@@ -147,10 +147,12 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             // 1. Lock User first to prevent deadlocks
             $user = User::where('id', $subscriptionData->user_id)->lockForUpdate()->first();
 
-            // 2. Lock Active Subscription
+            // 2. Lock Last Subscription in Queue
             $existingSubscription = Subscription::forUser($user->id)
-                ->active()
+                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING])
                 ->where('id', '!=', $id)
+                ->whereNotNull('ends_at')
+                ->orderByDesc('ends_at')
                 ->lockForUpdate()
                 ->first();
 
@@ -214,7 +216,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
 
             $durationDays = $subscription->plan->getDurationDays();
-            $endsAt = $subscription->plan->isLifetime() ? null : ($durationDays !== null ? $startsAt->copy()->addDays($durationDays) : null);
+            $endsAt = $durationDays !== null ? $startsAt->copy()->addDays($durationDays) : null;
 
             // 4. Activate subscription
             $subscription->starts_at = $startsAt;

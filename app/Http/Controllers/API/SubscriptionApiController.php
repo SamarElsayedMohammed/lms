@@ -214,6 +214,7 @@ final class SubscriptionApiController extends Controller
                     'next_payment_amount' => $nextPaymentAmount,
                     'currency'            => $nextPaymentCurrency,
                     'currency_symbol'     => $nextPaymentSymbol,
+                    'receipt_url'         => $subscription->payments()->latest()->first()?->receipt,
                 ];
             });
 
@@ -301,29 +302,6 @@ final class SubscriptionApiController extends Controller
             
             if (!$user) {
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
-            }
-
-            // Prevent subscribing if the user already has a pending or pending_approval subscription (enforce max 1 scheduled)
-            $hasPendingSubscription = Subscription::where('user_id', $user->id)
-                ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
-                ->exists();
-
-            if ($hasPendingSubscription) {
-                return ApiResponseService::errorResponse('لديك بالفعل اشتراك مجدول أو طلب قيد المراجعة. لا يمكنك تقديم طلب جديد حتى يتم تفعيل أو إلغاء الطلب الحالي.', [], 400);
-            }
-
-            // Prevent subscribing to the same plan if there is already an active subscription
-            $existingActiveSamePlan = Subscription::where('user_id', $user->id)
-                ->where('plan_id', $request->plan_id)
-                ->where('status', Subscription::STATUS_ACTIVE)
-                ->where(function ($query) {
-                    $query->whereNull('ends_at')
-                          ->orWhere('ends_at', '>', now());
-                })
-                ->exists();
-
-            if ($existingActiveSamePlan) {
-                return ApiResponseService::errorResponse('أنت مشترك بالفعل في هذه الباقة. لتجديد الاشتراك، يرجى استخدام صفحة التجديد.', [], 400);
             }
 
             $plan = SubscriptionPlan::findOrFail($request->plan_id);
@@ -462,6 +440,8 @@ final class SubscriptionApiController extends Controller
 
                     $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
 
+                    \Illuminate\Support\Facades\DB::beginTransaction();
+
                     // Create subscription with pending_approval status
                     $subscription = Subscription::create([
                         'user_id' => $user->id,
@@ -498,6 +478,8 @@ final class SubscriptionApiController extends Controller
                         'final_amount' => $totalAmount,
                     ]);
 
+                    \Illuminate\Support\Facades\DB::commit();
+
                     // Notify all super-admins about the new manual subscription request
                     try {
                         $subscription->load('plan');
@@ -533,6 +515,12 @@ final class SubscriptionApiController extends Controller
                         ]
                     ]);
                 } catch (\Exception $e) {
+                    if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
+                        \Illuminate\Support\Facades\DB::rollBack();
+                    }
+                    if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
+                        throw $e;
+                    }
                     return ApiResponseService::errorResponse('فشل في إرسال طلب الاشتراك اليدوي: ' . $e->getMessage());
                 }
             }
@@ -633,20 +621,7 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('لا يوجد اشتراك للتجديد. يرجى الاشتراك أولاً.', [], 400);
             }
 
-            // Prevent renewing if the user already has a pending or pending_approval subscription
-            $hasPendingSubscription = Subscription::where('user_id', $user->id)
-                ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
-                ->exists();
-
-            if ($hasPendingSubscription) {
-                return ApiResponseService::errorResponse('لديك بالفعل اشتراك مجدول أو طلب قيد المراجعة. لا يمكنك تقديم طلب تجديد حتى يتم تفعيل أو إلغاء الطلب الحالي.', [], 400);
-            }
-
             $plan = $subscription->plan;
-
-            if ($plan->isLifetime()) {
-                return ApiResponseService::errorResponse('اشتراك مدى الحياة لا يحتاج تجديداً.', [], 400);
-            }
 
             $countryCode = $this->countryDetectionService->detect($request);
             $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
@@ -739,6 +714,8 @@ final class SubscriptionApiController extends Controller
                         'local'
                     );
 
+                    \Illuminate\Support\Facades\DB::beginTransaction();
+
                     // For renewal via manual payment, create a NEW pending_approval subscription
                     $newSubscription = Subscription::create([
                         'user_id' => $user->id,
@@ -770,6 +747,8 @@ final class SubscriptionApiController extends Controller
                         'tax' => 0,
                         'final_amount' => $totalAmount,
                     ]);
+
+                    \Illuminate\Support\Facades\DB::commit();
 
                     // Notify admins about the new manual renewal request
                     try {
@@ -810,6 +789,12 @@ final class SubscriptionApiController extends Controller
                         ]
                     ]);
                 } catch (\Exception $e) {
+                    if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
+                        \Illuminate\Support\Facades\DB::rollBack();
+                    }
+                    if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
+                        throw $e;
+                    }
                     return ApiResponseService::errorResponse('فشل في إرسال طلب التجديد اليدوي: ' . $e->getMessage());
                 }
             }

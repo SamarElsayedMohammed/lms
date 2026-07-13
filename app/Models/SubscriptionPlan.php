@@ -69,7 +69,6 @@ final class SubscriptionPlan extends Model
         'quarterly' => 'ربع سنوي',
         'semi_annual' => 'نصف سنوي',
         'yearly' => 'سنوي',
-        'lifetime' => 'مدى الحياة',
         'custom' => 'مدة مخصصة',
     ];
 
@@ -82,7 +81,6 @@ final class SubscriptionPlan extends Model
         'quarterly' => 90,
         'semi_annual' => 180,
         'yearly' => 365,
-        'lifetime' => null,
         'custom' => null, // Uses duration_days field
     ];
 
@@ -175,7 +173,7 @@ final class SubscriptionPlan extends Model
      */
     public function isLifetime(): bool
     {
-        return $this->billing_cycle === 'lifetime';
+        return false;
     }
 
     /**

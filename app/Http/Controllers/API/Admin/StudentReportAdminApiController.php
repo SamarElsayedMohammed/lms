@@ -35,8 +35,8 @@ class StudentReportAdminApiController extends AdminCrudApiController
     public function index(Request $request): JsonResponse
     {
         $request->merge([
-            \'date_from\' => $request->date_from ?? $request->from_date,
-            \'date_to\' => $request->date_to ?? $request->to_date
+            'date_from' => $request->date_from ?? $request->from_date,
+            'date_to' => $request->date_to ?? $request->to_date
         ]);
         $this->ensureAdmin();
 
