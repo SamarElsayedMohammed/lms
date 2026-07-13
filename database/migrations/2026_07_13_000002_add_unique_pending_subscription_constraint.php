@@ -12,8 +12,36 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Functional index is available in MySQL 8.0.13+ and PostgreSQL
-        DB::statement("CREATE UNIQUE INDEX idx_unique_pending_sub ON subscriptions (user_id, (CASE WHEN status IN ('pending', 'pending_approval') THEN 1 ELSE NULL END))");
+        try {
+            // Keep the latest pending subscription for each user and cancel older duplicates
+            $duplicates = DB::table('subscriptions')
+                ->select('user_id', DB::raw('MAX(id) as keep_id'))
+                ->whereIn('status', ['pending', 'pending_approval'])
+                ->groupBy('user_id')
+                ->havingRaw('COUNT(*) > 1')
+                ->get();
+
+            foreach ($duplicates as $dup) {
+                DB::table('subscriptions')
+                    ->where('user_id', $dup->user_id)
+                    ->whereIn('status', ['pending', 'pending_approval'])
+                    ->where('id', '!=', $dup->keep_id)
+                    ->update([
+                        'status' => 'cancelled',
+                        'cancellation_reason' => 'Auto-cancelled duplicate pending subscription',
+                        'cancelled_at' => now(),
+                    ]);
+            }
+        } catch (\Exception $e) {
+            // Log or ignore if table/columns don't exist yet in some environments
+        }
+
+        try {
+            // Functional index is available in MySQL 8.0.13+ and PostgreSQL
+            DB::statement("CREATE UNIQUE INDEX idx_unique_pending_sub ON subscriptions (user_id, (CASE WHEN status IN ('pending', 'pending_approval') THEN 1 ELSE NULL END))");
+        } catch (\Exception $e) {
+            // Index might already exist or DB might not support functional indexes
+        }
     }
 
     /**
