@@ -23,6 +23,12 @@ class PublicWebinarController extends Controller
                 ->whereIn('status', ['scheduled', 'live'])
                 ->where('start_at', '>=', now()->subHours(2));
 
+            if ($user = Auth::guard('sanctum')->user()) {
+                $query->withExists(['registrations as is_registered' => function ($q) use ($user) {
+                    $q->where('user_id', $user->id);
+                }]);
+            }
+
             if ($request->has('course_id')) {
                 $query->where('course_id', $request->input('course_id'));
             }

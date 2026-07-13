@@ -29,7 +29,22 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('finance-list'); // Assuming finance permission
 
-        $methods = ManualDepositMethod::all();
+        $methods = ManualDepositMethod::all()->map(function ($method) {
+            $details = json_decode($method->account_details, true) ?: [];
+            return [
+                'id' => $method->id,
+                'name' => $method->name,
+                'type' => $details['type'] ?? 'bank_transfer',
+                'account_name' => $details['account_name'] ?? null,
+                'account_number' => $details['account_number'] ?? null,
+                'instapay_id' => $details['instapay_id'] ?? null,
+                'merchant_code' => $details['merchant_code'] ?? null,
+                'instructions' => $method->instructions,
+                'is_active' => $method->is_active,
+                'countries' => $method->countries,
+                'image' => $method->image,
+            ];
+        });
         return ApiResponseService::successResponse('Manual deposit methods retrieved successfully', $methods);
     }
 
@@ -44,18 +59,31 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'account_details' => 'nullable|string',
             'instructions' => 'nullable|string',
             'countries' => 'nullable|array',
             'countries.*' => 'nullable|string|max:10',
             'is_active' => 'nullable|boolean',
+            'type' => 'nullable|string',
+            'account_name' => 'nullable|string',
+            'account_number' => 'nullable|string',
+            'instapay_id' => 'nullable|string',
+            'merchant_code' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $data = $request->only(['name', 'account_details', 'instructions', 'countries', 'is_active']);
+        $accountDetails = json_encode([
+            'type' => $request->input('type'),
+            'account_name' => $request->input('account_name'),
+            'account_number' => $request->input('account_number'),
+            'instapay_id' => $request->input('instapay_id'),
+            'merchant_code' => $request->input('merchant_code'),
+        ]);
+
+        $data = $request->only(['name', 'instructions', 'countries', 'is_active']);
+        $data['account_details'] = $accountDetails;
         
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndUpload($request->file('image'), $this->methodFolder);
@@ -79,18 +107,31 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'account_details' => 'nullable|string',
             'instructions' => 'nullable|string',
             'countries' => 'nullable|array',
             'countries.*' => 'nullable|string|max:10',
             'is_active' => 'nullable|boolean',
+            'type' => 'nullable|string',
+            'account_name' => 'nullable|string',
+            'account_number' => 'nullable|string',
+            'instapay_id' => 'nullable|string',
+            'merchant_code' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $data = $request->only(['name', 'account_details', 'instructions', 'countries', 'is_active']);
+        $accountDetails = json_encode([
+            'type' => $request->input('type'),
+            'account_name' => $request->input('account_name'),
+            'account_number' => $request->input('account_number'),
+            'instapay_id' => $request->input('instapay_id'),
+            'merchant_code' => $request->input('merchant_code'),
+        ]);
+
+        $data = $request->only(['name', 'instructions', 'countries', 'is_active']);
+        $data['account_details'] = $accountDetails;
 
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndReplace($request->file('image'), $this->methodFolder, $method->getRawOriginal('image'));

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Models\User;
+
 use App\Models\ContactMessage;
 use App\Services\NotificationSettingsService;
 use Illuminate\Http\JsonResponse;

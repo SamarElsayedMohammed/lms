@@ -46,12 +46,15 @@ final class AdminTrackingApiController extends AdminCrudApiController
         }
 
         $perPage = (int) $request->input('per_page', 15);
-        $currentPage = (int) $request->input('page', 1);
 
         $query = OrderCourse::query()
             ->join('orders', 'order_courses.order_id', '=', 'orders.id')
             ->join('users', 'orders.user_id', '=', 'users.id')
             ->join('courses', 'order_courses.course_id', '=', 'courses.id')
+            ->leftJoin('user_course_progress', function ($join) {
+                $join->on('order_courses.course_id', '=', 'user_course_progress.course_id')
+                     ->on('users.id', '=', 'user_course_progress.user_id');
+            })
             ->where('orders.status', 'completed')
             ->whereNull('users.deleted_at')
             ->select([
@@ -61,6 +64,9 @@ final class AdminTrackingApiController extends AdminCrudApiController
                 'users.email',
                 'courses.id as course_id',
                 'courses.title as course_name',
+                'user_course_progress.progress_percentage',
+                'user_course_progress.status as ucp_status',
+                'user_course_progress.last_accessed_at',
             ]);
 
         if ($request->filled('course_id')) {
@@ -75,9 +81,43 @@ final class AdminTrackingApiController extends AdminCrudApiController
             });
         }
 
-        $enrollments = $query->orderByDesc('order_courses.id')->get();
+        if ($request->filled('status')) {
+            $status = $request->status;
+            if ($status === 'not_started') {
+                $query->where(function ($q) {
+                    $q->whereNull('user_course_progress.status')
+                      ->orWhere('user_course_progress.status', 'not_started')
+                      ->orWhere('user_course_progress.progress_percentage', 0);
+                });
+            } elseif ($status === 'completed') {
+                $query->where(function ($q) {
+                    $q->where('user_course_progress.status', 'completed')
+                      ->orWhere('user_course_progress.progress_percentage', '>=', 100);
+                });
+            } elseif ($status === 'in_progress') {
+                $query->where(function ($q) {
+                    $q->where('user_course_progress.status', 'in_progress')
+                      ->orWhere(function($subQ) {
+                          $subQ->where('user_course_progress.progress_percentage', '>', 0)
+                               ->where('user_course_progress.progress_percentage', '<', 100);
+                      });
+                });
+            }
+        }
 
-        $rows = $enrollments->map(function ($row) {
+        if ($request->filled('from_date')) {
+            $from = Carbon::parse($request->from_date)->startOfDay();
+            $query->where('user_course_progress.last_accessed_at', '>=', $from);
+        }
+
+        if ($request->filled('to_date')) {
+            $to = Carbon::parse($request->to_date)->endOfDay();
+            $query->where('user_course_progress.last_accessed_at', '<=', $to);
+        }
+
+        $paginator = $query->orderByDesc('order_courses.id')->paginate($perPage);
+
+        $rows = collect($paginator->items())->map(function ($row) {
             $metrics = $this->resolveEnrollmentMetrics((int) $row->user_id, (int) $row->course_id);
 
             return [
@@ -93,43 +133,6 @@ final class AdminTrackingApiController extends AdminCrudApiController
             ];
         });
 
-        if ($request->filled('status')) {
-            $rows = $rows->filter(fn (array $row) => $row['status'] === $request->status)->values();
-        }
-
-        if ($request->filled('from_date')) {
-            $from = Carbon::parse($request->from_date)->startOfDay();
-            $rows = $rows->filter(static function (array $row) use ($from): bool {
-                if ($row['last_activity'] === null) {
-                    return false;
-                }
-
-                return Carbon::parse($row['last_activity'])->gte($from);
-            })->values();
-        }
-
-        if ($request->filled('to_date')) {
-            $to = Carbon::parse($request->to_date)->endOfDay();
-            $rows = $rows->filter(static function (array $row) use ($to): bool {
-                if ($row['last_activity'] === null) {
-                    return false;
-                }
-
-                return Carbon::parse($row['last_activity'])->lte($to);
-            })->values();
-        }
-
-        $total = $rows->count();
-        $items = $rows->slice(($currentPage - 1) * $perPage, $perPage)->values();
-
-        $paginator = new LengthAwarePaginator(
-            $items,
-            $total,
-            $perPage,
-            $currentPage,
-            ['path' => $request->url(), 'query' => $request->query()]
-        );
-
         return response()->json([
             'success' => true,
             'data'    => [
@@ -137,7 +140,7 @@ final class AdminTrackingApiController extends AdminCrudApiController
                 'last_page'    => $paginator->lastPage(),
                 'per_page'     => $paginator->perPage(),
                 'total'        => $paginator->total(),
-                'data'         => $paginator->items(),
+                'data'         => $rows,
             ],
         ]);
     }

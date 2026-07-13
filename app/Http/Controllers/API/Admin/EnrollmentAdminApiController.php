@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Models\User;
+
 use App\Models\Course\Course;
 use App\Models\Course\UserCourseTrack;
 use App\Models\OrderCourse;
