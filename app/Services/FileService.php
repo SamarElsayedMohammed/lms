@@ -24,6 +24,8 @@ class FileService
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
         $ext = strtolower($requestFile->getClientOriginalExtension() ?? '');
 
+        self::sanitizeIfSvg($requestFile, $ext);
+
         if (in_array($ext, ['jpg', 'jpeg', 'png']) && self::imageExtensionAvailable()) {
             try {
                 $image = Image::make($requestFile)->encode(null, 60);
@@ -53,9 +55,31 @@ class FileService
      */
     public static function upload($requestFile, $folder, $disk = 'public')
     {
+        $ext = strtolower($requestFile->getClientOriginalExtension() ?? '');
+        self::sanitizeIfSvg($requestFile, $ext);
+        
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
         $requestFile->storeAs($folder, $file_name, $disk);
         return $folder . '/' . $file_name;
+    }
+
+    /**
+     * Basic SVG sanitization
+     */
+    protected static function sanitizeIfSvg($file, $ext)
+    {
+        if ($ext === 'svg') {
+            $content = file_get_contents($file->getRealPath());
+            if ($content) {
+                // Remove <script> tags
+                $content = preg_replace('/<script[\s\S]*?<\/script>/i', '', $content);
+                // Remove javascript: references
+                $content = preg_replace('/href\s*=\s*[\'"]javascript:[^\'"]*[\'"]/i', 'href="#"', $content);
+                // Remove onEvent attributes
+                $content = preg_replace('/\son[a-zA-Z]+\s*=\s*[\'"][^\'"]*[\'"]/i', '', $content);
+                file_put_contents($file->getRealPath(), $content);
+            }
+        }
     }
 
     /**
