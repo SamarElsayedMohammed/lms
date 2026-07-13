@@ -38,6 +38,10 @@ class CheckInstructorAccess
         }
 
         // Check if user is an instructor
+        if (!$user->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))) {
+            return ApiResponseService::errorResponse('Instructor access required', null, 403);
+        }
+
         $instructor = Instructor::where('user_id', $user->id)->first();
 
         if ($instructor) {
@@ -49,6 +53,9 @@ class CheckInstructorAccess
                     403,
                 );
             }
+        } else {
+            // If no instructor record exists, they shouldn't access instructor routes
+            return ApiResponseService::errorResponse('Instructor profile not found', null, 404);
         }
 
         return $next($request);
