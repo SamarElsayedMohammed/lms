@@ -12,14 +12,25 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('course_certificates', function (Blueprint $table) {
-            $table->string('student_name')->nullable()->after('certificate_number');
-            $table->string('arabic_title')->nullable()->after('student_name');
-            $table->string('english_title')->nullable()->after('arabic_title');
-            $table->string('instructor_name')->nullable()->after('english_title');
-
-            // Add unique index to prevent duplicates
-            $table->unique(['user_id', 'course_id'], 'idx_unique_user_course_cert');
+            if (!Schema::hasColumn('course_certificates', 'student_name')) {
+                $table->string('student_name')->nullable()->after('certificate_number');
+            }
+            if (!Schema::hasColumn('course_certificates', 'arabic_title')) {
+                $table->string('arabic_title')->nullable()->after('student_name');
+            }
+            if (!Schema::hasColumn('course_certificates', 'english_title')) {
+                $table->string('english_title')->nullable()->after('arabic_title');
+            }
+            if (!Schema::hasColumn('course_certificates', 'instructor_name')) {
+                $table->string('instructor_name')->nullable()->after('english_title');
+            }
         });
+
+        try {
+            Schema::table('course_certificates', function (Blueprint $table) {
+                $table->unique(['user_id', 'course_id'], 'idx_unique_user_course_cert');
+            });
+        } catch (\Exception $e) {}
     }
 
     /**

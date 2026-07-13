@@ -12,10 +12,18 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('course_certificates', function (Blueprint $table) {
-            $table->string('student_name', 255)->nullable()->after('certificate_number');
-            $table->string('arabic_title', 500)->nullable()->after('student_name');
-            $table->string('english_title', 500)->nullable()->after('arabic_title');
-            $table->string('instructor_name', 255)->nullable()->after('english_title');
+            if (!Schema::hasColumn('course_certificates', 'student_name')) {
+                $table->string('student_name', 255)->nullable()->after('certificate_number');
+            }
+            if (!Schema::hasColumn('course_certificates', 'arabic_title')) {
+                $table->string('arabic_title', 500)->nullable()->after('student_name');
+            }
+            if (!Schema::hasColumn('course_certificates', 'english_title')) {
+                $table->string('english_title', 500)->nullable()->after('arabic_title');
+            }
+            if (!Schema::hasColumn('course_certificates', 'instructor_name')) {
+                $table->string('instructor_name', 255)->nullable()->after('english_title');
+            }
         });
     }
 
