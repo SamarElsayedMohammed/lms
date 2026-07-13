@@ -85,8 +85,6 @@ services:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_PASSWORD: secret
       MYSQL_USER: elms_user
-    ports:
-      - "3306:3306"
     volumes:
       - elms_db_data:/var/lib/mysql
       - ./elms.sql:/docker-entrypoint-initdb.d/elms.sql
@@ -98,27 +96,25 @@ services:
     image: redis:alpine
     container_name: elms_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     networks:
       - elms_network
 
-  # PHPMyAdmin (Optional - for database management)
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin
-    container_name: elms_phpmyadmin
-    restart: unless-stopped
-    environment:
-      PMA_HOST: db
-      PMA_PORT: 3306
-      PMA_USER: root
-      PMA_PASSWORD: root
-    ports:
-      - "8080:80"
-    networks:
-      - elms_network
-    depends_on:
-      - db
+  # PHPMyAdmin (Optional - for database management - disabled in production)
+  # phpmyadmin:
+  #   image: phpmyadmin/phpmyadmin
+  #   container_name: elms_phpmyadmin
+  #   restart: unless-stopped
+  #   environment:
+  #     PMA_HOST: db
+  #     PMA_PORT: 3306
+  #     PMA_USER: root
+  #     PMA_PASSWORD: root
+  #   ports:
+  #     - "8080:80"
+  #   networks:
+  #     - elms_network
+  #   depends_on:
+  #     - db
 
 networks:
   elms_network:

@@ -43,9 +43,9 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
 RUN pecl install redis \
     && docker-php-ext-enable redis
 
-# Install Xdebug
-RUN pecl install xdebug \
-    && docker-php-ext-enable xdebug
+# Install Xdebug (Development Only - Disabled for Production)
+# RUN pecl install xdebug \
+#     && docker-php-ext-enable xdebug
 
 # Install PCOV
 RUN pecl install pcov \
