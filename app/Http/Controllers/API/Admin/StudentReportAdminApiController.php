@@ -34,6 +34,10 @@ class StudentReportAdminApiController extends AdminCrudApiController
      */
     public function index(Request $request): JsonResponse
     {
+        $request->merge([
+            \'date_from\' => $request->date_from ?? $request->from_date,
+            \'date_to\' => $request->date_to ?? $request->to_date
+        ]);
         $this->ensureAdmin();
 
         $validator = Validator::make($request->all(), [
@@ -244,7 +248,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $combinedTrend = DB::table(DB::raw("({$trendOrders->union($trendSubs)->toSql()}) as combined"))
             ->mergeBindings($trendOrders)
             ->mergeBindings($trendSubs)
-            ->selectRaw("month, COUNT(DISTINCT user_id) as new_students")
+            ->selectRaw("month, COUNT(DISTINCT combined.user_id) as new_students")
             ->groupBy('month')
             ->orderBy('month')
             ->get();

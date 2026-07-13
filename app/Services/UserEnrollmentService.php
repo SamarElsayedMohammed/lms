@@ -81,9 +81,7 @@ final class UserEnrollmentService
         if ($user->activeSubscription()->exists()) {
             Course::query()
                 ->where('status', 'publish')
-                ->where('approval_status', 'approved')
                 ->where('is_active', true)
-                ->whereHasContent()
                 ->pluck('id')
                 ->each(function ($courseId) use ($enrolled): void {
                     $this->upsertEnrollment(
@@ -116,8 +114,6 @@ final class UserEnrollmentService
                 if ($course === null
                     || !$course->is_active
                     || $course->status !== 'publish'
-                    || $course->approval_status !== 'approved'
-                    || !$course->hasContent()
                 ) {
                     return null;
                 }

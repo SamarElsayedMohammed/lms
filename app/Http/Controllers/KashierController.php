@@ -159,7 +159,7 @@ final class KashierController extends Controller
         $walletAmount = $pending['wallet_amount'] ?? 0;
         $totalAmount = $gatewayAmount + (float) $walletAmount;
 
-        if ($this->isSuccessfulStatus($status) || $status === 'browser_return_unverified_success') {
+        if ($this->isSuccessfulStatus($status)) {
             return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, array_merge($data, [
                 '_kashier_status_resolved' => $status,
                 '_kashier_verified' => $isVerified,

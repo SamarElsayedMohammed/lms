@@ -207,7 +207,7 @@ class ApiController extends Controller
                 $unique['email'] = $request->email;
 
                 // Prepare user data
-                $userData = $request->except(['password', 'firebase_token', 'platform_type', 'fcm_id']); // Exclude sensitive/pass-through fields
+                $userData = $request->except(['password', 'firebase_token', 'platform_type', 'fcm_id', 'wallet_balance', 'is_active', 'allowed_devices_count', 'role_id']); // Exclude sensitive/pass-through fields
 
                 // Ensure name is always set - this is required field in database
                 if (empty($userData['name'])) {

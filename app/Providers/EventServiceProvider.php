@@ -22,6 +22,15 @@ class EventServiceProvider extends ServiceProvider
         CurriculumItemCompleted::class => [
             UpdateCourseProgressListener::class,
         ],
+        \App\Events\WebinarRegistered::class => [
+            \App\Listeners\SendWebinarConfirmationMail::class,
+        ],
+        \App\Events\WebinarCancelled::class => [
+            \App\Listeners\NotifyUsersOfCancellation::class,
+        ],
+        \App\Events\WebinarStartingSoon::class => [
+            \App\Listeners\SendWebinarReminder::class,
+        ],
     ];
 
     /**

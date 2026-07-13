@@ -23,6 +23,10 @@ class ReportsApiController extends Controller
     public function getSalesReport(Request $request)
     {
         try {
+            $request->merge([
+                \'date_from\' => $request->date_from ?? $request->from_date,
+                \'date_to\' => $request->date_to ?? $request->to_date
+            ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
@@ -95,6 +99,10 @@ class ReportsApiController extends Controller
     public function getCommissionReport(Request $request)
     {
         try {
+            $request->merge([
+                \'date_from\' => $request->date_from ?? $request->from_date,
+                \'date_to\' => $request->date_to ?? $request->to_date
+            ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
@@ -136,6 +144,10 @@ class ReportsApiController extends Controller
     public function getCourseReport(Request $request)
     {
         try {
+            $request->merge([
+                \'date_from\' => $request->date_from ?? $request->from_date,
+                \'date_to\' => $request->date_to ?? $request->to_date
+            ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
@@ -181,6 +193,10 @@ class ReportsApiController extends Controller
     public function getInstructorReport(Request $request)
     {
         try {
+            $request->merge([
+                \'date_from\' => $request->date_from ?? $request->from_date,
+                \'date_to\' => $request->date_to ?? $request->to_date
+            ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
@@ -222,6 +238,10 @@ class ReportsApiController extends Controller
     public function getEnrollmentReport(Request $request)
     {
         try {
+            $request->merge([
+                \'date_from\' => $request->date_from ?? $request->from_date,
+                \'date_to\' => $request->date_to ?? $request->to_date
+            ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
@@ -265,6 +285,10 @@ class ReportsApiController extends Controller
     public function getRevenueReport(Request $request)
     {
         try {
+            $request->merge([
+                \'date_from\' => $request->date_from ?? $request->from_date,
+                \'date_to\' => $request->date_to ?? $request->to_date
+            ]);
             $validator = Validator::make($request->all(), [
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
@@ -579,7 +603,10 @@ class ReportsApiController extends Controller
     private function getDetailedSalesData($query, $request)
     {
         $perPage = $request->per_page ?? 15;
-        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $paginated = clone $query;
+        $paginatedResult = $paginated->orderBy('created_at', 'desc')->paginate($perPage);
+        $summary = $this->getSalesSummaryData($query, $request);
+        return array_merge($paginatedResult->toArray(), $summary);
     }
 
     private function getSalesChartData($query, $request)
@@ -611,21 +638,19 @@ class ReportsApiController extends Controller
             'paid_commissions' => $commissions->where('status', 'paid')->count(),
             'pending_commissions' => $commissions->where('status', 'pending')->count(),
             'commission_by_course' => $this->getCommissionByCourse($commissions),
-            'recent_commissions' => $this->stripCommissionInstructorData(
-                $commissions->sortByDesc('created_at')->take(10)->values(),
-            ),
+            'recent_commissions' => $commissions->sortByDesc('created_at')->take(10)->values(),
         ];
     }
 
     private function getDetailedCommissionData($query, $request)
     {
         $perPage = $request->per_page ?? 15;
-        $paginated = $query->orderBy('created_at', 'desc')->paginate($perPage);
-        $paginated->setCollection(
-            $this->stripCommissionInstructorData($paginated->getCollection()),
-        );
+        $paginatedQuery = clone $query;
+        $paginated = $paginatedQuery->orderBy('created_at', 'desc')->paginate($perPage);
+        // Instructor data is required in the admin panel so it's not stripped.
 
-        return $paginated;
+        $summary = $this->getCommissionSummaryData($query, $request);
+        return array_merge($paginated->toArray(), $summary);
     }
 
     private function getCommissionChartData($query, $request)
@@ -666,11 +691,15 @@ class ReportsApiController extends Controller
     private function getDetailedCourseData($query, $request)
     {
         $perPage = $request->per_page ?? 15;
-        return $query
+        $paginatedQuery = clone $query;
+        $paginatedResult = $paginatedQuery
             ->withCount(['orderCourses', 'ratings'])
             ->withAvg('ratings', 'rating')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+            
+        $summary = $this->getCourseSummaryData($query, $request);
+        return array_merge($paginatedResult->toArray(), $summary);
     }
 
     private function getCoursePerformanceData($query, $request)
@@ -713,12 +742,16 @@ class ReportsApiController extends Controller
     private function getDetailedInstructorData($query, $request)
     {
         $perPage = $request->per_page ?? 15;
-        return $query
+        $paginatedQuery = clone $query;
+        $paginatedResult = $paginatedQuery
             ->with(['user.courses' => static function ($q): void {
                 $q->withCount('orderCourses');
             }])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+            
+        $summary = $this->getInstructorSummaryData($query, $request);
+        return array_merge($paginatedResult->toArray(), $summary);
     }
 
     private function getInstructorPerformanceData($query, $request)
@@ -763,7 +796,10 @@ class ReportsApiController extends Controller
     private function getDetailedEnrollmentData($query, $request)
     {
         $perPage = $request->per_page ?? 15;
-        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $paginatedQuery = clone $query;
+        $paginatedResult = $paginatedQuery->orderBy('created_at', 'desc')->paginate($perPage);
+        $summary = $this->getEnrollmentSummaryData($query, $request);
+        return array_merge($paginatedResult->toArray(), $summary);
     }
 
     private function getEnrollmentChartData($query, $request)
@@ -901,7 +937,9 @@ class ReportsApiController extends Controller
         $this->applyPaymentMethodFilter($query, $request);
 
         $perPage = $request->per_page ?? 15;
-        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $paginatedResult = (clone $query)->orderBy('created_at', 'desc')->paginate($perPage);
+        $summary = $this->getRevenueSummaryData($request);
+        return array_merge($paginatedResult->toArray(), $summary);
     }
 
     private function getRevenueChartData($request)
@@ -1076,20 +1114,7 @@ class ReportsApiController extends Controller
             ->values();
     }
 
-    private function stripCommissionInstructorData($commissions)
-    {
-        return $commissions->map(static function ($commission) {
-            $commission->makeHidden([
-                'instructor_id',
-                'instructor_type',
-                'instructor_commission_rate',
-                'instructor_commission_amount',
-            ]);
-            $commission->unsetRelation('instructor');
 
-            return $commission;
-        });
-    }
 
     private function getCoursesByCategory($courses)
     {

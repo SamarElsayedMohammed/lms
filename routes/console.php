@@ -33,3 +33,6 @@ Schedule::command('webinar:remind')->everyFifteenMinutes();
 
 // Telescope data pruning - keeps last 48 hours only
 Schedule::command('telescope:prune --hours=48')->daily();
+
+// Feature sections analytics
+Schedule::job(new \App\Jobs\FlushFeatureSectionAnalyticsJob)->everyFiveMinutes();

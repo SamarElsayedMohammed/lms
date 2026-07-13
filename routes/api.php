@@ -750,19 +750,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
     });
 
     // Admin Ratings CRUD API — used by Next.js dashboard (/api/admin/ratings)
-    Route::prefix('admin/ratings')->group(function (): void {
+    Route::prefix('admin/ratings')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('/',     [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'index']);   // List all (paginated, searchable)
         Route::put('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'update']);  // Approve / edit
         Route::delete('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'destroy']); // Delete
     });
-    Route::prefix('admin/comments')->group(function (): void {
+    Route::prefix('admin/comments')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingComments']);
         Route::post('/{id}/approve', [\App\Http\Controllers\Admin\ApprovalController::class, 'approveComment']);
         Route::post('/{id}/reject', [\App\Http\Controllers\Admin\ApprovalController::class, 'rejectComment']);
     });
 
     // Admin affiliate management
-    Route::prefix('admin/affiliate')->group(function (): void {
+    Route::prefix('admin/affiliate')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('settings', [AffiliateController::class, 'settings']);
         Route::put('settings', [AffiliateController::class, 'updateSettings']);
         Route::get('withdrawals/pending', [AffiliateController::class, 'pendingWithdrawals']);
@@ -786,7 +786,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
     /**
      * Admin Dashboard CRUD APIs
      */
-    Route::prefix('admin')->group(function (): void {
+    Route::prefix('admin')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
+        // System Settings
+        Route::get('app-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'getAppSettings']);
+        Route::post('app-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'updateAppSettings']);
+        Route::get('web-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'getWebSettings']);
+        Route::post('web-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'updateWebSettings']);
+        Route::get('seo-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'getSeoSettings']);
+        Route::post('seo-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'updateSeoSettings']);
+
+        // Payment Gateways Settings
+        Route::get('settings/payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'index']);
+        Route::put('settings/payment-gateway', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'update']);
+
         // Notification Global Settings
         Route::get('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'getSettings']);
         Route::put('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'updateSettings']);
@@ -1146,7 +1158,7 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
     });
 
     // Reports APIs (Admin)
-    Route::prefix('reports')->group(function (): void {
+    Route::prefix('reports')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('filters', [ReportsApiController::class, 'getReportFilters']); // Get all filter options
         Route::get('sales', [ReportsApiController::class, 'getSalesReport']); // Sales reports
         Route::get('commission', [ReportsApiController::class, 'getCommissionReport']); // Commission reports
@@ -1162,12 +1174,6 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
         Route::get('students', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'index']);
     });
 
-    // [9] Payment Gateway Settings API (Admin)
-    Route::prefix('admin/settings')->group(function (): void {
-        Route::get('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'index']);
-        Route::put('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'update']);
-        Route::post('payment-gateways', [\App\Http\Controllers\API\Admin\PaymentGatewaySettingsAdminApiController::class, 'update']); // POST variant
-    });
 
 
     // Certificate Generation APIs (Requires Authentication)

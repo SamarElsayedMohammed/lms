@@ -298,10 +298,24 @@ final class VideoStreamController extends Controller
                 return $this->notFound('Video not found or not available');
             }
 
-            // 5.5 Re-evaluate access to revoke immediately upon refund/expiry
+            // 5.5 Re-evaluate access to revoke immediately upon refund/expiry/ban.
+            //     We use a short-lived cache (5 min) to avoid hitting the DB on
+            //     every individual .ts segment — revocations still take effect well
+            //     within the 30-minute token TTL.
             if (!$isFreePreview && $userId) {
                 $user = \App\Models\User::find($userId);
-                if ($user && !app(\App\Services\ContentAccessService::class)->canAccessLecture($user, $lecture)) {
+                if (!$user) {
+                    return $this->forbidden('Access revoked or subscription expired');
+                }
+                $accessCacheKey = "hls_access:{$userId}:{$lectureId}";
+                $hasAccess = Cache::remember(
+                    $accessCacheKey,
+                    300, // 5 minutes
+                    fn () => (int) app(\App\Services\ContentAccessService::class)->canAccessLecture($user, $lecture),
+                );
+                if (!(bool) $hasAccess) {
+                    // Clear the cache immediately so the next request re-evaluates.
+                    Cache::forget($accessCacheKey);
                     return $this->forbidden('Access revoked or subscription expired');
                 }
             }

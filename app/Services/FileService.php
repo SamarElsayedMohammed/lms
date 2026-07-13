@@ -69,6 +69,11 @@ class FileService
     protected static function sanitizeIfSvg($file, $ext)
     {
         if ($ext === 'svg') {
+            $user = \Illuminate\Support\Facades\Auth::user();
+            if (!$user || (!$user->hasRole('Super Admin') && !$user->hasRole('Supervisor'))) {
+                throw new \Exception('SVG uploads are restricted to administrators for security reasons.');
+            }
+            
             $content = file_get_contents($file->getRealPath());
             if ($content) {
                 // Remove <script> tags

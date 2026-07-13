@@ -16,6 +16,7 @@ class Webinar extends Model
         'slug',
         'description',
         'features',
+        'config',
         'image',
         'start_at',
         'duration',
@@ -38,10 +39,19 @@ class Webinar extends Model
         'is_free' => 'boolean',
         'price' => 'decimal:2',
         'features' => 'array',
+        'config' => 'array',
         'max_attendees' => 'integer',
         'is_published' => 'boolean',
         'is_featured' => 'boolean',
     ];
+
+    /**
+     * Enforce Route Model Binding by slug instead of ID.
+     */
+    public function getRouteKeyName()
+    {
+        return 'slug';
+    }
 
     /**
      * Ensure start_at is always treated and saved as UTC.

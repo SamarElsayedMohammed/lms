@@ -1288,10 +1288,7 @@ class HomeApiController extends Controller
                 'responsive_limits' => $section->responsive_limits,
                 'visibility_permissions' => $section->visibility_permissions,
                 'visibility_devices' => $section->visibility_devices,
-                'manual_courses' => $section->manualCourses->map(static fn ($course) => [
-                    'id' => $course->id,
-                    'sort_order' => $course->pivot->sort_order ?? null,
-                ])->values(),
+                'manual_courses' => $section->manualCourses->pluck('id')->values()->all(),
                 'data' => $data,
             ];
         });
@@ -1317,5 +1314,26 @@ class HomeApiController extends Controller
         } else {
             return 'completed';
         }
+    }
+
+    public function interact(Request $request)
+    {
+        $interactions = $request->all();
+
+        // Ensure it's an array of arrays
+        if (!is_array($interactions) || (count($interactions) > 0 && !is_array(reset($interactions)))) {
+            return ApiResponseService::errorResponse('Payload must be an array of objects');
+        }
+
+        foreach ($interactions as $interaction) {
+            if (isset($interaction['id'], $interaction['type']) && in_array($interaction['type'], ['view', 'click'])) {
+                $id = (int) $interaction['id'];
+                $type = $interaction['type'];
+                $key = "feature_section:{$id}:{$type}s";
+                \Illuminate\Support\Facades\Redis::incr($key);
+            }
+        }
+
+        return ApiResponseService::successResponse('Interactions recorded.');
     }
 }
