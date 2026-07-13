@@ -209,6 +209,8 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
             'sorting' => 'nullable|string|max:50',
             'visibility_permissions' => 'nullable|array',
             'visibility_devices' => 'nullable|array',
+            'show_on_web' => 'nullable|boolean',
+            'show_on_mobile' => 'nullable|boolean',
             'responsive_limits' => 'nullable|array',
             'manual_courses' => 'nullable|array',
         ];

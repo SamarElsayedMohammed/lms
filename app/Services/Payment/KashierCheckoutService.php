@@ -157,13 +157,13 @@ final class KashierCheckoutService implements PaymentGatewayContract
      *
      * @return array{url: string, order_id: string, hash: string, amount: float, currency: string}
      */
-    public function createWebinarCheckoutSession(int $webinarId, User $user, float $amount): array
+    public function createWebinarCheckoutSession(int $webinarId, User $user, float $amount, string $currency = 'EGP'): array
     {
         $config = $this->getConfig();
         $this->validateConfig($config);
 
         $orderId = 'webinar_' . $webinarId . '_' . $user->id . '_' . time();
-        $currency = 'EGP';
+        $currency = strtoupper($currency);
         $amountFormatted = number_format((float) $amount, 2, '.', '');
 
         $hash = $this->generateOrderHash(

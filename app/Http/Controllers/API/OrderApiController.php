@@ -1276,7 +1276,7 @@ class OrderApiController extends Controller
             }
 
             // Payment initialization for other payment methods
-            $currency = HelperService::systemSettings(['currency_code']);
+            $currency = $order->orderCourses->first()?->currency_code ?? HelperService::systemSettings(['currency_code']);
             $paymentService = app(PaymentFactory::class)->for($paymentMethod);
 
             // Get type parameter (web/app) from request
@@ -1675,7 +1675,7 @@ class OrderApiController extends Controller
             }
 
             // 10. Payment init for other payment methods
-            $currency = HelperService::systemSettings(['currency_code']);
+            $currency = $order->orderCourses->first()?->currency_code ?? HelperService::systemSettings(['currency_code']);
             $paymentService = app(PaymentFactory::class)->for($paymentMethod);
 
             // Get type parameter (web/app) from request

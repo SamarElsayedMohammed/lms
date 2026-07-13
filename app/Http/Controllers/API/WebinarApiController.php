@@ -105,7 +105,13 @@ class WebinarApiController extends Controller
             }
 
             if (!$webinar->is_free && $webinar->price > 0) {
-                $totalAmount = $webinar->price;
+                // Calculate localized pricing
+                $pricingService = app(\App\Services\PricingCalculationService::class);
+                $currencyInfo = $pricingService->resolveDisplayCurrency($user, $request);
+                $exchangeRate = $currencyInfo['exchange_rate'];
+                $currency = $currencyInfo['code'];
+
+                $totalAmount = round($webinar->price * $exchangeRate, 2);
                 $walletAmount = 0.0;
                 $gatewayAmount = $totalAmount;
                 $useWallet = $request->boolean('use_wallet');
@@ -142,7 +148,7 @@ class WebinarApiController extends Controller
                 // If requires Kashier gateway
                 try {
                     $kashierService = app(\App\Services\Payment\KashierCheckoutService::class);
-                    $checkout = $kashierService->createWebinarCheckoutSession($webinar->id, $user, $gatewayAmount);
+                    $checkout = $kashierService->createWebinarCheckoutSession($webinar->id, $user, $gatewayAmount, $currency);
                 } catch (\RuntimeException $e) {
                     return ApiResponseService::errorResponse('Payment gateway is not configured.', [], 503);
                 }

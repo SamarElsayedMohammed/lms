@@ -26,6 +26,8 @@ class FeatureSection extends Model
         'responsive_limits',
         'visibility_permissions',
         'visibility_devices',
+        'show_on_web',
+        'show_on_mobile',
     ];
 
     protected $casts = [
@@ -36,6 +38,8 @@ class FeatureSection extends Model
         'responsive_limits'      => 'array',
         'visibility_permissions' => 'array',
         'visibility_devices'     => 'array',
+        'show_on_web'            => 'boolean',
+        'show_on_mobile'         => 'boolean',
     ];
 
     #[\Override]
