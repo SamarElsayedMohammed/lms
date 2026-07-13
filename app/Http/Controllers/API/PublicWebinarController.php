@@ -18,7 +18,7 @@ class PublicWebinarController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Webinar::with(['instructor:id,name,profile', 'course:id,title'])
+            $query = Webinar::with(['instructor:id,name', 'course:id,title'])
                 ->where('is_published', true)
                 ->whereIn('status', ['scheduled', 'live'])
                 ->where('start_at', '>=', now()->subHours(2));
@@ -48,7 +48,7 @@ class PublicWebinarController extends Controller
                 return ApiResponseService::errorResponse('Webinar not found', [], 404);
             }
 
-            $webinar->load(['instructor:id,name,profile']);
+            $webinar->load(['instructor:id,name']);
 
             $user = Auth::guard('sanctum')->user();
             $is_registered = $user ? WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->exists() : false;

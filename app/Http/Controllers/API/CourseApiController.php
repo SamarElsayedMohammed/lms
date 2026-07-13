@@ -99,7 +99,7 @@ class CourseApiController extends Controller
         ]);
 
         if ($validator->fails()) {
-            ApiResponseService::validationError($validator->errors()->first());
+            return ApiResponseService::validationError($validator->errors()->first());
         }
 
         // Apply feature section filtering if provided
@@ -123,6 +123,7 @@ class CourseApiController extends Controller
             'taxes',
             'ratings.user',
             'wishlistedByUsers',
+            'chapters.lectures',
         ])
             ->withAvg('ratings', 'rating')
             ->withCount(['ratings', 'views', 'orderCourses' => static function ($q): void {
@@ -276,7 +277,17 @@ class CourseApiController extends Controller
             $limit = $featureSection->limit ?? null;
             $user = Auth::user();
 
-            switch ($featureSection->type) {
+            if ($featureSection->sorting === 'manual') {
+                $manualCourseIds = $featureSection->manualCourses()->pluck('courses.id')->toArray();
+                if (!empty($manualCourseIds)) {
+                    $query->whereIn('id', $manualCourseIds);
+                    // To maintain manual sort order, use orderByRaw
+                    $query->orderByRaw('FIELD(id, ' . implode(',', $manualCourseIds) . ')');
+                } else {
+                    $query->whereRaw('1 = 0');
+                }
+            } else {
+                switch ($featureSection->type) {
                 case 'newly_added_courses':
                     $query->latest();
                     if ($limit) {
@@ -466,8 +477,8 @@ class CourseApiController extends Controller
 
                 default:
                     // For other types (offer, why_choose_us, become_instructor, top_rated_instructors),
-                    // they don't apply to courses, so no additional filtering
                     break;
+                }
             }
         }
 
@@ -691,7 +702,7 @@ class CourseApiController extends Controller
                     'is_enrolled' => $isEnrolled && !in_array($course->id, $refundedCourseIds),
                     // Currency specific fields (explicitly copied for clarity)
                     'currency_code' => $coursePricingData['currency_code'],
-                    'currency_symbol' => $coursePricingData['currency_symbol'],
+                    'currency_symbol' => $coursePricingData['display_symbol'] ?? null,
                 ];
             });
 
