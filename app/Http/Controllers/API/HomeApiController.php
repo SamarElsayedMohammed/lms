@@ -123,7 +123,7 @@ class HomeApiController extends Controller
         ]);
 
         if ($validator->fails()) {
-            ApiResponseService::validationError($validator->errors()->first());
+            return ApiResponseService::validationError($validator->errors()->first());
         }
 
         $sections = FeatureSection::with('manualCourses')->where('is_active', 1)->orderBy('row_order')->get();

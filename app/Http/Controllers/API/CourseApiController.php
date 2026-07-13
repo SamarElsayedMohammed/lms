@@ -277,7 +277,17 @@ class CourseApiController extends Controller
             $limit = $featureSection->limit ?? null;
             $user = Auth::user();
 
-            switch ($featureSection->type) {
+            if ($featureSection->sorting === 'manual') {
+                $manualCourseIds = $featureSection->manualCourses()->pluck('courses.id')->toArray();
+                if (!empty($manualCourseIds)) {
+                    $query->whereIn('id', $manualCourseIds);
+                    // To maintain manual sort order, use orderByRaw
+                    $query->orderByRaw('FIELD(id, ' . implode(',', $manualCourseIds) . ')');
+                } else {
+                    $query->whereRaw('1 = 0');
+                }
+            } else {
+                switch ($featureSection->type) {
                 case 'newly_added_courses':
                     $query->latest();
                     if ($limit) {
@@ -467,8 +477,8 @@ class CourseApiController extends Controller
 
                 default:
                     // For other types (offer, why_choose_us, become_instructor, top_rated_instructors),
-                    // they don't apply to courses, so no additional filtering
                     break;
+                }
             }
         }
 
