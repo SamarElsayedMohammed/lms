@@ -1071,10 +1071,10 @@ class OrderApiController extends Controller
                 // Dispatch FCM Job
                 dispatch(new SendOrderNotifications($order, $user));
 
-                return ApiResponseService::successResponse('Free course enrolled successfully', [
-                    'order' => $order->fresh(),
-                    'is_free' => true,
-                ]);
+                return ApiResponseService::successResponse(
+                    'Free course enrolled successfully',
+                    $this->formatPlaceOrderResponse($order, ['is_free' => true])
+                );
             }
 
             // Handle 100% coupon discount (final price is 0 after promo code)
@@ -1130,11 +1130,13 @@ class OrderApiController extends Controller
                 // Dispatch notification
                 dispatch(new SendOrderNotifications($order->fresh(), $user));
 
-                return ApiResponseService::successResponse('Course enrolled successfully with 100% discount', [
-                    'order' => $order->fresh(),
-                    'payment_method' => 'free',
-                    'transaction_id' => $transactionId,
-                ]);
+                return ApiResponseService::successResponse(
+                    'Course enrolled successfully with 100% discount',
+                    $this->formatPlaceOrderResponse($order, [
+                        'payment_method' => 'free',
+                        'transaction_id' => $transactionId,
+                    ])
+                );
             }
 
             // Handle wallet payment
@@ -1213,11 +1215,13 @@ class OrderApiController extends Controller
                 // Dispatch notification
                 dispatch(new SendOrderNotifications($order->fresh(), $user));
 
-                return ApiResponseService::successResponse('Order placed and paid successfully using wallet', [
-                    'order' => $order->fresh(),
-                    'payment_method' => 'wallet',
-                    'transaction_id' => $transactionId,
-                ]);
+                return ApiResponseService::successResponse(
+                    'Order placed and paid successfully using wallet',
+                    $this->formatPlaceOrderResponse($order, [
+                        'payment_method' => 'wallet',
+                        'transaction_id' => $transactionId,
+                    ])
+                );
             }
 
             // Payment initialization for other payment methods
@@ -1242,10 +1246,10 @@ class OrderApiController extends Controller
 
             DB::commit();
 
-            return ApiResponseService::successResponse('Order placed successfully', [
-                'order' => $order->fresh(),
-                'payment' => $paymentInit,
-            ]);
+            return ApiResponseService::successResponse(
+                'Order placed successfully',
+                $this->formatPlaceOrderResponse($order, ['payment' => $paymentInit])
+            );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
@@ -1253,6 +1257,44 @@ class OrderApiController extends Controller
 
             return ApiResponseService::errorResponse($th->getMessage());
         }
+    }
+
+    private function formatPlaceOrderResponse($order, array $additionalData = [])
+    {
+        $order->refresh();
+        
+        $currencyCode = 'EGP';
+        $displayCurrency = 'EGP';
+        $displaySymbol = 'ج.م';
+        
+        $pricingService = app(\App\Services\PricingCalculationService::class);
+        $countryCode = $pricingService->getCountryCodeFromRequest(request());
+        
+        if ($countryCode !== 'EG') {
+            $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)
+                ->where('is_active', true)
+                ->first();
+
+            if ($currency) {
+                $displayCurrency = $currency->currency_code;
+                $displaySymbol = $currency->currency_symbol;
+            }
+        }
+
+        $formatted = [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'total' => round($order->total_amount, 2),
+            'currency' => $currencyCode,
+            'display_currency' => $displayCurrency,
+            'display_symbol' => $displaySymbol,
+            'formatted_total' => number_format($order->total_amount, 2) . ' ' . $displaySymbol,
+            'payment_method' => $order->payment_method,
+            'created_at' => clone $order->created_at,
+        ];
+
+        return array_merge($formatted, $additionalData);
     }
 
     /**
@@ -1412,10 +1454,10 @@ class OrderApiController extends Controller
                 // Dispatch FCM Job
                 dispatch(new SendOrderNotifications($order, $user));
 
-                return ApiResponseService::successResponse('Free courses enrolled successfully', [
-                    'order' => $order->fresh(),
-                    'is_free' => true,
-                ]);
+                return ApiResponseService::successResponse(
+                    'Free courses enrolled successfully',
+                    $this->formatPlaceOrderResponse($order, ['is_free' => true])
+                );
             }
 
             // 8.5. Handle 100% coupon discount (final price is 0 after promo code)
@@ -1479,11 +1521,13 @@ class OrderApiController extends Controller
                 // Dispatch notification
                 dispatch(new SendOrderNotifications($order->fresh(), $user));
 
-                return ApiResponseService::successResponse('Courses enrolled successfully with 100% discount', [
-                    'order' => $order->fresh(),
-                    'payment_method' => 'free',
-                    'transaction_id' => $transactionId,
-                ]);
+                return ApiResponseService::successResponse(
+                    'Courses enrolled successfully with 100% discount',
+                    $this->formatPlaceOrderResponse($order, [
+                        'payment_method' => 'free',
+                        'transaction_id' => $transactionId,
+                    ])
+                );
             }
 
             // 9. Handle wallet payment
@@ -1550,8 +1594,6 @@ class OrderApiController extends Controller
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);
 
                 // Calculate and create commission records
-                // FIXME: giving `commission` to instructor instead of admin.
-                // instructor should receive `purchase` transaction rather than commision
                 try {
                     CommissionService::calculateCommissions($order);
                     CommissionService::markCommissionsAsPaid($order);
@@ -1572,11 +1614,13 @@ class OrderApiController extends Controller
                 // Dispatch notification
                 dispatch(new SendOrderNotifications($order->fresh(), $user));
 
-                return ApiResponseService::successResponse('Order placed and paid successfully using wallet', [
-                    'order' => $order->fresh(),
-                    'payment_method' => 'wallet',
-                    'transaction_id' => $transactionId,
-                ]);
+                return ApiResponseService::successResponse(
+                    'Order placed and paid successfully using wallet',
+                    $this->formatPlaceOrderResponse($order, [
+                        'payment_method' => 'wallet',
+                        'transaction_id' => $transactionId,
+                    ])
+                );
             }
 
             // 10. Payment init for other payment methods
@@ -1607,10 +1651,10 @@ class OrderApiController extends Controller
 
             DB::commit();
 
-            return ApiResponseService::successResponse('Order placed successfully', [
-                'order' => $order->fresh(),
-                'payment' => $paymentInit,
-            ]);
+            return ApiResponseService::successResponse(
+                'Order placed successfully',
+                $this->formatPlaceOrderResponse($order, ['payment' => $paymentInit])
+            );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {

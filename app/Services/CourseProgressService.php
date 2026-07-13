@@ -57,6 +57,10 @@ class CourseProgressService
 
         $this->clearCache($userId, $courseId);
 
+        if ($percentage == 100) {
+            app(\App\Services\CertificateService::class)->autoGenerateCertificate($userId, $courseId);
+        }
+
         return $progress->fresh();
     }
 

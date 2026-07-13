@@ -7,7 +7,9 @@ namespace App\Services;
 use App\Models\SubscriptionPlan;
 use App\Models\SubscriptionPlanPrice;
 use App\Models\SupportedCurrency;
+use App\Models\Country;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 final class PricingService
 {
@@ -65,53 +67,14 @@ final class PricingService
             ];
         }
 
-        // 2. Egypt fallback: base EGP price stored on the plan
-        if ($countryCode === 'EG') {
-            return [
-                'price' => $this->roundUpForDisplay((float) $plan->price),
-                'old_price' => null,
-                'currency_code' => 'EGP',
-                'currency_symbol' => CachingService::getSystemSettings('currency_symbol') ?: 'EGP',
-                'price_source' => 'default',
-                'can_subscribe' => true,
-            ];
-        }
-
-        // 3. Dynamic Currency Conversion Fallback
-        // Convert the base EGP price to the country's active supported currency if available
-        $supportedCurrency = SupportedCurrency::where('country_code', $countryCode)
-            ->where('is_active', true)
-            ->first();
-
-        if ($supportedCurrency !== null && $supportedCurrency->active_exchange_rate > 0) {
-            $convertedPrice = $this->convertFromEgp((float) $plan->price, $supportedCurrency->currency_code);
-            return [
-                'price' => $this->roundUpForDisplay($convertedPrice),
-                'old_price' => null,
-                'currency_code' => $supportedCurrency->currency_code,
-                'currency_symbol' => $supportedCurrency->currency_symbol,
-                'price_source' => 'dynamic_conversion',
-                'can_subscribe' => true,
-            ];
-        }
-
-        // 4. International fallback: Convert EGP to USD dynamically
-        $usdCurrency = SupportedCurrency::where('currency_code', 'USD')->first();
-
-        if ($usdCurrency !== null && $usdCurrency->active_exchange_rate > 0) {
-            $usdPrice = round((float) $plan->price / (float) $usdCurrency->active_exchange_rate, 2);
-        } else {
-            // Fallback to the static usd_price if USD is not found in SupportedCurrency
-            $usdPrice = (float) ($plan->usd_price ?? 0);
-        }
-
+        // 2. Fallback to EGP base price for all other countries without a specific price override
         return [
-            'price' => $this->roundUpForDisplay($usdPrice),
+            'price' => $this->roundUpForDisplay((float) $plan->price),
             'old_price' => null,
-            'currency_code' => 'USD',
-            'currency_symbol' => $usdCurrency?->currency_symbol ?? '$',
-            'price_source' => 'dynamic_usd_fallback',
-            'can_subscribe' => $usdPrice > 0,
+            'currency_code' => 'EGP',
+            'currency_symbol' => 'ج.م',
+            'price_source' => 'default',
+            'can_subscribe' => true,
         ];
     }
 
@@ -170,6 +133,13 @@ final class PricingService
      */
     public function getCurrencyForCountry(string $countryCode): ?SupportedCurrency
     {
+        $country = Country::where('iso_code', strtoupper($countryCode))->where('status', 1)->first();
+        if ($country && $country->currency_code) {
+            return SupportedCurrency::where('currency_code', $country->currency_code)
+                ->where('is_active', true)
+                ->first();
+        }
+
         return SupportedCurrency::where('country_code', strtoupper($countryCode))
             ->where('is_active', true)
             ->first();

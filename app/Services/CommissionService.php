@@ -120,8 +120,8 @@ class CommissionService
                 WalletService::creditWallet(
                     $commission->instructor_id,
                     $commission->instructor_commission_amount,
-                    'commission',
-                    "Commission for course: {$commission->course->title} (Order #{$order->order_number})",
+                    'purchase',
+                    "Course sale share: {$commission->course->title} (Order #{$order->order_number})",
                     $commission->id,
                     \App\Models\Commission::class,
                 );

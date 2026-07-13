@@ -181,6 +181,7 @@ class AffiliateService
                 ->available()
                 ->orderBy('available_date')
                 ->orderBy('id')
+                ->lockForUpdate()
                 ->get();
 
             $selected = [];
@@ -242,6 +243,7 @@ class AffiliateService
                 ->available()
                 ->orderBy('available_date')
                 ->orderBy('id')
+                ->lockForUpdate()
                 ->get();
 
             $selected = [];

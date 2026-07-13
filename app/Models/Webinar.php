@@ -11,6 +11,7 @@ class Webinar extends Model
 
     protected $fillable = [
         'instructor_id',
+        'course_id',
         'title',
         'slug',
         'description',
@@ -76,6 +77,11 @@ class Webinar extends Model
             return false;
         }
         return $this->registrations()->count() >= $this->max_attendees;
+    }
+
+    public function course()
+    {
+        return $this->belongsTo(Course::class, 'course_id');
     }
 
     public function instructor()

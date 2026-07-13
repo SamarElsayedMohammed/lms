@@ -63,17 +63,14 @@ class UserAssignmentSubmissionController extends Controller
             $user = Auth::user();
             $assignment = CourseChapterAssignment::findOrFail($request->assignment_id);
 
-            // Check if user has purchased the course
+            // Check if user has purchased the course or has active subscription
             $course = $assignment->chapter->course;
-            $hasPurchased = Order::where('user_id', $user?->id)
-                ->whereHas('orderCourses', static function ($query) use ($course): void {
-                    $query->where('course_id', $course->id);
-                })
-                ->where('status', 'completed')
-                ->exists();
+            $enrollmentService = app(\App\Services\UserEnrollmentService::class);
+            $enrolledCourses = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+            $hasPurchased = $enrolledCourses->contains('course_id', $course->id);
 
             if (!$hasPurchased) {
-                ApiResponseService::errorResponse('You must purchase this course to submit assignments');
+                ApiResponseService::errorResponse('You must be enrolled in this course to submit assignments');
             }
 
             // Check if user already has a submission for this assignment

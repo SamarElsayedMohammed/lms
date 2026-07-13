@@ -66,11 +66,9 @@ class ContentAccessService
 
     private function hasPurchasedCourse(User $user, Course $course): bool
     {
-        return OrderCourse::query()
-            ->where('course_id', $course->id)
-            ->whereHas('order', static function ($query) use ($user): void {
-                $query->where('user_id', $user->id)->where('status', 'completed');
-            })
-            ->exists();
+        $enrollmentService = app(\App\Services\UserEnrollmentService::class);
+        $enrolledCourses = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+        
+        return $enrolledCourses->contains('course_id', $course->id);
     }
 }

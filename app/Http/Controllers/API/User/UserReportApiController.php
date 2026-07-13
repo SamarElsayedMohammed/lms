@@ -379,25 +379,27 @@ class UserReportApiController extends Controller
             foreach ($generatedCertificates as $cert) {
                 $result[] = [
                     'id'                 => $cert->id,
-                    'certificate_number' => $cert->certificate_number,
-                    'status'             => $cert->status,  // 'active' | 'revoked'
-                    'issued_date'        => $cert->issued_date?->format('Y-m-d'),
                     'course_id'          => $cert->course_id,
                     'course_title'       => $cert->course->title    ?? 'N/A',
-                    'course_image'       => $cert->course->thumbnail ?? null,
-                    'category'           => $cert->course->category->name ?? 'N/A',
-                    'can_download'       => $cert->isActive(),
-                    'verify_url'         => url("/api/certificate/verify?code={$cert->certificate_number}"),
-                    'download_url'       => url("/api/certificate/course/download?course_id={$cert->course_id}"),
-                    'view_url'           => url("/api/certificate/course/view?course_id={$cert->course_id}"),
+                    'issued_at'          => optional($cert->created_at)->toIso8601String(),
+                    'certificate_url'    => url("/verify-certificate?code={$cert->certificate_number}"),
+                    'studentName'        => $cert->student_name ?? ($user->name ?? 'N/A'),
+                    'arabicCourseTitle'  => $cert->arabic_title ?? ($cert->course->title ?? 'N/A'),
+                    'englishCourseTitle' => $cert->english_title ?? ($cert->course->title ?? 'N/A'),
+                    'date'               => optional($cert->issued_date)->format('Y-m-d'),
+                    'instructorName'     => $cert->instructor_name ?? ($cert->course->user->name ?? 'N/A'),
+                    'certificateId'      => $cert->certificate_number,
                 ];
             }
 
             // 2. Find all enrolled courses and append completed ones that don't have a certificate generated yet
+            // Wait: the PRD says it returns all issued certificates. We will stick to the existing feature of returning completed but ungenerated ones as well, or should we only return generated ones?
+            // "Returns all issued certificates for the authenticated user"
+            // Let's keep the existing behaviour of allowing download generation if completed but not issued, but format it identically.
             $enrollmentService = app(\App\Services\UserEnrollmentService::class);
             $enrolled = $enrollmentService->resolveEnrolledCourses(
                 (int) $user->id,
-                static fn ($query) => $query->with('category')
+                static fn ($query) => $query->with(['category', 'user'])
             );
 
             $certService = app(\App\Services\CertificateService::class);
@@ -419,22 +421,24 @@ class UserReportApiController extends Controller
                 if ($isCompleted && $videoProgress >= \App\Services\VideoProgressService::COMPLETION_THRESHOLD) {
                     $result[] = [
                         'id'                 => null,
-                        'certificate_number' => null,
-                        'status'             => 'active', // treat as active so frontend allows download
-                        'issued_date'        => null,
                         'course_id'          => $course->id,
                         'course_title'       => $course->title ?? 'N/A',
-                        'course_image'       => $course->thumbnail ?? null,
-                        'category'           => $course->category->name ?? 'N/A',
-                        'can_download'       => true,
-                        'verify_url'         => null,
-                        'download_url'       => url("/api/certificate/course/download?course_id={$course->id}"),
-                        'view_url'           => url("/api/certificate/course/view?course_id={$course->id}"),
+                        'issued_at'          => null,
+                        'certificate_url'    => null,
+                        'studentName'        => $user->name ?? 'N/A',
+                        'arabicCourseTitle'  => $course->title ?? 'N/A',
+                        'englishCourseTitle' => $course->title ?? 'N/A',
+                        'date'               => null,
+                        'instructorName'     => $course->user->name ?? 'N/A',
+                        'certificateId'      => null,
                     ];
                 }
             }
 
-            return ApiResponseService::successResponse('User certificates retrieved successfully', array_values($result));
+            return response()->json([
+                'ok' => true,
+                'data' => array_values($result)
+            ], 200);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {

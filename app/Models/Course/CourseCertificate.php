@@ -15,6 +15,10 @@ class CourseCertificate extends Model
         'user_id',
         'course_id',
         'certificate_number',
+        'student_name',
+        'arabic_title',
+        'english_title',
+        'instructor_name',
         'issued_date',
         'status',
         'revoked_at',
@@ -64,12 +68,18 @@ class CourseCertificate extends Model
     }
 
     /**
-     * Generate a cryptographically unique certificate number.
+     * Generate a cryptographically unique certificate number matching PRD specs.
+     * Format: CERT-{YEAR}-{USERID-5digits}-{RANDOM-6chars}
+     * Example: CERT-2026-00042-AB3X7K
      */
-    public static function generateCertificateNumber(): string
+    public static function generateCertificateNumber(int $userId = 0): string
     {
+        $year = date('Y');
+        $userPart = str_pad((string)$userId, 5, '0', STR_PAD_LEFT);
+        
         do {
-            $number = 'CERT-' . strtoupper(bin2hex(random_bytes(6)));
+            $randomPart = strtoupper(substr(str_shuffle('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 0, 6));
+            $number = "CERT-{$year}-{$userPart}-{$randomPart}";
         } while (self::where('certificate_number', $number)->exists());
 
         return $number;

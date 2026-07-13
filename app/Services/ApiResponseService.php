@@ -65,13 +65,46 @@ final class ApiResponseService
         string|null $redirectUrl = null,
         array $headers = [],
     ): void {
+        $meta = [];
+
+        if ($data instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $meta = [
+                'current_page' => $data->currentPage(),
+                'last_page' => $data->lastPage(),
+                'per_page' => $data->perPage(),
+                'total' => $data->total(),
+            ];
+            $data = $data->items();
+        } elseif ($data instanceof \Illuminate\Http\Resources\Json\ResourceCollection && $data->resource instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $meta = [
+                'current_page' => $data->resource->currentPage(),
+                'last_page' => $data->resource->lastPage(),
+                'per_page' => $data->resource->perPage(),
+                'total' => $data->resource->total(),
+            ];
+            $data = $data->resolve();
+        } elseif (is_array($data) && isset($data['data']) && isset($data['current_page'])) {
+            $meta = [
+                'current_page' => $data['current_page'],
+                'last_page' => $data['last_page'] ?? null,
+                'per_page' => $data['per_page'] ?? null,
+                'total' => $data['total'] ?? null,
+            ];
+            $data = $data['data'];
+        }
+
         $code ??= (int) config('constants.RESPONSE_CODE.SUCCESS');
         $response = [
+            'success' => true,
             'error' => false,
             'message' => trans($message),
             'data' => $data ?? (object) [],
             'code' => $code,
         ];
+
+        if (!empty($meta)) {
+            $response['meta'] = $meta;
+        }
 
         if ($redirectUrl) {
             $response['redirect_url'] = $redirectUrl;
@@ -113,11 +146,17 @@ final class ApiResponseService
 
         $code ??= (int) config('constants.RESPONSE_CODE.ERROR');
         $response = [
+            'success' => false,
             'error' => true,
             'message' => trans($message),
             'data' => $data ?? (object) [],
             'code' => $code,
         ];
+
+        // Ensure errors object is present for validation structure
+        if (is_array($data) || is_object($data)) {
+            $response['errors'] = $data;
+        }
 
         if ($redirectUrl) {
             $response['redirect_url'] = $redirectUrl;

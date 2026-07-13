@@ -51,12 +51,12 @@ use Illuminate\Support\Facades\Route;
  */
 
 Route::post('user-exists', [ApiController::class, 'userExists']);
-Route::post('user-signup', [ApiController::class, 'userSignup']);
-Route::post('user-login', [ApiController::class, 'userLogin']);
+Route::post('user-signup', [ApiController::class, 'userSignup'])->middleware('throttle:5,1');
+Route::post('user-login', [ApiController::class, 'userLogin'])->middleware('throttle:5,1');
 Route::post('refresh-token', [ApiController::class, 'refreshToken'])->middleware('auth:sanctum');
-Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin']);
-Route::post('mobile-login', [ApiController::class, 'mobileLogin']);
-Route::post('mobile-registration', [ApiController::class, 'mobileRegistration']);
+Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin'])->middleware('throttle:5,1');
+Route::post('mobile-login', [ApiController::class, 'mobileLogin'])->middleware('throttle:5,1');
+Route::post('mobile-registration', [ApiController::class, 'mobileRegistration'])->middleware('throttle:5,1');
 Route::post('mobile-reset-password', [ApiController::class, 'mobileResetPassword'])
     ->middleware('throttle:4,1440');
 Route::post('forgot-password', [ResetPasswordController::class, 'forgotPassword'])
@@ -128,6 +128,12 @@ Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO
 
 // Public certificate verification — returns only safe fields, no auth needed
 Route::get('certificate/verify', [CertificateController::class, 'verifyApi']);
+
+// Webinars Public / User APIs
+Route::get('webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);
+Route::get('webinars/{id}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
+Route::post('webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register'])->middleware('auth:sanctum');
+Route::delete('webinars/{id}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'cancelRegistration'])->middleware('auth:sanctum');
 
 Route::prefix('helpdesk')->group(function (): void {
     Route::get('groups', [HelpdeskApiController::class, 'groups']);
@@ -391,6 +397,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Account Security & Sessions
     Route::get('user/active-sessions', [ApiController::class, 'getActiveSessions']);
     Route::post('user/active-sessions/{id}/logout', [ApiController::class, 'logoutSession']);
+    Route::get('user/devices', [\App\Http\Controllers\API\UserDeviceApiController::class, 'index']);
+    Route::delete('user/devices/{id}', [\App\Http\Controllers\API\UserDeviceApiController::class, 'destroy']);
 
     // Notification Settings
     Route::get('user/notification-settings', [ApiController::class, 'getNotificationSettings']);
@@ -774,6 +782,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Notification Global Settings
         Route::get('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'getSettings']);
         Route::put('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'updateSettings']);
+        Route::post('settings/notifications/preview', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'previewEmail']);
         Route::get('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'show']);
         Route::put('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'update']);
         Route::post('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'update']);
@@ -902,6 +911,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('notifications', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'index']);
         Route::post('notifications/send-bulk', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'sendBulkNotification']);
         Route::delete('notifications/{id}', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'destroy']);
+        Route::get('notifications/email-preview', [\App\Http\Controllers\API\Admin\NotificationAdminApiController::class, 'emailPreview']);
         Route::match(['put', 'patch'], 'courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
         Route::get('courses/{id}', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'show']);
         Route::get('courses/{id}/students', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'students']);
@@ -1044,14 +1054,21 @@ Route::middleware('auth:sanctum')->group(function (): void {
             // Knowledge Base
             Route::get('/knowledge', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexKnowledge']);
             Route::post('/knowledge', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'storeKnowledge']);
+            Route::post('/knowledge/upload-course-file', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'uploadCourseKnowledge']);
             Route::get('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'showKnowledge']);
             Route::put('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']);
             Route::post('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']); // POST variant for file uploads
             Route::delete('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'destroyKnowledge']);
             Route::post('/knowledge/{id}/toggle', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'toggleKnowledge']);
 
+            // Conversations
+            Route::get('/conversations', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexConversations']);
+            Route::get('/conversations/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'showConversation']);
+
             // Chat History (Logs)
             Route::get('/logs', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexLogs']);
+            
+            Route::get('/stats', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'getStats']);
 
             // Test Chat
             Route::post('/test', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'testChat']);
@@ -1139,8 +1156,6 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
 
 
     // Certificate Generation APIs (Requires Authentication)
-    Route::post('generate-course-certificate', [CourseApiController::class, 'generateCourseCertificate']); // Generate Course Completion Certificate
-    Route::post('generate-exam-certificate', [CourseApiController::class, 'generateExamCertificate']); // Generate Exam Completion Certificate
 });
 
 // Certificate Templates (Public - no authentication required)

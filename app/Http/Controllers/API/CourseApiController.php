@@ -4438,14 +4438,29 @@ class CourseApiController extends Controller
 
         $lectureResources = [];
 
-        // TODO: add type for audio, video, image, doc, rather than just file and url
         foreach ($lecture->resources as $resource) {
+            $detailedType = 'external_link';
+            if ($resource->type === 'file') {
+                $ext = strtolower((string) $resource->file_extension);
+                if (in_array($ext, ['mp4', 'mkv', 'avi', 'mov', 'webm'])) {
+                    $detailedType = 'video';
+                } elseif (in_array($ext, ['mp3', 'wav', 'ogg'])) {
+                    $detailedType = 'audio';
+                } elseif (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'])) {
+                    $detailedType = 'image';
+                } elseif (in_array($ext, ['pdf', 'doc', 'docx', 'txt', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'rar'])) {
+                    $detailedType = 'doc';
+                } else {
+                    $detailedType = 'download';
+                }
+            }
+
             $lectureResources[] = [
                 'id' => $resource->id,
                 'title' => $resource->file_extension
                     ? $resource->title . '.' . $resource->file_extension
                     : $resource->title,
-                'type' => $resource->type === 'file' ? 'download' : 'external_link',
+                'type' => $detailedType,
                 'file_url' => $resource->type === 'file' ? $resource->file : null,
                 'external_url' => $resource->type === 'url' ? $resource->url : null,
                 'file_extension' => $resource->file_extension,

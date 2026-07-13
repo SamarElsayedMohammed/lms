@@ -134,28 +134,37 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     {
         $this->ensureAdmin();
 
-        $subscription = Subscription::with(['user', 'plan' => function ($query) {
-            $query->withTrashed();
-        }])->findOrFail($id);
-
-        if (!$subscription->plan) {
-            return ApiResponseService::errorResponse('الباقة المرتبطة بهذا الاشتراك غير موجودة.');
-        }
-
-        if ($subscription->status !== Subscription::STATUS_PENDING_APPROVAL) {
-            return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.');
-        }
-
-        $payment = SubscriptionPayment::where('subscription_id', $subscription->id)
-            ->where('status', SubscriptionPayment::STATUS_PENDING)
-            ->first();
-
-        if (!$payment) {
-            return ApiResponseService::errorResponse('لا يوجد عملية دفع معلقة لهذا الاشتراك.');
-        }
-
         try {
             DB::beginTransaction();
+
+            $subscription = Subscription::with(['user', 'plan' => function ($query) {
+                $query->withTrashed();
+            }])->lockForUpdate()->find($id);
+
+            if (!$subscription) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('الاشتراك غير موجود.');
+            }
+
+            if (!$subscription->plan) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('الباقة المرتبطة بهذا الاشتراك غير موجودة.');
+            }
+
+            if ($subscription->status !== Subscription::STATUS_PENDING_APPROVAL) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.');
+            }
+
+            $payment = SubscriptionPayment::where('subscription_id', $subscription->id)
+                ->where('status', SubscriptionPayment::STATUS_PENDING)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$payment) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('لا يوجد عملية دفع معلقة لهذا الاشتراك.');
+            }
 
             $user = $subscription->user;
 
@@ -179,6 +188,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $existingSubscription = Subscription::forUser($subscription->user_id)
                 ->active()
                 ->where('id', '!=', $subscription->id)
+                ->lockForUpdate()
                 ->first();
 
             $startsAt = now();
@@ -247,7 +257,15 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             DB::commit();
 
             // 7. Notify User
-            $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+            if ($subscription->parent_subscription_id && $existingSubscription && $existingSubscription->plan_id === $subscription->plan_id) {
+                if (class_exists(\App\Notifications\SubscriptionRenewedNotification::class)) {
+                    $user->notify(new \App\Notifications\SubscriptionRenewedNotification($subscription->loadMissing('plan'), $payment->wallet_amount));
+                } else {
+                    $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+                }
+            } else {
+                $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+            }
 
             return ApiResponseService::successResponse('تمت الموافقة على طلب الاشتراك بنجاح وتفعيله.', $subscription);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -273,22 +291,30 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $subscription = Subscription::findOrFail($id);
-
-        if ($subscription->status !== Subscription::STATUS_PENDING_APPROVAL) {
-            return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.');
-        }
-
-        $payment = SubscriptionPayment::where('subscription_id', $subscription->id)
-            ->where('status', SubscriptionPayment::STATUS_PENDING)
-            ->first();
-
-        if (!$payment) {
-            return ApiResponseService::errorResponse('لا يوجد عملية دفع معلقة لهذا الاشتراك.');
-        }
-
         try {
             DB::beginTransaction();
+
+            $subscription = Subscription::lockForUpdate()->find($id);
+
+            if (!$subscription) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('الاشتراك غير موجود.');
+            }
+
+            if ($subscription->status !== Subscription::STATUS_PENDING_APPROVAL) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.');
+            }
+
+            $payment = SubscriptionPayment::where('subscription_id', $subscription->id)
+                ->where('status', SubscriptionPayment::STATUS_PENDING)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$payment) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('لا يوجد عملية دفع معلقة لهذا الاشتراك.');
+            }
 
             // 1. Mark payment as failed
             $payment->status = SubscriptionPayment::STATUS_FAILED;

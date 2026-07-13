@@ -18,6 +18,8 @@ class CertificateController extends Controller
 {
     /**
      * Get certificate details for a course (check if certificate exists)
+     * POST /api/certificate/course/generate
+     * (Also handles GET /api/certificate/course/generate per routes)
      */
     public function getCertificate(Request $request)
     {
@@ -34,43 +36,71 @@ class CertificateController extends Controller
             return ApiResponseService::errorResponse(__('User not authenticated.'), null, 401);
         }
 
-        $course_id = $request->input('course_id');
+        $course_id = (int) $request->input('course_id');
+        $course = Course::with(['user', 'category'])->find($course_id);
 
-        // Get certificate if exists
-        $certificate = CourseCertificate::with(['user', 'course'])
-            ->where('user_id', $user->id)
-            ->where('course_id', $course_id)
-            ->first();
-
-        if (!$certificate) {
-            // Check if course is completed
-            $isCompleted = $this->isCourseCompleted($user->id, $course_id);
-
-            return ApiResponseService::successResponse(__('Certificate not found.'), [
-                'certificate_exists' => false,
-                'course_completed' => $isCompleted,
-                'message' => $isCompleted
-                    ? __('Course is completed. You can generate certificate.')
-                    : __('Course is not completed yet.'),
-            ]);
+        if (!$course) {
+            return ApiResponseService::errorResponse(__('Course not found.'), null, 404);
         }
 
-        return ApiResponseService::successResponse(__('Certificate found.'), [
-            'certificate_exists' => true,
-            'certificate' => [
-                'id' => $certificate->id,
-                'certificate_number' => $certificate->certificate_number,
-                'issued_date' => $certificate->issued_date,
-                'course' => [
-                    'id' => $certificate->course->id ?? null,
-                    'title' => $certificate->course->title ?? null,
-                ],
-                'user' => [
-                    'id' => $certificate->user->id ?? null,
-                    'name' => $certificate->user->name ?? null,
-                ],
-            ],
-        ]);
+        // Verify Enrollment
+        if (!CourseCertificate::userIsEnrolled($user->id, $course_id)) {
+            return ApiResponseService::errorResponse(
+                'You are not enrolled in this course.',
+                null,
+                403,
+            );
+        }
+
+        // Verify Completion
+        if (!$this->isCourseCompleted($user->id, $course_id)) {
+            return ApiResponseService::errorResponse(
+                'Course not completed. Please complete all lessons, quizzes, and assignments to generate a certificate.',
+                null,
+                403
+            );
+        }
+
+        $videoProgress = app(VideoProgressService::class)->getCourseProgress($user, $course);
+        if ($videoProgress < VideoProgressService::COMPLETION_THRESHOLD) {
+            return ApiResponseService::errorResponse(
+                'You must watch all video lectures to ' . VideoProgressService::COMPLETION_THRESHOLD . '% before generating a certificate. Current progress: ' . $videoProgress  . '%',
+                null,
+                403
+            );
+        }
+
+        $certificate = app(\App\Services\CertificateService::class)->autoGenerateCertificate($user->id, $course_id);
+        
+        if (!$certificate) {
+            return ApiResponseService::errorResponse(
+                'Could not generate certificate. Please check if you have purchased the certificate fee if applicable.',
+                null,
+                403
+            );
+        }
+
+        if ($certificate->isRevoked()) {
+            return ApiResponseService::errorResponse(
+                'Your certificate for this course has been revoked. Please contact support.',
+                null,
+                403,
+            );
+        }
+
+        return response()->json([
+            'ok'      => true,
+            'message' => 'Certificate issued successfully',
+            'data'    => [
+                'studentName'        => $certificate->student_name ?? $user->name,
+                'arabicCourseTitle'  => $certificate->arabic_title ?? $course->title,
+                'englishCourseTitle' => $certificate->english_title ?? $course->title,
+                'date'               => $certificate->issued_date->format('Y-m-d'),
+                'instructorName'     => $certificate->instructor_name ?? ($course->user->name ?? 'Instructor'),
+                'certificateId'      => $certificate->certificate_number,
+                'courseId'           => $certificate->course_id,
+            ]
+        ], 200);
     }
 
     /**
@@ -93,40 +123,14 @@ class CertificateController extends Controller
 
         $course_id = (int) $request->input('course_id');
 
-        $certificate = CourseCertificate::where('user_id', $user->id)
-            ->where('course_id', $course_id)
-            ->first();
+        $certificate = app(\App\Services\CertificateService::class)->autoGenerateCertificate($user->id, $course_id);
 
         if (!$certificate) {
-            if (!CourseCertificate::userIsEnrolled($user->id, $course_id)) {
-                return ApiResponseService::errorResponse(
-                    'You are not enrolled in this course.',
-                    null,
-                    403,
-                );
-            }
-
-            if (!$this->isCourseCompleted($user->id, $course_id)) {
-                return ApiResponseService::validationError(
-                    'Course not completed. Please complete all lessons, quizzes, and assignments to generate a certificate.',
-                );
-            }
-
-            $course = Course::findOrFail($course_id);
-            $videoProgress = app(VideoProgressService::class)->getCourseProgress($user, $course);
-            if ($videoProgress < VideoProgressService::COMPLETION_THRESHOLD) {
-                return ApiResponseService::validationError(
-                    'You must watch all video lectures to ' . VideoProgressService::COMPLETION_THRESHOLD . '% before generating a certificate. Current progress: ' . $videoProgress  . '%',
-                );
-            }
-
-            $certificate = CourseCertificate::create([
-                'user_id'            => $user->id,
-                'course_id'          => $course_id,
-                'certificate_number' => CourseCertificate::generateCertificateNumber(),
-                'issued_date'        => now()->toDateString(),
-                'status'             => 'active',
-            ]);
+            return ApiResponseService::errorResponse(
+                'Could not generate certificate. Please check if you have purchased the certificate fee if applicable.',
+                null,
+                403
+            );
         }
 
         if ($certificate->isRevoked()) {
@@ -188,40 +192,14 @@ class CertificateController extends Controller
 
         $course_id = (int) $request->input('course_id');
 
-        $certificate = CourseCertificate::where('user_id', $user->id)
-            ->where('course_id', $course_id)
-            ->first();
+        $certificate = app(\App\Services\CertificateService::class)->autoGenerateCertificate($user->id, $course_id);
 
         if (!$certificate) {
-            if (!CourseCertificate::userIsEnrolled($user->id, $course_id)) {
-                return ApiResponseService::errorResponse(
-                    'You are not enrolled in this course.',
-                    null,
-                    403,
-                );
-            }
-
-            if (!$this->isCourseCompleted($user->id, $course_id)) {
-                return ApiResponseService::validationError(
-                    'Course not completed. Please complete all lessons, quizzes, and assignments to generate a certificate.',
-                );
-            }
-
-            $course = Course::findOrFail($course_id);
-            $videoProgress = app(VideoProgressService::class)->getCourseProgress($user, $course);
-            if ($videoProgress < VideoProgressService::COMPLETION_THRESHOLD) {
-                return ApiResponseService::validationError(
-                    'You must watch all video lectures to ' . VideoProgressService::COMPLETION_THRESHOLD . '% before generating a certificate. Current progress: ' . $videoProgress . '%',
-                );
-            }
-
-            $certificate = CourseCertificate::create([
-                'user_id'            => $user->id,
-                'course_id'          => $course_id,
-                'certificate_number' => CourseCertificate::generateCertificateNumber(),
-                'issued_date'        => now()->toDateString(),
-                'status'             => 'active',
-            ]);
+            return ApiResponseService::errorResponse(
+                'Could not generate certificate. Please check if you have purchased the certificate fee if applicable.',
+                null,
+                403
+            );
         }
 
         // 🔐 Reject revoked certificates
@@ -343,22 +321,38 @@ class CertificateController extends Controller
             ->first();
 
         if (!$certificate) {
-            return ApiResponseService::errorResponse(
-                'No certificate found with this verification code.',
-                null,
-                404,
-            );
+            return response()->json([
+                'ok' => false,
+                'message' => 'No certificate found with this verification code.',
+                'is_valid' => false,
+                'data' => null
+            ], 404);
         }
 
-        // Return only safe public fields — no email, no user_id, no internal IDs
-        return ApiResponseService::successResponse('Certificate verified.', [
-            'certificate_number' => $certificate->certificate_number,
-            'status'             => $certificate->status,   // 'active' | 'revoked'
-            'issue_date'         => optional($certificate->issued_date)->format('Y-m-d'),
-            'student_name'       => $certificate->user->name ?? 'N/A',
-            'course_title'       => $certificate->course->title ?? 'N/A',
-            'is_valid'           => $certificate->isActive(),
-        ]);
+        if ($certificate->isRevoked()) {
+            return response()->json([
+                'ok' => true,
+                'message' => 'Certificate has been revoked',
+                'is_valid' => false,
+                'data' => null
+            ], 200);
+        }
+
+        // Return only safe public fields — mapped exactly to frontend requirements
+        return response()->json([
+            'ok' => true,
+            'is_valid' => true,
+            'data' => [
+                'studentName'        => $certificate->student_name ?? ($certificate->user->name ?? 'N/A'),
+                'arabicCourseTitle'  => $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A'),
+                'englishCourseTitle' => $certificate->english_title ?? ($certificate->course->title ?? 'N/A'),
+                'date'               => optional($certificate->issued_date)->format('Y-m-d'),
+                'instructorName'     => $certificate->instructor_name ?? ($certificate->course->user->name ?? 'N/A'),
+                'certificateId'      => $certificate->certificate_number,
+                'courseId'           => $certificate->course_id,
+                'issued_at'          => optional($certificate->created_at)->toIso8601String(),
+            ]
+        ], 200);
     }
 
     /**

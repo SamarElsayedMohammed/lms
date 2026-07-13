@@ -10,6 +10,23 @@ class Order extends Model
 {
     use HasFactory, ProtectsDemoData;
 
+    protected static function booted()
+    {
+        static::updated(function ($order) {
+            // Check if status changed to completed
+            if ($order->isDirty('status') && $order->status === 'completed') {
+                $orderCourses = $order->orderCourses()->where('certificate_purchased', true)->get();
+                foreach ($orderCourses as $oc) {
+                    try {
+                        app(\App\Services\CertificateService::class)->autoGenerateCertificate($order->user_id, $oc->course_id);
+                    } catch (\Exception $e) {
+                        \Illuminate\Support\Facades\Log::error('Auto Generate Certificate from Order Error: ' . $e->getMessage());
+                    }
+                }
+            }
+        });
+    }
+
     protected $fillable = [
         'user_id',
         'order_number',

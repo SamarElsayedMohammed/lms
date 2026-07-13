@@ -101,6 +101,29 @@ class NotificationSettingsAdminApiController extends Controller
 
         return ApiResponseService::successResponse('Notification settings updated successfully');
     }
+
+    /**
+     * Preview the general email notification template.
+     */
+    public function previewEmail(Request $request)
+    {
+        $request->validate([
+            'title' => 'required|string',
+            'message' => 'required|string',
+            'image' => 'nullable|string' // usually a URL for preview purposes
+        ]);
+
+        $html = view('emails.general-notification', [
+            'notificationTitle' => $request->title,
+            'notificationContent' => $request->message,
+            'imageUrl' => $request->image,
+            'greeting' => 'مرحباً،' // Default greeting for preview
+        ])->render();
+
+        return ApiResponseService::successResponse('Preview generated successfully', [
+            'html' => $html
+        ]);
+    }
     private function notificationDisplayName(string $className): string
     {
         return trim(Str::headline(str_replace('Notification', '', $className)));
@@ -110,9 +133,26 @@ class NotificationSettingsAdminApiController extends Controller
     {
         $fqcn = "App\\Notifications\\{$className}";
 
+        // Use reflection to check if the class actually implements toMail with a real body
+        // (not just inherited from the base Notification class)
+        $mailSupported = false;
+        if (class_exists($fqcn)) {
+            try {
+                $reflection = new \ReflectionMethod($fqcn, 'toMail');
+                // Only count it as mail-supported if it's declared directly on this class
+                $mailSupported = $reflection->getDeclaringClass()->getName() === $fqcn;
+            } catch (\ReflectionException) {
+                $mailSupported = false;
+            }
+        }
+
+        $databaseSupported = class_exists($fqcn) && (
+            method_exists($fqcn, 'toDatabase') || method_exists($fqcn, 'toArray')
+        );
+
         return [
-            'mail' => $className === 'ContactReplyNotification' || method_exists($fqcn, 'toMail'),
-            'database' => method_exists($fqcn, 'toDatabase') || method_exists($fqcn, 'toArray'),
+            'mail'     => $mailSupported,
+            'database' => $databaseSupported,
         ];
     }
 }

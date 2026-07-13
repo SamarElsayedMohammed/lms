@@ -26,8 +26,8 @@ Artisan::command('inspire', function (): void {
  */
 Schedule::command('affiliate:release-commissions')->daily();
 Schedule::command('subscriptions:send-expiry-notifications')->daily();
-Schedule::command('subscriptions:handle-expired')->daily();
-Schedule::command('subscriptions:activate-queued')->hourly();
+Schedule::command('subscriptions:handle-expired')->everyFiveMinutes();
+Schedule::command('subscriptions:activate-queued')->everyFiveMinutes();
 Schedule::command('currencies:update-rates')->everyFourHours();
 Schedule::command('webinar:remind')->everyFifteenMinutes();
 

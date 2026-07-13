@@ -27,99 +27,19 @@ class NotificationService
         array $customBodyFields = [],
     ): string|array|bool {
         try {
-            //TODO : Use this from caching
-            $project_id = Setting::select('value')->where('name', 'firebase_project_id')->first();
-            if (empty($project_id->value)) {
-                return [
-                    'error' => true,
-                    'message' => 'FCM configurations are not configured.',
-                ];
-            }
-
-            $project_id = $project_id->value;
-            $url = 'https://fcm.googleapis.com/v1/projects/' . $project_id . '/messages:send';
-
-            //            $registrationIDs_chunks = array_chunk($registrationIDs, 1000);
-
-            $access_token = self::getAccessToken();
-            if ($access_token['error']) {
-                return $access_token;
-            }
-            $result = [];
-
-            $deviceInfo = UserFcmToken::select(['platform_type', 'fcm_token'])->whereIn(
-                'fcm_token',
+            \App\Jobs\SendFcmNotificationJob::dispatch(
                 $registrationIDs,
-            )->get();
-
-            //TODO : Add this process to queue for better performance
-            $dataWithTitle = [
-                ...$customBodyFields,
-                'title' => $title,
-                'body' => $message,
-                'type' => $type,
-            ];
-            foreach ($registrationIDs as $registrationID) {
-                $platform = $deviceInfo->first(static fn($q) => $q->fcm_token == $registrationID);
-                $data = [
-                    'message' => [
-                        'token' => $registrationID,
-                        'data' => self::convertToStringRecursively($dataWithTitle),
-                        'apns' => [
-                            'headers' => [
-                                'apns-priority' => '10', // Set APNs priority to 10 (high) for immediate delivery
-                            ],
-                            'payload' => [
-                                'aps' => [
-                                    'alert' => [
-                                        'title' => $title,
-                                        'body' => $message,
-                                    ],
-                                ],
-                            ],
-                        ],
-                    ],
-                ];
-                if (strtolower((string) $platform?->platform_type) !== 'android') {
-                    $data['message']['notification'] = [
-                        'title' => $title,
-                        'body' => $message,
-                    ];
-                }
-
-                $encodedData = json_encode($data);
-                $headers = [
-                    'Authorization: Bearer ' . $access_token['data'],
-                    'Content-Type: application/json',
-                ];
-
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $url);
-                curl_setopt($ch, CURLOPT_POST, true);
-                curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-                curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-
-                // Disabling SSL Certificate support temporarily
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, $encodedData);
-
-                // Execute post
-                $result = curl_exec($ch);
-
-                if (!$result) {
-                    die('Curl failed: ' . curl_error($ch));
-                }
-                curl_close($ch);
-            }
-            return [
-                'error' => false,
-                'message' => 'Success',
-                'data' => $result,
-            ];
+                $title,
+                $message,
+                $type,
+                $customBodyFields
+            );
+            return true;
         } catch (Throwable $th) {
-            throw new RuntimeException($th);
+            return [
+                'error' => true,
+                'message' => $th->getMessage(),
+            ];
         }
     }
 

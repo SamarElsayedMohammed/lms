@@ -13,6 +13,7 @@ class ChatbotMessage extends Model
 
     protected $fillable = [
         'user_id',
+        'conversation_id',
         'session_id',
         'message',
         'reply',
@@ -34,5 +35,13 @@ class ChatbotMessage extends Model
     public function course()
     {
         return $this->belongsTo(Course::class);
+    }
+
+    /**
+     * Relationship with conversation
+     */
+    public function conversation(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(ChatbotConversation::class);
     }
 }

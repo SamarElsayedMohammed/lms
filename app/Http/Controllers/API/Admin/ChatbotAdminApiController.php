@@ -43,12 +43,17 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'chatbot_max_tokens',
             'chatbot_position',
             'chatbot_icon',
+            'openai_api_key',
         ];
 
         $settings = [];
         foreach ($settingKeys as $key) {
             $setting = Setting::where('name', $key)->first();
-            $settings[$key] = $setting?->value;
+            $val = $setting?->value;
+            if ($key === 'openai_api_key' && !empty($val) && strlen($val) > 10) {
+                $val = substr($val, 0, 10) . '...';
+            }
+            $settings[$key] = $val;
         }
 
         return $this->jsonSuccess(__('Chatbot settings retrieved'), $settings);
@@ -70,6 +75,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'chatbot_max_tokens' => 'nullable|integer|min:100|max:2000',
             'chatbot_position' => 'nullable|string|in:bottom-right,bottom-left,top-right,top-left',
             'chatbot_icon' => 'nullable|image|mimes:jpg,jpeg,png,svg,webp,gif|max:2048',
+            'openai_api_key' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -87,6 +93,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
                 'chatbot_subscriber_system_prompt',
                 'chatbot_max_tokens',
                 'chatbot_position',
+                'openai_api_key',
             ];
 
             foreach ($settingKeys as $key) {
@@ -122,7 +129,14 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
-            return $this->jsonSuccess(__('Chatbot settings updated successfully'));
+            // Re-fetch and return updated settings
+            $updatedSettings = [];
+            foreach ($settingKeys as $key) {
+                $setting = Setting::where('name', $key)->first();
+                $updatedSettings[$key] = $setting?->value;
+            }
+
+            return $this->jsonSuccess(__('Chatbot settings updated successfully'), $updatedSettings);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -307,12 +321,22 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
         $search = $request->input('search');
         $perPage = min((int) $request->input('per_page', 15), 100);
+        $targetAudience = $request->input('target_audience');
+        $courseId = $request->input('course_id');
 
         $query = ChatbotKnowledgeBase::query()
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
                   ->orWhere('content', 'like', "%{$search}%");
-            }));
+            }))
+            ->when($targetAudience, fn ($q) => $q->where('target_audience', $targetAudience))
+            ->when($courseId !== null, fn ($q) => $q->where('course_id', $courseId));
+
+        if ($request->boolean('count_only')) {
+            return $this->jsonSuccess(__('Knowledge base count retrieved'), [
+                'total' => $query->count()
+            ]);
+        }
 
         $entries = $query->orderBy('id', 'desc')->paginate($perPage);
 
@@ -338,8 +362,10 @@ class ChatbotAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|min:2|max:255',
             'content' => 'required_without:file|nullable|string',
-            'file' => 'required_without:content|nullable|file|mimes:txt,md,csv,json,xml|max:5120', // 5MB max
+            'file' => 'required_without:content|nullable|file|mimes:txt,csv,json|max:5120', // 5MB max
             'is_active' => 'nullable|boolean',
+            'target_audience' => 'nullable|in:visitor,subscriber,course',
+            'course_id' => 'nullable|integer|exists:courses,id',
         ]);
 
         if ($validator->fails()) {
@@ -352,6 +378,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             $data = [
                 'title' => $request->input('title'),
                 'is_active' => $request->boolean('is_active', true),
+                'target_audience' => $request->input('target_audience', 'visitor'),
+                'course_id' => $request->input('course_id'),
             ];
 
             if ($request->hasFile('file')) {
@@ -411,6 +439,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'content' => 'nullable|string',
             'file' => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
             'is_active' => 'nullable|boolean',
+            'target_audience' => 'nullable|in:visitor,subscriber,course',
+            'course_id' => 'nullable|integer|exists:courses,id',
         ]);
 
         if ($validator->fails()) {
@@ -424,6 +454,13 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             if ($request->has('title')) {
                 $data['title'] = $request->input('title');
+            }
+
+            if ($request->has('target_audience')) {
+                $data['target_audience'] = $request->input('target_audience');
+            }
+            if ($request->has('course_id')) {
+                $data['course_id'] = $request->input('course_id');
             }
 
             if ($request->has('is_active')) {
@@ -497,6 +534,127 @@ class ChatbotAdminApiController extends AdminCrudApiController
     }
 
     // ==========================================
+    // Course Knowledge Management
+    // ==========================================
+
+    /**
+     * Upload a knowledge file for a specific course
+     */
+    public function uploadCourseKnowledge(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        $validator = Validator::make($request->all(), [
+            'course_id' => 'required|integer|exists:courses,id',
+            'file' => 'required|file|mimes:txt,csv,json|max:10240',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $file = $request->file('file');
+            $courseId = (int) $request->input('course_id');
+
+            // Read text content
+            $content = file_get_contents($file->getRealPath());
+            $filePath = FileService::upload($file, 'chatbot/course-knowledge');
+            $fileType = $file->getClientOriginalExtension();
+
+            // Upsert the knowledge base entry for this course
+            $entry = ChatbotKnowledgeBase::updateOrCreate(
+                ['course_id' => $courseId, 'target_audience' => 'course'],
+                [
+                    'title' => $file->getClientOriginalName(),
+                    'content' => $content,
+                    'file_path' => $filePath,
+                    'file_type' => $fileType,
+                    'is_active' => true,
+                ]
+            );
+
+            // Also update the course's ai_knowledge_content field so processCourseMessage works
+            \App\Models\Course\Course::where('id', $courseId)->update([
+                'ai_knowledge_content' => $content,
+                'chatbot_enabled' => true,
+            ]);
+
+            DB::commit();
+
+            return $this->jsonSuccess(__('Course knowledge file uploaded successfully'), $entry, 201);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return $this->jsonError(__('Failed to upload course knowledge file') . ': ' . $e->getMessage(), 500);
+        }
+    }
+
+    // ==========================================
+    // Chat Conversations
+    // ==========================================
+
+    /**
+     * List all chat conversations
+     */
+    public function indexConversations(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        $search = $request->input('search');
+        $perPage = min((int) $request->input('per_page', 20), 100);
+        $type = $request->input('type');
+        $courseId = $request->input('course_id');
+        $userId = $request->input('user_id');
+
+        $query = \App\Models\ChatbotConversation::with(['user:id,name,email', 'course:id,title'])
+            ->when($search, function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhere('session_id', 'like', "%{$search}%");
+            })
+            ->when($type, fn ($q) => $q->where('type', $type))
+            ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
+            ->when($userId, fn ($q) => $q->where('user_id', $userId));
+
+        $conversations = $query->orderBy('last_message_at', 'desc')->paginate($perPage);
+
+        $conversations->getCollection()->transform(function ($conversation) {
+            $conversation->user = $conversation->user ?? null;
+            $conversation->user_name = $conversation->user ? $conversation->user->name : ($conversation->session_id ? 'Guest #' . substr($conversation->session_id, 0, 8) : 'Guest');
+            $conversation->user_email = $conversation->user ? $conversation->user->email : 'N/A';
+            return $conversation;
+        });
+
+        return $this->jsonSuccess(__('Chat conversations retrieved'), $conversations);
+    }
+
+    /**
+     * Show a single chat conversation and its messages
+     */
+    public function showConversation(int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        $conversation = \App\Models\ChatbotConversation::with([
+            'user:id,name,email',
+            'course:id,title',
+            'messages' => function ($q) {
+                $q->orderBy('created_at', 'asc');
+            }
+        ])->find($id);
+
+        if (!$conversation) {
+            return $this->jsonError(__('Conversation not found'), 404);
+        }
+
+        $conversation->user_name = $conversation->user ? $conversation->user->name : ($conversation->session_id ? 'Guest #' . substr($conversation->session_id, 0, 8) : 'Guest');
+        $conversation->user_email = $conversation->user ? $conversation->user->email : 'N/A';
+
+        return $this->jsonSuccess(__('Chat conversation retrieved'), $conversation);
+    }
+
+    // ==========================================
     // Chat History (Logs)
     // ==========================================
 
@@ -524,6 +682,13 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
         $logs = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
+        $logs->getCollection()->transform(function ($log) {
+            $log->user = $log->user ?? null;
+            $log->user_name = $log->user ? $log->user->name : 'Guest';
+            $log->user_email = $log->user ? $log->user->email : 'N/A';
+            return $log;
+        });
+
         return $this->jsonSuccess(__('Chat history retrieved'), $logs);
     }
 
@@ -550,5 +715,24 @@ class ChatbotAdminApiController extends AdminCrudApiController
         $result = $service->processMessage($request->input('message'));
 
         return $this->jsonSuccess(__('Chat test response'), $result);
+    }
+
+    // ==========================================
+    // Stats
+    // ==========================================
+
+    /**
+     * Get chatbot dashboard statistics
+     */
+    public function getStats(): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        return $this->jsonSuccess(__('Chatbot stats retrieved'), [
+            'total_faqs' => ChatbotFaq::count(),
+            'total_knowledge_base' => ChatbotKnowledgeBase::count(),
+            'total_conversations' => \App\Models\ChatbotConversation::count(),
+            'total_messages' => ChatbotMessage::count(),
+        ]);
     }
 }

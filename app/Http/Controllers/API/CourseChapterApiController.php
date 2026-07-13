@@ -742,6 +742,13 @@ class CourseChapterApiController extends Controller
                 );
             }
 
+            // Verify enrollment (covers orders, subscriptions, and free tracks)
+            $enrollmentService = app(\App\Services\UserEnrollmentService::class);
+            $enrolledCourses = $enrollmentService->resolveEnrolledCourses((int) $userId);
+            if (!$enrolledCourses->contains('course_id', $chapter->course_id)) {
+                return ApiResponseService::validationError('You must be enrolled in this course to track progress.');
+            }
+
             // Assuming you have a CourseChapterTracking model and table
             $tracking = UserCourseChapterTrack::updateOrCreate([
                 'course_chapter_id' => $request->course_chapter_id,

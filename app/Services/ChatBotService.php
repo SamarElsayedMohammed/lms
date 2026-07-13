@@ -51,7 +51,8 @@ class ChatBotService
     public function processMessage(string $message, ?int $conversationId = null): array
     {
         $settings = $this->getChatbotSettings();
-        $knowledgeContext = $this->buildKnowledgeContext();
+        $audience = Auth::check() ? 'subscriber' : 'visitor';
+        $knowledgeContext = $this->buildKnowledgeContext($audience);
         $systemPrompt = $this->buildSystemPrompt($settings, $knowledgeContext);
 
         try {
@@ -59,6 +60,9 @@ class ChatBotService
 
             // Manage Conversation
             $userId = Auth::id();
+            $sessionId = request()->header('X-Chat-Session-ID');
+            $conversation = null;
+
             if ($userId) {
                 if ($conversationId) {
                     $conversation = ChatbotConversation::where('user_id', $userId)->find($conversationId);
@@ -67,6 +71,20 @@ class ChatBotService
                 if (empty($conversation)) {
                     $conversation = ChatbotConversation::create([
                         'user_id' => $userId,
+                        'title' => Str::limit($message, 50),
+                        'type' => 'general',
+                    ]);
+                }
+
+                $conversation->update(['last_message_at' => now()]);
+            } elseif ($sessionId) {
+                if ($conversationId) {
+                    $conversation = ChatbotConversation::where('session_id', $sessionId)->find($conversationId);
+                }
+
+                if (empty($conversation)) {
+                    $conversation = ChatbotConversation::create([
+                        'session_id' => $sessionId,
                         'title' => Str::limit($message, 50),
                         'type' => 'general',
                     ]);
@@ -169,7 +187,8 @@ class ChatBotService
 
             return [
                 'reply' => $reply,
-                'type' => 'ai',
+                'type' => 'ai_course',
+                'conversation_id' => isset($conversation) ? $conversation->id : null,
                 'course_id' => $course->id,
             ];
         } catch (\Throwable $e) {
@@ -182,6 +201,8 @@ class ChatBotService
             return [
                 'reply' => 'عذراً، حصل مشكلة تقنية. حاول تاني أو تواصل مع الدعم الفني. 🙏',
                 'type' => 'error',
+                'conversation_id' => null,
+                'course_id' => $course->id,
             ];
         }
     }
@@ -206,9 +227,12 @@ class ChatBotService
     /**
      * Build knowledge context from all active knowledge base entries
      */
-    private function buildKnowledgeContext(): string
+    private function buildKnowledgeContext(string $audience = 'visitor'): string
     {
-        $entries = ChatbotKnowledgeBase::active()->get();
+        $entries = ChatbotKnowledgeBase::active()
+            ->where('target_audience', $audience)
+            ->whereNull('course_id')
+            ->get();
 
         if ($entries->isEmpty()) {
             return '';
@@ -251,6 +275,10 @@ class ChatBotService
         $prompt .= "- لو السؤال خارج نطاق قاعدة المعرفة، اعتذر بلطف واقترح التواصل مع الدعم الفني\n";
         $prompt .= "- الرد يكون مختصر وواضح\n";
         $prompt .= "- استخدم الإيموجي بشكل مناسب\n";
+        
+        if (!Auth::check()) {
+            $prompt .= "- إذا أبدى المستخدم اهتماماً، اسأله بلطف عن اسمه وبريده الإلكتروني للتواصل لاحقاً\n";
+        }
 
         return $prompt;
     }

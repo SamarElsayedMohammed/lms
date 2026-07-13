@@ -209,12 +209,21 @@ class ChatbotApiController extends Controller
             ], 404, [], JSON_UNESCAPED_UNICODE);
         }
 
-        // Check if course has AI knowledge content
-        if (empty($course->getRawOriginal('ai_knowledge_content'))) {
+        // Check if course has AI knowledge content and is enabled
+        if (empty($course->getRawOriginal('ai_knowledge_content')) || !$course->chatbot_enabled) {
             return response()->json([
                 'status' => false,
                 'message' => __('AI assistant is not available for this course'),
             ], 404, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        // Verify that the user is enrolled in this course
+        $isEnrolled = $course->getActiveStudentsQuery()->where('users.id', Auth::id())->exists();
+        if (!$isEnrolled) {
+            return response()->json([
+                'status' => false,
+                'message' => __('You must be enrolled in this course to use the assistant'),
+            ], 403, [], JSON_UNESCAPED_UNICODE);
         }
 
         $service = new ChatBotService();
@@ -244,9 +253,11 @@ class ChatbotApiController extends Controller
         $courseId = $request->input('course_id');
 
         $conversations = ChatbotConversation::where('user_id', $userId)
+            ->withCount('messages')
             ->when($type, fn ($q) => $q->where('type', $type))
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->orderBy('last_message_at', 'desc')
+            ->limit(50)
             ->get();
 
         return response()->json([
@@ -271,9 +282,29 @@ class ChatbotApiController extends Controller
             return response()->json(['status' => false, 'message' => 'Conversation not found'], 404);
         }
 
+        $messages = [];
+        foreach ($conversation->messages as $msg) {
+            // User turn
+            $messages[] = [
+                'id' => $msg->id . '_user',
+                'conversation_id' => $id,
+                'sender' => 'user',
+                'message' => $msg->message,
+                'created_at' => $msg->created_at,
+            ];
+            // Bot turn
+            $messages[] = [
+                'id' => $msg->id . '_bot',
+                'conversation_id' => $id,
+                'sender' => 'bot',
+                'message' => $msg->reply,
+                'created_at' => $msg->created_at,
+            ];
+        }
+
         return response()->json([
             'status' => true,
-            'data' => $conversation->messages,
+            'data' => $messages,
         ], 200, [], JSON_UNESCAPED_UNICODE);
     }
 
