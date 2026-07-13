@@ -11,6 +11,7 @@ use App\Services\ApiResponseService;
 use App\Services\AffiliateService;
 use App\Notifications\ManualSubscriptionStatusNotification;
 use App\Notifications\SubscriptionActivatedNotification;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -273,7 +274,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             // 7. Notify User
             if ($subscription->parent_subscription_id && $existingSubscription && $existingSubscription->plan_id === $subscription->plan_id) {
                 if (class_exists(\App\Notifications\SubscriptionRenewedNotification::class)) {
-                    $user->notify(new \App\Notifications\SubscriptionRenewedNotification($subscription->loadMissing('plan'), $payment->wallet_amount));
+                    $user->notify(new \App\Notifications\SubscriptionRenewedNotification($subscription->loadMissing('plan'), (float) $payment->wallet_amount));
                 } else {
                     $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
                 }

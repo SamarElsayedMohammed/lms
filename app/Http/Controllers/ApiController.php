@@ -2731,7 +2731,7 @@ class ApiController extends Controller
             }
 
             // Detect authenticated user (optional — guests may also send)
-            $authUser = Auth::user();
+            $authUser = Auth::guard('sanctum')->user();
 
             // Save to database
             $contactMessage = \App\Models\ContactMessage::create([

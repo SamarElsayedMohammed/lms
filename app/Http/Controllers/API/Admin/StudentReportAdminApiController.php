@@ -79,7 +79,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             $q->where('user_id', $user->id)->where('status', 'completed');
         })->pluck('course_id')->unique()->toArray();
 
-        $trackedIds = UserCurriculumTracking::where('user_id', $user->id)
+        $trackedIds = UserCurriculumTracking::where('user_curriculum_trackings.user_id', $user->id)
             ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
             ->pluck('course_chapters.course_id')->unique()->toArray();
 
@@ -116,6 +116,12 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 ->where('status', 'completed')
                 ->count();
 
+            $enrolledAt = \App\Models\OrderCourse::join('orders', 'order_courses.order_id', '=', 'orders.id')
+                ->where('orders.user_id', $user->id)
+                ->where('order_courses.course_id', $courseId)
+                ->where('orders.status', 'completed')
+                ->value('orders.created_at');
+
             $courseDetails[] = [
                 'course_id'         => $courseId,
                 'title'             => $course?->title ?? 'N/A',
@@ -125,6 +131,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 'status'            => $status,
                 'completed_items'   => $completedItems,
                 'last_activity_at'  => $lastActivity,
+                'enrolled_at'       => $enrolledAt ? \Carbon\Carbon::parse($enrolledAt)->toDateTimeString() : null,
             ];
         }
 
@@ -170,7 +177,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $studentIds = User::where(function ($q) {
             $q->whereHas('orders', fn ($oq) => $oq->where('status', 'completed'))
               ->orWhereHas('subscriptions');
-        })->pluck('id');
+        })->limit(500)->pluck('id');
 
         $totalCompletedCourseEnrollments = 0;
         $totalInProgressCourseEnrollments = 0;
@@ -182,7 +189,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 ->unique()
                 ->toArray();
 
-            $trackedIds = UserCurriculumTracking::where('user_id', $userId)
+            $trackedIds = UserCurriculumTracking::where('user_curriculum_trackings.user_id', $userId)
                 ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
                 ->pluck('course_chapters.course_id')
                 ->unique()
@@ -246,8 +253,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->selectRaw("DATE_FORMAT(s.created_at, '%Y-%m') as month, s.user_id");
 
         $combinedTrend = DB::table(DB::raw("({$trendOrders->union($trendSubs)->toSql()}) as combined"))
-            ->mergeBindings($trendOrders)
-            ->mergeBindings($trendSubs)
+            ->mergeBindings($trendOrders->union($trendSubs))
             ->selectRaw("month, COUNT(DISTINCT combined.user_id) as new_students")
             ->groupBy('month')
             ->orderBy('month')
@@ -284,20 +290,90 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $perPage = min((int) $request->input('per_page', 20), 100);
         $students = $query->select('id', 'name', 'email', 'created_at')->paginate($perPage);
 
-        $items = collect($students->items())->map(function ($user) {
-            $purchasedIds = OrderCourse::whereHas('order', fn($q) => $q->where('user_id', $user->id)->where('status', 'completed'))
-                ->pluck('course_id')->unique()->toArray();
+        $studentIds = collect($students->items())->pluck('id')->toArray();
 
-            $trackedIds = UserCurriculumTracking::where('user_id', $user->id)
+        if (empty($studentIds)) {
+            return [
+                'data'         => [],
+                'current_page' => $students->currentPage(),
+                'last_page'    => $students->lastPage(),
+                'per_page'     => $students->perPage(),
+                'total'        => $students->total(),
+            ];
+        }
+
+        // Batch query 1: all purchased course IDs for page students
+        $purchasedMap = OrderCourse::join('orders', 'order_courses.order_id', '=', 'orders.id')
+            ->whereIn('orders.user_id', $studentIds)
+            ->where('orders.status', 'completed')
+            ->select('orders.user_id', 'order_courses.course_id')
+            ->get()
+            ->groupBy('user_id')
+            ->map(fn($rows) => $rows->pluck('course_id')->unique()->toArray());
+
+        // Batch query 2: all tracked course IDs for page students
+        $trackedMap = UserCurriculumTracking::whereIn('user_curriculum_trackings.user_id', $studentIds)
+            ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+            ->select('user_curriculum_trackings.user_id', 'course_chapters.course_id')
+            ->get()
+            ->groupBy('user_id')
+            ->map(fn($rows) => $rows->pluck('course_id')->unique()->toArray());
+
+        // Gather all relevant course IDs
+        $allCourseIds = collect($purchasedMap->values()->toArray())
+            ->merge(collect($trackedMap->values()->toArray()))
+            ->flatten()->unique()->filter()->values()->toArray();
+
+        $lectureCountMap = collect();
+        $quizCountMap = collect();
+        $completedMap = collect();
+
+        if (!empty($allCourseIds)) {
+            // Batch query 3: lecture counts per course
+            $lectureCountMap = DB::table('course_chapter_lectures')
+                ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+                ->whereIn('course_chapters.course_id', $allCourseIds)
+                ->where('course_chapter_lectures.is_active', 1)
+                ->selectRaw('course_chapters.course_id, COUNT(*) as cnt')
+                ->groupBy('course_chapters.course_id')
+                ->pluck('cnt', 'course_id');
+
+            // Batch query 4: quiz counts per course
+            $quizCountMap = DB::table('course_chapter_quizzes')
+                ->join('course_chapters', 'course_chapter_quizzes.course_chapter_id', '=', 'course_chapters.id')
+                ->whereIn('course_chapters.course_id', $allCourseIds)
+                ->where('course_chapter_quizzes.is_active', 1)
+                ->selectRaw('course_chapters.course_id, COUNT(*) as cnt')
+                ->groupBy('course_chapters.course_id')
+                ->pluck('cnt', 'course_id');
+
+            // Batch query 5: completed tracking items per user+course
+            $completedMap = UserCurriculumTracking::whereIn('user_curriculum_trackings.user_id', $studentIds)
+                ->where('user_curriculum_trackings.status', 'completed')
                 ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
-                ->pluck('course_chapters.course_id')->unique()->toArray();
+                ->whereIn('course_chapters.course_id', $allCourseIds)
+                ->selectRaw('user_curriculum_trackings.user_id, course_chapters.course_id, COUNT(*) as cnt')
+                ->groupBy('user_curriculum_trackings.user_id', 'course_chapters.course_id')
+                ->get()
+                ->groupBy('user_id')
+                ->map(fn($rows) => $rows->pluck('cnt', 'course_id'));
+        }
 
-            $allCourseIds = array_unique(array_merge($purchasedIds, $trackedIds));
+        $items = collect($students->items())->map(function ($user) use (
+            $purchasedMap, $trackedMap, $lectureCountMap, $quizCountMap, $completedMap
+        ) {
+            $purchased = $purchasedMap->get($user->id, []);
+            $tracked   = $trackedMap->get($user->id, []);
+            $enrolledIds = array_unique(array_merge($purchased, $tracked));
 
             $completed = 0;
             $inProgress = 0;
-            foreach ($allCourseIds as $courseId) {
-                $progress = $this->calculateCourseProgress($user->id, $courseId);
+
+            foreach ($enrolledIds as $courseId) {
+                $totalItems = ($lectureCountMap->get($courseId) ?? 0) + ($quizCountMap->get($courseId) ?? 0);
+                if ($totalItems === 0) continue;
+                $completedItems = $completedMap->get($user->id)?->get($courseId) ?? 0;
+                $progress = ($completedItems / $totalItems) * 100;
                 if ($progress >= 100) {
                     $completed++;
                 } elseif ($progress > 0) {
@@ -305,19 +381,19 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 }
             }
 
-            $notStarted = max(0, count($allCourseIds) - $completed - $inProgress);
+            $notStarted = max(0, count($enrolledIds) - $completed - $inProgress);
 
             return [
                 'student_id'        => $user->id,
                 'name'              => $user->name,
                 'email'             => $user->email,
-                'total_enrolled'    => count($allCourseIds),
+                'total_enrolled'    => count($enrolledIds),
                 'completed_courses' => $completed,
                 'in_progress'       => $inProgress,
                 'not_started'       => $notStarted,
-                'open_courses'      => count($allCourseIds) - $completed,
-                'completion_rate'   => count($allCourseIds) > 0
-                    ? round(($completed / count($allCourseIds)) * 100, 2)
+                'open_courses'      => $inProgress,
+                'completion_rate'   => count($enrolledIds) > 0
+                    ? round(($completed / count($enrolledIds)) * 100, 2)
                     : 0,
                 'joined_at'         => $user->created_at?->toDateString(),
             ];
@@ -326,10 +402,10 @@ class StudentReportAdminApiController extends AdminCrudApiController
         if ($request->filled('status')) {
             $items = $items->filter(function ($item) use ($request) {
                 return match ($request->status) {
-                    'completed' => $item['completed_courses'] > 0,
+                    'completed'   => $item['completed_courses'] > 0,
                     'in_progress' => $item['in_progress'] > 0,
                     'not_started' => $item['not_started'] > 0,
-                    default => true,
+                    default       => true,
                 };
             })->values();
         }
@@ -342,6 +418,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'total'        => $students->total(),
         ];
     }
+
 
     private function getDetailedReport(Request $request): array
     {

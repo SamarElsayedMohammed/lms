@@ -115,14 +115,14 @@ class NotificationSettingsAdminApiController extends AdminCrudApiController
     public function previewEmail(Request $request)
     {
         $request->validate([
-            'title' => 'required|string',
-            'message' => 'required|string',
+            'title' => 'nullable|string',
+            'message' => 'nullable|string',
             'image' => 'nullable|string' // usually a URL for preview purposes
         ]);
 
         $html = view('emails.general-notification', [
-            'notificationTitle' => $request->title,
-            'notificationContent' => $request->message,
+            'notificationTitle' => $request->title ?: 'عنوان الإشعار التجريبي',
+            'notificationContent' => $request->message ?: 'هذا مثال على نص الإشعار الذي سيصله المستخدم عبر البريد الإلكتروني.',
             'imageUrl' => $request->image,
             'greeting' => 'مرحباً،' // Default greeting for preview
         ])->render();

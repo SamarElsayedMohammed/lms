@@ -245,11 +245,13 @@ final class SubscriptionApiController extends Controller
     {
         try {
             $manualMethods = \App\Models\ManualDepositMethod::where('is_active', true)->get()->map(function ($method) {
+                $details = json_decode($method->account_details, true) ?: [];
                 return [
                     'id' => $method->id,
                     'name' => $method->name,
-                    'description' => $method->description,
-                    'details' => $method->details,
+                    'description' => $method->instructions,
+                    'details' => $details,
+                    'image' => $method->image,
                 ];
             });
 
@@ -432,10 +434,18 @@ final class SubscriptionApiController extends Controller
                 }
 
                 try {
+                    $hasPending = Subscription::where('user_id', $user->id)
+                        ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+                        ->exists();
+
+                    if ($hasPending) {
+                        return ApiResponseService::errorResponse('لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.');
+                    }
+
                     $receiptPath = \App\Services\FileService::compressAndUpload(
                         $request->file('receipt'),
                         'subscriptions/receipts',
-                        'local'
+                        'public'
                     );
 
                     $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
@@ -708,10 +718,18 @@ final class SubscriptionApiController extends Controller
                 }
 
                 try {
+                    $hasPending = Subscription::where('user_id', $user->id)
+                        ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+                        ->exists();
+
+                    if ($hasPending) {
+                        return ApiResponseService::errorResponse('لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.');
+                    }
+
                     $receiptPath = \App\Services\FileService::compressAndUpload(
                         $request->file('receipt'),
                         'subscriptions/receipts',
-                        'local'
+                        'public'
                     );
 
                     \Illuminate\Support\Facades\DB::beginTransaction();

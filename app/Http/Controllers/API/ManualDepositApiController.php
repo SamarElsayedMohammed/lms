@@ -71,7 +71,7 @@ class ManualDepositApiController extends Controller
         }
 
         try {
-            $receiptPath = FileService::compressAndUpload($request->file('receipt'), $this->receiptFolder, 'local');
+            $receiptPath = FileService::compressAndUpload($request->file('receipt'), $this->receiptFolder, 'public');
 
             $deposit = ManualDeposit::create([
                 'user_id' => $user->id,
