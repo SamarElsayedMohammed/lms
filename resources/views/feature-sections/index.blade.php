@@ -57,6 +57,23 @@
                                         <input type="number" step="1" name="limit" placeholder="{{ __('e.g. 2') }}" class="form-control" data-parsley-excluded="true">
                                     </div>
 
+                                    <!-- Platform Visibility -->
+                                    <div class="form-group col-sm-12 col-md-6">
+                                        <label>{{ __('Platform Visibility') }}</label>
+                                        <div>
+                                            <div class="custom-control custom-checkbox custom-control-inline">
+                                                <input type="hidden" name="show_on_web" value="0">
+                                                <input type="checkbox" name="show_on_web" class="custom-control-input" id="show_on_web" value="1" checked>
+                                                <label class="custom-control-label" for="show_on_web">{{ __('Show on Web') }}</label>
+                                            </div>
+                                            <div class="custom-control custom-checkbox custom-control-inline">
+                                                <input type="hidden" name="show_on_mobile" value="0">
+                                                <input type="checkbox" name="show_on_mobile" class="custom-control-input" id="show_on_mobile" value="1">
+                                                <label class="custom-control-label" for="show_on_mobile">{{ __('Show on Mobile') }}</label>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <!-- Offer Image (shown conditionally) -->
                                     <div class="form-group col-sm-12 col-md-6 offer-image-field d-none">
                                         <label>{{ __('Offer Image') }} <span class="text-danger">*</span></label>
@@ -158,6 +175,21 @@
                                 <div class="form-group limit-field d-none">
                                     <label>{{ __('Limit') }} <span class="text-danger">* </span></label>
                                     <input type="number" name="limit" id="edit_limit" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ __('Platform Visibility') }}</label>
+                                    <div>
+                                        <div class="custom-control custom-checkbox custom-control-inline">
+                                            <input type="hidden" name="show_on_web" value="0">
+                                            <input type="checkbox" name="show_on_web" class="custom-control-input" id="edit_show_on_web" value="1">
+                                            <label class="custom-control-label" for="edit_show_on_web">{{ __('Show on Web') }}</label>
+                                        </div>
+                                        <div class="custom-control custom-checkbox custom-control-inline">
+                                            <input type="hidden" name="show_on_mobile" value="0">
+                                            <input type="checkbox" name="show_on_mobile" class="custom-control-input" id="edit_show_on_mobile" value="1">
+                                            <label class="custom-control-label" for="edit_show_on_mobile">{{ __('Show on Mobile') }}</label>
+                                        </div>
+                                    </div>
                                 </div>
                                 <!-- Offer Image Upload -->
                                 <div class="form-group  offer-image-field d-none">

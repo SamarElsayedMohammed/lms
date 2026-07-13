@@ -223,6 +223,8 @@ window.featureSectionAction = {
         $('#edit_title').val(row.title);
         $('#edit_limit').val(row.limit);
         $('#edit_is_active').prop('checked', row.is_active).change();
+        $('#edit_show_on_web').prop('checked', row.show_on_web == 1 || row.show_on_web === true).change();
+        $('#edit_show_on_mobile').prop('checked', row.show_on_mobile == 1 || row.show_on_mobile === true).change();
         if (row.type === 'offer') {
             $('#existing_offer_image').attr('src', row.images[0]);
             $('#existing_offer_image').show();

@@ -43,6 +43,8 @@ class FeatureSectionController extends Controller
             'sorting' => 'nullable|string|max:50',
             'visibility_permissions' => 'nullable|array',
             'visibility_devices' => 'nullable|array',
+            'show_on_web' => 'nullable|boolean',
+            'show_on_mobile' => 'nullable|boolean',
             'responsive_limits' => 'nullable|array',
             'manual_courses' => 'nullable|array',
             'manual_courses.*' => 'exists:courses,id',
@@ -76,6 +78,8 @@ class FeatureSectionController extends Controller
                 'responsive_limits',
                 'visibility_permissions',
                 'visibility_devices',
+                'show_on_web',
+                'show_on_mobile',
             ]);
             $featureSection = FeatureSection::create($data);
             $this->syncManualCourses($featureSection, $request->input('manual_courses', []));
@@ -200,6 +204,8 @@ class FeatureSectionController extends Controller
             'sorting' => 'nullable|string|max:50',
             'visibility_permissions' => 'nullable|array',
             'visibility_devices' => 'nullable|array',
+            'show_on_web' => 'nullable|boolean',
+            'show_on_mobile' => 'nullable|boolean',
             'responsive_limits' => 'nullable|array',
             'manual_courses' => 'nullable|array',
             'manual_courses.*' => 'exists:courses,id',

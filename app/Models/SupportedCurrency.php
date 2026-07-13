@@ -52,7 +52,7 @@ class SupportedCurrency extends Model
 
         $currencyCode = $currencyCode ?? $country->currency_code;
         if (!$currencyCode) {
-            return;
+            $currencyCode = 'USD';
         }
 
         $currencyCode = strtoupper($currencyCode);

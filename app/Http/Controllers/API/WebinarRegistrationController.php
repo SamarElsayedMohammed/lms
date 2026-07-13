@@ -33,12 +33,17 @@ class WebinarRegistrationController extends Controller
 
             // Check if full/exists handled inside service, but we also handle payment logic here
             if (!$webinar->is_free && $webinar->price > 0) {
-                // For non-wallet, direct gateway payment
-                $totalAmount = $webinar->price;
+                // Calculate localized pricing
+                $pricingService = app(\App\Services\PricingCalculationService::class);
+                $currencyInfo = $pricingService->resolveDisplayCurrency($user, $request);
+                $exchangeRate = $currencyInfo['exchange_rate'];
+                $currency = $currencyInfo['code'];
+
+                $totalAmount = round($webinar->price * $exchangeRate, 2);
                 
                 try {
                     $kashierService = app(\App\Services\Payment\KashierCheckoutService::class);
-                    $checkout = $kashierService->createWebinarCheckoutSession($webinar->id, $user, $totalAmount);
+                    $checkout = $kashierService->createWebinarCheckoutSession($webinar->id, $user, $totalAmount, $currency);
                 } catch (\RuntimeException $e) {
                     return ApiResponseService::errorResponse('Payment gateway is not configured.', [], 503);
                 }

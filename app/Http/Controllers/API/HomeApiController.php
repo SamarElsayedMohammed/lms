@@ -133,13 +133,14 @@ class HomeApiController extends Controller
         $result = $sections->map(function ($section) use ($user, $request) {
             $limit = $section->limit ?? 10;
 
-            if ($section->sorting === 'manual' && $section->manualCourses->isNotEmpty()) {
+            if ($section->manualCourses->isNotEmpty()) {
                 $data = $section->manualCourses()
                     ->with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
                     ->take($limit)
                     ->get();
             } else {
                 switch ($section->type) {
+                case 'courses':
                 case 'newly_added_courses':
                     $query = Course::with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
                         ->where('is_active', 1)
@@ -1288,6 +1289,8 @@ class HomeApiController extends Controller
                 'responsive_limits' => $section->responsive_limits,
                 'visibility_permissions' => $section->visibility_permissions,
                 'visibility_devices' => $section->visibility_devices,
+                'show_on_web' => $section->show_on_web,
+                'show_on_mobile' => $section->show_on_mobile,
                 'manual_courses' => $section->manualCourses->pluck('id')->values()->all(),
                 'data' => $data,
             ];
