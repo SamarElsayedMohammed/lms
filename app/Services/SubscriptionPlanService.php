@@ -136,20 +136,21 @@ final class SubscriptionPlanService
             $plan = SubscriptionPlan::create($validated);
 
             foreach ($countriesData as $entry) {
-                // Auto-derive country_code and currency_code from Country model if not provided
                 $country = Country::find($entry['country_id']);
                 if (!$country) {
                     continue; // Skip if country not found (shouldn't happen due to validation)
                 }
 
-                $countryCode = $entry['country_code'] ?? $country->iso_code;
-                $currencyCode = $entry['currency_code'] ?? $country->currency_code;
+                // ALWAYS derive country_code and currency_code from the database
+                // Never trust frontend values for these fields
+                $countryCode = strtoupper($country->iso_code);
+                $currencyCode = strtoupper($country->currency_code ?? 'EGP');
 
                 SubscriptionPlanPrice::create([
                     'plan_id' => $plan->id,
                     'country_id' => $entry['country_id'],
-                    'country_code' => strtoupper($countryCode),
-                    'currency_code' => strtoupper($currencyCode),
+                    'country_code' => $countryCode,
+                    'currency_code' => $currencyCode,
                     'price' => $entry['price'],
                     'old_price' => (isset($entry['old_price']) && $entry['old_price'] !== '' && $entry['old_price'] !== null)
                         ? (float) $entry['old_price'] : null,

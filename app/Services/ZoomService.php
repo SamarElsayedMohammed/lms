@@ -28,7 +28,7 @@ class ZoomService
         }
 
         try {
-            $response = Http::asForm()
+            $response = Http::timeout(10)->asForm()
                 ->withHeaders([
                     'Authorization' => 'Basic ' . base64_encode($this->clientId . ':' . $this->clientSecret),
                 ])
@@ -59,7 +59,7 @@ class ZoomService
             ];
         }
 
-        $response = Http::withToken($this->accessToken)
+        $response = Http::timeout(10)->withToken($this->accessToken)
             ->post('https://api.zoom.us/v2/users/me/meetings', [
                 'topic' => $topic,
                 'type' => 2, // Scheduled meeting

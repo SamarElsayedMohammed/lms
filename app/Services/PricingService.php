@@ -36,6 +36,7 @@ final class PricingService
         // 1. Check for specific country override
         $planPrice = SubscriptionPlanPrice::where('plan_id', $plan->id)
             ->where('country_code', $countryCode)
+            ->orderBy('id', 'desc')
             ->first();
 
         if ($planPrice !== null) {
@@ -67,7 +68,7 @@ final class PricingService
             ];
         }
 
-        // 2. Fallback to EGP base price for all other countries without a specific price override
+        // 2. Global Fallback: If no override exists, use the base EGP price for ALL countries
         return [
             'price' => $this->roundUpForDisplay((float) $plan->price),
             'old_price' => null,

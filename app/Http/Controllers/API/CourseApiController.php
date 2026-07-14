@@ -6055,6 +6055,11 @@ class CourseApiController extends Controller
 
             // If we have real data, use it
             if ($attempt->answers->count() > 0) {
+                $attempt->answers->load('option.question');
+                
+                $questionIds = $attempt->answers->map(fn($a) => $a->option?->question?->id)->filter()->unique();
+                $allOptions = \App\Models\QuizOption::whereIn('quiz_question_id', $questionIds)->get();
+
                 foreach ($attempt->answers as $answer) {
                     if (!($answer->option && $answer->option->question)) {
                         continue;
@@ -6063,7 +6068,7 @@ class CourseApiController extends Controller
                     $question = $answer->option->question;
 
                     // Get all options for this question
-                    $options = QuizOption::where('quiz_question_id', $question->id)->get();
+                    $options = $allOptions->where('quiz_question_id', $question->id);
 
                     $questions[] = [
                         'question_number' => count($questions) + 1,

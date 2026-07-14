@@ -96,8 +96,9 @@ final class GeoLocationService
      * Get country code from request (Secure IP detection with proxy header support)
      *
      * Priority order:
+     * 0. verified_country_code (request attribute set by ForceSignedProxyCountry middleware — AUTHORITATIVE)
      * 1. Test override (non-production)
-     * 2. X-User-Country (Frontend proxy custom header - HIGHEST PRIORITY)
+     * 2. X-User-Country (Frontend proxy custom header - kept for legacy/dev)
      * 3. CF-IPCountry (Cloudflare - trusted from frontend proxy)
      * 4. X-Vercel-IP-Country (Vercel)
      * 5. X-Country (Generic proxy)
@@ -107,12 +108,18 @@ final class GeoLocationService
      */
     public function getCountryCodeFromRequest(Request $request): ?string
     {
+        // 0. Verified country from ForceSignedProxyCountry middleware (HMAC-validated — authoritative)
+        $verifiedCountry = $request->attributes->get('verified_country_code');
+        if ($this->isValidCountryCode($verifiedCountry)) {
+            return strtoupper($verifiedCountry);
+        }
+
         // 1. Manual override for testing purposes ONLY in non-production
         if (!app()->environment('production') && $request->has('test_country')) {
             return strtoupper($request->query('test_country'));
         }
 
-        // 2. X-User-Country - Custom header from our frontend proxy (HIGHEST PRIORITY)
+        // 2. X-User-Country - Custom header from our frontend proxy
         $country = $request->header('X-User-Country');
         if ($this->isValidCountryCode($country)) {
             $this->logCountryDetection($request, strtoupper($country), 'x_user_country');
@@ -220,13 +227,17 @@ final class GeoLocationService
      */
     private function getSignedProxyCountry(Request $request): ?string
     {
-        $country = $request->header('X-Skillso-Resolved-Country');
-        $signature = $request->header('X-Skillso-Country-Signature');
-        $timestamp = $request->header('X-Skillso-Country-Timestamp');
-
-        if (!$country || !$signature || !$timestamp) {
+        $headerValue = $request->header('X-Skillso-Resolved-Country');
+        if (!$headerValue) {
             return null;
         }
+
+        $parts = explode('.', $headerValue);
+        if (count($parts) !== 3) {
+            return null;
+        }
+
+        [$country, $timestamp, $signature] = $parts;
 
         // Reject if older than 5 minutes
         if (abs(time() - (int)$timestamp) > 300) {
@@ -235,7 +246,7 @@ final class GeoLocationService
         }
 
         $secret = config('app.proxy_secret', config('app.key')); // Fallback to app key if no specific secret
-        $expectedSignature = hash_hmac('sha256', $country . $timestamp, $secret);
+        $expectedSignature = hash_hmac('sha256', $country . '.' . $timestamp, $secret);
 
         if (!hash_equals($expectedSignature, $signature)) {
             Log::warning('Invalid proxy country signature', [

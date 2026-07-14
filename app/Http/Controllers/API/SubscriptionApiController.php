@@ -85,7 +85,7 @@ final class SubscriptionApiController extends Controller
                     'id' => $plan->id,
                     'name' => $plan->name,
                     'price' => $localized['price'],
-                    'currency_code' => 'EGP',
+                    'currency_code' => $localized['currency_code'],
                     'old_price' => $localized['old_price'],
                     'display_price' => $localized['price'],
                     'display_currency' => $localized['currency_code'],
@@ -636,16 +636,9 @@ final class SubscriptionApiController extends Controller
             $countryCode = $this->countryDetectionService->detect($request);
             $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
 
-            if ($subscription->locked_price !== null && $subscription->locked_currency !== null) {
-                $totalAmount = (float) $subscription->locked_price;
-                $resolvedCurrency = strtoupper($subscription->locked_currency);
-                $countryPricing['price_source'] = 'locked';
-                $canSubscribe = $plan->is_active;
-            } else {
-                $totalAmount = (float) $countryPricing['price'];
-                $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
-                $canSubscribe = $plan->is_active && $countryPricing['can_subscribe'];
-            }
+            $totalAmount = (float) $countryPricing['price'];
+            $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
+            $canSubscribe = $plan->is_active && $countryPricing['can_subscribe'];
 
             if (!$canSubscribe) {
                 return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
@@ -738,8 +731,8 @@ final class SubscriptionApiController extends Controller
                     $newSubscription = Subscription::create([
                         'user_id' => $user->id,
                         'plan_id' => $plan->id,
-                        'locked_price' => $subscription->locked_price ?? $totalAmount,
-                        'locked_currency' => $subscription->locked_currency ?? $resolvedCurrency,
+                        'locked_price' => $totalAmount,
+                        'locked_currency' => $resolvedCurrency,
                         'starts_at' => now(), // Placeholder, updated on approval
                         'ends_at' => null,    // Placeholder, updated on approval
                         'status' => Subscription::STATUS_PENDING_APPROVAL,

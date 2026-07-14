@@ -16,6 +16,9 @@ class SendFcmNotificationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public $timeout = 3600;
+    public $tries = 3;
+
     protected array $registrationIDs;
     protected ?string $title;
     protected ?string $message;
@@ -121,6 +124,8 @@ class SendFcmNotificationJob implements ShouldQueue
                 // Disabling SSL Certificate support temporarly
                 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
                 curl_setopt($ch, CURLOPT_POSTFIELDS, $encodedData);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
 
                 $result = curl_exec($ch);
                 if ($result === false) {

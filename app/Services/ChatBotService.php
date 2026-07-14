@@ -299,7 +299,7 @@ class ChatBotService
                 throw new \RuntimeException('OpenRouter API key is not configured. Set OPENROUTER_API_KEY in .env');
             }
 
-            $response = Http::withToken($apiKey)
+            $response = Http::withToken($apiKey)->timeout(10)
                 ->withHeaders([
                     'HTTP-Referer' => url('/'),
                     'X-Title' => 'SkillsWa LMS',

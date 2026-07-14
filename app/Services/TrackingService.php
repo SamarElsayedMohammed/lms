@@ -44,7 +44,7 @@ class TrackingService
         }
 
         try {
-            $response = Http::post("https://graph.facebook.com/v18.0/{$pixel->pixel_id}/events?access_token={$accessToken}", $data);
+            $response = Http::timeout(3)->connectTimeout(1)->post("https://graph.facebook.com/v18.0/{$pixel->pixel_id}/events?access_token={$accessToken}", $data);
             if ($response->failed()) {
                 Log::error('Facebook CAPI Error: ' . $response->body());
             }
@@ -89,7 +89,7 @@ class TrackingService
         ];
 
         try {
-            $response = Http::post("https://www.google-analytics.com/mp/collect?measurement_id={$measurementId}&api_secret={$apiSecret}", $data);
+            $response = Http::timeout(3)->connectTimeout(1)->post("https://www.google-analytics.com/mp/collect?measurement_id={$measurementId}&api_secret={$apiSecret}", $data);
             if ($response->failed()) {
                 Log::error('GA4 Measurement Protocol Error: ' . $response->body());
             }

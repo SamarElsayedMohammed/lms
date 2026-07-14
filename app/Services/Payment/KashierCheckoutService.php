@@ -269,7 +269,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
 
         try {
             // Kashier Management API uses api.kashier.io
-            $response = Http::withHeaders([
+            $response = Http::timeout(10)->withHeaders([
                 'Authorization' => $config['api_key'],
             ])->timeout(10)->get('https://api.kashier.io/v1/transaction/' . $transactionId);
 
@@ -310,7 +310,7 @@ final class KashierCheckoutService implements PaymentGatewayContract
         $baseUrl = $config['mode'] === 'live' ? 'https://api.kashier.io' : 'https://test-api.kashier.io';
 
         try {
-            $response = Http::withHeaders([
+            $response = Http::timeout(10)->withHeaders([
                 'Authorization' => $config['api_key'],
             ])->timeout(10)->get($baseUrl . '/v1/transaction/' . $transactionId);
 

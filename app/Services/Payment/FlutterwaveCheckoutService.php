@@ -73,7 +73,7 @@ class FlutterwaveCheckoutService implements PaymentGatewayContract
         ];
 
         // Make API call to Flutterwave
-        $response = Http::withHeaders([
+        $response = Http::timeout(10)->withHeaders([
             'Authorization' => 'Bearer ' . $flutterwaveSettings['flutterwave_secret_key'],
             'Content-Type' => 'application/json',
         ])->post('https://api.flutterwave.com/v3/payments', $paymentData);

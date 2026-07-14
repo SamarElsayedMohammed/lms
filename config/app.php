@@ -65,6 +65,19 @@ return [
 
     /*
      |--------------------------------------------------------------------------
+     | Internal Proxy HMAC Secret
+     |--------------------------------------------------------------------------
+     |
+     | This secret is used to verify the X-Skillso-Resolved-Country header
+     | that is signed by the Next.js frontend proxy (GEO_HMAC_SECRET).
+     | It must match the GEO_HMAC_SECRET env var on the frontend.
+     |
+     */
+
+    'proxy_secret' => env('GEO_HMAC_SECRET'),
+
+    /*
+     |--------------------------------------------------------------------------
      | Application URL
      |--------------------------------------------------------------------------
      |

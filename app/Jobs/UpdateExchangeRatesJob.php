@@ -34,7 +34,7 @@ class UpdateExchangeRatesJob implements ShouldQueue
         $apiUrl = "https://v6.exchangerate-api.com/v6/{$apiKey}/latest/EGP";
 
         try {
-            $response = \Illuminate\Support\Facades\Http::get($apiUrl);
+            $response = \Illuminate\Support\Facades\Http::timeout(10)->get($apiUrl);
 
             if (!$response->successful()) {
                 Log::error('Failed to fetch exchange rates: ' . $response->body());

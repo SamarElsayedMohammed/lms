@@ -55,6 +55,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(append: [
             \App\Http\Middleware\ForceJsonResponseToSnakeCase::class,
             \App\Http\Middleware\DemoModeMiddleware::class,
+            \App\Http\Middleware\ForceSignedProxyCountry::class,
         ]);
 
         $middleware->web(append: [

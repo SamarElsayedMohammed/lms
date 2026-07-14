@@ -93,15 +93,7 @@ Route::get('categories', [ApiController::class, 'getCategories']); // Get Catego
 Route::get('get-custom-form-fields', [ApiController::class, 'getCustomFormFields']); // Get Custom Form Fields
 Route::get('active-popup', [\App\Http\Controllers\API\PopupCampaignApiController::class, 'getActiveCampaign']); // Get active popup campaign
 
-Route::get('ip-debug', function (Illuminate\Http\Request $request, App\Services\GeoLocationService $geo) {
-    return response()->json([
-        'detected_country' => $geo->getCountryCodeFromRequest($request),
-        'real_ip' => $geo->getRealIpAddress($request),
-        'request_ip' => $request->ip(),
-        'cf_country' => $request->server('HTTP_CF_IPCOUNTRY'),
-        'headers' => collect($request->server())->filter(fn($v, $k) => str_starts_with($k, 'HTTP_'))->toArray()
-    ]);
-});
+
 
 Route::post('course-view', [CourseApiController::class, 'courseView']);
 Route::get('get-search-suggestions', [CourseApiController::class, 'getSearchSuggestions']);
@@ -174,62 +166,8 @@ Route::prefix('subscription')->group(function (): void {
     });
 });
 
-// ===== PRICING DEBUG — Remove after issue is resolved =====
-Route::get('/debug/subscription-pricing', function (\Illuminate\Http\Request $request) {
-    // Basic protection: require a secret key
-    if ($request->query('_key') !== 'pricing_debug_2024') {
-        abort(404);
-    }
 
-    $countryService = app(\App\Services\CountryDetectionService::class);
-    $pricingService = app(\App\Services\PricingService::class);
 
-    $detectedCountry = $countryService->detect($request);
-
-    $plans = \App\Models\SubscriptionPlan::active()->ordered()->get();
-
-    $result = [];
-    foreach ($plans as $plan) {
-        $pricing = $pricingService->getPriceForCountry($plan, $detectedCountry);
-
-        // Also check what DB rows exist for this plan
-        $countryPrices = \App\Models\SubscriptionPlanPrice::where('plan_id', $plan->id)->get()
-            ->map(fn($cp) => [
-                'country_code'  => $cp->country_code,
-                'currency_code' => $cp->currency_code,
-                'price'         => $cp->price,
-                'old_price'     => $cp->old_price,
-                'is_active'     => $cp->is_active,
-                'can_subscribe' => $cp->can_subscribe,
-            ])->toArray();
-
-        $result[] = [
-            'plan_id'              => $plan->id,
-            'plan_name'            => $plan->name,
-            'plan_base_egp_price'  => $plan->price,
-            'plan_usd_price'       => $plan->usd_price,
-            'detected_country'     => $detectedCountry,
-            'resolved_pricing'     => $pricing,
-            'all_country_prices'   => $countryPrices,
-        ];
-    }
-
-    // SupportedCurrency for detected country
-    $currency = \App\Models\SupportedCurrency::where('country_code', $detectedCountry)->first();
-
-    return response()->json([
-        'detected_country'      => $detectedCountry,
-        'detection_debug'       => $countryService->debug($request),
-        'detected_currency'     => $currency ? [
-            'currency_code'        => $currency->currency_code,
-            'currency_symbol'      => $currency->currency_symbol,
-            'active_exchange_rate' => $currency->active_exchange_rate,
-            'is_active'            => $currency->is_active,
-        ] : null,
-        'plans'                 => $result,
-    ]);
-});
-// ===== END PRICING DEBUG =====
 
 
 if (app()->environment('local', 'staging', 'development')) {
@@ -418,15 +356,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('countries', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'store']);
     Route::match(['put', 'patch'], 'countries/{id}', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'update']);
 
-    // Carts
-    Route::group(['prefix' => 'cart'], function (): void {
-        Route::get('/', [CartApiController::class, 'getUserCart']);
-        Route::post('/add', [CartApiController::class, 'addToCart']);
-        Route::post('/remove', [CartApiController::class, 'removeFromCart']);
-        Route::post('/clear', [CartApiController::class, 'clearCart']);
-        Route::post('/apply-promo', [CartApiController::class, 'applyPromoCodeToCart']);
-        Route::post('/remove-promo', [CartApiController::class, 'removePromoCode']);
-    });
 
     Route::group(['prefix' => 'billing-details'], static function (): void {
         Route::get('/', [BillingDetailsApiController::class, 'show']);
@@ -1116,10 +1045,6 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
         Route::post('question/reply', [HelpdeskApiController::class, 'storeReply']);
     });
 
-    /*
-     * Payment APIs
-     */
-    Route::post('get-payment-intent', [ApiController::class, 'getPaymentIntent']);
 
     /*
      * Refund APIs
