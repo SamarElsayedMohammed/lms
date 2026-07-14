@@ -119,12 +119,8 @@ final class GeoLocationService
             return strtoupper($request->query('test_country'));
         }
 
-        // 2. X-User-Country - Custom header from our frontend proxy
-        $country = $request->header('X-User-Country');
-        if ($this->isValidCountryCode($country)) {
-            $this->logCountryDetection($request, strtoupper($country), 'x_user_country');
-            return strtoupper($country);
-        }
+        // 2. We deliberately DO NOT read X-User-Country here because it can be 
+        // spoofed by clients directly hitting the API.
 
         // 3. CF-IPCountry - Cloudflare (trusted from frontend proxy, no CF-Connecting-IP required)
         $country = $request->header('CF-IPCountry') ?? $request->server('HTTP_CF_IPCOUNTRY');
@@ -140,12 +136,7 @@ final class GeoLocationService
             return $country;
         }
 
-        // 5. X-Country - Generic proxy header
-        $country = $request->header('X-Country');
-        if ($this->isValidCountryCode($country)) {
-            $this->logCountryDetection($request, strtoupper($country), 'x_country');
-            return strtoupper($country);
-        }
+        // 5. We deliberately DO NOT read X-Country here because it can be spoofed.
 
         // 6. Signed internal proxy (X-Skillso-Resolved-Country)
         $country = $this->getSignedProxyCountry($request);
