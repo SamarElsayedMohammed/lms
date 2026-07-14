@@ -49,8 +49,8 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
         $this->checkPermission('courses-edit');
 
         $data = $request->all();
-        if (isset($data['price']) && !isset($data['price_egp'])) {
-            $data['price_egp'] = $data['price'];
+        if (isset($data['price']) && !isset($data['price_local'])) {
+            $data['price_local'] = $data['price'];
         }
         if (isset($data['country_code'])) {
             $data['country_code'] = strtoupper((string) $data['country_code']);
@@ -58,8 +58,8 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
 
         $validator = Validator::make($data, [
             'country_code' => 'required|string|size:2',
-            'price_egp' => 'required|numeric|min:0',
-            'discount_price_egp' => 'nullable|numeric|min:0',
+            'price_local' => 'required|numeric|min:0',
+            'discount_price_local' => 'nullable|numeric|min:0',
             'is_active' => 'nullable|boolean'
         ]);
 
@@ -75,8 +75,8 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
         $countryPrice = CourseCountryPrice::updateOrCreate(
             ['course_id' => $courseId, 'country_code' => $data['country_code']],
             [
-                'price_egp' => $data['price_egp'],
-                'discount_price_egp' => $data['discount_price_egp'] ?? null,
+                'price_local' => $data['price_local'],
+                'discount_price_local' => $data['discount_price_local'] ?? null,
                 'is_active' => $request->boolean('is_active', true)
             ]
         );
@@ -97,8 +97,8 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'prices' => 'required|array',
             'prices.*.country_code' => 'required|string|size:2',
-            'prices.*.price_egp' => 'required|numeric|min:0',
-            'prices.*.discount_price_egp' => 'nullable|numeric|min:0',
+            'prices.*.price_local' => 'required|numeric|min:0',
+            'prices.*.discount_price_local' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -114,8 +114,8 @@ class CourseCountryPricesAdminController extends AdminCrudApiController
             CourseCountryPrice::updateOrCreate(
                 ['course_id' => $courseId, 'country_code' => $priceData['country_code']],
                 [
-                    'price_egp' => $priceData['price_egp'],
-                    'discount_price_egp' => $priceData['discount_price_egp'] ?? null,
+                    'price_local' => $priceData['price_local'],
+                    'discount_price_local' => $priceData['discount_price_local'] ?? null,
                     'is_active' => true
                 ]
             );

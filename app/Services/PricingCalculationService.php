@@ -107,18 +107,7 @@ final class PricingCalculationService
                 ->first();
         }
 
-        // 2. Determine base EGP prices
-        $isCountrySpecific = $countryPrice !== null;
-        if ($isCountrySpecific) {
-            $priceEgp = (float) $countryPrice->price_egp;
-            $discountPriceEgp = $countryPrice->discount_price_egp ? (float) $countryPrice->discount_price_egp : null;
-        } else {
-            $priceEgp = (float) ($course->price ?? 0);
-            $discountPriceEgp = $course->discount_price ? (float) $course->discount_price : null;
-        }
-
-        // 3. Get currency and exchange rate via generic resolution (if we don't have user/request context here, we just use the countryCode directly)
-        // Since we don't have Request here, we just mimic the resolution logic for the given countryCode
+        // 2. Get currency and exchange rate via generic resolution
         $currencyCode = 'EGP';
         $currencySymbol = 'ج.م';
         $exchangeRate = 1.0;
@@ -154,13 +143,21 @@ final class PricingCalculationService
             }
         }
 
-        // 4. Calculate local prices
-        // local = egp / exchange_rate (since rate is EGP per 1 unit of local currency, e.g. 1 USD = 30 EGP)
-        // Wait, the design said: exchange_rate_to_egp
-        // If 1 SAR = 8 EGP, then exchange_rate_to_egp = 8.
-        // Price local = Price EGP / 8.
-        $priceLocal = $priceEgp / $exchangeRate;
-        $discountPriceLocal = $discountPriceEgp !== null ? ($discountPriceEgp / $exchangeRate) : null;
+        // 3. Determine base prices based on specificity
+        $isCountrySpecific = $countryPrice !== null;
+        if ($isCountrySpecific) {
+            $priceLocal = (float) $countryPrice->price_local;
+            $discountPriceLocal = $countryPrice->discount_price_local ? (float) $countryPrice->discount_price_local : null;
+
+            $priceEgp = $priceLocal * $exchangeRate;
+            $discountPriceEgp = $discountPriceLocal !== null ? ($discountPriceLocal * $exchangeRate) : null;
+        } else {
+            $priceEgp = (float) ($course->price ?? 0);
+            $discountPriceEgp = $course->discount_price ? (float) $course->discount_price : null;
+
+            $priceLocal = $priceEgp / $exchangeRate;
+            $discountPriceLocal = $discountPriceEgp !== null ? ($discountPriceEgp / $exchangeRate) : null;
+        }
 
         return [
             'price_egp'           => round($priceEgp, 2),
