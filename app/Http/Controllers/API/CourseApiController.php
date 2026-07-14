@@ -305,7 +305,7 @@ class CourseApiController extends Controller
                     break;
 
                 case 'free_courses':
-                    $query->whereNull('price')->where('course_type', 'free');
+                    $query->where('course_type', 'free');
                     break;
 
                 case 'wishlist':
@@ -643,9 +643,6 @@ class CourseApiController extends Controller
             ->getCollection()
             ->transform(function ($course) use ($totalTaxPercentage, $countryCode, $hasActiveSubscription, $purchasedCourseIds, $refundedCourseIds) {
                 $discountPercentage = 0;
-                if ($course->has_discount) {
-                    $discountPercentage = round((($course->price - $course->discount_price) / $course->price) * 100, 2);
-                }
 
                 $isWishlisted = Auth::check()
                     ? Wishlist::where('user_id', Auth::id())->where('course_id', $course->id)->exists()
@@ -1257,9 +1254,6 @@ class CourseApiController extends Controller
             );
 
             $discountPercentage = 0;
-            if ($course->has_discount) {
-                $discountPercentage = round((($course->price - $course->discount_price) / $course->price) * 100, 2);
-            }
 
             $response = [
                 'id' => $course->id,
@@ -1881,9 +1875,6 @@ class CourseApiController extends Controller
 
             // Calculate discount percentage
             $discountPercentage = 0;
-            if ($course->has_discount) {
-                $discountPercentage = round((($course->price - $course->discount_price) / $course->price) * 100, 2);
-            }
 
             // Check if user has purchased the course
             $isPurchased = false;
@@ -2418,7 +2409,7 @@ class CourseApiController extends Controller
                 }
 
                 if ($isInvitor) {
-                    // Auth user is invitor: fetch courses owned by team_user and assigned to auth user
+                    // Auth user is invitor: fetch courses owned by team_user and assigned to auth
                     // course_instructors.user_id = auth user
                     // courses.user_id = team_user
                     $courseIds = DB::table('course_instructors')
@@ -5637,15 +5628,6 @@ class CourseApiController extends Controller
                         // Remove patterns like "Chapter 1:", "Chapter 2:", etc.
                         $currentChapterName = preg_replace('/^Chapter\s+\d+:\s*/i', '', $currentChapterName);
                         $currentChapterName = trim($currentChapterName);
-                    }
-
-                    // Calculate discount percentage
-                    $discountPercentage = 0;
-                    if ($course->has_discount) {
-                        $discountPercentage = round(
-                            (($course->price - $course->discount_price) / $course->price) * 100,
-                            2,
-                        );
                     }
 
                     // Check if wishlisted

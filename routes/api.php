@@ -946,10 +946,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::delete('courses/{courseId}/faqs/{id}', [\App\Http\Controllers\API\Admin\CourseFaqAdminApiController::class, 'destroy']);
 
         // Course Country Prices
-        Route::get('courses/{id}/country-prices', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'index']);
-        Route::post('courses/{id}/country-prices', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'store']);
-        Route::post('courses/{id}/country-prices/bulk', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'bulk']);
-        Route::delete('courses/{id}/country-prices/{country_code}', [\App\Http\Controllers\API\Admin\CourseCountryPricesAdminController::class, 'destroy']);
+
 
         // Instructors
         Route::get('instructors', [\App\Http\Controllers\API\Admin\InstructorAdminApiController::class, 'index']);

@@ -32,8 +32,6 @@ class Course extends Model
         'level',
         'course_type',
         'status',
-        'price',
-        'discount_price',
         'category_id',
         'is_active',
         'sequential_access',
@@ -67,8 +65,6 @@ class Course extends Model
         'certificate_enabled' => 'boolean',
         'is_free' => 'boolean',
         'is_free_until' => 'datetime',
-        'price' => 'decimal:2',
-        'discount_price' => 'decimal:2',
         'certificate_fee' => 'decimal:2',
         'is_featured' => 'boolean',
         'chatbot_enabled' => 'boolean',
@@ -78,7 +74,7 @@ class Course extends Model
         'initial_rating' => 'decimal:1',
     ];
 
-    protected $appends = ['total_tax_percentage', 'display_price', 'display_discount_price', 'tax_amount'];
+    protected $appends = ['total_tax_percentage', 'tax_amount'];
 
     protected $with = ['taxes'];
 
@@ -198,7 +194,7 @@ class Course extends Model
      */
     public function getHasDiscountAttribute()
     {
-        return !is_null($this->discount_price) && $this->discount_price < $this->price;
+        return false;
     }
 
     public function getThumbnailAttribute($value)
@@ -267,31 +263,16 @@ class Course extends Model
 
     public function getDisplayPriceAttribute()
     {
-        // Tax is always exclusive - return base price from database
-        $price = $this->price ?? 0;
-        return round($price, 2);
+        return 0;
     }
 
     public function getDisplayDiscountPriceAttribute()
     {
-        // Tax is always exclusive - return base discount price from database
-        $discountPrice = $this->discount_price ?? 0;
-        return round($discountPrice, 2);
+        return 0;
     }
 
     public function getTaxAmountAttribute()
     {
-        // Tax is always exclusive - calculate tax on base price
-        $totalTaxPercentage = $this->getTotalTaxPercentageAttribute();
-
-        // Use discount_price if available, otherwise use price
-        $basePrice = $this->discount_price ?? $this->price ?? 0;
-
-        if ($totalTaxPercentage > 0 && $basePrice > 0) {
-            // Calculate tax amount from base price (exclusive)
-            return round(($basePrice * $totalTaxPercentage) / 100, 2);
-        }
-
         return 0;
     }
 
@@ -352,10 +333,7 @@ class Course extends Model
         return $this->hasMany(\App\Models\CourseView::class);
     }
 
-    public function countryPrices()
-    {
-        return $this->hasMany(CourseCountryPrice::class);
-    }
+
 
     public function getViewCountAttribute()
     {
