@@ -154,7 +154,6 @@ class HomeApiController extends Controller
                             });
                     });
             });
-                        });
 
                     if ($request->filled('course_type')) {
                         $query->whereIn('course_type', explode(',', $request->course_type));
@@ -193,7 +192,6 @@ class HomeApiController extends Controller
                             });
                     });
             });
-                        });
 
                     if ($request->filled('course_type')) {
                         $query->whereIn('course_type', explode(',', $request->course_type));

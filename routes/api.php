@@ -159,6 +159,7 @@ Route::prefix('subscription')->group(function (): void {
         Route::get('/payment-methods', [SubscriptionApiController::class, 'getPaymentMethods']);
         Route::get('/my-subscription', [SubscriptionApiController::class, 'getMySubscription']);
         Route::post('/subscribe', [SubscriptionApiController::class, 'subscribe'])->middleware('throttle:10,1');
+        Route::post('/validate-promo', [SubscriptionApiController::class, 'validatePromoCode'])->middleware('throttle:10,1');
         Route::post('/renew', [SubscriptionApiController::class, 'renew'])->middleware('throttle:10,1');
         Route::post('/cancel', [SubscriptionApiController::class, 'cancel']);
         Route::get('/history', [SubscriptionApiController::class, 'getHistory']);

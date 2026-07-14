@@ -148,7 +148,12 @@ final class PricingService
 
     private function getCurrencySymbol(string $currencyCode): string
     {
-        $currency = SupportedCurrency::where('currency_code', strtoupper($currencyCode))->first();
+        $currencyCode = strtoupper($currencyCode);
+        if ($currencyCode === 'EGP') {
+            return 'ج.م';
+        }
+
+        $currency = SupportedCurrency::where('currency_code', $currencyCode)->first();
 
         return $currency?->currency_symbol ?? $currencyCode;
     }

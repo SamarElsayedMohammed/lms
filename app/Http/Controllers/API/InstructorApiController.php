@@ -1474,15 +1474,13 @@ class InstructorApiController extends Controller
             // Count only active courses with at least 1 active curriculum item
             $activeCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
-                ->where('approval_status', 'approved');
-                })
+                ->where('approval_status', 'approved')
                 ->count();
 
             // Count only published courses with at least 1 active curriculum item
             $publishedCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
-                ->where('approval_status', 'approved');
-                })
+                ->where('approval_status', 'approved')
                 ->count();
 
             $studentEnrolledCount = \App\Models\OrderCourse::whereHas('course', static fn($q) => $q->where(
@@ -1636,8 +1634,7 @@ class InstructorApiController extends Controller
             // Get published courses count (consistent with get-instructors API - only courses with active curriculum)
             $publishedCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
-                ->where('approval_status', 'approved');
-                })
+                ->where('approval_status', 'approved')
                 ->count();
 
             // Get authenticated user's review for this instructor (before fetching ratings list)

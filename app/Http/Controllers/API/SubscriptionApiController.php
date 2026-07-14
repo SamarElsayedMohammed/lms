@@ -241,22 +241,48 @@ final class SubscriptionApiController extends Controller
     /**
      * Get available payment methods for subscription
      */
-    public function getPaymentMethods(): JsonResponse
+    public function getPaymentMethods(Request $request): JsonResponse
     {
         try {
-            $manualMethods = \App\Models\PaymentMethod::where('is_active', true)->get()->map(function ($method) {
+            $user = \Illuminate\Support\Facades\Auth::user();
+            $countryCode = $user?->country_code ?? $this->countryDetectionService->detect($request);
+
+            $query = \App\Models\ManualDepositMethod::where('is_active', true);
+
+            if ($countryCode) {
+                $query->where(function ($q) use ($countryCode) {
+                    $q->whereJsonContains('countries', $countryCode)
+                      ->orWhereNull('countries')
+                      ->orWhere('countries', '[]');
+                });
+            }
+
+            $manualMethods = $query->get()->map(function ($method) {
+                $details = is_string($method->account_details) ? json_decode($method->account_details, true) : $method->account_details;
                 return [
                     'id' => $method->id,
                     'name' => $method->name,
+                    'type' => $details['type'] ?? 'bank_transfer',
                     'description' => $method->instructions,
+                    'instructions' => $method->instructions,
                     'details' => [
-                        'type' => $method->type,
-                        'account_name' => $method->account_name,
-                        'account_number' => $method->account_number,
-                        'instapay_id' => $method->instapay_id,
-                        'merchant_code' => $method->merchant_code,
+                        'type' => $details['type'] ?? 'bank_transfer',
+                        'account_name' => $details['account_name'] ?? null,
+                        'account_number' => $details['account_number'] ?? null,
+                        'instapay_id' => $details['instapay_id'] ?? null,
+                        'merchant_code' => $details['merchant_code'] ?? null,
                     ],
-                    'image' => $method->logo,
+                    'account_name' => $details['account_name'] ?? null,
+                    'account_number' => $details['account_number'] ?? null,
+                    'instapay_id' => $details['instapay_id'] ?? null,
+                    'merchant_code' => $details['merchant_code'] ?? null,
+                    'image' => $method->image,
+                    'currency' => $method->currency,
+                    'min_amount' => $method->min_amount,
+                    'max_amount' => $method->max_amount,
+                    'fixed_fee' => $method->fixed_fee,
+                    'percent_fee' => $method->percent_fee,
+                    'dynamic_fields' => $method->dynamic_fields,
                 ];
             });
 
@@ -272,6 +298,70 @@ final class SubscriptionApiController extends Controller
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve payment methods: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Validate promo code for subscription
+     */
+    public function validatePromoCode(Request $request): JsonResponse
+    {
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'promo_code' => 'required|string|max:50',
+            'plan_id' => 'required|exists:subscription_plans,id'
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors()->first());
+        }
+
+        $promo = \App\Models\PromoCode::with('subscriptionPlans')
+            ->where('status', 1)
+            ->where('promo_code', $request->promo_code)
+            ->first();
+
+        if (!$promo) {
+            return ApiResponseService::validationError('كود الخصم غير صالح.');
+        }
+
+        if (
+            ($promo->start_date && $promo->start_date > now()) ||
+            ($promo->end_date && $promo->end_date < now())
+        ) {
+            return ApiResponseService::validationError('كود الخصم منتهي الصلاحية أو لم يبدأ بعد.');
+        }
+
+        if ($promo->subscriptionPlans->isNotEmpty() && !$promo->subscriptionPlans->contains('id', $request->plan_id)) {
+            return ApiResponseService::validationError('كود الخصم غير صالح لهذه الباقة.');
+        }
+        
+        if ($promo->no_of_users !== null && $promo->no_of_users <= 0) {
+            return ApiResponseService::validationError('كود الخصم وصل للحد الأقصى من المستخدمين.');
+        }
+
+        $user = \Illuminate\Support\Facades\Auth::guard('sanctum')->user();
+        $plan = \App\Models\SubscriptionPlan::find($request->plan_id);
+
+        $countryCode = $user?->country_code ?? $this->countryDetectionService->detect($request);
+        $countryPricing = collect($plan->country_pricing)->firstWhere('country', $countryCode);
+        $resolvedCurrency = $countryPricing['currency'] ?? 'EGP';
+        $originalAmount = (float) ($countryPricing['price'] ?? $plan->price);
+
+        if ($promo->discount_type === 'percentage') {
+            $discountAmount = round($originalAmount * ($promo->discount / 100), 2);
+        } else {
+            $discountAmount = $this->pricingService->convertFromEgp($promo->discount, $resolvedCurrency);
+            $discountAmount = min($discountAmount, $originalAmount);
+        }
+
+        $totalAmount = max($originalAmount - $discountAmount, 0);
+
+        return ApiResponseService::successResponse('Promo code is valid', [
+            'discount_amount' => $discountAmount,
+            'total_amount' => $totalAmount,
+            'currency' => $resolvedCurrency,
+            'discount_type' => $promo->discount_type,
+            'discount_value' => $promo->discount
+        ]);
     }
 
     /**
@@ -330,36 +420,48 @@ final class SubscriptionApiController extends Controller
             $discountAmount = 0;
             $appliedPromoCode = null;
 
-            // Apply promo code discount from active popup campaigns
+            // Apply promo code discount from PromoCode
             if ($request->filled('promo_code')) {
-                $campaign = \App\Models\PopupCampaign::where('is_active', true)
+                $promo = \App\Models\PromoCode::with('subscriptionPlans')
+                    ->where('status', 1)
                     ->where('promo_code', $request->promo_code)
                     ->first();
 
-                if (!$campaign) {
+                if (!$promo) {
                     return ApiResponseService::validationError('كود الخصم غير صالح.');
                 }
 
                 // Expiry Check
                 if (
-                    ($campaign->starts_at && $campaign->starts_at > now()) ||
-                    ($campaign->ends_at && $campaign->ends_at < now())
+                    ($promo->start_date && $promo->start_date > now()) ||
+                    ($promo->end_date && $promo->end_date < now())
                 ) {
                     return ApiResponseService::validationError('كود الخصم منتهي الصلاحية أو لم يبدأ بعد.');
                 }
+                
+                if ($promo->subscriptionPlans->isNotEmpty() && !$promo->subscriptionPlans->contains('id', $request->plan_id)) {
+                    return ApiResponseService::validationError('كود الخصم غير صالح لهذه الباقة.');
+                }
+                
+                if ($promo->no_of_users !== null && $promo->no_of_users <= 0) {
+                    return ApiResponseService::validationError('كود الخصم وصل للحد الأقصى من المستخدمين.');
+                }
 
-                // In a fully featured system we'd check usage limits and plan restrictions here if they were added to PopupCampaign.
                 // For now we enforce currency compatibility.
-                if ($campaign->discount_type === 'percentage') {
-                    $discountAmount = round($originalAmount * ($campaign->discount_value / 100), 2);
+                if ($promo->discount_type === 'percentage') {
+                    $discountAmount = round($originalAmount * ($promo->discount / 100), 2);
                 } else {
                     // Fixed amount discount is typically in the base currency (EGP).
                     // We must convert it to the user's resolved currency to ensure compatibility.
-                    $discountAmount = $this->pricingService->convertFromEgp($campaign->discount_value, $resolvedCurrency);
+                    $discountAmount = $this->pricingService->convertFromEgp($promo->discount, $resolvedCurrency);
                     $discountAmount = min($discountAmount, $originalAmount);
                 }
 
-                $appliedPromoCode = $campaign->promo_code;
+                $appliedPromoCode = $promo->promo_code;
+                
+                if ($promo->no_of_users !== null) {
+                    $promo->decrement('no_of_users');
+                }
             }
 
             $totalAmount = max($originalAmount - $discountAmount, 0);

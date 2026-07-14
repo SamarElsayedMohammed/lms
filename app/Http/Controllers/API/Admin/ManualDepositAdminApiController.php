@@ -65,6 +65,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'image_url' => 'nullable|url|max:2048',
             'instructions' => 'nullable|string',
             'countries' => 'nullable|array',
             'countries.*' => 'nullable|string|max:10',
@@ -102,6 +103,8 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndUpload($request->file('image'), $this->methodFolder);
+        } elseif ($request->filled('image_url')) {
+            $data['image'] = $request->input('image_url');
         }
 
         $method = ManualDepositMethod::create($data);
@@ -122,6 +125,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'image_url' => 'nullable|url|max:2048',
             'instructions' => 'nullable|string',
             'countries' => 'nullable|array',
             'countries.*' => 'nullable|string|max:10',
@@ -159,6 +163,8 @@ class ManualDepositAdminApiController extends AdminCrudApiController
 
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndReplace($request->file('image'), $this->methodFolder, $method->getRawOriginal('image'));
+        } elseif ($request->filled('image_url')) {
+            $data['image'] = $request->input('image_url');
         }
 
         $method->update($data);

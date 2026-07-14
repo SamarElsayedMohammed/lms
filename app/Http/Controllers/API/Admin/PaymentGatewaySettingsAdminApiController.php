@@ -18,7 +18,7 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
      */
     public function index(Request $request)
     {
-        $this->checkPermission('settings-payment-list');
+        $this->checkPermission('settings-payment-gateway-list');
         
         $settings = Setting::whereIn('name', array_map(fn($g) => "payment_gateway_{$g}", $this->supportedGateways))
             ->get()
@@ -40,7 +40,7 @@ class PaymentGatewaySettingsAdminApiController extends AdminCrudApiController
      */
     public function update(Request $request)
     {
-        $this->checkPermission('settings-payment-edit');
+        $this->checkPermission('settings-payment-gateway-edit');
 
         $request->validate([
             'gateway' => 'required|string|in:' . implode(',', $this->supportedGateways),
