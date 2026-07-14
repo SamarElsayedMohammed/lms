@@ -158,8 +158,8 @@ Route::prefix('subscription')->group(function (): void {
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/payment-methods', [SubscriptionApiController::class, 'getPaymentMethods']);
         Route::get('/my-subscription', [SubscriptionApiController::class, 'getMySubscription']);
-        Route::post('/subscribe', [SubscriptionApiController::class, 'subscribe']);
-        Route::post('/renew', [SubscriptionApiController::class, 'renew']);
+        Route::post('/subscribe', [SubscriptionApiController::class, 'subscribe'])->middleware('throttle:10,1');
+        Route::post('/renew', [SubscriptionApiController::class, 'renew'])->middleware('throttle:10,1');
         Route::post('/cancel', [SubscriptionApiController::class, 'cancel']);
         Route::get('/history', [SubscriptionApiController::class, 'getHistory']);
         Route::post('/settings', [SubscriptionApiController::class, 'updateSettings']);
@@ -423,7 +423,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Manual Deposits
         Route::get('/manual-deposits/methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
         Route::get('/deposit-methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
-        Route::post('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit']);
+        Route::post('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit'])->middleware('throttle:10,1');
     });
 
     // rating_reviews
@@ -923,6 +923,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::get('permissions', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'permissions']);
         });
 
+        // Payment Methods (Admin)
+        Route::prefix('payment-methods')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'store']);
+            Route::put('/{id}', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'update']);
+            Route::delete('/{id}', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'destroy']);
+        });
+
         // Manual Deposit Methods & Requests (Admin)
         Route::prefix('manual-deposits')->group(function (): void {
             Route::get('methods', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'indexMethods']);
@@ -1071,6 +1079,13 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
         Route::get('withdrawal-requests', [FinanceApiController::class, 'getWithdrawalRequests']); // Instructor
 
         // Admin Withdrawal Management APIs
+        Route::get('admin/wallet/withdrawal-methods', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'index']);
+        Route::post('admin/wallet/withdrawal-methods', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'store']);
+        Route::put('admin/wallet/withdrawal-methods/{id}', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'update']);
+        Route::put('admin/wallet/withdrawal-methods/{id}/toggle', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'toggle']);
+        Route::post('admin/wallet/withdrawal-methods/{id}/archive', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'archive']);
+        Route::patch('admin/wallet/withdrawal-methods/{id}/archive', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'archive']);
+
         Route::get('admin/withdrawal-requests', [FinanceApiController::class, 'getAdminWithdrawalRequests']); // Admin
         Route::post('admin/withdrawal-request/update-status', [
             FinanceApiController::class,

@@ -56,7 +56,10 @@ class ManualDepositApiController extends Controller
             'method_id' => 'required|exists:manual_deposit_methods,id',
             'amount' => 'required|numeric|min:1',
             'transaction_id' => 'nullable|string|max:255',
-            'receipt' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'receipt' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'submitted_fields' => 'nullable|string',
+            'submitted_files' => 'nullable|array',
+            'submitted_files.*' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf,doc,docx|max:5120'
         ]);
 
         if ($validator->fails()) {
@@ -65,13 +68,87 @@ class ManualDepositApiController extends Controller
 
         $user = Auth::user();
         
+        $hasPending = ManualDeposit::where('user_id', $user->id)
+            ->where('manual_deposit_method_id', $request->method_id)
+            ->where('status', 'pending')
+            ->exists();
+        
+        if ($hasPending) {
+            return ApiResponseService::errorResponse('You already have a pending deposit request. Please wait for it to be processed.');
+        }
+
         $method = ManualDepositMethod::find($request->method_id);
         if (!$method || !$method->is_active) {
             return ApiResponseService::errorResponse('This payment method is not available.');
         }
 
+        if ($method->min_amount > 0 && $request->amount < $method->min_amount) {
+            return ApiResponseService::errorResponse("The minimum deposit amount is {$method->min_amount}.");
+        }
+
+        if ($method->max_amount > 0 && $request->amount > $method->max_amount) {
+            return ApiResponseService::errorResponse("The maximum deposit amount is {$method->max_amount}.");
+        }
+
         try {
-            $receiptPath = FileService::compressAndUpload($request->file('receipt'), $this->receiptFolder, 'public');
+            $receiptPath = null;
+            if ($request->hasFile('receipt')) {
+                $receiptPath = FileService::compressAndUpload($request->file('receipt'), $this->receiptFolder, 'public');
+            }
+
+            $submittedFields = [];
+            if ($request->filled('submitted_fields')) {
+                $submittedFields = json_decode($request->input('submitted_fields'), true) ?: [];
+                
+                // Validate dynamic fields against schema
+                $dynamicFieldsSchema = is_string($method->dynamic_fields) ? json_decode($method->dynamic_fields, true) : ($method->dynamic_fields ?: []);
+                $validatedSubmittedFields = [];
+                
+                foreach ($dynamicFieldsSchema as $fieldDef) {
+                    $defId = $fieldDef['id'] ?? $fieldDef['name'] ?? null;
+                    if (!$defId) continue;
+                    
+                    // Find the submitted field by ID or Label
+                    $submittedField = collect($submittedFields)->first(function ($f) use ($defId, $fieldDef) {
+                        return ($f['fieldId'] ?? $f['field_id'] ?? '') == $defId 
+                            || ($f['fieldLabel'] ?? $f['field_name'] ?? '') == ($fieldDef['label'] ?? '');
+                    });
+
+                    // Check if required
+                    $files = $request->file('submitted_files') ?: [];
+                    $hasFile = isset($files[$defId]) || isset($files[$fieldDef['name'] ?? '']);
+                    if (!empty($fieldDef['required']) && empty($submittedField['value']) && !$hasFile) {
+                        return ApiResponseService::errorResponse("Field {$fieldDef['label']} is required.");
+                    }
+
+                    if ($submittedField || $hasFile) {
+                        if (!$submittedField) {
+                            $submittedField = [
+                                'fieldId' => $defId,
+                                'fieldLabel' => $fieldDef['label'] ?? '',
+                                'fieldType' => $fieldDef['type'] ?? 'text',
+                                'value' => null
+                            ];
+                        }
+                        $validatedSubmittedFields[] = $submittedField;
+                    }
+                }
+                $submittedFields = $validatedSubmittedFields;
+                
+                // Handle files if any
+                if ($request->hasFile('submitted_files')) {
+                    $files = $request->file('submitted_files');
+                    foreach ($files as $fieldId => $file) {
+                        $filePath = FileService::compressAndUpload($file, $this->receiptFolder, 'public');
+                        // Update the corresponding field in submittedFields
+                        foreach ($submittedFields as &$field) {
+                            if (($field['fieldId'] ?? $field['field_id'] ?? '') == $fieldId || ($field['field_name'] ?? '') == $fieldId) {
+                                $field['value'] = $filePath;
+                            }
+                        }
+                    }
+                }
+            }
 
             $deposit = ManualDeposit::create([
                 'user_id' => $user->id,
@@ -79,6 +156,7 @@ class ManualDepositApiController extends Controller
                 'amount' => $request->amount,
                 'transaction_id' => $request->transaction_id,
                 'receipt' => $receiptPath,
+                'submitted_fields' => $submittedFields,
                 'status' => 'pending',
             ]);
 

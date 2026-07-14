@@ -1152,13 +1152,7 @@ class OrderApiController extends Controller
                     'message' => 'Payment successful via 100% discount coupon',
                 ]);
 
-                // Decrement promo code usage
-                if ($order->promo_code_id) {
-                    PromoCode::where('id', $order->promo_code_id)
-                        ->whereNotNull('no_of_users')
-                        ->where('no_of_users', '>', 0)
-                        ->decrement('no_of_users', 1);
-                }
+
 
                 // Create curriculum tracking entries
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);
@@ -1237,13 +1231,7 @@ class OrderApiController extends Controller
                     'transaction_id' => $transactionId,
                 ]);
 
-                // Decrement promo code usage if promo code was used (Buy Now)
-                if ($order->promo_code_id) {
-                    PromoCode::where('id', $order->promo_code_id)
-                        ->whereNotNull('no_of_users')
-                        ->where('no_of_users', '>', 0)
-                        ->decrement('no_of_users', 1);
-                }
+
 
                 // Create curriculum tracking entries
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);
@@ -1535,18 +1523,7 @@ class OrderApiController extends Controller
                     'message' => 'Payment successful via 100% discount coupon',
                 ]);
 
-                // Decrement promo code usage for cart orders (per-course promo codes)
-                $usedPromoCodeIds = OrderCourse::where('order_id', $order->id)
-                    ->whereNotNull('promo_code_id')
-                    ->pluck('promo_code_id')
-                    ->unique();
 
-                foreach ($usedPromoCodeIds as $promoCodeId) {
-                    PromoCode::where('id', $promoCodeId)
-                        ->whereNotNull('no_of_users')
-                        ->where('no_of_users', '>', 0)
-                        ->decrement('no_of_users', 1);
-                }
 
                 // Create curriculum tracking entries
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);
@@ -1628,18 +1605,7 @@ class OrderApiController extends Controller
                     'transaction_id' => $transactionId,
                 ]);
 
-                // Decrement promo code usage for cart orders (per-course promo codes)
-                $usedPromoCodeIds = OrderCourse::where('order_id', $order->id)
-                    ->whereNotNull('promo_code_id')
-                    ->pluck('promo_code_id')
-                    ->unique();
 
-                foreach ($usedPromoCodeIds as $promoCodeId) {
-                    PromoCode::where('id', $promoCodeId)
-                        ->whereNotNull('no_of_users')
-                        ->where('no_of_users', '>', 0)
-                        ->decrement('no_of_users', 1);
-                }
 
                 // Create curriculum tracking entries
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);

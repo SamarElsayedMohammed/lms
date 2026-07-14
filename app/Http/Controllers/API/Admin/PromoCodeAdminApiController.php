@@ -96,6 +96,8 @@ class PromoCodeAdminApiController extends AdminCrudApiController
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
             'no_of_users' => 'nullable|integer|min:0',
+            'repeat_usage' => 'boolean',
+            'no_of_repeat_usage' => 'nullable|integer|min:0',
             'discount' => 'required|numeric|min:0',
             'discount_type' => 'required|in:percentage,fixed,amount',
             'subscription_plan_ids' => 'nullable|array',
@@ -117,8 +119,8 @@ class PromoCodeAdminApiController extends AdminCrudApiController
             $data['discount_type'] = 'amount';
         }
         $data['user_id'] = Auth::id();
-        $data['repeat_usage'] = $request->boolean('repeat_usage', false);
-        $data['no_of_repeat_usage'] = $request->input('no_of_repeat_usage', 0);
+        $data['repeat_usage'] = $data['repeat_usage'] ?? false;
+        $data['no_of_repeat_usage'] = $data['no_of_repeat_usage'] ?? 0;
         $data['status'] = $request->boolean('status', true);
         $planIds = $data['subscription_plan_ids'] ?? $data['plan_ids'] ?? [];
         unset($data['subscription_plan_ids'], $data['plan_ids']);
@@ -147,6 +149,8 @@ class PromoCodeAdminApiController extends AdminCrudApiController
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
             'no_of_users' => 'nullable|integer|min:0',
+            'repeat_usage' => 'boolean',
+            'no_of_repeat_usage' => 'nullable|integer|min:0',
             'discount' => 'required|numeric|min:0',
             'discount_type' => 'required|in:percentage,fixed,amount',
             'subscription_plan_ids' => 'nullable|array',
@@ -167,6 +171,9 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         if (($data['discount_type'] ?? null) === 'fixed') {
             $data['discount_type'] = 'amount';
         }
+        $data['repeat_usage'] = $data['repeat_usage'] ?? false;
+        $data['no_of_repeat_usage'] = $data['no_of_repeat_usage'] ?? 0;
+        
         $planIds = $data['subscription_plan_ids'] ?? $data['plan_ids'] ?? [];
         unset($data['subscription_plan_ids'], $data['plan_ids']);
         $data['status'] = $request->boolean('status', $promoCode->status);

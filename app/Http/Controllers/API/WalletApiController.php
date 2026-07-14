@@ -401,7 +401,7 @@ class WalletApiController extends Controller
 
             $validator = Validator::make($validationData, [
                 'amount' => 'required|numeric|min:1|max:999999.99',
-                'payment_method' => 'required|string|in:bank_transfer,paypal,stripe,razorpay',
+                'payment_method' => 'required|string|exists:withdrawal_methods,code',
                 'payment_details' => 'required|array|min:1',
                 'notes' => 'nullable|string|max:500',
             ]);
@@ -437,8 +437,20 @@ class WalletApiController extends Controller
                 );
             }
 
+            $withdrawalMethod = \App\Models\WithdrawalMethod::where('code', $request->payment_method)->where('is_active', true)->first();
+            if (!$withdrawalMethod) {
+                return ApiResponseService::validationError('طريقة السحب المحددة غير متاحة حالياً.');
+            }
+
+            if ($amount < $withdrawalMethod->min_amount) {
+                return ApiResponseService::validationError("عذراً، الحد الأدنى للسحب هو {$withdrawalMethod->min_amount} {$withdrawalMethod->currency}");
+            }
+            if ($amount > $withdrawalMethod->max_amount) {
+                return ApiResponseService::validationError("عذراً، الحد الأقصى للسحب هو {$withdrawalMethod->max_amount} {$withdrawalMethod->currency}");
+            }
+
             // Validate payment details based on method
-            $paymentDetails = $this->validatePaymentDetails($request->payment_method, $paymentDetailsInput);
+            $paymentDetails = $this->validatePaymentDetails($withdrawalMethod, $paymentDetailsInput);
             if (!$paymentDetails['valid']) {
                 return ApiResponseService::validationError($paymentDetails['message']);
             }
@@ -571,48 +583,23 @@ class WalletApiController extends Controller
      */
     public function getWithdrawalMethods(Request $request)
     {
-        // Currently returning static methods as per validatePaymentDetails
-        $methods = [
-            [
-                'id' => 'bank_transfer',
-                'name' => 'Bank Transfer',
-                'description' => 'Direct transfer to your bank account',
-                'fields' => [
-                    ['name' => 'account_holder_name', 'label' => 'Account Holder Name', 'type' => 'text', 'required' => true],
-                    ['name' => 'account_number', 'label' => 'Account Number', 'type' => 'text', 'required' => true],
-                    ['name' => 'bank_name', 'label' => 'Bank Name', 'type' => 'text', 'required' => true],
-                    ['name' => 'other_details', 'label' => 'Other Details (e.g. routing number)', 'type' => 'text', 'required' => true],
-                ],
-                'is_active' => true,
-            ],
-            [
-                'id' => 'paypal',
-                'name' => 'PayPal',
-                'description' => 'Transfer to your PayPal account',
-                'fields' => [
-                    ['name' => 'paypal_email', 'label' => 'PayPal Email', 'type' => 'email', 'required' => true],
-                ],
-                'is_active' => true,
-            ],
-            [
-                'id' => 'stripe',
-                'name' => 'Stripe',
-                'description' => 'Transfer to your Stripe account',
-                'fields' => [
-                    ['name' => 'stripe_account_id', 'label' => 'Stripe Account ID', 'type' => 'text', 'required' => true],
-                ],
-                'is_active' => true,
-            ],
-            [
-                'id' => 'razorpay',
-                'name' => 'Razorpay',
-                'description' => 'Transfer to your Razorpay account',
-                'fields' => [
-                    ['name' => 'razorpay_account_id', 'label' => 'Razorpay Account ID', 'type' => 'text', 'required' => true],
-                ],
-                'is_active' => true,
-            ]
-        ];
+        $methods = \App\Models\WithdrawalMethod::where('is_active', true)->get()->map(function ($method) {
+            return [
+                'id' => (string) $method->id,
+                'name' => $method->name,
+                'code' => $method->code,
+                'currency' => $method->currency,
+                'min_amount' => $method->min_amount,
+                'max_amount' => $method->max_amount,
+                'fixed_fee' => $method->fixed_fee,
+                'percent_fee' => $method->percent_fee,
+                'estimated_delay' => $method->estimated_delay,
+                'description' => $method->description,
+                'fields' => $method->dynamic_fields ?? [],
+                'is_active' => $method->is_active,
+                'image' => $method->image,
+            ];
+        });
 
         return ApiResponseService::successResponse('Withdrawal methods retrieved successfully', $methods);
     }
@@ -720,34 +707,27 @@ class WalletApiController extends Controller
     }
 
     /**
-     * Validate payment details based on payment method
+     * Validate payment details based on method dynamic fields
      */
-    private function validatePaymentDetails($paymentMethod, $paymentDetails)
+    private function validatePaymentDetails($withdrawalMethod, $details)
     {
-        switch ($paymentMethod) {
-            case 'bank_transfer':
-                // Renamed IFSC to other_details as requested
-                $required = ['account_holder_name', 'account_number', 'bank_name', 'other_details'];
-                break;
-            case 'paypal':
-                $required = ['paypal_email'];
-                break;
-            case 'stripe':
-                $required = ['stripe_account_id'];
-                break;
-            case 'razorpay':
-                $required = ['razorpay_account_id'];
-                break;
-            default:
-                return ['valid' => false, 'message' => 'Invalid payment method'];
+        if (empty($withdrawalMethod->dynamic_fields)) {
+            return ['valid' => true, 'message' => ''];
         }
 
-        foreach ($required as $field) {
-            if (!isset($paymentDetails[$field]) || empty($paymentDetails[$field])) {
-                return ['valid' => false, 'message' => "Missing required field: {$field}"];
+        foreach ($withdrawalMethod->dynamic_fields as $field) {
+            $fieldName = $field['name'];
+            $isRequired = $field['required'] ?? false;
+            $label = $field['label'] ?? $fieldName;
+
+            if ($isRequired && (!isset($details[$fieldName]) || trim((string)$details[$fieldName]) === '')) {
+                return [
+                    'valid' => false,
+                    'message' => "The field '{$label}' is required for this withdrawal method.",
+                ];
             }
         }
 
-        return ['valid' => true];
+        return ['valid' => true, 'message' => ''];
     }
 }

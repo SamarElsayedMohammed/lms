@@ -244,14 +244,19 @@ final class SubscriptionApiController extends Controller
     public function getPaymentMethods(): JsonResponse
     {
         try {
-            $manualMethods = \App\Models\ManualDepositMethod::where('is_active', true)->get()->map(function ($method) {
-                $details = json_decode($method->account_details, true) ?: [];
+            $manualMethods = \App\Models\PaymentMethod::where('is_active', true)->get()->map(function ($method) {
                 return [
                     'id' => $method->id,
                     'name' => $method->name,
                     'description' => $method->instructions,
-                    'details' => $details,
-                    'image' => $method->image,
+                    'details' => [
+                        'type' => $method->type,
+                        'account_name' => $method->account_name,
+                        'account_number' => $method->account_number,
+                        'instapay_id' => $method->instapay_id,
+                        'merchant_code' => $method->merchant_code,
+                    ],
+                    'image' => $method->logo,
                 ];
             });
 
@@ -291,7 +296,7 @@ final class SubscriptionApiController extends Controller
                 'payment_method' => 'nullable|string',
                 'use_wallet' => 'nullable|boolean',
                 'promo_code' => 'nullable|string|max:50',
-                'manual_deposit_method_id' => 'required_if:payment_method,manual|exists:manual_deposit_methods,id',
+                'payment_method_id' => 'required_if:payment_method,manual|exists:payment_methods,id',
                 'receipt' => 'required_if:payment_method,manual|image|mimes:jpeg,png,jpg,webp|max:5120',
                 'transaction_id' => 'nullable|string|max:255',
             ]);
@@ -428,7 +433,7 @@ final class SubscriptionApiController extends Controller
 
             // Manual payment flow
             if ($request->payment_method === 'manual') {
-                $method = \App\Models\ManualDepositMethod::find($request->manual_deposit_method_id);
+                $method = \App\Models\PaymentMethod::find($request->payment_method_id);
                 if (!$method || !$method->is_active) {
                     return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
                 }
@@ -477,7 +482,7 @@ final class SubscriptionApiController extends Controller
                         'resolved_country' => $countryCode,
                         'currency_code' => $resolvedCurrency,
                         'price_source' => $countryPricing['price_source'] ?? 'default',
-                        'manual_deposit_method_id' => $request->manual_deposit_method_id,
+                        'payment_method_id' => $request->payment_method_id,
                         'receipt' => $receiptPath,
                         'transaction_id' => $request->transaction_id,
                         'promo_code' => $appliedPromoCode,
@@ -705,7 +710,7 @@ final class SubscriptionApiController extends Controller
 
             // Manual payment flow
             if ($request->payment_method === 'manual') {
-                $method = \App\Models\ManualDepositMethod::find($request->manual_deposit_method_id);
+                $method = \App\Models\PaymentMethod::find($request->payment_method_id);
                 if (!$method || !$method->is_active) {
                     return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
                 }
@@ -751,7 +756,7 @@ final class SubscriptionApiController extends Controller
                         'resolved_country' => $countryCode,
                         'currency_code' => $resolvedCurrency,
                         'price_source' => $countryPricing['price_source'] ?? 'default',
-                        'manual_deposit_method_id' => $request->manual_deposit_method_id,
+                        'payment_method_id' => $request->payment_method_id,
                         'receipt' => $receiptPath,
                         'transaction_id' => $request->transaction_id,
                         'paid_at' => null,

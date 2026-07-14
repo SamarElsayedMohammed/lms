@@ -1474,50 +1474,14 @@ class InstructorApiController extends Controller
             // Count only active courses with at least 1 active curriculum item
             $activeCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
-                ->where('approval_status', 'approved')
-                ->whereHas('chapters', static function ($chapterQuery): void {
-                    $chapterQuery
-                        ->where('is_active', true)
-                        ->where(static function ($curriculumQuery): void {
-                            $curriculumQuery
-                                ->whereHas('lectures', static function ($lectureQuery): void {
-                                    $lectureQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                    $quizQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                    $assignmentQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('resources', static function ($resourceQuery): void {
-                                    $resourceQuery->where('is_active', true);
-                                });
-                        });
+                ->where('approval_status', 'approved');
                 })
                 ->count();
 
             // Count only published courses with at least 1 active curriculum item
             $publishedCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
-                ->where('approval_status', 'approved')
-                ->whereHas('chapters', static function ($chapterQuery): void {
-                    $chapterQuery
-                        ->where('is_active', true)
-                        ->where(static function ($curriculumQuery): void {
-                            $curriculumQuery
-                                ->whereHas('lectures', static function ($lectureQuery): void {
-                                    $lectureQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                    $quizQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                    $assignmentQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('resources', static function ($resourceQuery): void {
-                                    $resourceQuery->where('is_active', true);
-                                });
-                        });
+                ->where('approval_status', 'approved');
                 })
                 ->count();
 
@@ -1665,50 +1629,14 @@ class InstructorApiController extends Controller
             $activeCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
                 ->where('approval_status', 'approved')
-                ->where('status', 'publish')
-                ->whereHas('chapters', static function ($chapterQuery): void {
-                    $chapterQuery
-                        ->where('is_active', true)
-                        ->where(static function ($curriculumQuery): void {
-                            $curriculumQuery
-                                ->whereHas('lectures', static function ($lectureQuery): void {
-                                    $lectureQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                    $quizQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                    $assignmentQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('resources', static function ($resourceQuery): void {
-                                    $resourceQuery->where('is_active', true);
-                                });
-                        });
+                ->where('status', 'publish');
                 })
                 ->count();
 
             // Get published courses count (consistent with get-instructors API - only courses with active curriculum)
             $publishedCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
-                ->where('approval_status', 'approved')
-                ->whereHas('chapters', static function ($chapterQuery): void {
-                    $chapterQuery
-                        ->where('is_active', true)
-                        ->where(static function ($curriculumQuery): void {
-                            $curriculumQuery
-                                ->whereHas('lectures', static function ($lectureQuery): void {
-                                    $lectureQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                    $quizQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                    $assignmentQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('resources', static function ($resourceQuery): void {
-                                    $resourceQuery->where('is_active', true);
-                                });
-                        });
+                ->where('approval_status', 'approved');
                 })
                 ->count();
 
@@ -1759,25 +1687,7 @@ class InstructorApiController extends Controller
             $coursesList = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
                 ->where('approval_status', 'approved')
-                ->where('status', 'publish')
-                ->whereHas('chapters', static function ($chapterQuery): void {
-                    $chapterQuery
-                        ->where('is_active', true)
-                        ->where(static function ($curriculumQuery): void {
-                            $curriculumQuery
-                                ->whereHas('lectures', static function ($lectureQuery): void {
-                                    $lectureQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                    $quizQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                    $assignmentQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('resources', static function ($resourceQuery): void {
-                                    $resourceQuery->where('is_active', true);
-                                });
-                        });
+                ->where('status', 'publish');
                 })
                 ->with(['category', 'ratings', 'user', 'chapters.lectures'])
                 ->withCount('ratings')

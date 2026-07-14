@@ -111,7 +111,7 @@ class CartApiController extends Controller
                 $promoCodeId = $promoCode->id;
 
                 // Validate promo code using service
-                if (!$this->pricingService->isPromoCodeValid($promoCode)) {
+                if (!$this->pricingService->isPromoCodeValid($promoCode, \Illuminate\Support\Facades\Auth::user())) {
                     if ($promoCode->status != 1) {
                         return ApiResponseService::validationError('Promo code is not active');
                     }
@@ -219,7 +219,7 @@ class CartApiController extends Controller
             $promoCodeId = $promoCode->id;
 
             // Validate promo code using service
-            if (!$this->pricingService->isPromoCodeValid($promoCode)) {
+            if (!$this->pricingService->isPromoCodeValid($promoCode, \Illuminate\Support\Facades\Auth::user())) {
                 if ($promoCode->status != 1) {
                     return ApiResponseService::validationError('Promo code is not active');
                 }
@@ -478,7 +478,7 @@ class CartApiController extends Controller
             }
 
             // Calculate pricing using service
-            $pricing = $this->pricingService->calculateCoursePricing($course, $promoCode, $totalTaxPercentage);
+            $pricing = $this->pricingService->calculateCoursePricing($course, $promoCode, $totalTaxPercentage, null, $user);
 
             // Store for aggregate calculation
             $coursePricingData->push(['pricing' => $pricing, 'course' => $course]);
@@ -572,7 +572,7 @@ class CartApiController extends Controller
         if ($promoCodeId) {
             $promoCode = PromoCode::with(['user.roles', 'courses'])->find($promoCodeId);
 
-            if ($promoCode && $this->pricingService->isPromoCodeValid($promoCode)) {
+            if ($promoCode && $this->pricingService->isPromoCodeValid($promoCode, $user)) {
                 // Check if promo code is applicable to this course
                 $isAdmin = $promoCode->user->roles->contains('name', 'Super Admin');
                 $isInstructor = $promoCode->user->roles->contains('name', 'Instructor');
@@ -594,7 +594,7 @@ class CartApiController extends Controller
         }
 
         // Calculate pricing using service
-        $pricing = $this->pricingService->calculateCoursePricing($course, $promoCode, $totalTaxPercentage);
+        $pricing = $this->pricingService->calculateCoursePricing($course, $promoCode, $totalTaxPercentage, null, $user);
 
         // Build promo discounts if applicable
         if ($pricing['promo_discount'] > 0 && $promoCode) {

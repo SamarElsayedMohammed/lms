@@ -268,8 +268,8 @@ class PromoCodeApiController extends Controller
                 return ApiResponseService::validationError('Promo code not found');
             }
 
-            // Validate promo code using service
-            if (!$this->pricingService->isPromoCodeValid($promo)) {
+            // Check if promo code is valid using the PricingCalculationService
+            if (!$this->pricingService->isPromoCodeValid($promo, \Illuminate\Support\Facades\Auth::user())) {
                 if ($promo->status != 1) {
                     return ApiResponseService::validationError('Promo code is not active');
                 }

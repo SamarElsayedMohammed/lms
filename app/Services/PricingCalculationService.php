@@ -11,6 +11,7 @@ use App\Models\PromoCode;
 use App\Models\Tax;
 use App\Models\Country;
 use App\Models\User;
+use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
@@ -136,6 +137,7 @@ final class PricingCalculationService
         null|PromoCode $promoCode = null,
         null|float $taxPercentage = null,
         null|string $countryCode = null,
+        ?User $user = null,
     ): array {
         return [
             'original_price' => 0,
@@ -165,10 +167,10 @@ final class PricingCalculationService
      *
      * @return array{discount_amount: float, details: array|null}
      */
-    public function calculatePromoDiscount(PromoCode $promoCode, float $subtotal): array
+    public function calculatePromoDiscount(PromoCode $promoCode, float $subtotal, ?User $user = null): array
     {
         // Check if promo code is valid
-        if (!$this->isPromoCodeValid($promoCode)) {
+        if (!$this->isPromoCodeValid($promoCode, $user)) {
             return ['discount_amount' => 0.0, 'details' => null];
         }
 
@@ -205,21 +207,44 @@ final class PricingCalculationService
     /**
      * Check if a promo code is currently valid
      */
-    public function isPromoCodeValid(PromoCode $promoCode): bool
+    public function isPromoCodeValid(PromoCode $promoCode, ?User $user = null): bool
     {
         // Check status
         if ($promoCode->status != 1) {
             return false;
         }
 
-        // Check date range (use today() to compare dates without time component)
+        // Check date range
         if ($promoCode->start_date > today() || $promoCode->end_date < today()) {
             return false;
         }
 
-        // Check usage limit
-        if ($promoCode->no_of_users !== null && $promoCode->no_of_users <= 0) {
-            return false;
+        // Check global usage limit dynamically
+        if ($promoCode->no_of_users !== null) {
+            $globalUsageCount = Order::where('promo_code_id', $promoCode->id)
+                ->whereIn('status', ['completed', 'pending'])
+                ->count();
+            if ($globalUsageCount >= $promoCode->no_of_users) {
+                return false;
+            }
+        }
+
+        // Check per-user usage limit dynamically
+        if ($user !== null) {
+            $userUsageCount = Order::where('promo_code_id', $promoCode->id)
+                ->where('user_id', $user->id)
+                ->whereIn('status', ['completed', 'pending'])
+                ->count();
+                
+            if ($promoCode->repeat_usage && $promoCode->no_of_repeat_usage !== null) {
+                if ($userUsageCount >= $promoCode->no_of_repeat_usage) {
+                    return false;
+                }
+            } elseif (!$promoCode->repeat_usage) {
+                if ($userUsageCount >= 1) {
+                    return false;
+                }
+            }
         }
 
         return true;

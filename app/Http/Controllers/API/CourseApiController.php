@@ -143,30 +143,16 @@ class CourseApiController extends Controller
                             ->whereHas('instructor_details', static function ($instructorQuery): void {
                                 $instructorQuery->where('status', 'approved');
                             })
-                            // OR if user is Admin, allow (Admin doesn't have instructor_details)
+                            // OR if user has admin/staff roles, allow
                             ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->where('name', config('constants.SYSTEM_ROLES.SUPER_ADMIN'));
-                            });
-                    });
-            })
-            // Only return courses that have at least one active chapter with at least one active curriculum item
-            ->whereHas('chapters', static function ($chapterQuery): void {
-                $chapterQuery
-                    ->where('is_active', true)
-                    ->where(static function ($curriculumQuery): void {
-                        // Chapter must have at least one active curriculum item (lecture, quiz, assignment, or resource)
-                        $curriculumQuery
-                            ->whereHas('lectures', static function ($lectureQuery): void {
-                                $lectureQuery->where('is_active', true);
-                            })
-                            ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                $quizQuery->where('is_active', true);
-                            })
-                            ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                $assignmentQuery->where('is_active', true);
-                            })
-                            ->orWhereHas('resources', static function ($resourceQuery): void {
-                                $resourceQuery->where('is_active', true);
+                                $roleQuery->whereIn('name', [
+                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
+                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
+                                    config('constants.SYSTEM_ROLES.TEAM'),
+                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
+                                    config('constants.SYSTEM_ROLES.STAFF'),
+                                    config('constants.SYSTEM_ROLES.MODERATOR'),
+                                ]);
                             });
                     });
             });
@@ -700,6 +686,7 @@ class CourseApiController extends Controller
                     // Currency specific fields (explicitly copied for clarity)
                     'currency_code' => $coursePricingData['currency_code'],
                     'currency_symbol' => $coursePricingData['display_symbol'] ?? null,
+                    'has_content' => $course->hasContent(),
                 ];
             });
 
@@ -762,11 +749,22 @@ class CourseApiController extends Controller
                 return ApiResponseService::validationError('Course not found');
             }
 
-            // Check if course is active (allow instructor to access their own course)
+            // Check if course is available (active, published, approved)
             $user = Auth::user() ?? Auth::guard('sanctum')->user();
-            if ($course->is_active != 1) {
-                // If user is authenticated and is the instructor of this course, allow access
-                if (!$user || $course->user_id != $user->id) {
+            
+            $isAdmin = $user && $user->roles()->whereIn('name', [
+                config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
+                config('constants.SYSTEM_ROLES.SUPERVISOR'),
+                config('constants.SYSTEM_ROLES.TEAM'),
+                config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
+                config('constants.SYSTEM_ROLES.STAFF'),
+                config('constants.SYSTEM_ROLES.MODERATOR'),
+            ])->exists();
+
+            $isOwner = $user && $course->user_id == $user->id;
+
+            if (!$isAdmin && !$isOwner) {
+                if ($course->is_active != 1 || $course->status !== 'publish' || $course->approval_status !== 'approved') {
                     return ApiResponseService::validationError('Course is not available');
                 }
             }

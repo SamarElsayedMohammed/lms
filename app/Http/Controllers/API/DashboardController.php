@@ -687,8 +687,20 @@ class DashboardController extends Controller
     private function getEngagementStats()
     {
         try {
-            $totalDiscussions = CourseDiscussion::count();
-            $totalQuizAttempts = UserQuizAttempt::count();
+            $discussionStats = CourseDiscussion::selectRaw('
+                COUNT(*) as total,
+                COUNT(CASE WHEN created_at >= ? THEN 1 END) as active
+            ', [Carbon::now()->subDays(7)])->first();
+            $totalDiscussions = (int) ($discussionStats->total ?? 0);
+            $activeDiscussions = (int) ($discussionStats->active ?? 0);
+
+            $quizStats = UserQuizAttempt::selectRaw('
+                COUNT(*) as total,
+                COUNT(CASE WHEN created_at >= ? THEN 1 END) as recent
+            ', [Carbon::now()->subDays(7)])->first();
+            $totalQuizAttempts = (int) ($quizStats->total ?? 0);
+            $recentQuizAttempts = (int) ($quizStats->recent ?? 0);
+
             $totalAssignmentSubmissions = UserAssignmentSubmission::count();
             $totalWishlists = Wishlist::count();
             $totalCarts = Cart::count();
@@ -696,12 +708,14 @@ class DashboardController extends Controller
             $totalHelpdeskReplies = HelpdeskReply::count();
 
             // Contact messages stats
-            $totalContactMessages = ContactMessage::count();
-            $pendingContactMessages = ContactMessage::where('status', 'new')->count();
-            $repliedContactMessages = ContactMessage::where('status', 'replied')->count();
-
-            $activeDiscussions = CourseDiscussion::where('created_at', '>=', Carbon::now()->subDays(7))->count();
-            $recentQuizAttempts = UserQuizAttempt::where('created_at', '>=', Carbon::now()->subDays(7))->count();
+            $contactStats = ContactMessage::selectRaw('
+                COUNT(*) as total,
+                COUNT(CASE WHEN status = "new" THEN 1 END) as pending,
+                COUNT(CASE WHEN status = "replied" THEN 1 END) as replied
+            ')->first();
+            $totalContactMessages = (int) ($contactStats->total ?? 0);
+            $pendingContactMessages = (int) ($contactStats->pending ?? 0);
+            $repliedContactMessages = (int) ($contactStats->replied ?? 0);
 
             return [
                 'discussion_stats' => [
@@ -990,25 +1004,7 @@ class DashboardController extends Controller
                 $q
                     ->where('is_active', true)
                     ->where('status', 'publish')
-                    ->where('approval_status', 'approved')
-                    ->whereHas('chapters', static function ($chapterQuery): void {
-                        $chapterQuery
-                            ->where('is_active', true)
-                            ->where(static function ($curriculumQuery): void {
-                                $curriculumQuery
-                                    ->whereHas('lectures', static function ($lectureQuery): void {
-                                        $lectureQuery->where('is_active', true);
-                                    })
-                                    ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                        $quizQuery->where('is_active', true);
-                                    })
-                                    ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                        $assignmentQuery->where('is_active', true);
-                                    })
-                                    ->orWhereHas('resources', static function ($resourceQuery): void {
-                                        $resourceQuery->where('is_active', true);
-                                    });
-                            });
+                    ->where('approval_status', 'approved');
                     });
             }])
                 ->orderBy('courses_count', 'desc')

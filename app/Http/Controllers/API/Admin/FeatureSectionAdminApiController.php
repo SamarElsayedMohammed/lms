@@ -8,6 +8,7 @@ use App\Models\FeatureSection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
 
 class FeatureSectionAdminApiController extends AdminCrudApiController
 {
@@ -47,7 +48,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
     public function store(Request $request): JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('feature-sections-list');
+        $this->checkPermission('feature-sections-create');
 
         $validator = Validator::make($request->all(), $this->rules(required: true));
 
@@ -69,6 +70,8 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
         $section = FeatureSection::create($data);
         $this->syncManualCourses($section, $manualCourseIds);
 
+        Cache::flush();
+
         return $this->jsonSuccess(
             __('Feature section created successfully'),
             $section->fresh(['images', 'manualCourses']),
@@ -79,7 +82,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
     public function update(Request $request, int $id): JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('feature-sections-list');
+        $this->checkPermission('feature-sections-edit');
 
         $section = FeatureSection::find($id);
         if (!$section) {
@@ -106,6 +109,8 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
             $this->syncManualCourses($section, $manualCourseIds);
         }
 
+        Cache::flush();
+
         return $this->jsonSuccess(
             __('Feature section updated successfully'),
             $section->fresh(['images', 'manualCourses']),
@@ -115,7 +120,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
     public function destroy(int $id): JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('feature-sections-list');
+        $this->checkPermission('feature-sections-delete');
 
         $section = FeatureSection::find($id);
         if (!$section) {
@@ -123,13 +128,14 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
         }
 
         $section->delete();
+        Cache::flush();
         return $this->jsonSuccess(__('Feature section deleted successfully'));
     }
 
     public function restore(int $id): JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('feature-sections-list');
+        $this->checkPermission('feature-sections-delete');
 
         $section = FeatureSection::onlyTrashed()->find($id);
         if (!$section) {
@@ -137,6 +143,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
         }
 
         $section->restore();
+        Cache::flush();
         return $this->jsonSuccess(__('Feature section restored successfully'), $section->fresh(['images', 'manualCourses']));
     }
 
@@ -155,9 +162,21 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
             return $this->jsonError($validator->errors()->first(), 422);
         }
 
+        $upsertData = [];
         foreach ($request->input('orders') as $item) {
-            FeatureSection::where('id', $item['id'])->update(['row_order' => $item['order']]);
+            $upsertData[] = [
+                'id' => $item['id'],
+                'row_order' => $item['order']
+            ];
         }
+
+        FeatureSection::upsert(
+            $upsertData,
+            ['id'],
+            ['row_order']
+        );
+
+        Cache::flush();
 
         return $this->jsonSuccess(__('Successfully reordered'));
     }
@@ -202,6 +221,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
             'type' => "{$presence}|string|max:50",
             'title' => "{$presence}|string|max:255",
             'limit' => 'nullable|integer|min:0',
+            'row_order' => 'nullable|integer',
             'is_active' => 'nullable|boolean',
             'layout' => 'nullable|in:carousel,grid',
             'grid_columns' => 'nullable|integer|min:1|max:6',

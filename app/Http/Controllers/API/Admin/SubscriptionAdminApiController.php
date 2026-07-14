@@ -271,15 +271,22 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
-            // 7. Notify User
-            if ($subscription->parent_subscription_id && $existingSubscription && $existingSubscription->plan_id === $subscription->plan_id) {
-                if (class_exists(\App\Notifications\SubscriptionRenewedNotification::class)) {
-                    $user->notify(new \App\Notifications\SubscriptionRenewedNotification($subscription->loadMissing('plan'), (float) $payment->wallet_amount));
+            // 7. Notify User (Safely)
+            try {
+                if ($subscription->parent_subscription_id && $existingSubscription && $existingSubscription->plan_id === $subscription->plan_id) {
+                    if (class_exists(\App\Notifications\SubscriptionRenewedNotification::class)) {
+                        $user->notify(new \App\Notifications\SubscriptionRenewedNotification($subscription->loadMissing('plan'), (float) $payment->wallet_amount));
+                    } else {
+                        $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+                    }
                 } else {
                     $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
                 }
-            } else {
-                $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+            } catch (\Exception $e) {
+                Log::error('Failed to send SubscriptionActivatedNotification', [
+                    'subscription_id' => $subscription->id,
+                    'error' => $e->getMessage()
+                ]);
             }
 
             return ApiResponseService::successResponse('تمت الموافقة على طلب الاشتراك بنجاح وتفعيله.', $subscription);
@@ -345,8 +352,15 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
-            // 3. Notify user
-            $subscription->user->notify(new ManualSubscriptionStatusNotification($subscription));
+            // 3. Notify user (Safely)
+            try {
+                $subscription->user->notify(new ManualSubscriptionStatusNotification($subscription));
+            } catch (\Exception $e) {
+                Log::error('Failed to send ManualSubscriptionStatusNotification', [
+                    'subscription_id' => $subscription->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
 
             return ApiResponseService::successResponse('تم رفض طلب الاشتراك وإلغاؤه بنجاح.');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

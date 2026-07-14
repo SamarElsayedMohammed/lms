@@ -402,25 +402,7 @@ class CourseChapterApiController extends Controller
 
             // Check if course exists and is active
             $course = Course::where('id', $request->course_id)
-                ->where('is_active', true)
-                ->whereHas('chapters', static function ($chapterQuery): void {
-                    $chapterQuery
-                        ->where('is_active', true)
-                        ->where(static function ($curriculumQuery): void {
-                            $curriculumQuery
-                                ->whereHas('lectures', static function ($lectureQuery): void {
-                                    $lectureQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('quizzes', static function ($quizQuery): void {
-                                    $quizQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('assignments', static function ($assignmentQuery): void {
-                                    $assignmentQuery->where('is_active', true);
-                                })
-                                ->orWhereHas('resources', static function ($resourceQuery): void {
-                                    $resourceQuery->where('is_active', true);
-                                });
-                        });
+                ->where('is_active', true);
                 })
                 ->first();
 

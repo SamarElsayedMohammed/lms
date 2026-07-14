@@ -15,6 +15,11 @@ class ManualDeposit extends Model
         'receipt',
         'status',
         'admin_notes',
+        'submitted_fields',
+    ];
+
+    protected $casts = [
+        'submitted_fields' => 'array',
     ];
 
     public function user()

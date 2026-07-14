@@ -43,6 +43,12 @@ class ManualDepositAdminApiController extends AdminCrudApiController
                 'is_active' => $method->is_active,
                 'countries' => $method->countries,
                 'image' => $method->image,
+                'currency' => $method->currency,
+                'min_amount' => $method->min_amount,
+                'max_amount' => $method->max_amount,
+                'fixed_fee' => $method->fixed_fee,
+                'percent_fee' => $method->percent_fee,
+                'dynamic_fields' => $method->dynamic_fields,
             ];
         });
         return ApiResponseService::successResponse('Manual deposit methods retrieved successfully', $methods);
@@ -68,6 +74,12 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'account_number' => 'nullable|string',
             'instapay_id' => 'nullable|string',
             'merchant_code' => 'nullable|string',
+            'currency' => 'nullable|string|max:10',
+            'min_amount' => 'nullable|numeric|min:0',
+            'max_amount' => 'nullable|numeric|min:0',
+            'fixed_fee' => 'nullable|numeric|min:0',
+            'percent_fee' => 'nullable|numeric|min:0|max:100',
+            'dynamic_fields' => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
@@ -82,7 +94,10 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'merchant_code' => $request->input('merchant_code'),
         ]);
 
-        $data = $request->only(['name', 'instructions', 'countries', 'is_active']);
+        $data = $request->only([
+            'name', 'instructions', 'countries', 'is_active',
+            'currency', 'min_amount', 'max_amount', 'fixed_fee', 'percent_fee', 'dynamic_fields'
+        ]);
         $data['account_details'] = $accountDetails;
         
         if ($request->hasFile('image')) {
@@ -116,6 +131,12 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'account_number' => 'nullable|string',
             'instapay_id' => 'nullable|string',
             'merchant_code' => 'nullable|string',
+            'currency' => 'nullable|string|max:10',
+            'min_amount' => 'nullable|numeric|min:0',
+            'max_amount' => 'nullable|numeric|min:0',
+            'fixed_fee' => 'nullable|numeric|min:0',
+            'percent_fee' => 'nullable|numeric|min:0|max:100',
+            'dynamic_fields' => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
@@ -130,7 +151,10 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'merchant_code' => $request->input('merchant_code'),
         ]);
 
-        $data = $request->only(['name', 'instructions', 'countries', 'is_active']);
+        $data = $request->only([
+            'name', 'instructions', 'countries', 'is_active',
+            'currency', 'min_amount', 'max_amount', 'fixed_fee', 'percent_fee', 'dynamic_fields'
+        ]);
         $data['account_details'] = $accountDetails;
 
         if ($request->hasFile('image')) {
@@ -198,44 +222,59 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $deposit = ManualDeposit::findOrFail($id);
-
-        if ($deposit->status !== 'pending') {
-            return ApiResponseService::errorResponse('This deposit request has already been processed.');
-        }
-
         try {
             DB::beginTransaction();
 
+            $deposit = ManualDeposit::where('id', $id)->lockForUpdate()->firstOrFail();
+
+            if ($deposit->status !== 'pending') {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('This deposit request has already been processed.');
+            }
+
             $deposit->status = $request->status;
             $deposit->admin_notes = $request->admin_notes;
-            $deposit->save();
-
-            // Send Notification to user
-            $deposit->user->notify(new \App\Notifications\ManualDepositStatusNotification($deposit));
 
             if ($request->status === 'approved') {
                 // Credit user wallet
                 $walletService = app(WalletService::class);
+                
+                $method = $deposit->method;
+                $fixedFee = (float) ($method->fixed_fee ?? 0);
+                $percentFee = (float) ($method->percent_fee ?? 0);
+                
+                $feeAmount = round($fixedFee + ($deposit->amount * ($percentFee / 100)), 2);
+                $netAmount = round(max(0, $deposit->amount - $feeAmount), 2);
+
+                $deposit->fee_amount = $feeAmount;
+                $deposit->net_amount = $netAmount;
+
                 $walletService->creditWallet(
                     $deposit->user_id,
-                    (float) $deposit->amount,
+                    $netAmount,
                     'deposit',
                     'Manual Deposit Approved',
                     $deposit->id,
                     ManualDeposit::class
                 );
-                
-                // Notify user
-                // $deposit->user->notify(new ManualDepositApprovedNotification($deposit));
-            } else {
-                // Notify user about rejection
-                // $deposit->user->notify(new ManualDepositRejectedNotification($deposit));
             }
 
+            $deposit->save();
             DB::commit();
+
+            // Send Notification to user safely after commit
+            try {
+                $deposit->user->notify(new \App\Notifications\ManualDepositStatusNotification($deposit));
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send ManualDepositStatusNotification', [
+                    'deposit_id' => $deposit->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
             return ApiResponseService::successResponse('Manual deposit request updated successfully', $deposit);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            DB::rollBack();
             throw $e;
         } catch (\Exception $e) {
             DB::rollBack();

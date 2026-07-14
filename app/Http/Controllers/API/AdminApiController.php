@@ -756,18 +756,18 @@ class AdminApiController extends Controller
                 });
             }
 
-            // Get statistics
-            $totalSubmissions = $query->count();
-            $pendingSubmissions = (clone $query)->where('status', 'submitted')->count();
-            $acceptedSubmissions = (clone $query)->where('status', 'accepted')->count();
-            $rejectedSubmissions = (clone $query)->where('status', 'rejected')->count();
-
-            // Get submissions by status
+            // Get submissions by status and calculate totals
             $statusBreakdown = (clone $query)
                 ->selectRaw('status, COUNT(*) as count')
                 ->groupBy('status')
                 ->pluck('count', 'status')
                 ->toArray();
+
+            // Calculate overall statistics from the status breakdown
+            $totalSubmissions = array_sum($statusBreakdown);
+            $pendingSubmissions = $statusBreakdown['submitted'] ?? 0;
+            $acceptedSubmissions = $statusBreakdown['accepted'] ?? 0;
+            $rejectedSubmissions = $statusBreakdown['rejected'] ?? 0;
 
             // Get submissions by course
             $courseBreakdown = (clone $query)
