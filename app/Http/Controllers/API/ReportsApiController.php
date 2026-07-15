@@ -545,7 +545,8 @@ class ReportsApiController extends Controller
             $completedSubsQuery = clone $subQuery;
             $subscriptionRevenue = $completedSubsQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
                 ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
-                ->sum(\Illuminate\Support\Facades\DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)'));
+                ->select(\Illuminate\Support\Facades\DB::raw('SUM(subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)) as total_revenue'))
+                ->value('total_revenue') ?? 0;
         }
 
         $allOrdersCount = $orders->count() + $subscriptionPayments->count();
@@ -695,6 +696,7 @@ class ReportsApiController extends Controller
         $paginatedResult = $paginatedQuery
             ->withCount(['orderCourses', 'ratings'])
             ->withAvg('ratings', 'rating')
+            ->withSum('orderCourses', 'price')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
             
@@ -707,17 +709,13 @@ class ReportsApiController extends Controller
         return $query
             ->withCount(['orderCourses', 'ratings'])
             ->withAvg('ratings', 'rating')
-            ->with(['orderCourses' => static function ($q): void {
-                $q->selectRaw('course_id, SUM(price) as total_revenue, COUNT(*) as enrollment_count')->groupBy(
-                    'course_id',
-                );
-            }])
+            ->withSum('orderCourses', 'price')
             ->get()
             ->map(static fn($course) => [
                 'course' => $course,
                 'performance_metrics' => [
                     'enrollments' => $course->order_courses_count,
-                    'revenue' => $course->orderCourses->sum('total_revenue'),
+                    'revenue' => $course->order_courses_sum_price ?? 0,
                     'rating' => round($course->ratings_avg_rating ?? 0, 2),
                     'reviews_count' => $course->ratings_count,
                 ],
