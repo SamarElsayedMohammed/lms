@@ -1005,7 +1005,6 @@ class DashboardController extends Controller
                     ->where('is_active', true)
                     ->where('status', 'publish')
                     ->where('approval_status', 'approved');
-                    });
             }])
                 ->orderBy('courses_count', 'desc')
                 ->limit(10)
