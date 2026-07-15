@@ -1683,8 +1683,7 @@ class InstructorApiController extends Controller
             $coursesList = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
                 ->where('approval_status', 'approved')
-                ->where('status', 'publish');
-                })
+                ->where('status', 'publish')
                 ->with(['category', 'ratings', 'user', 'chapters.lectures'])
                 ->withCount('ratings')
                 ->withAvg('ratings', 'rating')
