@@ -162,27 +162,9 @@ class UserReportApiController extends Controller
      */
     private function calculateCourseProgress($userId, $courseId)
     {
-        $totalItems = DB::table('course_chapter_lectures')
-            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
-            ->where('course_chapters.course_id', $courseId)
-            ->where('course_chapter_lectures.is_active', 1)
-            ->count()
-            + DB::table('course_chapter_quizzes')
-            ->join('course_chapters', 'course_chapter_quizzes.course_chapter_id', '=', 'course_chapters.id')
-            ->where('course_chapters.course_id', $courseId)
-            ->where('course_chapter_quizzes.is_active', 1)
-            ->count();
-
-        if ($totalItems === 0) return 0;
-
-        $completedItems = UserCurriculumTracking::where('user_id', $userId)
-            ->whereHas('chapter', function($q) use ($courseId) {
-                $q->where('course_id', $courseId);
-            })
-            ->where('status', 'completed')
-            ->count();
-
-        return ($completedItems / $totalItems) * 100;
+        return (float) app(\App\Services\CourseProgressService::class)
+            ->getProgressWithCache($userId, $courseId)
+            ->progress_percentage;
     }
 
     /**

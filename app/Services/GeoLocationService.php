@@ -122,11 +122,11 @@ final class GeoLocationService
         // 2. We deliberately DO NOT read X-User-Country here because it can be 
         // spoofed by clients directly hitting the API.
 
-        // 3. CF-IPCountry - Cloudflare (trusted from frontend proxy, no CF-Connecting-IP required)
-        $country = $request->header('CF-IPCountry') ?? $request->server('HTTP_CF_IPCOUNTRY');
-        if ($this->isValidCountryCode($country)) {
-            $this->logCountryDetection($request, strtoupper($country), 'cloudflare');
-            return strtoupper($country);
+        // 3. CF-IPCountry - Cloudflare (trusted from frontend proxy, requires CF-Connecting-IP)
+        $country = $this->getCloudflareCountry($request);
+        if ($country) {
+            $this->logCountryDetection($request, $country, 'cloudflare');
+            return $country;
         }
 
         // 4. X-Vercel-IP-Country - Vercel

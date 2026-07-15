@@ -367,14 +367,14 @@ class DashboardController extends Controller
             // Get this month revenue - check multiple sources
             // 1. Completed orders
             $thisMonthRevenueFromOrders =
-                Order::where('status', 'completed')->where('created_at', '>=', $currentMonth)->sum('final_price') ?? 0;
+                Order::where('status', 'completed')->where('created_at', '>=', $currentMonth)->sum('amount_egp') ?? 0;
 
             // Add Subscription Payments for this month
             $thisMonthRevenueFromSubscriptions = DB::table('subscription_payments')
                 ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
                 ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
                 ->where('subscription_payments.created_at', '>=', $currentMonth)
-                ->sum(DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)')) ?? 0;
+                ->sum('subscription_payments.amount_egp') ?? 0;
 
             // 2. Payment transactions with successful status
             $thisMonthRevenueFromTransactions =
@@ -401,13 +401,13 @@ class DashboardController extends Controller
                 Order::where('status', 'completed')->whereBetween('created_at', [
                     $lastMonth,
                     $lastMonth->copy()->endOfMonth(),
-                ])->sum('final_price') ?? 0;
+                ])->sum('amount_egp') ?? 0;
 
             $lastMonthRevenueFromSubscriptions = DB::table('subscription_payments')
                 ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
                 ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
                 ->whereBetween('subscription_payments.created_at', [$lastMonth, $lastMonth->copy()->endOfMonth()])
-                ->sum(DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)')) ?? 0;
+                ->sum('subscription_payments.amount_egp') ?? 0;
 
             $lastMonthRevenueFromTransactions =
                 PaymentTransaction::where('payment_status', 'success')->whereBetween('created_at', [
@@ -432,8 +432,8 @@ class DashboardController extends Controller
                 COUNT(CASE WHEN status = "completed" THEN 1 END) as completed,
                 COUNT(CASE WHEN status = "pending" THEN 1 END) as pending,
                 COUNT(CASE WHEN status = "processing" THEN 1 END) as processing,
-                COALESCE(SUM(CASE WHEN status = "pending" THEN final_price END), 0) as total_pending_payments,
-                AVG(CASE WHEN status = "completed" THEN final_price END) as avg_completed_order
+                COALESCE(SUM(CASE WHEN status = "pending" THEN amount_egp END), 0) as total_pending_payments,
+                AVG(CASE WHEN status = "completed" THEN amount_egp END) as avg_completed_order
             ')->first();
 
             $totalOrders = $orderStats->total;

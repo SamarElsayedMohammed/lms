@@ -60,17 +60,29 @@ class VideoProgressService
         $previouslyWatched = $existing ? $existing->watched_seconds : 0;
         $reportedSeconds = max(0, $watchedSeconds - $previouslyWatched);
 
-        if ($lastUpdate && $reportedSeconds > 0) {
-            $timePassed = $now - $lastUpdate;
-            // Allow a buffer of 10 seconds for legacy tracking
-            if ($timePassed + 10 < $reportedSeconds) {
-                Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported in legacy method', [
-                    'user_id' => $user->id,
-                    'lecture_id' => $lecture->id,
-                    'reported_diff' => $reportedSeconds,
-                    'time_passed' => $timePassed
-                ]);
-                return $existing ?: new VideoProgress(); // Reject update and return current state
+        if ($reportedSeconds > 0) {
+            if ($lastUpdate) {
+                $timePassed = $now - $lastUpdate;
+                // Allow a buffer of 10 seconds for legacy tracking
+                if ($timePassed + 10 < $reportedSeconds) {
+                    Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported in legacy method', [
+                        'user_id' => $user->id,
+                        'lecture_id' => $lecture->id,
+                        'reported_diff' => $reportedSeconds,
+                        'time_passed' => $timePassed
+                    ]);
+                    return $existing ?: new VideoProgress(); // Reject update and return current state
+                }
+            } else {
+                // Initial request (no cache) - allow max 15 seconds to prevent jumping to 100% instantly
+                if ($reportedSeconds > 15) {
+                    Log::warning('VideoProgressService Anti-Cheat: Unrealistic initial watch time reported in legacy method', [
+                        'user_id' => $user->id,
+                        'lecture_id' => $lecture->id,
+                        'reported_diff' => $reportedSeconds,
+                    ]);
+                    return $existing ?: new VideoProgress(); // Reject update and return current state
+                }
             }
         }
 
@@ -256,17 +268,29 @@ class VideoProgressService
         $now = now()->timestamp;
         $reportedSeconds = count($newlyWatchedSegments) * self::DEFAULT_SEGMENT_SIZE;
 
-        if ($lastUpdate && $reportedSeconds > 0) {
-            $timePassed = $now - $lastUpdate;
-            // Allow a small buffer of 5 seconds for network latency
-            if ($timePassed + 5 < $reportedSeconds) {
-                Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported', [
-                    'user_id' => $user->id,
-                    'lecture_id' => $lecture->id,
-                    'reported_seconds' => $reportedSeconds,
-                    'time_passed' => $timePassed
-                ]);
-                return $progress; // Reject update and return current state
+        if ($reportedSeconds > 0) {
+            if ($lastUpdate) {
+                $timePassed = $now - $lastUpdate;
+                // Allow a small buffer of 5 seconds for network latency
+                if ($timePassed + 5 < $reportedSeconds) {
+                    Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported', [
+                        'user_id' => $user->id,
+                        'lecture_id' => $lecture->id,
+                        'reported_seconds' => $reportedSeconds,
+                        'time_passed' => $timePassed
+                    ]);
+                    return $progress; // Reject update and return current state
+                }
+            } else {
+                // Initial request (no cache) - allow max 15 seconds to prevent jumping to 100% instantly
+                if ($reportedSeconds > 15) {
+                    Log::warning('VideoProgressService Anti-Cheat: Unrealistic initial watch time reported', [
+                        'user_id' => $user->id,
+                        'lecture_id' => $lecture->id,
+                        'reported_seconds' => $reportedSeconds,
+                    ]);
+                    return $progress; // Reject update and return current state
+                }
             }
         }
 

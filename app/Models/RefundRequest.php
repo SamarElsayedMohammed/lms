@@ -23,6 +23,9 @@ class RefundRequest extends Model
         'request_date',
         'processed_at',
         'processed_by',
+        'amount_egp',
+        'currency_code',
+        'exchange_rate_snapshot',
     ];
 
     protected $casts = [

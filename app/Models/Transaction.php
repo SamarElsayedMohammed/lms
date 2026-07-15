@@ -26,6 +26,9 @@ class Transaction extends Model
         'payment_method',
         'status',
         'message',
+        'amount_egp',
+        'currency_code',
+        'exchange_rate_snapshot',
     ];
 
     protected $casts = [

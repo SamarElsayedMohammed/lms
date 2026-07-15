@@ -56,6 +56,8 @@ final class SubscriptionPayment extends Model
         'manual_deposit_method_id',
         'receipt',
         'admin_notes',
+        'amount_egp',
+        'exchange_rate_snapshot',
     ];
 
     protected $casts = [

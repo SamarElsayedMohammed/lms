@@ -5601,11 +5601,11 @@ class CourseApiController extends Controller
                             }
                         }
 
-                        // Calculate progress percentage based on completed items (not chapters)
-                        if ($totalCurriculumItems > 0) {
-                            $progressPercentage = round(($completedCurriculumItems / $totalCurriculumItems) * 100, 2);
-                        }
-                    }
+                        // Use CourseProgressService as single source of truth for progress metrics
+                        $cachedProgress = app(\App\Services\CourseProgressService::class)->getProgressWithCache($userId, $course->id);
+                        $progressPercentage = (float) $cachedProgress->progress_percentage;
+                        $totalCurriculumItems = $cachedProgress->total_items;
+                        $completedCurriculumItems = $cachedProgress->completed_items;
 
                     // Determine current chapter name
                     if ($completedChapters > 0 && $lastCompletedChapterId) {

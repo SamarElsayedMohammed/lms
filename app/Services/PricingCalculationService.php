@@ -19,6 +19,7 @@ final class PricingCalculationService
 {
     public function __construct(
         private GeoLocationService $geoLocationService,
+        private CurrencyConversionService $currencyConversionService,
     ) {}
 
     /**
@@ -44,7 +45,7 @@ final class PricingCalculationService
         }
 
         if (!$countryCode) {
-            $countryCode = 'EG';
+            $countryCode = 'US'; // Default to US (USD) instead of EG
         }
 
         $countryCode = strtoupper($countryCode);
@@ -139,25 +140,90 @@ final class PricingCalculationService
         null|string $countryCode = null,
         ?User $user = null,
     ): array {
+        // Base prices are now in USD
+        $baseOriginalPrice = (float) ($course->price ?? 0);
+        $baseDiscountPrice = (float) ($course->discount_price ?? 0);
+
+        if ($course->course_type !== 'free' && $baseOriginalPrice <= 0) {
+            throw new \Exception('Pricing error: Paid course has no price configured.');
+        }
+
+        // Determine target currency based on country code
+        $currencyCode = 'USD';
+        $currencySymbol = '$';
+        
+        // Find currency for the given country
+        if ($countryCode) {
+            $countryCode = strtoupper($countryCode);
+            $country = \App\Models\Country::where('iso_code', $countryCode)->where('status', 1)->first();
+            if ($country && $country->currency_code) {
+                $currencyCode = strtoupper($country->currency_code);
+            }
+        }
+        
+        $supportedCurrency = $this->currencyConversionService->getCurrency($currencyCode);
+        if ($supportedCurrency) {
+            $currencySymbol = $supportedCurrency->currency_symbol;
+        }
+
+        // Convert base prices (USD) to EGP first, since EGP is our system currency base for aggregations.
+        // Or wait, if base prices are USD, how do we get them to local?
+        // EGP is the central hub.
+        // baseOriginalPrice is in USD.
+        // LocalAmount = (Amount in USD) -> convert to EGP -> convert to LocalAmount?
+        // Actually, CurrencyConversionService convertFromEgp takes EGP.
+        
+        // EGP value: USD amount * (USD->EGP rate)
+        $usdToEgpRate = $this->currencyConversionService->getExchangeRateToEgp('USD');
+        $originalPriceEgp = $baseOriginalPrice * $usdToEgpRate;
+        $discountPriceEgp = $baseDiscountPrice > 0 ? $baseDiscountPrice * $usdToEgpRate : 0;
+        
+        // Local value: EGP amount / (Local->EGP rate)
+        $originalPrice = $this->currencyConversionService->convertFromEgp($originalPriceEgp, $currencyCode);
+        $discountPrice = $discountPriceEgp > 0 ? $this->currencyConversionService->convertFromEgp($discountPriceEgp, $currencyCode) : 0;
+
+        $subtotal = $discountPrice > 0 ? $discountPrice : $originalPrice;
+        $courseDiscount = $originalPrice - $subtotal;
+
+        $promoDiscount = 0;
+        $promoCodeDetails = null;
+
+        if ($promoCode !== null) {
+            $promoResult = $this->calculatePromoDiscount($promoCode, $subtotal);
+            $promoDiscount = $promoResult['discount_amount'];
+            $promoCodeDetails = $promoResult['details'];
+        }
+
+        $taxableAmount = max(0, $subtotal - $promoDiscount);
+
+        $taxPercentage = $taxPercentage ?? 0;
+        $taxAmount = 0;
+        if ($taxPercentage > 0 && $taxableAmount > 0) {
+            $taxAmount = ($taxableAmount * $taxPercentage) / 100;
+        }
+
+        $total = $taxableAmount + $taxAmount;
+        
+        $exchangeRateToEgp = $this->currencyConversionService->getExchangeRateToEgp($currencyCode);
+
         return [
-            'original_price' => 0,
-            'course_discount' => 0,
-            'subtotal' => 0,
-            'promo_discount' => 0,
-            'taxable_amount' => 0,
-            'tax_percentage' => 0,
-            'tax_amount' => 0,
-            'total' => 0,
-            'promo_code_details' => null,
-            // Localization metadata
-            'currency_code' => 'EGP',
-            'display_currency' => 'EGP',
-            'display_symbol' => 'ج.م',
-            'display_price' => 0,
-            'formatted_price' => '0 ج.م',
-            'price_egp' => 0,
-            'discount_price_egp' => null,
-            'exchange_rate' => 1,
+            'original_price' => round($originalPrice, 2),
+            'course_discount' => round($courseDiscount, 2),
+            'subtotal' => round($subtotal, 2),
+            'promo_discount' => round($promoDiscount, 2),
+            'taxable_amount' => round($taxableAmount, 2),
+            'tax_percentage' => $taxPercentage,
+            'tax_amount' => round($taxAmount, 2),
+            'total' => round($total, 2),
+            'promo_code_details' => $promoCodeDetails,
+            'currency_code' => $currencyCode,
+            'display_currency' => $currencyCode,
+            'display_symbol' => $currencySymbol,
+            'display_price' => round($originalPrice, 2),
+            'formatted_price' => round($originalPrice, 2) . ' ' . $currencySymbol,
+            'price_egp' => round($originalPriceEgp, 2),
+            'discount_price_egp' => $discountPriceEgp > 0 ? round($discountPriceEgp, 2) : null,
+            'exchange_rate' => $exchangeRateToEgp,
             'is_country_specific' => false,
         ];
     }
@@ -289,19 +355,21 @@ final class PricingCalculationService
             'is_wishlisted' => $isWishlisted,
             'promo_code' => $pricing['promo_code_details'],
             //
-            'original_price' => 0,
-            'course_discount' => 0,
-            'subtotal' => 0,
-            'promo_discount' => 0,
-            'taxable_amount' => 0,
-            'tax_percentage' => 0,
-            'tax_amount' => 0,
-            'total' => 0,
-            'currency_code' => 'EGP',
-            'display_currency' => 'EGP',
-            'display_symbol' => 'ج.م',
-            'display_price' => 0,
-            'formatted_price' => '0 ج.م',
+            'original_price' => $pricing['original_price'] ?? 0,
+            'course_discount' => $pricing['course_discount'] ?? 0,
+            'subtotal' => $pricing['subtotal'] ?? 0,
+            'promo_discount' => $pricing['promo_discount'] ?? 0,
+            'taxable_amount' => $pricing['taxable_amount'] ?? 0,
+            'tax_percentage' => $pricing['tax_percentage'] ?? 0,
+            'tax_amount' => $pricing['tax_amount'] ?? 0,
+            'total' => $pricing['total'] ?? 0,
+            'currency_code' => $pricing['currency_code'] ?? 'USD',
+            'display_currency' => $pricing['display_currency'] ?? 'USD',
+            'display_symbol' => $pricing['display_symbol'] ?? '$',
+            'display_price' => $pricing['display_price'] ?? 0,
+            'formatted_price' => $pricing['formatted_price'] ?? '0 $',
+            'price_egp' => $pricing['price_egp'] ?? 0,
+            'discount_price_egp' => $pricing['discount_price_egp'] ?? null,
         ];
 
         return [...$formatted, ...$additionalFields];
@@ -324,20 +392,46 @@ final class PricingCalculationService
      */
     public function calculateAggregatePricing(Collection $coursePricingData, float $taxPercentage): array
     {
+        $originalPrice = 0;
+        $subtotal = 0;
+        $promoDiscount = 0;
+        $taxAmount = 0;
+
+        foreach ($coursePricingData as $data) {
+            $pricing = $data['pricing'];
+            $originalPrice += $pricing['original_price'] ?? 0;
+            $subtotal += $pricing['subtotal'] ?? 0;
+            $promoDiscount += $pricing['promo_discount'] ?? 0;
+            $taxAmount += $pricing['tax_amount'] ?? 0;
+        }
+
+        $courseDiscount = $originalPrice - $subtotal;
+        $taxableAmount = max(0, $subtotal - $promoDiscount);
+        $total = $taxableAmount + $taxAmount;
+
+        $currencyCode = 'USD';
+        $currencySymbol = '$';
+        
+        if ($coursePricingData->isNotEmpty()) {
+            $firstPricing = $coursePricingData->first()['pricing'];
+            $currencyCode = $firstPricing['display_currency'] ?? 'USD';
+            $currencySymbol = $firstPricing['display_symbol'] ?? '$';
+        }
+
         return [
-            'original_price' => 0,
-            'course_discount' => 0,
-            'subtotal' => 0,
-            'promo_discount' => 0,
-            'taxable_amount' => 0,
-            'tax_percentage' => 0,
-            'tax_amount' => 0,
-            'total' => 0,
-            'currency_code' => 'EGP',
-            'display_currency' => 'EGP',
-            'display_symbol' => 'ج.م',
-            'display_price' => 0,
-            'formatted_price' => '0 ج.م',
+            'original_price' => round($originalPrice, 2),
+            'course_discount' => round($courseDiscount, 2),
+            'subtotal' => round($subtotal, 2),
+            'promo_discount' => round($promoDiscount, 2),
+            'taxable_amount' => round($taxableAmount, 2),
+            'tax_percentage' => $taxPercentage,
+            'tax_amount' => round($taxAmount, 2),
+            'total' => round($total, 2),
+            'currency_code' => $currencyCode,
+            'display_currency' => $currencyCode,
+            'display_symbol' => $currencySymbol,
+            'display_price' => round($originalPrice, 2),
+            'formatted_price' => round($originalPrice, 2) . ' ' . $currencySymbol,
         ];
     }
 
@@ -348,6 +442,22 @@ final class PricingCalculationService
      */
     public function buildEmptyPricingResponse(float $taxPercentage = 0, null|string $countryCode = null): array
     {
+        $currencyCode = 'USD';
+        $currencySymbol = '$';
+
+        if ($countryCode) {
+            $countryCode = strtoupper($countryCode);
+            $country = \App\Models\Country::where('iso_code', $countryCode)->where('status', 1)->first();
+            if ($country && $country->currency_code) {
+                $currencyCode = strtoupper($country->currency_code);
+            }
+        }
+        
+        $supportedCurrency = $this->currencyConversionService->getCurrency($currencyCode);
+        if ($supportedCurrency) {
+            $currencySymbol = $supportedCurrency->currency_symbol;
+        }
+
         return [
             'courses' => [],
             'detected_country_code' => $countryCode,
@@ -362,11 +472,11 @@ final class PricingCalculationService
             'tax_percentage' => $taxPercentage,
             'tax_amount' => 0,
             'total' => 0,
-            'currency_code' => 'EGP',
-            'display_currency' => 'EGP',
-            'display_symbol' => 'ج.م',
+            'currency_code' => $currencyCode,
+            'display_currency' => $currencyCode,
+            'display_symbol' => $currencySymbol,
             'display_price' => 0,
-            'formatted_price' => '0.00 ج.م',
+            'formatted_price' => '0.00 ' . $currencySymbol,
         ];
     }
 }

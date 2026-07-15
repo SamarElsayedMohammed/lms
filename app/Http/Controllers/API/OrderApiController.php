@@ -31,6 +31,10 @@ use Throwable;
 
 class OrderApiController extends Controller
 {
+    public function __construct(
+        private PricingCalculationService $pricingService
+    ) {}
+
     public function placeOrder(Request $request)
     {
         // Normalize payment_method to always be a string
@@ -1302,31 +1306,19 @@ class OrderApiController extends Controller
     {
         $order->refresh();
         
-        $currencyCode = 'EGP';
-        $displayCurrency = 'EGP';
-        $displaySymbol = 'ج.م';
+        $currencyCode = $order->currency_code ?? 'USD';
         
-        $pricingService = app(\App\Services\PricingCalculationService::class);
-        $countryCode = $pricingService->getCountryCodeFromRequest(request());
+        $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
+        $currency = $currencyConversionService->getCurrency($currencyCode);
+        $displaySymbol = $currency ? $currency->currency_symbol : '$';
         
-        if ($countryCode !== 'EG') {
-            $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)
-                ->where('is_active', true)
-                ->first();
-
-            if ($currency) {
-                $displayCurrency = $currency->currency_code;
-                $displaySymbol = $currency->currency_symbol;
-            }
-        }
-
         $formatted = [
             'order_id' => $order->id,
             'order_number' => $order->order_number,
             'status' => $order->status,
             'total' => round($order->total_amount, 2),
             'currency' => $currencyCode,
-            'display_currency' => $displayCurrency,
+            'display_currency' => $currencyCode,
             'display_symbol' => $displaySymbol,
             'formatted_total' => number_format($order->total_amount, 2) . ' ' . $displaySymbol,
             'payment_method' => $order->payment_method,

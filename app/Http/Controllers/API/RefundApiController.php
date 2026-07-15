@@ -107,11 +107,15 @@ class RefundApiController extends Controller
             // Create refund request
             // Calculate refund amount: price (which is discounted price) + tax
             $refundAmount = $orderCourse->price + $orderCourse->tax_price;
+            // Also calculate EGP refund if amount_egp is available, else fallback to refundAmount assuming it's EGP
+            $refundAmountEgp = $orderCourse->amount_egp !== null ? ($orderCourse->amount_egp + ($orderCourse->tax_price * ($orderCourse->exchange_rate_snapshot ?: 1))) : $refundAmount;
+
             $refundRequest = RefundRequest::create([
                 'user_id' => $user->id,
                 'course_id' => $courseId,
                 'transaction_id' => $transaction->id,
                 'refund_amount' => $refundAmount,
+                'amount_egp' => $refundAmountEgp,
                 'status' => 'pending',
                 'reason' => $request->reason,
                 'user_media' => $userMediaPath,
@@ -334,10 +338,10 @@ class RefundApiController extends Controller
                     FileService::delete($refundRequest->admin_receipt);
                 }
 
-                // Credit amount to user's wallet using WalletService
+                // Credit amount to user's wallet using WalletService with EGP amount
                 WalletService::creditWallet(
                     $refundRequest->user_id,
-                    $refundRequest->refund_amount,
+                    $refundRequest->amount_egp ?? $refundRequest->refund_amount,
                     'refund',
                     "Refund for course: {$refundRequest->course->title}",
                     $refundRequest->id,

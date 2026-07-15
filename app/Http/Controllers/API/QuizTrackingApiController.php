@@ -64,6 +64,11 @@ class QuizTrackingApiController extends Controller
             return ApiResponseService::validationError($validator->errors());
         }
 
+        $attempt = UserQuizAttempt::find($request->attempt_id);
+        if (!$attempt || $attempt->user_id !== Auth::id()) {
+            return ApiResponseService::errorResponse(__('Attempt not found.'), [], 404);
+        }
+
         // Update or create answer
         $answer = UserQuizAnswer::updateOrCreate([
             'user_id' => Auth::id(),
@@ -92,9 +97,13 @@ class QuizTrackingApiController extends Controller
 
         $attempt = UserQuizAttempt::with('answers.option')->find($request->attempt_id);
 
+        if (!$attempt || $attempt->user_id !== Auth::id()) {
+            return ApiResponseService::errorResponse(__('Attempt not found.'), [], 404);
+        }
+
         $correctCount = 0;
 
-        foreach ($attempt?->answers as $answer) {
+        foreach ($attempt->answers as $answer) {
             if (!($answer->option && $answer->option->is_correct)) {
                 continue;
             }
@@ -102,8 +111,8 @@ class QuizTrackingApiController extends Controller
             $correctCount++;
         }
 
-        // Calculate score (percentage)
-        $totalQuestions = $attempt->answers->count();
+        // Calculate score (percentage) based on the total questions in the quiz
+        $totalQuestions = $attempt->quiz ? $attempt->quiz->questions()->count() : 0;
         $score = $totalQuestions > 0 ? ($correctCount / $totalQuestions) * 100 : 0;
 
         $attempt->update([

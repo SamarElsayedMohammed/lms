@@ -15,6 +15,8 @@ class Order extends Model
         static::updated(function ($order) {
             // Check if status changed to completed
             if ($order->isDirty('status') && $order->status === 'completed') {
+                
+                // 1. Auto Generate Certificates
                 $orderCourses = $order->orderCourses()->where('certificate_purchased', true)->get();
                 foreach ($orderCourses as $oc) {
                     try {
@@ -22,6 +24,24 @@ class Order extends Model
                     } catch (\Exception $e) {
                         \Illuminate\Support\Facades\Log::error('Auto Generate Certificate from Order Error: ' . $e->getMessage());
                     }
+                }
+
+                // 2. Decrement Promo Code Usage Limits safely
+                try {
+                    $promoCodeIds = $order->orderCourses()->whereNotNull('promo_code_id')->pluck('promo_code_id')->unique();
+                    
+                    if ($order->promo_code_id && !$promoCodeIds->contains($order->promo_code_id)) {
+                        $promoCodeIds->push($order->promo_code_id);
+                    }
+
+                    foreach ($promoCodeIds as $promoId) {
+                        $promo = \App\Models\PromoCode::find($promoId);
+                        if ($promo && $promo->no_of_users !== null) {
+                            $promo->decrement('no_of_users');
+                        }
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Decrement Promo Code Usage Error: ' . $e->getMessage());
                 }
             }
         });
@@ -38,6 +58,8 @@ class Order extends Model
         'discount_amount',
         'promo_code',
         'status',
+        'amount_egp',
+        'exchange_rate_snapshot',
     ];
 
     public function user()

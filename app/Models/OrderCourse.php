@@ -20,6 +20,9 @@ class OrderCourse extends Model
         'certificate_purchased',
         'certificate_fee',
         'certificate_purchased_at',
+        'amount_egp',
+        'currency_code',
+        'exchange_rate_snapshot',
     ];
 
     protected $casts = [

@@ -29,7 +29,7 @@ class WalletService
             $referenceType,
             $entryType,
         ) {
-            $user = User::findOrFail($userId);
+            $user = User::lockForUpdate()->findOrFail($userId);
 
             // Auto-detect entry_type if not explicitly provided (null or empty)
             if (empty($entryType)) {
@@ -77,7 +77,7 @@ class WalletService
             $referenceType,
             $entryType,
         ) {
-            $user = User::findOrFail($userId);
+            $user = User::lockForUpdate()->findOrFail($userId);
 
             // Auto-detect entry_type if not explicitly provided (null or empty)
             if (empty($entryType)) {

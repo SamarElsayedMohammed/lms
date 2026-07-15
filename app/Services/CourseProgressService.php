@@ -34,12 +34,24 @@ class CourseProgressService
         $progress = $this->getProgress($userId, $courseId);
         
         $totalItems = $this->getTotalItemsForCourse($courseId);
+        
+        // Use CertificateService to check if course is completely finished including assignment approvals
+        $isFullyCompleted = app(\App\Services\CertificateService::class)->checkCourseCompletionStatus($userId, $courseId);
+        
         $completedItems = UserCurriculumTracking::where('user_id', $userId)
-            ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId))
+            ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId)->where('is_active', 1))
             ->where('status', 'completed')
             ->count();
 
-        $percentage = $totalItems > 0 ? round(($completedItems / $totalItems) * 100, 2) : 0;
+        if ($isFullyCompleted) {
+            $percentage = 100;
+        } else {
+            $percentage = $totalItems > 0 ? round(($completedItems / $totalItems) * 100, 2) : 0;
+            // Cap at 99.99 if not fully completed (e.g. pending assignment review)
+            if ($percentage >= 100) {
+                $percentage = 99.99;
+            }
+        }
         
         $status = match(true) {
             $percentage == 0 => 'not_started',
@@ -108,8 +120,13 @@ class CourseProgressService
         $cacheKey = "course:{$courseId}:total_items";
 
         return Cache::remember($cacheKey, 3600, function () use ($courseId) {
-            $course = Course::with(['chapters.lectures', 'chapters.quizzes', 'chapters.assignments', 'chapters.resources'])
-                ->find($courseId);
+            $course = Course::with([
+                'chapters' => fn($q) => $q->where('is_active', 1),
+                'chapters.lectures' => fn($q) => $q->where('is_active', 1),
+                'chapters.quizzes' => fn($q) => $q->where('is_active', 1),
+                'chapters.assignments' => fn($q) => $q->where('is_active', 1),
+                'chapters.resources' => fn($q) => $q->where('is_active', 1),
+            ])->find($courseId);
 
             if (!$course) {
                 return 0;

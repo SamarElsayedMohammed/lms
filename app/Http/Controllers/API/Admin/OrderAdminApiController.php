@@ -85,7 +85,7 @@ class OrderAdminApiController extends AdminCrudApiController
             'pending_orders' => Order::where('status', 'pending')->count() + SubscriptionPayment::where('status', 'pending')->count(),
             'completed_orders' => Order::where('status', 'completed')->count() + SubscriptionPayment::where('status', 'completed')->count(),
             'cancelled_orders' => Order::where('status', 'cancelled')->count() + SubscriptionPayment::whereIn('status', ['failed', 'refunded'])->count(),
-            'total_revenue' => (float) Order::where('status', 'completed')->sum('final_price') + (float) SubscriptionPayment::where('status', 'completed')->sum('amount'),
+            'total_revenue' => (float) Order::where('status', 'completed')->sum('amount_egp') + (float) SubscriptionPayment::where('status', 'completed')->sum('amount_egp'),
             'today_orders' => Order::whereDate('created_at', today())->count() + SubscriptionPayment::whereDate('created_at', today())->count(),
         ];
 
@@ -277,6 +277,7 @@ class OrderAdminApiController extends AdminCrudApiController
             'total_price' => $payment->original_amount ?? $payment->amount,
             'tax_price' => '0.00',
             'final_price' => $payment->amount,
+            'amount_egp' => $payment->amount_egp,
             'payment_method' => $payment->payment_method,
             'status' => $payment->status === 'failed' ? 'cancelled' : $payment->status,
             'created_at' => $payment->created_at,
