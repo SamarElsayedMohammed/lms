@@ -341,11 +341,11 @@ class ChatBotService
 
         // Support OpenAI
         if ($provider === 'openai') {
-            $apiKey = env('OPENAI_API_KEY');
+            $apiKey = \App\Services\CachingService::getSystemSettings('openai_api_key') ?: env('OPENAI_API_KEY');
             $model = env('OPENAI_MODEL', 'gpt-4o-mini');
 
             if (empty($apiKey)) {
-                throw new \RuntimeException('OpenAI API key is not configured. Set OPENAI_API_KEY in .env');
+                throw new \RuntimeException('OpenAI API key is not configured. Set it in the Admin Panel or OPENAI_API_KEY in .env');
             }
 
             $response = Http::withToken($apiKey)->timeout(30)->post('https://api.openai.com/v1/chat/completions', [

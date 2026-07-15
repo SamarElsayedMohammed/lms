@@ -1627,8 +1627,7 @@ class InstructorApiController extends Controller
             $activeCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
                 ->where('approval_status', 'approved')
-                ->where('status', 'publish');
-                })
+                ->where('status', 'publish')
                 ->count();
 
             // Get published courses count (consistent with get-instructors API - only courses with active curriculum)
