@@ -5606,6 +5606,7 @@ class CourseApiController extends Controller
                         $progressPercentage = (float) $cachedProgress->progress_percentage;
                         $totalCurriculumItems = $cachedProgress->total_items;
                         $completedCurriculumItems = $cachedProgress->completed_items;
+                    }
 
                     // Determine current chapter name
                     if ($completedChapters > 0 && $lastCompletedChapterId) {
