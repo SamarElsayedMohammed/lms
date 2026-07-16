@@ -189,7 +189,7 @@ final class PricingCalculationService
         $promoCodeDetails = null;
 
         if ($promoCode !== null) {
-            $promoResult = $this->calculatePromoDiscount($promoCode, $subtotal);
+            $promoResult = $this->calculatePromoDiscount($promoCode, $subtotal, null, $currencyCode);
             $promoDiscount = $promoResult['discount_amount'];
             $promoCodeDetails = $promoResult['details'];
         }
@@ -233,7 +233,7 @@ final class PricingCalculationService
      *
      * @return array{discount_amount: float, details: array|null}
      */
-    public function calculatePromoDiscount(PromoCode $promoCode, float $subtotal, ?User $user = null): array
+    public function calculatePromoDiscount(PromoCode $promoCode, float $subtotal, ?User $user = null, string $currencyCode = 'EGP'): array
     {
         // Check if promo code is valid
         if (!$this->isPromoCodeValid($promoCode, $user)) {
@@ -245,7 +245,10 @@ final class PricingCalculationService
         $discountAmount = 0.0;
 
         if ($promoCode->discount_type === 'amount') {
-            $discountAmount = min($discount, $subtotal);
+            $localDiscount = $currencyCode !== 'EGP' 
+                ? $this->currencyConversionService->convertFromEgp($discount, $currencyCode) 
+                : $discount;
+            $discountAmount = min($localDiscount, $subtotal);
         } elseif ($promoCode->discount_type === 'percentage') {
             // Clamp discount percentage to 100% max
             $discount = min($discount, 100);

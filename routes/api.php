@@ -120,6 +120,8 @@ Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO
 
 // Public certificate verification — returns only safe fields, no auth needed
 Route::get('certificate/verify', [CertificateController::class, 'verifyApi']);
+// Public certificate download — returns the cached PDF directly without auth, using the unguessable certificate number
+Route::get('certificate/public/{certificate_number}/download', [CertificateController::class, 'downloadPublic'])->middleware('throttle:10,1');
 
 // Webinars Public / User APIs
 Route::get('webinars', [\App\Http\Controllers\API\PublicWebinarController::class, 'index']);
@@ -256,6 +258,10 @@ Route::options('/hls/{uuid}/{path?}', function () {
 Route::get('/hls/{uuid}/{path?}', [VideoStreamController::class, 'serve'])
     ->name('api.hls.serve')
     ->where('path', '.*')
+    ->middleware('throttle:300,1');
+
+Route::get('/video-direct/{uuid}', [VideoStreamController::class, 'serveDirect'])
+    ->name('api.video.direct')
     ->middleware('throttle:300,1');
 
 Route::get('dashboard-data', [\App\Http\Controllers\API\DashboardController::class, 'getDashboardData']);
@@ -493,7 +499,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::group(['prefix' => 'certificate'], function (): void {
         Route::get('/course/generate', [CertificateController::class, 'getCertificate']); // Get/Check certificate for course
         Route::get('/course/view', [CertificateController::class, 'view']); // View certificate HTML
-        Route::match(['get', 'post'], '/course/download', [CertificateController::class, 'download']); // Generate and download certificate PDF
+        Route::match(['get', 'post'], '/course/download', [CertificateController::class, 'download'])->middleware('throttle:10,1'); // Generate and download certificate PDF
         Route::post('/quiz/generate', [CertificateController::class, 'generateQuizCertificate']);
     });
 

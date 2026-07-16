@@ -156,7 +156,9 @@ final readonly class EarningsService
      */
     public function getInstructorTotalWithdrawn(int $instructorId): float
     {
-        return (float) WithdrawalRequest::where('user_id', $instructorId)->where('status', 'approved')->sum('amount');
+        return (float) WithdrawalRequest::where('user_id', $instructorId)
+            ->whereIn('status', ['approved', 'pending', 'processing'])
+            ->sum('amount');
     }
 
     /**

@@ -55,139 +55,137 @@ final class KashierController extends Controller
         // Initialize variables to prevent undefined variable errors
         $isVerified = false;
         
-        // Ensure orderId is always extracted (from query string, payload, or API details).
+        // Ensure orderId is always extracted
         $orderId = $this->extractOrderId($request, $data);
-        
-        // If it's a GET request and we already successfully processed this via webhook, just redirect to success.
-        if ($request->isMethod('get') && !empty($orderId) && Cache::get('kashier_order_processed_' . $orderId)) {
-            Log::info('Kashier GET redirect: order already processed via webhook', ['orderId' => $orderId]);
-            return $this->respond($request, 'OK', 200, true, null, $orderId);
-        }
-
-        $status = $this->resolveKashierStatus($data);
-        $isSuccess = $this->isSuccessfulStatus($status);
-        $transactionId = $this->extractTransactionId($data);
-
-        // ALWAYS try to verify via API if we have a transactionId (most reliable method).
-        if (!empty($transactionId)) {
-            Log::info('Kashier: Verifying via API', ['transactionId' => $transactionId]);
-            $apiData = $this->kashierService->getPaymentDetails($transactionId);
-            $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess, $data);
-        }
-
-        // Some Kashier redirects only include merchant order id. Try an order-id lookup before failing.
-        if (!$isVerified && !empty($orderId)) {
-            Log::info('Kashier: Verifying via merchant order id', ['orderId' => $orderId]);
-            $apiData = $this->kashierService->getPaymentDetailsByOrderId($orderId);
-            $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess, $data);
-        }
-
-        // Fallback to signature verification if API check didn't happen or failed.
-        if (!$isVerified) {
-            $isVerified = $this->kashierService->verifyPayment($payload);
-
-            if (!$isVerified && $request->isMethod('get')) {
-                Log::info('Kashier: GET request without successful API/signature verification');
-            }
-        }
-
-        if (!$isVerified && !$isSuccess) {
-            $this->kashierLog('Kashier verification incomplete', [
-                'orderId' => $orderId,
-                'transactionId' => $transactionId,
-                'status' => $status,
-                'is_get' => $request->isMethod('get'),
-            ]);
-
-            Log::warning('Kashier webhook: Total verification failed', [
-                'orderId' => $orderId,
-                'transactionId' => $transactionId,
-                'status' => $status,
-            ]);
-
-            if ($request->isMethod('get')) {
-                $redirectPath = str_starts_with($orderId, 'wlt_') ? '/my-wallet' : '/plans';
-                return $this->respond($request, 'Verification failed', 302, false, $redirectPath, $orderId);
-            }
-
-            return $this->respond($request, 'Invalid signature', 400, false, null, $orderId);
-        }
 
         if (empty($orderId)) {
             Log::warning('Kashier webhook: empty orderId');
             return $this->respond($request, 'Invalid order', 400, false);
         }
 
-        // Wallet top-up (T095)
-        if (str_starts_with($orderId, 'wlt_')) {
-            return $this->handleWalletTopUp($request, $orderId, $status, $data);
-        }
+        // Apply an atomic lock to prevent Race Conditions (Webhook and Redirect firing simultaneously)
+        $lock = Cache::lock('kashier_process_' . $orderId, 30);
+        
+        try {
+            // Wait up to 10 seconds for another process to finish
+            if (!$lock->block(10)) {
+                return $this->respond($request, 'Request already processing', 429, false, null, $orderId);
+            }
 
-        // Webinar registration
-        if (str_starts_with($orderId, 'webinar_')) {
-            return $this->handleWebinarPayment($request, $orderId, $status, $data);
-        }
+            // Check if already processed (second concurrent request will see this after lock releases)
+            if (Cache::get('kashier_order_processed_' . $orderId)) {
+                Log::info('Kashier process: order already processed via previous request', ['orderId' => $orderId]);
+                $redirectPath = '/plans';
+                if (str_starts_with($orderId, 'wlt_')) $redirectPath = '/my-wallet';
+                if (str_starts_with($orderId, 'webinar_')) $redirectPath = '/my-webinars';
+                
+                return $this->respond($request, 'OK', 200, true, $request->isMethod('get') ? $redirectPath : null, $orderId);
+            }
 
-        // Subscription payment
-        if (!str_starts_with($orderId, 'sub_')) {
-            Log::warning('Kashier webhook: invalid orderId', ['orderId' => $orderId]);
-            return $this->respond($request, 'Invalid order', 400, false);
-        }
+            $status = $this->resolveKashierStatus($data);
+            $isSuccess = $this->isSuccessfulStatus($status);
+            $transactionId = $this->extractTransactionId($data);
 
-        $parts = explode('_', $orderId);
-        if (count($parts) < 4) {
-            Log::warning('Kashier webhook: cannot parse orderId', ['orderId' => $orderId]);
-            return $this->respond($request, 'Invalid order format', 400, false);
-        }
+            // ALWAYS try to verify via API if we have a transactionId
+            if (!empty($transactionId)) {
+                Log::info('Kashier: Verifying via API', ['transactionId' => $transactionId]);
+                $apiData = $this->kashierService->getPaymentDetails($transactionId);
+                $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess, $data);
+            }
 
-        $planId = (int) $parts[1];
-        $userId = (int) $parts[2];
+            // Fallback: merchant order id
+            if (!$isVerified && !empty($orderId)) {
+                Log::info('Kashier: Verifying via merchant order id', ['orderId' => $orderId]);
+                $apiData = $this->kashierService->getPaymentDetailsByOrderId($orderId);
+                $this->applyApiPaymentDetails($apiData, $orderId, $transactionId, $status, $isVerified, $isSuccess, $data);
+            }
 
-        $plan = SubscriptionPlan::find($planId);
-        $user = User::find($userId);
+            // Fallback: signature
+            if (!$isVerified) {
+                $isVerified = $this->kashierService->verifyPayment($payload);
+            }
 
-        if (!$plan || !$user) {
-            Log::warning('Kashier webhook: plan or user not found', ['planId' => $planId, 'userId' => $userId]);
-            return $this->respond($request, 'Order not found', 404, false);
-        }
+            if (!$isVerified && !$isSuccess) {
+                $this->kashierLog('Kashier verification incomplete', [
+                    'orderId' => $orderId,
+                    'transactionId' => $transactionId,
+                    'status' => $status,
+                    'is_get' => $request->isMethod('get'),
+                ]);
 
-        $gatewayAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? $plan->price);
-        $transactionId = $this->extractTransactionId($data) ?: $orderId;
+                if ($request->isMethod('get')) {
+                    $redirectPath = str_starts_with($orderId, 'wlt_') ? '/my-wallet' : '/plans';
+                    return $this->respond($request, 'Verification failed', 302, false, $redirectPath, $orderId);
+                }
 
-        // Retrieve pending wallet amount from cache (split payment)
-        $pending = Cache::get('kashier_pending_' . $orderId);
-        $walletAmount = $pending['wallet_amount'] ?? 0;
-        $totalAmount = $gatewayAmount + (float) $walletAmount;
+                return $this->respond($request, 'Invalid signature', 400, false, null, $orderId);
+            }
 
-        if ($this->isSuccessfulStatus($status)) {
-            return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, array_merge($data, [
-                '_kashier_status_resolved' => $status,
-                '_kashier_verified' => $isVerified,
-            ]));
-        }
+            // Wallet top-up
+            if (str_starts_with($orderId, 'wlt_')) {
+                return $this->handleWalletTopUp($request, $orderId, $status, $data);
+            }
 
-        if ($this->isFailedStatus($status)) {
-            Log::info('Kashier webhook: payment failed', ['orderId' => $orderId, 'status' => $status]);
-            Cache::forget('kashier_pending_' . $orderId);
-            
-            // Notify user of failed payment
-            try {
-                $user->notify(new \App\Notifications\PaymentStatusNotification(
-                    isSuccess: false,
-                    itemName: 'اشتراك باقة ' . ($plan->name ?? ''),
-                    amount: $gatewayAmount,
-                    transactionId: $transactionId,
-                    retryUrl: url('/plans')
-                ));
-            } catch (\Throwable $e) {
-                Log::warning('Failed to send payment failure notification: ' . $e->getMessage());
+            // Webinar registration
+            if (str_starts_with($orderId, 'webinar_')) {
+                return $this->handleWebinarPayment($request, $orderId, $status, $data);
+            }
+
+            // Subscription payment
+            if (!str_starts_with($orderId, 'sub_')) {
+                return $this->respond($request, 'Invalid order', 400, false);
+            }
+
+            $parts = explode('_', $orderId);
+            if (count($parts) < 4) {
+                return $this->respond($request, 'Invalid order format', 400, false);
+            }
+
+            $planId = (int) $parts[1];
+            $userId = (int) $parts[2];
+
+            $plan = SubscriptionPlan::find($planId);
+            $user = User::find($userId);
+
+            if (!$plan || !$user) {
+                return $this->respond($request, 'Order not found', 404, false);
+            }
+
+            $gatewayAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? $plan->price);
+            $transactionId = $this->extractTransactionId($data) ?: $orderId;
+
+            $pending = Cache::get('kashier_pending_' . $orderId);
+            $walletAmount = $pending['wallet_amount'] ?? 0;
+
+            if ($this->isSuccessfulStatus($status)) {
+                return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, array_merge($data, [
+                    '_kashier_status_resolved' => $status,
+                    '_kashier_verified' => $isVerified,
+                ]));
+            }
+
+            if ($this->isFailedStatus($status)) {
+                Cache::forget('kashier_pending_' . $orderId);
+                try {
+                    $user->notify(new \App\Notifications\PaymentStatusNotification(
+                        isSuccess: false,
+                        itemName: 'اشتراك باقة ' . ($plan->name ?? ''),
+                        amount: $gatewayAmount,
+                        transactionId: $transactionId,
+                        retryUrl: url('/plans')
+                    ));
+                } catch (\Throwable $e) {}
+
+                return $this->respond($request, 'OK', 200, false);
             }
 
             return $this->respond($request, 'OK', 200, false);
-        }
 
-        Log::info('Kashier webhook: unhandled status', ['orderId' => $orderId, 'status' => $status]);
-        return $this->respond($request, 'OK', 200, false);
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException $e) {
+            return $this->respond($request, 'Request already processing', 429, false, null, $orderId);
+        } finally {
+            $lock->release();
+        }
     }
 
     private function handleSuccess(Request $request, string $orderId, User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data)

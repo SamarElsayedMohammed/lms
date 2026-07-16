@@ -161,7 +161,7 @@ final class SubscriptionApiController extends Controller
             $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
             $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
 
-            // Fetch all active, pending and pending approval subscriptions
+            // Fetch all active, pending and pending-approval subscriptions
             $subscriptions = Subscription::with('plan')
                 ->where('user_id', $user->id)
                 ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
@@ -175,13 +175,14 @@ final class SubscriptionApiController extends Controller
             }
 
             $hasAccess = $subscriptions->contains('status', Subscription::STATUS_ACTIVE);
-            
-            $formattedSubscriptions = $subscriptions->map(function ($subscription) use ($countryCode, $displayCurrency, $displaySymbol) {
+
+            $formatSubscription = function ($subscription) use ($countryCode, $displayCurrency, $displaySymbol): array {
+                $isActive    = $subscription->status === Subscription::STATUS_ACTIVE;
                 $statusLabel = match($subscription->status) {
-                    Subscription::STATUS_ACTIVE => 'Active',
-                    Subscription::STATUS_PENDING => 'Pending (Queued)',
+                    Subscription::STATUS_ACTIVE           => 'Active',
+                    Subscription::STATUS_PENDING          => 'Pending (Queued)',
                     Subscription::STATUS_PENDING_APPROVAL => 'Pending Admin Approval',
-                    default => ucfirst($subscription->status),
+                    default                               => ucfirst($subscription->status),
                 };
 
                 // Resolve next payment amount in user's local currency
@@ -192,18 +193,29 @@ final class SubscriptionApiController extends Controller
                 $nextPaymentCurrency = $localizedPricing['currency_code'];
                 $nextPaymentSymbol   = $localizedPricing['currency_symbol'];
 
+                // Bug 4 fix: days_remaining is only meaningful for ACTIVE subscriptions.
+                // For pending/queued plans that have not started yet, return null to avoid
+                // showing misleading "32 days remaining" on a future plan.
+                // duration_days gives the plan length regardless of activation state.
+                $daysRemaining = $isActive ? $subscription->days_remaining : null;
+                $durationDays  = $subscription->plan?->getDurationDays();
+
                 return [
                     'id'                  => $subscription->id,
                     'plan' => $subscription->plan ? [
-                        'id'                => $subscription->plan->id,
-                        'name'              => $subscription->plan->name,
-                        'billing_cycle'     => $subscription->plan->billing_cycle,
+                        'id'                  => $subscription->plan->id,
+                        'name'                => $subscription->plan->name,
+                        'billing_cycle'       => $subscription->plan->billing_cycle,
                         'billing_cycle_label' => $subscription->plan->billing_cycle_label,
+                        'duration_days'       => $durationDays,
                     ] : null,
                     'plan_name'           => $subscription->plan?->name ?? 'Unknown Plan',
                     'starts_at'           => $subscription->starts_at->format('Y-m-d H:i:s'),
                     'ends_at'             => $subscription->ends_at?->format('Y-m-d H:i:s'),
-                    'days_remaining'      => $subscription->days_remaining,
+                    // Bug 4 fix: null for non-active subscriptions
+                    'days_remaining'      => $daysRemaining,
+                    // duration_days: full plan duration (always available, even before activation)
+                    'duration_days'       => $durationDays,
                     'is_lifetime'         => $subscription->isLifetime(),
                     'auto_renew'          => (bool) $subscription->auto_renew,
                     'status'              => $subscription->status,
@@ -216,20 +228,44 @@ final class SubscriptionApiController extends Controller
                     'currency_symbol'     => $nextPaymentSymbol,
                     'receipt_url'         => $subscription->payments()->latest()->first()?->receipt,
                 ];
-            });
+            };
+
+            $formattedSubscriptions = $subscriptions->map($formatSubscription);
 
             $isAffiliateEnabled = $this->affiliateService->isEnabled();
 
+            // Bug 3 fix: always return the ACTIVE subscription as `subscription`.
+            // Any pending/queued plan is exposed separately as `upcoming_subscription`
+            // so callers always know which plan is current RIGHT NOW.
+            $activeFormatted   = null;
+            $upcomingFormatted = null;
+
+            foreach ($subscriptions as $sub) {
+                $formatted = $formatSubscription($sub);
+                if ($sub->status === Subscription::STATUS_ACTIVE && $activeFormatted === null) {
+                    $activeFormatted = $formatted;
+                } elseif ($sub->status !== Subscription::STATUS_ACTIVE && $upcomingFormatted === null) {
+                    $upcomingFormatted = $formatted;
+                }
+            }
+
+            // If there is no active subscription (all are pending), surface the first pending
+            // so the UI can still show something meaningful.
+            $primarySubscription = $activeFormatted ?? $formattedSubscriptions->first();
+
             return ApiResponseService::successResponse('Subscription status retrieved successfully', [
-                'has_access'      => $hasAccess,
-                'currency'        => $displayCurrency,
-                'currency_symbol' => $displaySymbol,
+                'has_access'             => $hasAccess,
+                'currency'               => $displayCurrency,
+                'currency_symbol'        => $displaySymbol,
                 'affiliate_system_enabled' => $isAffiliateEnabled,
                 'wallet_payment_enabled' => $isAffiliateEnabled,
-                'can_renew_with_wallet' => $isAffiliateEnabled,
-                'wallet_balance'  => (float) $user->wallet_balance,
-                'subscriptions'   => $formattedSubscriptions,
-                'subscription'    => $formattedSubscriptions->first(),
+                'can_renew_with_wallet'  => $isAffiliateEnabled,
+                'wallet_balance'         => (float) $user->wallet_balance,
+                'subscriptions'          => $formattedSubscriptions,
+                // Bug 3 fix: `subscription` is always the currently ACTIVE one
+                'subscription'           => $primarySubscription,
+                // Bug 3 fix: upcoming/queued plan exposed separately, never as `subscription`
+                'upcoming_subscription'  => $upcomingFormatted,
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;

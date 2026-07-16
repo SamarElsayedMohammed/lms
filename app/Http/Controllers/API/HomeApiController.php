@@ -931,89 +931,38 @@ class HomeApiController extends Controller
                                     return null;
                                 }
 
-                                // Load course with chapters and their relationships for progress calculation
-                                $courseWithChapters = $course->load([
-                                    'chapters' => static function ($q): void {
-                                        $q->with([
-                                            'lectures',
-                                            'quizzes',
-                                            'assignments',
-                                            'resources',
-                                        ]);
-                                    },
-                                ]);
+                                // Remove manual N+1 chapter tracking loops and use the optimized cache service
+                                $progressService = app(\App\Services\CourseProgressService::class);
+                                $progress = $progressService->getProgressWithCache($user->id, $course->id);
 
-                                // Calculate total chapters
-                                $totalChapters = 0;
-                                $totalCurriculumItems = 0;
+                                $completedCurriculumItems = $progress->completed_items;
+                                $totalCurriculumItems = $progress->total_items;
+                                $progressPercentage = $progress->progress_percentage;
+                                $lastLearnedAt = $progress->last_accessed_at ? $progress->last_accessed_at->toDateTimeString() : null;
 
-                                // Get chapter IDs for progress tracking
-                                $chapterIds = $courseWithChapters->chapters->pluck('id')->toArray();
-
-                                // Calculate completed curriculum items
-                                $completedCurriculumItems = 0;
-                                $completedChapters = 0;
-                                $progressPercentage = 0;
+                                // Determine current chapter name efficiently without loading full relations
                                 $currentChapterName = null;
-                                $lastCompletedChapterId = null;
-
-                                if (!empty($chapterIds)) {
-                                    // Count completed curriculum items
-                                    $completedCurriculumItems = UserCurriculumTracking::where('user_id', $user->id)
-                                        ->whereIn('course_chapter_id', $chapterIds)
-                                        ->where('status', 'completed')
-                                        ->count();
-
-                                    // Calculate completed chapters (chapters where all items are completed)
-                                    foreach ($courseWithChapters->chapters as $chapter) {
-                                        $chapterTotalItems =
-                                            $chapter->lectures->count()
-                                            + $chapter->quizzes->count()
-                                            + $chapter->assignments->count()
-                                            + $chapter->resources->count();
-
-                                        if ($chapterTotalItems > 0) {
-                                            $totalChapters++;
-                                            $totalCurriculumItems += $chapterTotalItems;
-
-                                            $chapterCompletedItems = UserCurriculumTracking::where('user_id', $user->id)
-                                                ->where('course_chapter_id', $chapter->id)
-                                                ->where('status', 'completed')
-                                                ->count();
-
-                                            if ($chapterCompletedItems >= $chapterTotalItems) {
-                                                $completedChapters++;
-                                                $lastCompletedChapterId = $chapter->id;
-                                            }
-                                        }
+                                if ($completedCurriculumItems > 0) {
+                                    $lastTracking = \App\Models\UserCurriculumTracking::where('user_id', $user->id)
+                                        ->whereHas('chapter', function($q) use ($course) { 
+                                            $q->where('course_id', $course->id); 
+                                        })
+                                        ->with('chapter')
+                                        ->orderByDesc('completed_at')
+                                        ->first();
+                                        
+                                    if ($lastTracking && $lastTracking->chapter) {
+                                        $currentChapterName = $lastTracking->chapter->title;
+                                        // Remove "Chapter X:" prefix if exists
+                                        $currentChapterName = preg_replace('/^Chapter\s+\d+:\s*/i', '', $currentChapterName);
+                                        $currentChapterName = trim($currentChapterName);
                                     }
-
-                                    // Calculate progress percentage
-                                    if ($totalChapters > 0) {
-                                        $progressPercentage = round(($completedChapters / $totalChapters) * 100, 2);
-                                    }
-                                }
-
-                                // Determine current chapter name
-                                if ($completedChapters > 0 && $lastCompletedChapterId) {
-                                    $lastCompletedChapter = $courseWithChapters->chapters->firstWhere(
-                                        'id',
-                                        $lastCompletedChapterId,
-                                    );
-                                    $currentChapterName = $lastCompletedChapter ? $lastCompletedChapter->title : null;
                                 } else {
-                                    $firstChapter = $courseWithChapters->chapters->first();
+                                    $firstChapter = \App\Models\CourseChapter::where('course_id', $course->id)
+                                        ->where('is_active', 1)
+                                        ->orderBy('chapter_order')
+                                        ->first();
                                     $currentChapterName = $firstChapter ? $firstChapter->title : null;
-                                }
-
-                                // Remove "Chapter X:" prefix if exists
-                                if ($currentChapterName) {
-                                    $currentChapterName = preg_replace(
-                                        '/^Chapter\s+\d+:\s*/i',
-                                        '',
-                                        $currentChapterName,
-                                    );
-                                    $currentChapterName = trim($currentChapterName);
                                 }
 
                                 // Calculate discount percentage
@@ -1032,21 +981,6 @@ class HomeApiController extends Controller
 
                                 // Always enrolled (true) for my learning
                                 $isEnrolled = true;
-
-                                // Get last learned timestamp (last completed_at from UserCurriculumTracking)
-                                $lastLearnedAt = null;
-                                if (!empty($chapterIds)) {
-                                    $lastTracking = UserCurriculumTracking::where('user_id', $user->id)
-                                        ->whereIn('course_chapter_id', $chapterIds)
-                                        ->where('status', 'completed')
-                                        ->whereNotNull('completed_at')
-                                        ->orderBy('completed_at', 'desc')
-                                        ->first();
-
-                                    $lastLearnedAt = $lastTracking && $lastTracking->completed_at
-                                        ? $lastTracking->completed_at->toDateTimeString()
-                                        : null;
-                                }
 
                                 // Calculate pricing using service
                                 $coursePricingData = $this->pricingService->calculateCoursePricing($course);

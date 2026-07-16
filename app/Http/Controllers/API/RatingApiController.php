@@ -96,7 +96,7 @@ class RatingApiController extends Controller
 
             $values = [
                 'rating' => (int) $request->rating,
-                'review' => $request->review,
+                'review' => $request->review ? strip_tags($request->review) : null,
                 'status' => 'pending', // Forced pending per admin request
             ];
 

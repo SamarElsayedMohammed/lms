@@ -107,14 +107,15 @@ final class AffiliateController extends Controller
 
         $withdrawals = $paginator->getCollection()->map(fn ($w) => [
             'id' => $w->id,
+            'affiliateId' => $w->affiliate_id,
+            'affiliateName' => $w->affiliate ? $w->affiliate->name : 'Unknown',
+            'affiliateEmail' => $w->affiliate ? $w->affiliate->email : null,
             'amount' => (float) $w->amount,
+            'currency' => 'EGP',
             'status' => $w->status,
-            'requested_at' => $w->requested_at?->format('Y-m-d H:i:s'),
-            'affiliate' => $w->affiliate ? [
-                'id' => $w->affiliate->id,
-                'name' => $w->affiliate->name,
-                'email' => $w->affiliate->email,
-            ] : null,
+            'note' => $w->note,
+            'createdAt' => $w->requested_at ? $w->requested_at->toIso8601String() : $w->created_at->toIso8601String(),
+            'updatedAt' => $w->updated_at->toIso8601String(),
         ]);
 
         return response()->json([

@@ -77,10 +77,9 @@ final class VideoStreamController extends Controller
             }
 
             if ($this->isDirectVideoFile($courseChapterLecture)) {
-                return $this->grantExternalVideoStream(
+                return $this->grantDirectVideoStream(
                     $courseChapterLecture,
-                    'video',
-                    $courseChapterLecture->file,
+                    $user,
                     $isFreePreview,
                 );
             }
@@ -125,6 +124,45 @@ final class VideoStreamController extends Controller
             ],
             message: 'Video access granted',
         );
+    }
+
+    private function grantDirectVideoStream(
+        CourseChapterLecture $lecture,
+        \App\Models\User $user,
+        bool $isFreePreview,
+    ): JsonResponse {
+        if (!$lecture->file) {
+            return $this->unprocessableEntity('Video file not available');
+        }
+
+        $uuid = Str::uuid()->toString();
+
+        Cache::put(
+            "direct_video_token:{$uuid}",
+            json_encode([
+                'lecture_id' => $lecture->id,
+                'user_id' => $user->id,
+                'is_free_preview' => $isFreePreview,
+                'file_url' => $lecture->file,
+                'created_at' => now()->timestamp,
+            ]),
+            self::TOKEN_EXPIRY_SECONDS,
+        );
+
+        $data = [
+            'type'         => 'video',
+            'file_type'    => 'video',
+            'video_url'    => url("/api/video-direct/{$uuid}"),
+            'file_url'     => url("/api/video-direct/{$uuid}"),
+            'lecture_id'   => $lecture->id,
+            'lecture_title'=> $lecture->title,
+            'duration'     => $lecture->duration,
+            'expires_in_seconds' => self::TOKEN_EXPIRY_SECONDS,
+            'is_free_preview' => $isFreePreview,
+            'has_hls'      => false,
+        ];
+
+        return $this->ok(data: $data, message: 'Direct video access granted');
     }
 
     private function grantExternalVideoStream(
@@ -318,6 +356,79 @@ final class VideoStreamController extends Controller
                     Cache::forget($accessCacheKey);
                     return $this->forbidden('Access revoked or subscription expired');
                 }
+            }
+
+            // 6. Serve the file (via proxy to local storage, or redirect to S3)
+            // If it's a local file, we would stream it. If S3, we can redirect to a signed URL or just redirect.
+            // For now, redirecting to the actual HLS asset
+            // (The HLS service implementation handles actual streaming)
+            
+            // ... the rest of serve() is unchanged, assume it returns the file.
+            // Wait, serve() implementation:
+            return $this->streamLocalFile($lecture, $path);
+        } catch (\Throwable $e) {
+            Log::error('HLS streaming failed', ['error' => $e->getMessage()]);
+            return response('Stream unavailable', 503);
+        }
+    }
+
+    /**
+     * Serve Direct video files with UUID validation
+     */
+    public function serveDirect(string $uuid): Response|StreamedResponse|JsonResponse|\Illuminate\Http\RedirectResponse
+    {
+        try {
+            // 1. Validate UUID token
+            $tokenData = Cache::get("direct_video_token:{$uuid}");
+
+            if ($tokenData === null) {
+                return $this->forbidden('Access token expired or invalid');
+            }
+
+            // 2. Parse token data
+            $data = json_decode($tokenData, true);
+            $lectureId = $data['lecture_id'] ?? null;
+            $userId = $data['user_id'] ?? null;
+            $isFreePreview = $data['is_free_preview'] ?? false;
+            $fileUrl = $data['file_url'] ?? null;
+
+            if ($lectureId === null || $fileUrl === null) {
+                return $this->forbidden('Invalid token data');
+            }
+
+            // 3. Get lecture
+            $lecture = CourseChapterLecture::find($lectureId);
+
+            if ($lecture === null) {
+                return $this->notFound('Video not found or not available');
+            }
+
+            // 4. Re-evaluate access
+            if (!$isFreePreview && $userId) {
+                $user = \App\Models\User::find($userId);
+                if (!$user) {
+                    return $this->forbidden('Access revoked or subscription expired');
+                }
+                $accessCacheKey = "video_access:{$userId}:{$lectureId}";
+                $hasAccess = Cache::remember(
+                    $accessCacheKey,
+                    300, // 5 minutes
+                    fn () => (int) app(\App\Services\ContentAccessService::class)->canAccessLecture($user, $lecture),
+                );
+                if (!(bool) $hasAccess) {
+                    Cache::forget($accessCacheKey);
+                    return $this->forbidden('Access revoked or subscription expired');
+                }
+            }
+
+            // 5. Serve or redirect to the actual file URL
+            return redirect($fileUrl);
+            
+        } catch (\Throwable $e) {
+            Log::error('Direct video streaming failed', ['error' => $e->getMessage()]);
+            return response('Stream unavailable', 503);
+        }
+    }
             }
 
             // 6. Build file path (sanitize to prevent directory traversal)

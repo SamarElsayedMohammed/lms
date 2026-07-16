@@ -40,6 +40,7 @@ class CourseProgressService
         
         $completedItems = UserCurriculumTracking::where('user_id', $userId)
             ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId)->where('is_active', 1))
+            ->whereHasMorph('trackable', '*', fn($q) => $q->where('is_active', 1))
             ->where('status', 'completed')
             ->count();
 

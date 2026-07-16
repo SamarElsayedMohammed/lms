@@ -8,6 +8,7 @@ use App\Models\WithdrawalRequest;
 use App\Services\ApiResponseService;
 use App\Services\HelperService;
 use App\Services\PricingService;
+use App\Services\WalletService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -74,8 +75,8 @@ class WalletApiController extends Controller
                     'balance_after'       => (float) $transaction->balance_after,
                     'local_balance_before' => $this->pricingService->convertFromEgp((float) $transaction->balance_before, $displayCurrency),
                     'local_balance_after'  => $this->pricingService->convertFromEgp((float) $transaction->balance_after, $displayCurrency),
-                    'created_at'          => $transaction->created_at,
-                    'created_at_formatted' => $transaction->created_at->format('Y-m-d H:i:s'),
+                    'created_at'          => $transaction->created_at->toIso8601String(),
+                    'created_at_formatted' => $transaction->created_at->toIso8601String(),
                     'time_ago'            => $transaction->created_at->diffForHumans(),
                 ]);
 
@@ -209,7 +210,7 @@ class WalletApiController extends Controller
                 if (!$exists) {
                     $amt = (float) $deposit->amount;
                     $unifiedList->push([
-                        'id'              => null,
+                        'id'              => 'deposit-' . $deposit->id,
                         'amount'          => $amt,
                         'local_amount'    => $this->pricingService->convertFromEgp($amt, $displayCurrency),
                         'currency'        => $displayCurrency,
@@ -218,8 +219,8 @@ class WalletApiController extends Controller
                         'transaction_type' => 'deposit',
                         'description'     => 'Manual Deposit - ' . ($deposit->method ? $deposit->method->name : 'Request'),
                         'status'          => $deposit->status,
-                        'created_at'      => $deposit->created_at->toDateTimeString(),
-                        'created_at_formatted' => $deposit->created_at->format('Y-m-d H:i:s'),
+                        'created_at'      => $deposit->created_at->toIso8601String(),
+                        'created_at_formatted' => $deposit->created_at->toIso8601String(),
                         'time_ago'        => $deposit->created_at->diffForHumans(),
                         'is_pending'      => $deposit->status === 'pending',
                         'payment_method'  => $deposit->method ? $deposit->method->name : null,
@@ -237,7 +238,7 @@ class WalletApiController extends Controller
                 if (!$exists) {
                     $amt = (float) $withdrawal->amount;
                     $unifiedList->push([
-                        'id'              => null,
+                        'id'              => 'withdrawal-' . $withdrawal->id,
                         'amount'          => $amt,
                         'local_amount'    => $this->pricingService->convertFromEgp($amt, $displayCurrency),
                         'currency'        => $displayCurrency,
@@ -246,8 +247,8 @@ class WalletApiController extends Controller
                         'transaction_type' => 'withdrawal',
                         'description'     => 'Withdrawal Request',
                         'status'          => $withdrawal->status,
-                        'created_at'      => $withdrawal->created_at->toDateTimeString(),
-                        'created_at_formatted' => $withdrawal->created_at->format('Y-m-d H:i:s'),
+                        'created_at'      => $withdrawal->created_at->toIso8601String(),
+                        'created_at_formatted' => $withdrawal->created_at->toIso8601String(),
                         'time_ago'        => $withdrawal->created_at->diffForHumans(),
                         'is_pending'      => $withdrawal->status === 'pending',
                         'payment_method'  => $withdrawal->payment_method,
@@ -327,8 +328,8 @@ class WalletApiController extends Controller
             'local_balance_before' => $this->pricingService->convertFromEgp((float) $history->balance_before, $displayCurrency),
             'local_balance_after'  => $this->pricingService->convertFromEgp((float) $history->balance_after, $displayCurrency),
             'status'              => $status,
-            'created_at'          => $history->created_at->toDateTimeString(),
-            'created_at_formatted' => $history->created_at->format('Y-m-d H:i:s'),
+            'created_at'          => $history->created_at->toIso8601String(),
+            'created_at_formatted' => $history->created_at->toIso8601String(),
             'time_ago'            => $history->created_at->diffForHumans(),
             'is_pending'          => false,
             'payment_method'      => $paymentMethod,
@@ -471,9 +472,16 @@ class WalletApiController extends Controller
                 'status' => 'pending',
             ]);
 
-            // Withdrawal request is created as 'pending'.
-            // Balance will be deducted ONLY when admin approves the request.
-            // We already checked if user has sufficient balance in line 547.
+            // Deduct the requested amount from user's wallet immediately to prevent double spending
+            WalletService::debitWallet(
+                $user->id,
+                $amount,
+                'withdrawal',
+                "Withdrawal request #{$withdrawalRequest->id} submitted",
+                $withdrawalRequest->id,
+                \App\Models\WithdrawalRequest::class,
+                $entryType
+            );
 
             DB::commit();
 

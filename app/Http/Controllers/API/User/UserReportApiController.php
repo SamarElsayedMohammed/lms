@@ -320,6 +320,9 @@ class UserReportApiController extends Controller
             ->latest('updated_at')
             ->limit(10)
             ->get()
+            // Bug 6 fix: skip rows where the chapter or course has been deleted/orphaned
+            // to prevent "N/A" appearing in the activity feed.
+            ->filter(fn($track) => $track->chapter !== null && $track->chapter->course !== null)
             ->map(function ($track) {
                 $type = 'Activity';
                 if (str_contains($track->model_type, 'Lecture')) $type = 'Lecture';
@@ -327,11 +330,12 @@ class UserReportApiController extends Controller
                 elseif (str_contains($track->model_type, 'Assignment')) $type = 'Assignment';
 
                 return [
-                    'activity' => 'Completed ' . $type,
-                    'course_title' => $track->chapter->course->title ?? 'N/A',
-                    'date' => $track->updated_at->toDateTimeString(),
+                    'activity'     => 'Completed ' . $type,
+                    'course_title' => $track->chapter->course->title,
+                    'date'         => $track->updated_at->toDateTimeString(),
                 ];
-            });
+            })
+            ->values();
     }
 
     /**
@@ -348,7 +352,7 @@ class UserReportApiController extends Controller
                 return ApiResponseService::errorResponse('User not authenticated', null, 401);
             }
 
-            // 1. Get already generated certificates
+            // 1. Get already generated (issued) certificates
             $generatedCertificates = CourseCertificate::where('user_id', $user->id)
                 ->with('course.category')
                 ->latest('issued_date')
@@ -357,10 +361,11 @@ class UserReportApiController extends Controller
 
             $result = [];
 
-            // Add generated certificates to the result
+            // Add generated certificates first (these are fully issued)
             foreach ($generatedCertificates as $cert) {
                 $result[] = [
                     'id'                 => $cert->id,
+                    'is_issued'          => true,   // Bug 1 fix: explicit flag so frontend never guesses
                     'course_id'          => $cert->course_id,
                     'course_title'       => $cert->course->title    ?? 'N/A',
                     'issued_at'          => optional($cert->created_at)->toIso8601String(),
@@ -370,39 +375,42 @@ class UserReportApiController extends Controller
                     'englishCourseTitle' => $cert->english_title ?? ($cert->course->title ?? 'N/A'),
                     'date'               => optional($cert->issued_date)->format('Y-m-d'),
                     'instructorName'     => $cert->instructor_name ?? ($cert->course->user->name ?? 'N/A'),
-                    'certificateId'      => $cert->certificate_number,
+                    // Bug 7 fix: use consistent snake_case key so the frontend adapter
+                    // pickString(["certificate_number"]) finds the field correctly.
+                    'certificate_number' => $cert->certificate_number,
                 ];
             }
 
-            // 2. Find all enrolled courses and append completed ones that don't have a certificate generated yet
-            // Wait: the PRD says it returns all issued certificates. We will stick to the existing feature of returning completed but ungenerated ones as well, or should we only return generated ones?
-            // "Returns all issued certificates for the authenticated user"
-            // Let's keep the existing behaviour of allowing download generation if completed but not issued, but format it identically.
+            // 2. Find enrolled courses completed but not yet issued a certificate.
+            //    These are shown as "Pending Issuance" — the student can trigger PDF
+            //    generation from the UI which will create the CourseCertificate record.
             $enrollmentService = app(\App\Services\UserEnrollmentService::class);
             $enrolled = $enrollmentService->resolveEnrolledCourses(
                 (int) $user->id,
                 static fn ($query) => $query->with(['category', 'user'])
             );
 
-            $certService = app(\App\Services\CertificateService::class);
+            $certService  = app(\App\Services\CertificateService::class);
             $videoService = app(\App\Services\VideoProgressService::class);
 
             foreach ($enrolled as $item) {
                 $course = $item['course'];
                 if (!$course) continue;
 
-                // Skip if already generated
+                // Skip if already issued
                 if ($generatedCertificates->has($course->id)) {
                     continue;
                 }
 
-                // Check completion
-                $isCompleted = $certService->checkCourseCompletionStatus($user->id, $course->id);
+                // Check completion (Bug 2 note: CertificateService is the correct authority
+                // for certificate eligibility — it checks all required items including quizzes)
+                $isCompleted  = $certService->checkCourseCompletionStatus($user->id, $course->id);
                 $videoProgress = $videoService->getCourseProgress($user, $course);
 
                 if ($isCompleted && $videoProgress >= \App\Services\VideoProgressService::COMPLETION_THRESHOLD) {
                     $result[] = [
                         'id'                 => null,
+                        'is_issued'          => false,  // Bug 1 fix: clearly NOT issued yet
                         'course_id'          => $course->id,
                         'course_title'       => $course->title ?? 'N/A',
                         'issued_at'          => null,
@@ -412,13 +420,13 @@ class UserReportApiController extends Controller
                         'englishCourseTitle' => $course->title ?? 'N/A',
                         'date'               => null,
                         'instructorName'     => $course->user->name ?? 'N/A',
-                        'certificateId'      => null,
+                        'certificate_number' => null,   // Bug 7 fix: always snake_case
                     ];
                 }
             }
 
             return response()->json([
-                'ok' => true,
+                'ok'   => true,
                 'data' => array_values($result)
             ], 200);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

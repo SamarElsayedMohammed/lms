@@ -263,6 +263,15 @@ class OrderAdminApiController extends AdminCrudApiController
             if ($order->user) {
                 OrderTrackingService::createCurriculumTrackingEntries($order, $order->user);
             }
+        } elseif ($oldStatus === 'completed' && $request->status !== 'completed') {
+            // Revoke access / clear cache if order is no longer completed
+            $order->load('orderCourses');
+            $progressService = app(\App\Services\CourseProgressService::class);
+            foreach ($order->orderCourses as $oc) {
+                if ($oc->course_id && $order->user_id) {
+                    $progressService->clearCache($order->user_id, $oc->course_id);
+                }
+            }
         }
 
         return $this->jsonSuccess(__('Order status updated successfully'), $order->fresh());

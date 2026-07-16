@@ -26,6 +26,7 @@ class CourseChapter extends Model
         'is_active',
         'chapter_order',
         'type',
+        'duration_seconds',
     ];
 
     protected $casts = [
@@ -96,12 +97,7 @@ class CourseChapter extends Model
      */
     public function getLectureDurationAttribute()
     {
-        $lectures = $this->lectures()->get();
-        $totalDuration = 0;
-        foreach ($lectures as $lecture) {
-            $totalDuration += $lecture->duration;
-        }
-        return $totalDuration;
+        return $this->duration_seconds;
     }
 
     public function getQuizDurationAttribute()
@@ -189,5 +185,26 @@ class CourseChapter extends Model
             $assignments->toArray(),
         ));
         return $data->sortBy('chapter_order')->values();
+    }
+
+    /**
+     * Recalculate duration for the chapter.
+     */
+    public function recalculateDuration(): void
+    {
+        $lectures = $this->lectures()->get();
+        $totalDuration = 0;
+
+        foreach ($lectures as $lecture) {
+            $totalDuration += $lecture->duration_seconds;
+        }
+
+        $this->update([
+            'duration_seconds' => $totalDuration,
+        ]);
+
+        if ($this->course) {
+            $this->course->recalculateDuration();
+        }
     }
 }

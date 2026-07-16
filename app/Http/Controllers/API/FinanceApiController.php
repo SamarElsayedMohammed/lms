@@ -435,9 +435,16 @@ class FinanceApiController extends Controller
                 'status' => 'pending',
             ]);
 
-            // Withdrawal request is created as 'pending'. 
-            // Balance will be deducted ONLY when admin approves the request.
-            // We already checked if user has sufficient balance in line 547.
+            // Deduct the requested amount from user's wallet immediately to prevent double spending
+            WalletService::debitWallet(
+                $user->id,
+                $amount,
+                'withdrawal',
+                "Withdrawal request #{$withdrawalRequest->id} submitted",
+                $withdrawalRequest->id,
+                \App\Models\WithdrawalRequest::class,
+                $entryType
+            );
 
             DB::commit();
 

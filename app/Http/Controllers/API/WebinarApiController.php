@@ -54,7 +54,10 @@ class WebinarApiController extends Controller
             }
 
             $user = Auth::guard('sanctum')->user();
-            $is_registered = $user ? WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->exists() : false;
+            $is_registered = $user ? WebinarRegistration::where('user_id', $user->id)
+                ->where('webinar_id', $webinar->id)
+                ->whereIn('payment_status', ['paid', 'free'])
+                ->exists() : false;
 
             // Hide sensitive links if not registered or not completed
             if (!$is_registered) {
@@ -211,8 +214,12 @@ class WebinarApiController extends Controller
                 ->where('webinar_id', $webinar->id)
                 ->first();
 
-            if (!$registration && !$webinar->is_free) {
+            if (!$registration) {
                 return ApiResponseService::errorResponse('You must register for this webinar first.');
+            }
+
+            if (!$webinar->is_free && !in_array($registration->payment_status, ['paid', 'free'])) {
+                return ApiResponseService::errorResponse('You must complete payment for this webinar first.');
             }
 
             if ($webinar->status === 'scheduled' && $webinar->start_at->gt(now()->addMinutes(15))) {

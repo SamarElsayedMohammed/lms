@@ -77,6 +77,7 @@ final class CourseChapterLecture extends Model
         'hls_manifest_path',
         'hls_error_message',
         'hls_encoded_at',
+        'duration_seconds',
     ];
 
     protected $casts = [
@@ -139,7 +140,7 @@ final class CourseChapterLecture extends Model
 
     public function getDurationAttribute(): int
     {
-        return ($this->hours * 3600) + ($this->minutes * 60) + $this->seconds;
+        return $this->duration_seconds;
     }
 
     /**

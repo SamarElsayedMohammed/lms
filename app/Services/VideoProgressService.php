@@ -461,6 +461,13 @@ class VideoProgressService
                     'started_at'   => now(),
                 ]
             );
+
+            // Invalidate CourseProgressService cache to ensure UI gets fresh progress on next load
+            $courseId = $lecture->chapter->course_id ?? null;
+            if ($courseId) {
+                app(\App\Services\CourseProgressService::class)->clearCache($userId, $courseId);
+            }
+
         } catch (\Throwable $e) {
             Log::warning('VideoProgressService: failed to sync curriculum tracking', [
                 'user_id'    => $userId,

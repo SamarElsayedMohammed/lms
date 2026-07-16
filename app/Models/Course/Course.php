@@ -57,6 +57,8 @@ class Course extends Model
         'initial_views',
         'initial_students',
         'initial_rating',
+        'duration_seconds',
+        'lectures_count',
     ];
 
     protected $casts = [
@@ -402,5 +404,25 @@ class Course extends Model
                     });
                 });
         });
+    }
+
+    /**
+     * Recalculate duration and lecture count for the course.
+     */
+    public function recalculateDuration(): void
+    {
+        $chapters = $this->chapters()->get();
+        $totalDuration = 0;
+        $totalLectures = 0;
+
+        foreach ($chapters as $chapter) {
+            $totalDuration += $chapter->duration_seconds;
+            $totalLectures += $chapter->lectures()->count();
+        }
+
+        $this->update([
+            'duration_seconds' => $totalDuration,
+            'lectures_count' => $totalLectures,
+        ]);
     }
 }

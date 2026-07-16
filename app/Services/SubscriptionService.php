@@ -277,6 +277,19 @@ final class SubscriptionService
             'reason' => $reason,
         ]);
 
+        // Bug 13 Fix: Cascade cancellation to any queued child subscriptions
+        $queuedChildren = Subscription::where('parent_subscription_id', $subscription->id)
+            ->where('status', Subscription::STATUS_PENDING)
+            ->get();
+
+        foreach ($queuedChildren as $child) {
+            $child->cancel('Parent subscription was cancelled: ' . $reason);
+            Log::info('Queued child subscription cancelled due to parent cancellation', [
+                'parent_id' => $subscription->id,
+                'child_id' => $child->id,
+            ]);
+        }
+
         return $result;
     }
 

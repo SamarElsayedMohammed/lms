@@ -396,6 +396,11 @@ class DashboardController extends Controller
                 
             $thisMonthRevenue += $thisMonthRevenueFromSubscriptions;
 
+            $thisMonthRefunds = \App\Models\RefundRequest::where('status', 'approved')
+                ->where('processed_at', '>=', $currentMonth)
+                ->sum('refund_amount') ?? 0;
+            $thisMonthRevenue = max(0, $thisMonthRevenue - $thisMonthRefunds);
+
             // Get last month revenue - same logic
             $lastMonthRevenueFromOrders =
                 Order::where('status', 'completed')->whereBetween('created_at', [
@@ -425,6 +430,11 @@ class DashboardController extends Controller
                 : max($lastMonthRevenueFromTransactions, $lastMonthRevenueFromGatewayTransactions);
                 
             $lastMonthRevenue += $lastMonthRevenueFromSubscriptions;
+
+            $lastMonthRefunds = \App\Models\RefundRequest::where('status', 'approved')
+                ->whereBetween('processed_at', [$lastMonth, $lastMonth->copy()->endOfMonth()])
+                ->sum('refund_amount') ?? 0;
+            $lastMonthRevenue = max(0, $lastMonthRevenue - $lastMonthRefunds);
 
             // Get all order statistics in a single query
             $orderStats = Order::selectRaw('

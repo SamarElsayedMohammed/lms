@@ -1522,6 +1522,8 @@ class CourseChapterApiController extends Controller
                 'tracked_at' => now(),
                 'next_curriculum' => $nextItem,
             ];
+            // Invalidate CourseProgressService cache to ensure UI gets fresh progress on next load
+            app(\App\Services\CourseProgressService::class)->clearCache($userId, $chapter->course_id);
 
             return ApiResponseService::successResponse('Curriculum item marked as completed', $response);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

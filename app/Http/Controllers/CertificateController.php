@@ -9,6 +9,7 @@ use App\Models\Course\CourseChapter\Quiz\UserQuizAttempt;
 use App\Models\QuizCertificate;
 use App\Services\ApiResponseService;
 use App\Services\VideoProgressService;
+use App\Traits\CertificatePdfGeneratorTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -16,6 +17,7 @@ use Mpdf\Mpdf;
 
 class CertificateController extends Controller
 {
+    use CertificatePdfGeneratorTrait;
     /**
      * Get certificate details for a course (check if certificate exists)
      * POST /api/certificate/course/generate
@@ -245,23 +247,11 @@ class CertificateController extends Controller
         $heightMM = round($heightPx * 0.264583, 2);
 
         try {
-            $mpdf = new Mpdf([
-                'mode'             => 'utf-8',
-                'format'           => [$widthMM, $heightMM],
-                'margin_left'      => 0,
-                'margin_right'     => 0,
-                'margin_top'       => 0,
-                'margin_bottom'    => 0,
-                'autoScriptToLang' => true,
-                'autoLangToFont'   => true,
-                'tempDir'          => storage_path('app/temp'),
-            ]);
+            $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
 
-            $mpdf->WriteHTML($html);
-
-            return response($mpdf->Output('', 'S'), 200, [
+            return response($pdfContent, 200, [
                 'Content-Type'        => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="certificate.pdf"',
+                'Content-Disposition' => 'inline; filename="certificate-' . $certificate->certificate_number . '.pdf"',
             ]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('Certificate PDF generation failed', [
@@ -353,6 +343,57 @@ class CertificateController extends Controller
                 'issued_at'          => optional($certificate->created_at)->toIso8601String(),
             ]
         ], 200);
+    }
+
+    /**
+     * Publicly download a verified certificate.
+     */
+    public function downloadPublic(string $certificate_number)
+    {
+        $certificate = CourseCertificate::with(['user', 'course'])
+            ->where('certificate_number', $certificate_number)
+            ->first();
+
+        if (!$certificate) {
+            return ApiResponseService::errorResponse('Certificate not found.', null, 404);
+        }
+
+        if ($certificate->isRevoked()) {
+            return ApiResponseService::errorResponse('Certificate has been revoked.', null, 403);
+        }
+
+        $certificateTemplate = Certificate::where('type', 'course_completion')
+            ->where('is_active', true)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if ($certificateTemplate) {
+            $html = $this->generateCertificateHtml($certificateTemplate, $certificate);
+            $templateSettings = is_string($certificateTemplate->template_settings)
+                ? json_decode($certificateTemplate->template_settings, true)
+                : $certificateTemplate->template_settings;
+            $widthPx  = $templateSettings['width']  ?? 800;
+            $heightPx = $templateSettings['height'] ?? 600;
+        } else {
+            $html = view('certificates.course_certificate_template', [
+                'certificate' => $certificate,
+                'user'        => $certificate->user,
+                'course'      => $certificate->course,
+            ])->render();
+            $widthPx  = 800;
+            $heightPx = 566;
+        }
+
+        try {
+            $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
+
+            return response($pdfContent, 200, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="certificate-' . $certificate->certificate_number . '.pdf"',
+            ]);
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to generate certificate PDF.', null, 500);
+        }
     }
 
     /**
@@ -714,13 +755,19 @@ class CertificateController extends Controller
             'certificate_number' => $certificate->certificate_number ?? '',
         ])->render();
 
-        $mpdf = new \Mpdf\Mpdf(['format' => 'A4-L']); // Landscape A4
-        $mpdf->WriteHTML($html);
+        $widthPx  = 1122; // A4 Landscape roughly
+        $heightPx = 794;  // A4 Landscape roughly
 
-        return response($mpdf->Output('', 'S'), 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="certificate.pdf"',
-        ]);
+        try {
+            $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
+
+            return response($pdfContent, 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="certificate.pdf"',
+            ]);
+        } catch (\Throwable $e) {
+            return \App\Services\ApiResponseService::errorResponse('Failed to generate quiz certificate PDF.', null, 500);
+        }
     }
 
     private function isQuizCompleted($user_id, $quiz_id): bool

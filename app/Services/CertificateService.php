@@ -166,6 +166,7 @@ class CertificateService
         // Check completed items from user_curriculum_trackings
         $completedTracking = \App\Models\UserCurriculumTracking::where('user_id', $userId)
             ->whereIn('course_chapter_id', $course->chapters->pluck('id'))
+            ->whereHasMorph('trackable', '*', fn($q) => $q->where('is_active', 1))
             ->where('status', 'completed')
             ->get();
 
@@ -209,7 +210,7 @@ class CertificateService
                     $userId,
                 )
                     ->whereIn('course_chapter_assignment_id', $nonSkippableAssignmentIds)
-                    ->whereIn('status', ['submitted', 'accepted'])
+                    ->where('status', 'accepted')
                     ->count();
             }
         }

@@ -218,6 +218,25 @@ class RefundController extends Controller
                     'user', // User-side entry
                 );
 
+                // Handle instructor commission clawback
+                $commission = \App\Models\Commission::where('order_id', $refundRequest->transaction->order_id)
+                    ->where('course_id', $refundRequest->course_id)
+                    ->where('status', 'paid')
+                    ->first();
+
+                if ($commission) {
+                    WalletService::debitWallet(
+                        $commission->instructor_id,
+                        $commission->instructor_commission_amount,
+                        'refund',
+                        "Commission clawback for refunded course: {$refundRequest->course->title}",
+                        $refundRequest->id,
+                        \App\Models\RefundRequest::class,
+                    );
+
+                    $commission->update(['status' => 'refunded']);
+                }
+
                 // Remove course access
                 UserCourseTrack::where([
                     'user_id' => $refundRequest->user_id,

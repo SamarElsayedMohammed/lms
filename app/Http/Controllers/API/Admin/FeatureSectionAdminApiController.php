@@ -70,7 +70,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
         $section = FeatureSection::create($data);
         $this->syncManualCourses($section, $manualCourseIds);
 
-        Cache::flush();
+        // Cache::flush();
 
         return $this->jsonSuccess(
             __('Feature section created successfully'),
@@ -109,7 +109,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
             $this->syncManualCourses($section, $manualCourseIds);
         }
 
-        Cache::flush();
+        // Cache::flush();
 
         return $this->jsonSuccess(
             __('Feature section updated successfully'),
@@ -128,7 +128,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
         }
 
         $section->delete();
-        Cache::flush();
+        // Cache::flush();
         return $this->jsonSuccess(__('Feature section deleted successfully'));
     }
 
@@ -143,7 +143,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
         }
 
         $section->restore();
-        Cache::flush();
+        // Cache::flush();
         return $this->jsonSuccess(__('Feature section restored successfully'), $section->fresh(['images', 'manualCourses']));
     }
 
@@ -176,7 +176,7 @@ class FeatureSectionAdminApiController extends AdminCrudApiController
             ['row_order']
         );
 
-        Cache::flush();
+        // Cache::flush();
 
         return $this->jsonSuccess(__('Successfully reordered'));
     }

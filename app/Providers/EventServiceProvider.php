@@ -39,5 +39,7 @@ class EventServiceProvider extends ServiceProvider
     #[\Override]
     public function boot(): void
     {
+        \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::observe(\App\Observers\LectureObserver::class);
+        \App\Models\Course\CourseChapter\CourseChapter::observe(\App\Observers\ChapterObserver::class);
     }
 }

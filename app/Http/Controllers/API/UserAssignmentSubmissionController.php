@@ -26,7 +26,7 @@ class UserAssignmentSubmissionController extends Controller
                 [
                     'assignment_id' => 'required|exists:course_chapter_assignments,id',
                     'files' => 'nullable|array',
-                    'files.*' => 'file|max:10240', // 10MB max per file
+                    'files.*' => 'file|max:10240|mimes:pdf,doc,docx,zip,png,jpg,jpeg,rar,txt', // 10MB max per file, strict types
                     'urls' => 'nullable|array',
                     'urls.*' => 'url',
                     'comment' => 'required|string|max:1000',
@@ -362,7 +362,7 @@ class UserAssignmentSubmissionController extends Controller
             $validator = Validator::make(
                 $request->all(),
                 [
-                    'files.*' => 'nullable|file|max:10240',
+                    'files.*' => 'nullable|file|max:10240|mimes:pdf,doc,docx,zip,png,jpg,jpeg,rar,txt',
                     'urls.*' => 'nullable|url',
                     'comment' => 'required|string|max:1000',
                 ],

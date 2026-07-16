@@ -189,6 +189,8 @@ class UserDashboardApiController extends Controller
         }
 
         $coursesById = $enrolled->pluck('course', 'course_id');
+
+        // === Source 1: UserCourseProgress rows (has an explicit last_accessed_at) ===
         $recent = UserCourseProgress::where('user_id', $user->id)
             ->whereIn('course_id', $enrolledCourseIds)
             ->whereNotNull('last_accessed_at')
@@ -200,23 +202,26 @@ class UserDashboardApiController extends Controller
                 if (!$course) return null;
 
                 return [
-                    'id' => $course->id,
-                    'title' => $course->title,
-                    'thumbnail' => $course->thumbnail,
-                    'image' => $course->thumbnail,
-                    'progress' => round((float) $progress->progress_percentage, 2),
+                    'id'                  => $course->id,
+                    'title'               => $course->title,
+                    'thumbnail'           => $course->thumbnail,
+                    'image'               => $course->thumbnail,
+                    'progress'            => round((float) $progress->progress_percentage, 2),
                     'progress_percentage' => round((float) $progress->progress_percentage, 2),
-                    'last_accessed' => $progress->last_accessed_at?->toDateTimeString(),
+                    // Real interaction timestamp — used for sorting priority
+                    'last_accessed'       => $progress->last_accessed_at?->toDateTimeString(),
                 ];
             })
             ->filter()
             ->values()
             ->toBase();
 
+        // === Source 2: UserCurriculumTracking rows (interaction-based, no UserCourseProgress) ===
         $recentTrackings = UserCurriculumTracking::where('user_id', $user->id)
             ->with('chapter.course')
             ->latest('updated_at')
             ->get()
+            ->filter(fn($item) => $item->chapter !== null && $item->chapter->course !== null) // Bug 6 fix
             ->unique(function ($item) {
                 return $item->chapter->course_id ?? null;
             })
@@ -227,35 +232,49 @@ class UserDashboardApiController extends Controller
                 $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
 
                 return [
-                    'id' => $course->id,
-                    'title' => $course->title,
-                    'thumbnail' => $course->thumbnail,
-                    'image' => $course->thumbnail,
-                    'progress' => $progress,
+                    'id'                  => $course->id,
+                    'title'               => $course->title,
+                    'thumbnail'           => $course->thumbnail,
+                    'image'               => $course->thumbnail,
+                    'progress'            => $progress,
                     'progress_percentage' => $progress,
-                    'last_accessed' => $track->updated_at->toDateTimeString(),
+                    // Real interaction timestamp from tracking
+                    'last_accessed'       => $track->updated_at->toDateTimeString(),
                 ];
             })
             ->filter()
             ->values()
             ->toBase();
 
-        return $recent
-            ->merge($recentTrackings)
-            ->merge($enrolled->sortByDesc('purchase_date')->map(function (array $item) use ($user) {
+        // === Source 3: Enrolled courses with no tracking/progress rows yet ===
+        // Bug 5 fix: for truly unstarted courses we set last_accessed = null.
+        // These are only shown to fill the 5-slot limit after real-activity courses.
+        $fallbackEnrolled = $enrolled
+            ->sortByDesc('purchase_date')
+            ->map(function (array $item) use ($user) {
                 $course = $item['course'];
                 $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
 
                 return [
-                    'id' => $course->id,
-                    'title' => $course->title,
-                    'thumbnail' => $course->thumbnail,
-                    'image' => $course->thumbnail,
-                    'progress' => $progress,
+                    'id'                  => $course->id,
+                    'title'               => $course->title,
+                    'thumbnail'           => $course->thumbnail,
+                    'image'               => $course->thumbnail,
+                    'progress'            => $progress,
                     'progress_percentage' => $progress,
-                    'last_accessed' => $item['purchase_date']?->toDateTimeString(),
+                    // Bug 5 fix: null — this is NOT a real access timestamp.
+                    // Never use purchase_date as last_accessed.
+                    'last_accessed'       => null,
                 ];
-            }))
+            })
+            ->toBase();
+
+        // Merge all sources; deduplicate by course ID; real-activity entries win (they appear first).
+        // Then take the top 5. Courses with null last_accessed sink to the bottom naturally
+        // because sources 1 & 2 come first and dedup removes the fallback entries for those IDs.
+        return $recent
+            ->merge($recentTrackings)
+            ->merge($fallbackEnrolled)
             ->unique('id')
             ->take(5)
             ->values();
@@ -271,6 +290,9 @@ class UserDashboardApiController extends Controller
             ->latest('updated_at')
             ->limit(10)
             ->get()
+            // Bug 6 fix: skip orphaned rows (chapter or course deleted) to prevent
+            // "N/A" titles appearing in the learning activity feed.
+            ->filter(fn($track) => $track->chapter !== null && $track->chapter->course !== null)
             ->map(function ($track) {
                 $type = 'activity';
                 if (str_contains($track->model_type, 'Lecture')) $type = 'lecture';
@@ -278,11 +300,12 @@ class UserDashboardApiController extends Controller
                 elseif (str_contains($track->model_type, 'Assignment')) $type = 'assignment';
 
                 return [
-                    'activity' => 'Completed ' . $type,
-                    'course_title' => $track->chapter->course->title ?? 'N/A',
-                    'date' => $track->updated_at->toDateTimeString(),
+                    'activity'     => 'Completed ' . $type,
+                    'course_title' => $track->chapter->course->title,
+                    'date'         => $track->updated_at->toDateTimeString(),
                 ];
-            });
+            })
+            ->values();
     }
 
     /**

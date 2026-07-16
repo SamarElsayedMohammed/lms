@@ -290,8 +290,8 @@ class RefundApiController extends Controller
                 'eligible' => true,
                 'refund_amount' => $refundAmount,
                 'days_left' => $daysLeft,
-                'refund_deadline' => $refundDeadline->format('Y-m-d H:i:s'),
-                'purchase_date' => $purchaseDate->format('Y-m-d H:i:s'),
+                'refund_deadline' => $refundDeadline->toIso8601String(),
+                'purchase_date' => $purchaseDate->toIso8601String(),
                 'refund_period_days' => $refundPeriod,
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -347,6 +347,25 @@ class RefundApiController extends Controller
                     $refundRequest->id,
                     \App\Models\RefundRequest::class,
                 );
+
+                // Handle instructor commission clawback
+                $commission = \App\Models\Commission::where('order_id', $refundRequest->transaction->order_id)
+                    ->where('course_id', $refundRequest->course_id)
+                    ->where('status', 'paid')
+                    ->first();
+
+                if ($commission) {
+                    WalletService::debitWallet(
+                        $commission->instructor_id,
+                        $commission->instructor_commission_amount,
+                        'refund',
+                        "Commission clawback for refunded course: {$refundRequest->course->title}",
+                        $refundRequest->id,
+                        \App\Models\RefundRequest::class,
+                    );
+
+                    $commission->update(['status' => 'refunded']);
+                }
 
                 // Remove course access
                 UserCourseTrack::where([

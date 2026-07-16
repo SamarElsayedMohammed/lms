@@ -224,7 +224,7 @@ class OrderApiController extends Controller
                         'final_total' => round($finalTotal, 2),
                         'refund_amount' => round($totalRefundAmount, 2),
                         'transaction_date' => $order->created_at,
-                        'transaction_date_formatted' => $order->created_at->format('Y-m-d H:i:s'),
+                        'transaction_date_formatted' => $order->created_at->toIso8601String(),
                         'transaction_date_human' => $order->created_at->diffForHumans(),
                         'courses' => $order->orderCourses->map(static function ($oc) use (
                             $user,
@@ -325,7 +325,7 @@ class OrderApiController extends Controller
                                 'refund_request_status' => $refundRequestStatus,
                                 'refund_request_id' => $refundRequestId,
                                 'refund_admin_notes' => $refundAdminNotes,
-                                'purchase_date' => $order->created_at->format('Y-m-d H:i:s'),
+                                'purchase_date' => $order->created_at->toIso8601String(),
                             ];
                         })->filter(),
                         'promo_code' => $order->promo_code
@@ -1930,7 +1930,7 @@ class OrderApiController extends Controller
                         'payment_method' => 'wallet',
                         'transaction_id' => $transactionId,
                         'status' => 'completed',
-                        'created_at' => $order->created_at->format('Y-m-d H:i:s'),
+                        'created_at' => $order->created_at->toIso8601String(),
                     ];
 
                     return ApiResponseService::successResponse(
@@ -2019,7 +2019,7 @@ class OrderApiController extends Controller
                         'payment_method' => $order->payment_method,
                         'status' => $order->status,
                         'payment' => $paymentInit, // Full payment data for app
-                        'created_at' => $order->created_at->format('Y-m-d H:i:s'),
+                        'created_at' => $order->created_at->toIso8601String(),
                     ];
                 } else {
                     // For web: return redirect URL
@@ -2035,7 +2035,7 @@ class OrderApiController extends Controller
                         'payment_method' => $order->payment_method,
                         'status' => $order->status,
                         'payment_url' => $paymentInit['url'] ?? null, // Redirect URL for web
-                        'created_at' => $order->created_at->format('Y-m-d H:i:s'),
+                        'created_at' => $order->created_at->toIso8601String(),
                     ];
                 }
 

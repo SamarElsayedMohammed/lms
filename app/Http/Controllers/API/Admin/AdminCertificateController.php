@@ -10,6 +10,7 @@ use App\Models\OrderCourse;
 use App\Services\ApiResponseService;
 use Illuminate\Http\Request;
 use Mpdf\Mpdf;
+use App\Traits\CertificatePdfGeneratorTrait;
 
 /**
  * Admin Certificate Management
@@ -21,6 +22,8 @@ use Mpdf\Mpdf;
  */
 class AdminCertificateController extends AdminCrudApiController
 {
+    use CertificatePdfGeneratorTrait;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -100,28 +103,18 @@ class AdminCertificateController extends AdminCrudApiController
 
         $widthPx  = $settings['width']  ?? 800;
         $heightPx = $settings['height'] ?? 600;
-        $widthMM  = round($widthPx  * 0.264583, 2);
-        $heightMM = round($heightPx * 0.264583, 2);
-
-        $mpdf = new Mpdf([
-            'mode'             => 'utf-8',
-            'format'           => [$widthMM, $heightMM],
-            'margin_left'      => 0,
-            'margin_right'     => 0,
-            'margin_top'       => 0,
-            'margin_bottom'    => 0,
-            'autoScriptToLang' => true,
-            'autoLangToFont'   => true,
-        ]);
-
-        $mpdf->WriteHTML($html);
-
         $filename = 'certificate-' . $certificate->certificate_number . '.pdf';
 
-        return response($mpdf->Output('', 'S'), 200, [
-            'Content-Type'        => 'application/pdf',
-            'Content-Disposition' => "inline; filename=\"{$filename}\"",
-        ]);
+        try {
+            $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
+
+            return response($pdfContent, 200, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => "inline; filename=\"{$filename}\"",
+            ]);
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to generate certificate PDF.', null, 500);
+        }
     }
 
     /**
@@ -153,6 +146,15 @@ class AdminCertificateController extends AdminCrudApiController
             'revoked_at'     => now(),
             'revoked_reason' => $request->input('reason', 'Revoked by admin'),
         ]);
+
+        // Delete all cached versions of this certificate
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        $allFiles = $disk->files('certificates');
+        foreach ($allFiles as $file) {
+            if (str_starts_with($file, "certificates/cert_{$certificate->certificate_number}_")) {
+                $disk->delete($file);
+            }
+        }
 
         return response()->json([
             'ok' => true,

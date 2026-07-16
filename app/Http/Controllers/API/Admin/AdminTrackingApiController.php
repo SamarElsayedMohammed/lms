@@ -47,84 +47,104 @@ final class AdminTrackingApiController extends AdminCrudApiController
 
         $perPage = (int) $request->input('per_page', 15);
 
-        $query = OrderCourse::query()
-            ->join('orders', 'order_courses.order_id', '=', 'orders.id')
-            ->join('users', 'orders.user_id', '=', 'users.id')
-            ->join('courses', 'order_courses.course_id', '=', 'courses.id')
-            ->leftJoin('user_course_progress', function ($join) {
-                $join->on('order_courses.course_id', '=', 'user_course_progress.course_id')
-                     ->on('users.id', '=', 'user_course_progress.user_id');
+        $query = OrderCourse::with(['order.user', 'course'])
+            ->whereHas('order', function ($q) {
+                $q->where('status', 'completed')
+                  ->whereHas('user');
             })
-            ->where('orders.status', 'completed')
-            ->whereNull('users.deleted_at')
-            ->select([
-                'order_courses.id',
-                'users.id as user_id',
-                'users.name as student_name',
-                'users.email',
-                'courses.id as course_id',
-                'courses.title as course_name',
-                'user_course_progress.progress_percentage',
-                'user_course_progress.status as ucp_status',
-                'user_course_progress.last_accessed_at',
-            ]);
+            ->whereHas('course');
 
         if ($request->filled('course_id')) {
-            $query->where('order_courses.course_id', (int) $request->course_id);
+            $query->where('course_id', (int) $request->course_id);
         }
 
         if ($request->filled('student')) {
             $search = $request->student;
-            $query->where(static function ($q) use ($search): void {
-                $q->where('users.name', 'like', "%{$search}%")
-                    ->orWhere('users.email', 'like', "%{$search}%");
+            $query->whereHas('order.user', function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
             });
         }
 
         if ($request->filled('status')) {
             $status = $request->status;
             if ($status === 'not_started') {
-                $query->where(function ($q) {
-                    $q->whereNull('user_course_progress.status')
-                      ->orWhere('user_course_progress.status', 'not_started')
-                      ->orWhere('user_course_progress.progress_percentage', 0);
+                $query->whereNotExists(function ($sub) {
+                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                        ->from('user_course_progress')
+                        ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+                        ->whereColumn('user_course_progress.course_id', 'order_courses.course_id')
+                        ->whereColumn('user_course_progress.user_id', 'orders.user_id')
+                        ->where(function ($st) {
+                            $st->where('user_course_progress.status', '!=', 'not_started')
+                               ->orWhere('user_course_progress.progress_percentage', '>', 0);
+                        });
                 });
             } elseif ($status === 'completed') {
-                $query->where(function ($q) {
-                    $q->where('user_course_progress.status', 'completed')
-                      ->orWhere('user_course_progress.progress_percentage', '>=', 100);
+                $query->whereExists(function ($sub) {
+                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                        ->from('user_course_progress')
+                        ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+                        ->whereColumn('user_course_progress.course_id', 'order_courses.course_id')
+                        ->whereColumn('user_course_progress.user_id', 'orders.user_id')
+                        ->where(function ($st) {
+                            $st->where('user_course_progress.status', 'completed')
+                               ->orWhere('user_course_progress.progress_percentage', '>=', 100);
+                        });
                 });
             } elseif ($status === 'in_progress') {
-                $query->where(function ($q) {
-                    $q->where('user_course_progress.status', 'in_progress')
-                      ->orWhere(function($subQ) {
-                          $subQ->where('user_course_progress.progress_percentage', '>', 0)
-                               ->where('user_course_progress.progress_percentage', '<', 100);
-                      });
+                $query->whereExists(function ($sub) {
+                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                        ->from('user_course_progress')
+                        ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+                        ->whereColumn('user_course_progress.course_id', 'order_courses.course_id')
+                        ->whereColumn('user_course_progress.user_id', 'orders.user_id')
+                        ->where(function ($st) {
+                            $st->where('user_course_progress.status', 'in_progress')
+                               ->orWhere(function ($percent) {
+                                   $percent->where('user_course_progress.progress_percentage', '>', 0)
+                                           ->where('user_course_progress.progress_percentage', '<', 100);
+                               });
+                        });
                 });
             }
         }
 
         if ($request->filled('from_date')) {
             $from = Carbon::parse($request->from_date)->startOfDay();
-            $query->where('user_course_progress.last_accessed_at', '>=', $from);
+            $query->whereExists(function ($sub) use ($from) {
+                $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                    ->from('user_course_progress')
+                    ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+                    ->whereColumn('user_course_progress.course_id', 'order_courses.course_id')
+                    ->whereColumn('user_course_progress.user_id', 'orders.user_id')
+                    ->where('user_course_progress.last_accessed_at', '>=', $from);
+            });
         }
 
         if ($request->filled('to_date')) {
             $to = Carbon::parse($request->to_date)->endOfDay();
-            $query->where('user_course_progress.last_accessed_at', '<=', $to);
+            $query->whereExists(function ($sub) use ($to) {
+                $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                    ->from('user_course_progress')
+                    ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+                    ->whereColumn('user_course_progress.course_id', 'order_courses.course_id')
+                    ->whereColumn('user_course_progress.user_id', 'orders.user_id')
+                    ->where('user_course_progress.last_accessed_at', '<=', $to);
+            });
         }
 
         $paginator = $query->orderByDesc('order_courses.id')->paginate($perPage);
 
         $rows = collect($paginator->items())->map(function ($row) {
-            $metrics = $this->resolveEnrollmentMetrics((int) $row->user_id, (int) $row->course_id);
+            $userId = $row->order->user_id ?? 0;
+            $metrics = $this->resolveEnrollmentMetrics((int) $userId, (int) $row->course_id);
 
             return [
                 'id'             => (int) $row->id,
-                'student_name'   => $row->student_name,
-                'email'          => $row->email,
-                'course_name'    => $row->course_name,
+                'student_name'   => $row->order->user->name ?? 'Unknown',
+                'email'          => $row->order->user->email ?? 'Unknown',
+                'course_name'    => $row->course->title ?? 'Unknown',
                 'course_id'      => (int) $row->course_id,
                 'current_lesson' => $metrics['current_lesson'],
                 'progress'       => $metrics['progress'],

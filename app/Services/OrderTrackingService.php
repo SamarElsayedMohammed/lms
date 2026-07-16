@@ -20,6 +20,8 @@ class OrderTrackingService
             $orderCourses = OrderCourse::where('order_id', $order->id)->get();
             $trackingEntries = [];
 
+            $courseIdsToClearCache = [];
+
             foreach ($orderCourses as $orderCourse) {
                 $course = Course::with(['chapters' => static function ($query): void {
                     $query
@@ -100,6 +102,7 @@ class OrderTrackingService
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
+                    $courseIdsToClearCache[] = $course->id;
                 }
             }
 
@@ -108,6 +111,12 @@ class OrderTrackingService
                 // Use insertOrIgnore to avoid duplicate key errors
                 foreach (array_chunk($trackingEntries, 500) as $chunk) {
                     DB::table('user_curriculum_trackings')->insertOrIgnore($chunk);
+                }
+
+                // Invalidate CourseProgressService cache to ensure UI gets fresh progress on next load
+                $progressService = app(\App\Services\CourseProgressService::class);
+                foreach ($courseIdsToClearCache as $courseId) {
+                    $progressService->clearCache($user->id, $courseId);
                 }
             }
         } catch (\Exception $e) {

@@ -120,6 +120,7 @@ class ApiController extends Controller
                 'device_type'   => 'nullable|in:web,android,ios,desktop',
                 'device_id'     => 'nullable|string|max:255',
                 'device_name'   => 'nullable|string|max:255',
+                'profile'       => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
             ];
 
             // email-type requires password credentials
@@ -2696,7 +2697,8 @@ class ApiController extends Controller
             'contact_message_id' => $message->id,
             'user_id' => $user->id,
             'sender_type' => 'user',
-            'message' => $request->message,
+            'message' => $request->message ? strip_tags($request->message) : null,
+            'is_read' => false,
         ]);
 
         $message->update(['status' => 'waiting_admin']);
@@ -2738,7 +2740,7 @@ class ApiController extends Controller
                 'user_id'    => $authUser?->id,
                 'first_name' => $request->first_name,
                 'email'      => $request->email,
-                'message'    => $request->message,
+                'message'    => $request->message ? strip_tags($request->message) : null,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'status'     => 'new',
