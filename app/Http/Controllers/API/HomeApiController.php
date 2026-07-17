@@ -137,22 +137,7 @@ class HomeApiController extends Controller
                         ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
 
                     if ($request->filled('course_type')) {
@@ -175,22 +160,7 @@ class HomeApiController extends Controller
                         ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
 
                     if ($request->filled('course_type')) {
@@ -212,22 +182,7 @@ class HomeApiController extends Controller
                         ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
                         })
                         ->withAvg('ratings', 'rating')
@@ -252,22 +207,7 @@ class HomeApiController extends Controller
                         ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
                         })
                         ->withCount('views')
@@ -293,22 +233,7 @@ class HomeApiController extends Controller
                         ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
                         })
                         ->whereNull('price')
@@ -358,22 +283,7 @@ class HomeApiController extends Controller
                             ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             })
                             ->count();
 
@@ -576,22 +486,7 @@ class HomeApiController extends Controller
                                 ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             })
                                 ->pluck('id')
                                 ->toArray();
@@ -621,22 +516,7 @@ class HomeApiController extends Controller
                                 ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             })
                                 ->where(static function ($q) use ($searchHistories): void {
                                     foreach ($searchHistories as $searchQuery) {
@@ -672,22 +552,7 @@ class HomeApiController extends Controller
                                 ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
                                 })
                                 ->whereIn('id', $recommendedCourseIds)
@@ -712,22 +577,7 @@ class HomeApiController extends Controller
                                 ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
                                 })
                                 ->withAvg('ratings', 'rating')
@@ -753,22 +603,7 @@ class HomeApiController extends Controller
                             ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
                             })
                             ->withAvg('ratings', 'rating')
@@ -820,22 +655,7 @@ class HomeApiController extends Controller
                                 ->whereHas('user', static function ($userQuery): void {
                 $userQuery
                     ->where('is_active', 1)
-                    ->where(static function ($query): void {
-                        $query
-                            ->whereHas('instructor_details', static function ($instructorQuery): void {
-                                $instructorQuery->where('status', 'approved');
-                            })
-                            ->orWhereHas('roles', static function ($roleQuery): void {
-                                $roleQuery->whereIn('name', [
-                                    config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
-                                    config('constants.SYSTEM_ROLES.SUPERVISOR'),
-                                    config('constants.SYSTEM_ROLES.TEAM'),
-                                    config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR'),
-                                    config('constants.SYSTEM_ROLES.STAFF'),
-                                    config('constants.SYSTEM_ROLES.MODERATOR'),
-                                ]);
-                            });
-                    });
+                    ;
             });
                                 })
                                 ->where(static function ($q) use ($searchHistories): void {
@@ -924,9 +744,39 @@ class HomeApiController extends Controller
                                 ->values();
                         }
 
+                        // Preload data for N+1 fixes
+                        $courseIdsArray = $enrolledCourses->pluck('id')->toArray();
+
+                        $wishlistedCourseIds = \App\Models\Wishlist::where('user_id', $user->id)
+                            ->whereIn('course_id', $courseIdsArray)
+                            ->pluck('course_id')
+                            ->toArray();
+
+                        $latestTrackings = \App\Models\UserCurriculumTracking::where('user_id', $user->id)
+                            ->whereHas('chapter', function($q) use ($courseIdsArray) { 
+                                $q->whereIn('course_id', $courseIdsArray); 
+                            })
+                            ->with('chapter')
+                            ->orderByDesc('completed_at')
+                            ->get()
+                            ->groupBy(function($item) {
+                                return $item->chapter->course_id ?? 0;
+                            });
+
+                        $firstChapters = \App\Models\Course\CourseChapter\CourseChapter::whereIn('course_id', $courseIdsArray)
+                            ->where('is_active', 1)
+                            ->orderBy('chapter_order')
+                            ->get()
+                            ->groupBy('course_id');
+
                         // Transform courses with progress tracking (same format as getMyLearning)
                         $data = $enrolledCourses
-                            ->map(function ($course) use ($user) {
+                            ->map(function ($course) use (
+                                $user,
+                                $wishlistedCourseIds,
+                                $latestTrackings,
+                                $firstChapters
+                            ) {
                                 if (!$course) {
                                     return null;
                                 }
@@ -943,13 +793,7 @@ class HomeApiController extends Controller
                                 // Determine current chapter name efficiently without loading full relations
                                 $currentChapterName = null;
                                 if ($completedCurriculumItems > 0) {
-                                    $lastTracking = \App\Models\UserCurriculumTracking::where('user_id', $user->id)
-                                        ->whereHas('chapter', function($q) use ($course) { 
-                                            $q->where('course_id', $course->id); 
-                                        })
-                                        ->with('chapter')
-                                        ->orderByDesc('completed_at')
-                                        ->first();
+                                    $lastTracking = $latestTrackings->get($course->id)?->first();
                                         
                                     if ($lastTracking && $lastTracking->chapter) {
                                         $currentChapterName = $lastTracking->chapter->title;
@@ -958,10 +802,7 @@ class HomeApiController extends Controller
                                         $currentChapterName = trim($currentChapterName);
                                     }
                                 } else {
-                                    $firstChapter = \App\Models\CourseChapter::where('course_id', $course->id)
-                                        ->where('is_active', 1)
-                                        ->orderBy('chapter_order')
-                                        ->first();
+                                    $firstChapter = $firstChapters->get($course->id)?->first();
                                     $currentChapterName = $firstChapter ? $firstChapter->title : null;
                                 }
 
@@ -975,9 +816,7 @@ class HomeApiController extends Controller
                                 }
 
                                 // Check if wishlisted
-                                $isWishlisted = \App\Models\Wishlist::where('user_id', $user->id)
-                                    ->where('course_id', $course->id)
-                                    ->exists();
+                                $isWishlisted = in_array($course->id, $wishlistedCourseIds);
 
                                 // Always enrolled (true) for my learning
                                 $isEnrolled = true;

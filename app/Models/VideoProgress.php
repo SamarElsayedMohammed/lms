@@ -23,6 +23,12 @@ class VideoProgress extends Model
         'segment_size',
         'total_segments',
         'completed_segments',
+        'session_id',
+        'device',
+        'browser',
+        'ip',
+        'watch_count',
+        'progress_state',
     ];
 
     protected $casts = [

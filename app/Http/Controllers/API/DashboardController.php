@@ -144,7 +144,7 @@ class DashboardController extends Controller
             // ─── Revenue chart (إجمالي الإيرادات) ──────────────────────────────
             $revenueRows = Order::where('status', 'completed')
                 ->whereBetween('created_at', [$startDate, $endDate])
-                ->selectRaw('YEAR(created_at) as year, MONTH(created_at) as month, SUM(final_price) as total')
+                ->selectRaw('YEAR(created_at) as year, MONTH(created_at) as month, SUM(COALESCE(amount_egp, final_price)) as total')
                 ->groupBy('year', 'month')
                 ->get()
                 ->keyBy(fn($r) => sprintf('%04d-%02d', $r->year, $r->month));
@@ -223,9 +223,9 @@ class DashboardController extends Controller
 
             $revenueStats = Order::where('status', 'completed')
                 ->selectRaw('
-                    SUM(final_price) as total_earnings,
-                    SUM(CASE WHEN created_at >= ? THEN final_price ELSE 0 END) as current_revenue,
-                    SUM(CASE WHEN created_at BETWEEN ? AND ? THEN final_price ELSE 0 END) as previous_revenue
+                    SUM(COALESCE(amount_egp, final_price)) as total_earnings,
+                    SUM(CASE WHEN created_at >= ? THEN COALESCE(amount_egp, final_price) ELSE 0 END) as current_revenue,
+                    SUM(CASE WHEN created_at BETWEEN ? AND ? THEN COALESCE(amount_egp, final_price) ELSE 0 END) as previous_revenue
                 ', [$thirtyDaysAgo, $sixtyDaysAgo, $thirtyDaysAgo])
                 ->first();
 
@@ -928,7 +928,7 @@ class DashboardController extends Controller
         try {
             // First try completed orders
             $orderStats = Order::where('status', 'completed')
-                ->select('payment_method', DB::raw('COUNT(*) as count'), DB::raw('SUM(final_price) as total'))
+                ->select('payment_method', DB::raw('COUNT(*) as count'), DB::raw('SUM(COALESCE(amount_egp, final_price)) as total'))
                 ->groupBy('payment_method')
                 ->get();
 
@@ -1156,7 +1156,7 @@ class DashboardController extends Controller
                 ->selectRaw('
                     YEAR(created_at) as year,
                     MONTH(created_at) as month,
-                    SUM(final_price) as revenue
+                    SUM(COALESCE(amount_egp, final_price)) as revenue
                 ')
                 ->groupBy('year', 'month')
                 ->get()
@@ -1672,7 +1672,7 @@ class DashboardController extends Controller
                 // Sales: sum of completed orders in this month
                 $sales = (float) Order::where('status', 'completed')
                     ->whereBetween('created_at', [$monthStart, $monthEnd])
-                    ->sum('final_price');
+                    ->sum(DB::raw('COALESCE(amount_egp, final_price)'));
 
                 $subSales = (float) DB::table('subscription_payments')
                     ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
@@ -1682,15 +1682,15 @@ class DashboardController extends Controller
 
                 $sales += $subSales;
 
-                // Commission: sum of admin_commission_amount from commissions table
-                $commission = (float) Commission::whereHas('order', function ($q) use ($monthStart, $monthEnd) {
-                    $q->whereBetween('created_at', [$monthStart, $monthEnd]);
-                })->sum('admin_commission_amount');
+                // Commission: sum of admin_commission_amount from commissions table * order's exchange rate
+                $commission = (float) Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                    ->whereBetween('orders.created_at', [$monthStart, $monthEnd])
+                    ->sum(DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
 
                 // Net profit = sales - total instructor commissions paid out
-                $instructorPayout = (float) Commission::whereHas('order', function ($q) use ($monthStart, $monthEnd) {
-                    $q->whereBetween('created_at', [$monthStart, $monthEnd]);
-                })->sum('instructor_commission_amount');
+                $instructorPayout = (float) Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                    ->whereBetween('orders.created_at', [$monthStart, $monthEnd])
+                    ->sum(DB::raw('commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
 
                 $netProfit = $sales - $instructorPayout;
 

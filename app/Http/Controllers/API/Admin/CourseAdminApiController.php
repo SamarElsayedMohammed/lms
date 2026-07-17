@@ -360,14 +360,15 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         $type = $rawType === 'file' ? 'file' : (($rawType === 'video') ? 'youtube_url' : $rawType);
+        $contentUrl = $lesson['content_url'] ?? null;
 
-        return CourseChapterLecture::create([
+        $lecture = CourseChapterLecture::create([
             'user_id'           => $userId,
             'course_chapter_id' => $chapterId,
             'title'             => $lesson['title'] ?? 'Untitled Lesson',
             'slug'              => HelperService::generateUniqueSlug(CourseChapterLecture::class, $lesson['title'] ?? 'untitled'),
             'type'              => $type,
-            'youtube_url'       => $lesson['content_url'] ?? null,
+            'youtube_url'       => $contentUrl,
             'hours'             => $hours,
             'minutes'           => $minutes,
             'seconds'           => $seconds,
@@ -376,6 +377,18 @@ class CourseAdminApiController extends AdminCrudApiController
             'is_active'         => true,
             'free_preview'      => false,
         ]);
+
+        if ($contentUrl && $type === 'youtube_url') {
+            // Check if it's a Bunny Stream URL
+            if (preg_match('/iframe\.mediadelivery\.net\/embed\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/', $contentUrl, $matches)) {
+                $libraryId = $matches[1];
+                $videoGuid = $matches[2];
+                // Dispatch job to fetch real duration
+                \App\Jobs\FetchBunnyVideoDurationJob::dispatch($lecture->id, $libraryId, $videoGuid);
+            }
+        }
+
+        return $lecture;
     }
 
     /**
@@ -567,6 +580,7 @@ class CourseAdminApiController extends AdminCrudApiController
             'minutes'       => $lecture->minutes,
             'seconds'       => $lecture->seconds,
             'duration'      => sprintf('%02d:%02d:%02d', $lecture->hours, $lecture->minutes, $lecture->seconds),
+            'sync_status'   => $lecture->hls_status,
             'chapter_order' => $lecture->chapter_order,
             'is_active'     => $lecture->is_active,
             'free_preview'  => $lecture->free_preview,

@@ -141,18 +141,15 @@ class UserReportApiController extends Controller
 
     /**
      * Calculate total hours spent on lectures
+     * Uses cumulative watched time (watched_seconds) from video_progresses for accuracy.
      */
     private function calculateLearningHours($userId)
     {
-        $completedLectureIds = UserCurriculumTracking::where('user_id', $userId)
-            ->where('model_type', CourseChapterLecture::class)
-            ->where('status', 'completed')
-            ->pluck('model_id');
-
-        $totalSeconds = DB::table('course_chapter_lectures')
-            ->whereIn('id', $completedLectureIds)
-            ->selectRaw('SUM((hours * 3600) + (minutes * 60) + seconds) as total_seconds')
-            ->value('total_seconds');
+        $totalSeconds = DB::table('video_progresses')
+            ->join('course_chapter_lectures', 'video_progresses.lecture_id', '=', 'course_chapter_lectures.id')
+            ->where('video_progresses.user_id', $userId)
+            ->where('course_chapter_lectures.is_active', 1)
+            ->sum('video_progresses.watched_seconds');
 
         return round(($totalSeconds ?? 0) / 3600, 2);
     }
@@ -363,6 +360,8 @@ class UserReportApiController extends Controller
 
             // Add generated certificates first (these are fully issued)
             foreach ($generatedCertificates as $cert) {
+                $progressPercentage = app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $cert->course_id)->progress_percentage ?? 100.0;
+
                 $result[] = [
                     'id'                 => $cert->id,
                     'is_issued'          => true,   // Bug 1 fix: explicit flag so frontend never guesses
@@ -378,6 +377,7 @@ class UserReportApiController extends Controller
                     // Bug 7 fix: use consistent snake_case key so the frontend adapter
                     // pickString(["certificate_number"]) finds the field correctly.
                     'certificate_number' => $cert->certificate_number,
+                    'progress_percentage'=> $progressPercentage, // Fix Issue 4: Send actual progress
                 ];
             }
 
@@ -408,6 +408,8 @@ class UserReportApiController extends Controller
                 $videoProgress = $videoService->getCourseProgress($user, $course);
 
                 if ($isCompleted && $videoProgress >= \App\Services\VideoProgressService::COMPLETION_THRESHOLD) {
+                    $progressPercentage = app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id)->progress_percentage ?? 100.0;
+
                     $result[] = [
                         'id'                 => null,
                         'is_issued'          => false,  // Bug 1 fix: clearly NOT issued yet
@@ -421,6 +423,7 @@ class UserReportApiController extends Controller
                         'date'               => null,
                         'instructorName'     => $course->user->name ?? 'N/A',
                         'certificate_number' => null,   // Bug 7 fix: always snake_case
+                        'progress_percentage'=> $progressPercentage, // Fix Issue 4: Send actual progress
                     ];
                 }
             }

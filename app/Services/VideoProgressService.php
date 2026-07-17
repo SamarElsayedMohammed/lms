@@ -19,12 +19,12 @@ class VideoProgressService
      * Minimum watch percentage to consider a video lecture completed.
      * Used consistently across the service and certificate checks.
      */
-    public const COMPLETION_THRESHOLD = 100.0;
+    public const COMPLETION_THRESHOLD = 90.0;
 
     /**
      * Default segment size for segment-based progress tracking.
      */
-    public const DEFAULT_SEGMENT_SIZE = 5; // seconds
+    public const DEFAULT_SEGMENT_SIZE = 10; // seconds
 
     /**
      * Maximum segments reportable per 15-second update (anti-cheat).
@@ -48,7 +48,8 @@ class VideoProgressService
         CourseChapterLecture $lecture,
         int $watchedSeconds,
         int $lastPosition,
-        int $totalSeconds
+        int $totalSeconds,
+        array $metadata = []
     ): VideoProgress {
         $existing = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
 
@@ -63,8 +64,8 @@ class VideoProgressService
         if ($reportedSeconds > 0) {
             if ($lastUpdate) {
                 $timePassed = $now - $lastUpdate;
-                // Allow a buffer of 10 seconds for legacy tracking
-                if ($timePassed + 10 < $reportedSeconds) {
+                // Allow up to 4x playback speed + 15s buffer for legacy tracking
+                if (($timePassed * 4) + 15 < $reportedSeconds) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported in legacy method', [
                         'user_id' => $user->id,
                         'lecture_id' => $lecture->id,
@@ -102,20 +103,38 @@ class VideoProgressService
             ? now()
             : $existing?->completed_at;
 
-        $progress = VideoProgress::updateOrCreate(
-            [
-                'user_id' => $user->id,
-                'lecture_id' => $lecture->id,
-            ],
-            [
+        $progress = \Illuminate\Support\Facades\DB::transaction(function () use (
+            $user, $lecture, $effectiveWatched, $totalSeconds, $lastPosition, 
+            $watchPercentage, $isCompleted, $completedAt, $metadata, $existing
+        ) {
+            $updateData = [
                 'watched_seconds' => $effectiveWatched,
                 'total_seconds' => $totalSeconds,
                 'last_position' => $lastPosition,
                 'watch_percentage' => $watchPercentage,
                 'is_completed' => $isCompleted,
                 'completed_at' => $completedAt,
-            ]
-        );
+            ];
+
+            if (!empty($metadata['session_id'])) $updateData['session_id'] = $metadata['session_id'];
+            if (!empty($metadata['device'])) $updateData['device'] = $metadata['device'];
+            if (!empty($metadata['browser'])) $updateData['browser'] = $metadata['browser'];
+            if (!empty($metadata['ip'])) $updateData['ip'] = $metadata['ip'];
+            if (!empty($metadata['progress_state'])) $updateData['progress_state'] = $metadata['progress_state'];
+
+            // Increment watch count if it's a new session
+            if ($existing && !empty($metadata['session_id']) && $existing->session_id !== $metadata['session_id']) {
+                $updateData['watch_count'] = $existing->watch_count + 1;
+            }
+
+            return VideoProgress::updateOrCreate(
+                [
+                    'user_id' => $user->id,
+                    'lecture_id' => $lecture->id,
+                ],
+                $updateData
+            );
+        });
 
         // 🔄 Sync: when video is newly completed, mark lecture as completed
         // in user_curriculum_trackings so both tables stay in sync.
@@ -258,7 +277,8 @@ class VideoProgressService
         CourseChapterLecture $lecture,
         int $currentPosition,
         int $totalDuration,
-        array $newlyWatchedSegments
+        array $newlyWatchedSegments,
+        array $metadata = []
     ): VideoProgress {
         $progress = $this->getOrCreateSegmentProgress($user, $lecture, $totalDuration);
 
@@ -271,8 +291,8 @@ class VideoProgressService
         if ($reportedSeconds > 0) {
             if ($lastUpdate) {
                 $timePassed = $now - $lastUpdate;
-                // Allow a small buffer of 5 seconds for network latency
-                if ($timePassed + 5 < $reportedSeconds) {
+                // Allow up to 4x playback speed + 15s buffer for segment tracking
+                if (($timePassed * 4) + 15 < $reportedSeconds) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported', [
                         'user_id' => $user->id,
                         'lecture_id' => $lecture->id,
@@ -321,8 +341,8 @@ class VideoProgressService
         // Also update legacy watched_seconds for backward compatibility
         $watchedSeconds = $completedSegments * self::DEFAULT_SEGMENT_SIZE;
 
-        // Update record
-        $progress->update([
+        // Build update array
+        $updateData = [
             'watched_segments' => $watchedSegments,
             'completed_segments' => $completedSegments,
             'watch_percentage' => $watchPercentage,
@@ -330,7 +350,21 @@ class VideoProgressService
             'last_position' => $currentPosition,
             'is_completed' => $isCompleted,
             'completed_at' => $completedAt,
-        ]);
+        ];
+
+        if (!empty($metadata['session_id'])) $updateData['session_id'] = $metadata['session_id'];
+        if (!empty($metadata['device'])) $updateData['device'] = $metadata['device'];
+        if (!empty($metadata['browser'])) $updateData['browser'] = $metadata['browser'];
+        if (!empty($metadata['ip'])) $updateData['ip'] = $metadata['ip'];
+        if (!empty($metadata['progress_state'])) $updateData['progress_state'] = $metadata['progress_state'];
+
+        // Increment watch count if it's a new session
+        if (!empty($metadata['session_id']) && $progress->session_id !== $metadata['session_id']) {
+            $updateData['watch_count'] = ($progress->watch_count ?? 1) + 1;
+        }
+
+        // Update record
+        $progress->update($updateData);
 
         // Sync curriculum tracking if newly completed
         if ($isCompleted && !$wasAlreadyCompleted && $lecture->course_chapter_id) {
@@ -462,10 +496,10 @@ class VideoProgressService
                 ]
             );
 
-            // Invalidate CourseProgressService cache to ensure UI gets fresh progress on next load
+            // Invalidate CourseProgressService cache and recalculate so UI gets fresh progress immediately
             $courseId = $lecture->chapter->course_id ?? null;
             if ($courseId) {
-                app(\App\Services\CourseProgressService::class)->clearCache($userId, $courseId);
+                app(\App\Services\CourseProgressService::class)->calculateAndUpdateProgress($userId, $courseId);
             }
 
         } catch (\Throwable $e) {

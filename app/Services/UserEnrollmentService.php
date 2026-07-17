@@ -114,6 +114,7 @@ final class UserEnrollmentService
                 if ($course === null
                     || !$course->is_active
                     || $course->status !== 'publish'
+                    || !$course->hasContent()
                 ) {
                     return null;
                 }

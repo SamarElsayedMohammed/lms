@@ -26,31 +26,39 @@ class FinanceApiController extends Controller
     {
         try {
             // Total commissions summary
-            $totalCommissions = Commission::sum('admin_commission_amount');
-            $totalInstructorCommissions = Commission::sum('instructor_commission_amount');
-            $totalPaidCommissions = Commission::where('status', 'paid')->sum('admin_commission_amount');
-            $totalPendingCommissions = Commission::where('status', 'pending')->sum('admin_commission_amount');
+            $totalCommissions = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
+            $totalInstructorCommissions = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
+            $totalPaidCommissions = Commission::where('commissions.status', 'paid')
+                ->join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
+            $totalPendingCommissions = Commission::where('commissions.status', 'pending')
+                ->join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
 
             // Monthly data (last 12 months)
-            $monthlyData = Commission::selectRaw('
-                    YEAR(created_at) as year,
-                    MONTH(created_at) as month,
-                    SUM(admin_commission_amount) as admin_total,
-                    SUM(instructor_commission_amount) as instructor_total,
+            $monthlyData = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->selectRaw('
+                    YEAR(commissions.created_at) as year,
+                    MONTH(commissions.created_at) as month,
+                    SUM(commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as admin_total,
+                    SUM(commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as instructor_total,
                     COUNT(*) as commission_count
                 ')
-                ->where('created_at', '>=', now()->subMonths(12))
+                ->where('commissions.created_at', '>=', now()->subMonths(12))
                 ->groupBy('year', 'month')
                 ->orderBy('year', 'desc')
                 ->orderBy('month', 'desc')
                 ->get();
 
             // Top earning instructors
-            $topInstructors = Commission::select('instructor_id')
-                ->selectRaw('SUM(instructor_commission_amount) as total_earnings')
+            $topInstructors = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->select('commissions.instructor_id')
+                ->selectRaw('SUM(commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as total_earnings')
                 ->with('instructor:id,name,email')
-                ->where('status', 'paid')
-                ->groupBy('instructor_id')
+                ->where('commissions.status', 'paid')
+                ->groupBy('commissions.instructor_id')
                 ->orderBy('total_earnings', 'desc')
                 ->limit(10)
                 ->get();
@@ -329,15 +337,16 @@ class FinanceApiController extends Controller
                 'yearly' => '%Y',
             };
 
-            $report = Commission::selectRaw("
-                    DATE_FORMAT(created_at, '{$format}') as period,
-                    SUM(admin_commission_amount) as admin_total,
-                    SUM(instructor_commission_amount) as instructor_total,
+            $report = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->selectRaw("
+                    DATE_FORMAT(commissions.created_at, '{$format}') as period,
+                    SUM(commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as admin_total,
+                    SUM(commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as instructor_total,
                     COUNT(*) as commission_count,
-                    COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_count,
-                    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count
+                    COUNT(CASE WHEN commissions.status = 'paid' THEN 1 END) as paid_count,
+                    COUNT(CASE WHEN commissions.status = 'pending' THEN 1 END) as pending_count
                 ")
-                ->whereBetween('created_at', [$dateFrom, $dateTo])
+                ->whereBetween('commissions.created_at', [$dateFrom, $dateTo])
                 ->groupBy('period')
                 ->orderBy('period', 'desc')
                 ->get();
@@ -565,14 +574,16 @@ class FinanceApiController extends Controller
             $walletBalance = $user->wallet_balance;
 
             // Get total earnings
-            $totalEarnings = Commission::where('instructor_id', $user->id)->where('status', 'paid')->sum(
-                'instructor_commission_amount',
-            );
+            $totalEarnings = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->where('commissions.instructor_id', $user->id)
+                ->where('commissions.status', 'paid')
+                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
 
             // Get pending earnings
-            $pendingEarnings = Commission::where('instructor_id', $user->id)->where('status', 'pending')->sum(
-                'instructor_commission_amount',
-            );
+            $pendingEarnings = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->where('commissions.instructor_id', $user->id)
+                ->where('commissions.status', 'pending')
+                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
 
             // Get total withdrawals
             $totalWithdrawals = WithdrawalRequest::where('user_id', $user->id)->whereIn('status', [

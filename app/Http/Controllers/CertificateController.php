@@ -249,9 +249,12 @@ class CertificateController extends Controller
         try {
             $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
 
+            $filename = "{$courseCertificate->course->title}_{$courseCertificate->user->name}.pdf";
+            $encodedFilename = rawurlencode($filename);
+
             return response($pdfContent, 200, [
                 'Content-Type'        => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="certificate-' . $certificate->certificate_number . '.pdf"',
+                'Content-Disposition' => "inline; filename=\"certificate.pdf\"; filename*=UTF-8''{$encodedFilename}",
             ]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('Certificate PDF generation failed', [
@@ -300,14 +303,15 @@ class CertificateController extends Controller
      */
     public function verifyApi(\Illuminate\Http\Request $request)
     {
-        $code = trim((string) ($request->input('code') ?: $request->input('certificate_number') ?: ''));
+        $code = trim((string) ($request->input('code') ?: $request->input('certificate_id') ?: $request->input('certificate_number') ?: ''));
 
         if (empty($code)) {
             return ApiResponseService::errorResponse('Verification code is required.', null, 422);
         }
 
         $certificate = CourseCertificate::with(['user', 'course'])
-            ->where('certificate_number', $code)
+            ->where('verification_code', $code)
+            ->orWhere('certificate_number', $code)
             ->first();
 
         if (!$certificate) {
@@ -330,18 +334,12 @@ class CertificateController extends Controller
 
         // Return only safe public fields — mapped exactly to frontend requirements
         return response()->json([
-            'ok' => true,
-            'is_valid' => true,
-            'data' => [
-                'studentName'        => $certificate->student_name ?? ($certificate->user->name ?? 'N/A'),
-                'arabicCourseTitle'  => $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A'),
-                'englishCourseTitle' => $certificate->english_title ?? ($certificate->course->title ?? 'N/A'),
-                'date'               => optional($certificate->issued_date)->format('Y-m-d'),
-                'instructorName'     => $certificate->instructor_name ?? ($certificate->course->user->name ?? 'N/A'),
-                'certificateId'      => $certificate->certificate_number,
-                'courseId'           => $certificate->course_id,
-                'issued_at'          => optional($certificate->created_at)->toIso8601String(),
-            ]
+            'valid' => true,
+            'certificate_id' => $certificate->certificate_number,
+            'student_name' => $certificate->student_name ?? ($certificate->user->name ?? 'N/A'),
+            'course_name' => $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A'),
+            'issued_at' => optional($certificate->issued_date ?? $certificate->created_at)->toIso8601String(),
+            'status' => 'valid'
         ], 200);
     }
 
@@ -387,9 +385,12 @@ class CertificateController extends Controller
         try {
             $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
 
+            $filename = "{$certificate->course->title}_{$certificate->user->name}.pdf";
+            $encodedFilename = rawurlencode($filename);
+
             return response($pdfContent, 200, [
                 'Content-Type'        => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="certificate-' . $certificate->certificate_number . '.pdf"',
+                'Content-Disposition' => "inline; filename=\"certificate.pdf\"; filename*=UTF-8''{$encodedFilename}",
             ]);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate certificate PDF.', null, 500);
@@ -560,7 +561,8 @@ class CertificateController extends Controller
         }
 
         // Add QR code for verification (T088)
-        $verifyUrl = url('/certificate/verify/' . $certificate->certificate_number);
+        $verifyUrl = $certificate->verification_url 
+            ?: url('/certificates/verify/' . ($certificate->verification_code ?: $certificate->certificate_number));
         try {
             $result = (new \Endroid\QrCode\Builder\Builder(data: $verifyUrl, size: 150))->build();
             $qrPng = $result->getString();

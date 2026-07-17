@@ -14,6 +14,7 @@ use App\Models\Wishlist;
 use App\Services\ApiResponseService;
 use App\Services\HelperService;
 use App\Services\PricingService;
+use App\Services\StudentDashboardStatisticsService;
 use App\Services\UserEnrollmentService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -22,7 +23,10 @@ use Illuminate\Support\Facades\DB;
 
 class UserDashboardApiController extends Controller
 {
-    public function __construct(private readonly PricingService $pricingService) {}
+    public function __construct(
+        private readonly PricingService $pricingService,
+        private readonly StudentDashboardStatisticsService $statisticsService
+    ) {}
 
     /**
      * Get user dashboard data
@@ -66,7 +70,10 @@ class UserDashboardApiController extends Controller
             // 6. Upcoming Webinars
             $upcomingWebinars = $this->getUpcomingWebinars($user);
 
-            // 7. Notifications
+            // 7. Completed Courses List
+            $completedCoursesList = $this->getCompletedCourses($user);
+
+            // 8. Notifications
             $unreadNotificationsCount = $user->unreadNotifications()->count();
 
             $data = [
@@ -78,6 +85,7 @@ class UserDashboardApiController extends Controller
                 'wallet' => $wallet,
                 'recent_courses' => $recentCourses,
                 'latest_courses' => $recentCourses,
+                'completed_courses_list' => $completedCoursesList,
                 'learning_activity' => $learningActivity,
                 'upcoming_webinars' => $upcomingWebinars,
                 'unread_notifications_count' => $unreadNotificationsCount,
@@ -97,41 +105,7 @@ class UserDashboardApiController extends Controller
      */
     private function getStatsOverview($user)
     {
-        // Use UserEnrollmentService to resolve all sources (orders, tracks, subscription)
-        $enrollmentService = app(UserEnrollmentService::class);
-        $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
-        $enrolledCourseIds = $enrolled->pluck('course_id')->toArray();
-
-        $totalEnrolled = count($enrolledCourseIds);
-        $completedCount = 0;
-        $inProgressCount = 0;
-
-        foreach ($enrolledCourseIds as $courseId) {
-            $progress = $this->calculateCourseProgress($user->id, $courseId);
-            if ($progress >= 100) {
-                $completedCount++;
-            } elseif ($progress > 0) {
-                $inProgressCount++;
-            }
-        }
-
-        $certificatesCount = CourseCertificate::where('user_id', $user->id)->count();
-        $wishlistCount = Wishlist::where('user_id', $user->id)->count();
-
-        return [
-            'enrolled_courses'       => $totalEnrolled,
-            'total_courses'          => $totalEnrolled,
-            'total_enrolled_courses' => $totalEnrolled,
-            'in_progress'            => $inProgressCount,
-            'in_learning'            => $inProgressCount,
-            'in_progress_courses'    => $inProgressCount,
-            'completed_courses'      => $completedCount,
-            'certificates'           => $certificatesCount,
-            'total_certificates'     => $certificatesCount,
-            'wishlist_count'         => $wishlistCount,
-            'favorites'              => $wishlistCount,
-            'favorite_courses'       => $wishlistCount,
-        ];
+        return $this->statisticsService->getDashboardStats($user);
     }
 
     /**
@@ -329,6 +303,37 @@ class UserDashboardApiController extends Controller
                     'instructor' => $reg->webinar->instructor->name ?? 'N/A',
                 ];
             });
+    }
+
+    /**
+     * Get completed courses
+     */
+    private function getCompletedCourses($user)
+    {
+        $enrollmentService = app(UserEnrollmentService::class);
+        $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+        
+        $completed = collect();
+
+        foreach ($enrolled as $item) {
+            $course = $item['course'];
+            if (!$course) continue;
+
+            $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
+            
+            if ($progress >= 100) {
+                $completed->push([
+                    'id'                  => $course->id,
+                    'title'               => $course->title,
+                    'thumbnail'           => $course->thumbnail,
+                    'image'               => $course->thumbnail,
+                    'progress'            => $progress,
+                    'progress_percentage' => $progress,
+                ]);
+            }
+        }
+
+        return $completed->values();
     }
 
     /**

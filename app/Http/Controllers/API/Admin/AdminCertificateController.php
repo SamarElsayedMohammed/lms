@@ -103,14 +103,15 @@ class AdminCertificateController extends AdminCrudApiController
 
         $widthPx  = $settings['width']  ?? 800;
         $heightPx = $settings['height'] ?? 600;
-        $filename = 'certificate-' . $certificate->certificate_number . '.pdf';
+        $filename = "{$certificate->course->title}_{$certificate->user->name}.pdf";
+        $encodedFilename = rawurlencode($filename);
 
         try {
             $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
 
             return response($pdfContent, 200, [
                 'Content-Type'        => 'application/pdf',
-                'Content-Disposition' => "inline; filename=\"{$filename}\"",
+                'Content-Disposition' => "inline; filename=\"certificate.pdf\"; filename*=UTF-8''{$encodedFilename}",
             ]);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate certificate PDF.', null, 500);

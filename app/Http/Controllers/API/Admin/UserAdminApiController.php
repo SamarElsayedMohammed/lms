@@ -5,15 +5,19 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\User;
+use App\Services\AdminStudentStatisticsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class UserAdminApiController extends AdminCrudApiController
 {
-    public function __construct()
+    protected AdminStudentStatisticsService $statisticsService;
+
+    public function __construct(AdminStudentStatisticsService $statisticsService)
     {
         $this->middleware('auth:sanctum');
+        $this->statisticsService = $statisticsService;
     }
 
     public function index(Request $request): JsonResponse
@@ -25,8 +29,16 @@ class UserAdminApiController extends AdminCrudApiController
         $subscriptionType = $request->input('subscription_type');
         $perPage = min((int) $request->input('per_page', 15), 100);
         $withTrashed = $request->boolean('with_trashed');
+        $role = $request->input('role');
 
         $query = User::with(['instructor_details', 'activeSubscription.plan', 'roles'])
+            ->when($role, function ($q) use ($role) {
+                if ($role === 'admin') {
+                    $q->role(['admin', 'super_admin']);
+                } else {
+                    $q->role($role);
+                }
+            })
             ->when($withTrashed, fn ($q) => $q->withTrashed())
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
@@ -48,6 +60,17 @@ class UserAdminApiController extends AdminCrudApiController
         });
 
         return $this->jsonSuccess(__('Users retrieved'), $users);
+    }
+
+    public function stats(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('users-list');
+
+        $roleFilter = $request->input('role', 'all');
+        $stats = $this->statisticsService->getStatistics($roleFilter);
+
+        return $this->jsonSuccess(__('User statistics retrieved'), $stats);
     }
 
     public function show(int $id): JsonResponse

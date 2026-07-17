@@ -71,18 +71,48 @@ class CertificateService
                 }
             }
 
+            $certificateNumber = CourseCertificate::generateCertificateNumber($userId);
+            $verificationCode = CourseCertificate::generateVerificationCode();
+            $verificationToken = CourseCertificate::generateVerificationToken();
+            $verificationUrl = config('app.url') . '/certificates/verify/' . $verificationCode;
+
+            // Resolve the active template
+            $template = Certificate::where('type', 'course_completion')
+                ->where('is_active', true)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
             // 5. Create Certificate Record
             $certificate = CourseCertificate::create([
                 'user_id'            => $userId,
                 'course_id'          => $courseId,
-                'certificate_number' => CourseCertificate::generateCertificateNumber($userId),
+                'certificate_number' => $certificateNumber,
                 'student_name'       => $user->name,
                 'arabic_title'       => $course->title,
                 'english_title'      => $course->title,
                 'instructor_name'    => $course->user->name ?? '',
                 'issued_date'        => now()->toDateString(),
                 'status'             => 'active',
+                'verification_code'  => $verificationCode,
+                'verification_token' => $verificationToken,
+                'verification_url'   => $verificationUrl,
+                'completed_at'       => now(),
+                'certificate_template_id' => $template ? $template->id : null,
+                // Enrollment tracking could be resolved here if needed
+                'issuer_id'          => $course->user_id ?? null, // Defaulting issuer to course instructor
             ]);
+
+            // Try generating the QR code immediately
+            try {
+                $result = (new \Endroid\QrCode\Builder\Builder(data: $verificationUrl, size: 150))->build();
+                $qrPng = $result->getString();
+                $qrFileName = 'certificates/qr/qr_' . $verificationCode . '.png';
+                Storage::disk('public')->put($qrFileName, $qrPng);
+                
+                $certificate->update(['qr_code_path' => $qrFileName]);
+            } catch (\Exception $e) {
+                Log::warning('Failed to generate QR code on issue: ' . $e->getMessage());
+            }
 
             // 6. Notify User
             $this->notifyUserOfCertificate($user, $course, $certificate);
@@ -222,6 +252,10 @@ class CertificateService
         );
 
         // Course is completed only if both conditions are met
+        if ($curriculumItemsTotal == 0 && $totalAssignments == 0) {
+            return false;
+        }
+
         return $allCurriculumCompleted && $allAssignmentsSubmitted;
     }
 

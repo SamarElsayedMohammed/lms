@@ -51,4 +51,9 @@ return [
     'brevo' => [
         'api_key' => env('BREVO_API_KEY'),
     ],
+
+    'bunny' => [
+        'api_key' => env('BUNNY_API_KEY'), // Used to fetch duration
+        'webhook_secret' => env('BUNNY_WEBHOOK_SECRET'), // Used to verify webhook
+    ],
 ];

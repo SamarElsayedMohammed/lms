@@ -144,33 +144,7 @@ class CourseApiController extends Controller
             ->where("approval_status", "approved") // ensure approved status
             ->whereHas("user", static function ($userQuery): void {
                 $userQuery
-                    ->where("is_active", 1) // User should be active
-                    ->where(static function ($query): void {
-                        // If user has instructor_details, it should be approved
-                        $query
-                            ->whereHas("instructor_details", static function (
-                                $instructorQuery,
-                            ): void {
-                                $instructorQuery->where("status", "approved");
-                            })
-                            // OR if user has admin/staff roles, allow
-                            ->orWhereHas("roles", static function (
-                                $roleQuery,
-                            ): void {
-                                $roleQuery->whereIn("name", [
-                                    config(
-                                        "constants.SYSTEM_ROLES.SUPER_ADMIN",
-                                    ),
-                                    config("constants.SYSTEM_ROLES.SUPERVISOR"),
-                                    config("constants.SYSTEM_ROLES.TEAM"),
-                                    config(
-                                        "constants.SYSTEM_ROLES.TEAM_INSTRUCTOR",
-                                    ),
-                                    config("constants.SYSTEM_ROLES.STAFF"),
-                                    config("constants.SYSTEM_ROLES.MODERATOR"),
-                                ]);
-                            });
-                    });
+                    ->where("is_active", 1);
             });
 
         // Filters
@@ -6936,6 +6910,31 @@ class CourseApiController extends Controller
                 ->keyBy("course_id")
                 ->map(static fn($item) => $item["purchase_date"]);
 
+            // Preload data to fix N+1 issues
+            $courseIdsArray = $coursesData->pluck('id')->toArray();
+
+            $wishlistedCourseIds = \App\Models\Wishlist::where('user_id', $userId)
+                ->whereIn('course_id', $courseIdsArray)
+                ->pluck('course_id')
+                ->toArray();
+
+            $latestTrackings = \App\Models\UserCurriculumTracking::where('user_id', $userId)
+                ->whereHas('chapter', function($q) use ($courseIdsArray) { 
+                    $q->whereIn('course_id', $courseIdsArray); 
+                })
+                ->with('chapter')
+                ->orderByDesc('completed_at')
+                ->get()
+                ->groupBy(function($item) {
+                    return $item->chapter->course_id ?? 0;
+                });
+
+            $firstChapters = \App\Models\Course\CourseChapter\CourseChapter::whereIn('course_id', $courseIdsArray)
+                ->where('is_active', 1)
+                ->orderBy('chapter_order')
+                ->get()
+                ->groupBy('course_id');
+
             // Transform the collection with progress tracking first
             $transformedCourses = $coursesData
                 ->map(function ($course) use (
@@ -6943,6 +6942,9 @@ class CourseApiController extends Controller
                     $refundEnabled,
                     $refundPeriodDays,
                     $purchaseDatesMap,
+                    $wishlistedCourseIds,
+                    $latestTrackings,
+                    $firstChapters,
                 ) {
                     // Skip null courses
                     if (!$course) {
@@ -6965,13 +6967,7 @@ class CourseApiController extends Controller
                     // Determine current chapter name
                     $currentChapterName = null;
                     if ($completedCurriculumItems > 0) {
-                        $lastTracking = \App\Models\UserCurriculumTracking::where('user_id', $userId)
-                            ->whereHas('chapter', function($q) use ($course) { 
-                                $q->where('course_id', $course->id); 
-                            })
-                            ->with('chapter')
-                            ->orderByDesc('completed_at')
-                            ->first();
+                        $lastTracking = $latestTrackings->get($course->id)?->first();
                             
                         if ($lastTracking && $lastTracking->chapter) {
                             $currentChapterName = $lastTracking->chapter->title;
@@ -6979,17 +6975,12 @@ class CourseApiController extends Controller
                             $currentChapterName = trim($currentChapterName);
                         }
                     } else {
-                        $firstChapter = \App\Models\CourseChapter::where('course_id', $course->id)
-                            ->where('is_active', 1)
-                            ->orderBy('chapter_order')
-                            ->first();
+                        $firstChapter = $firstChapters->get($course->id)?->first();
                         $currentChapterName = $firstChapter ? $firstChapter->title : null;
                     }
 
                     // Check if wishlisted
-                    $isWishlisted = Wishlist::where("user_id", $userId)
-                        ->where("course_id", $course->id)
-                        ->exists();
+                    $isWishlisted = in_array($course->id, $wishlistedCourseIds);
 
                     // Always enrolled (true) for my learning
                     $isEnrolled = true;

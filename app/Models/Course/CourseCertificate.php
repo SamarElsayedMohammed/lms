@@ -23,10 +23,20 @@ class CourseCertificate extends Model
         'status',
         'revoked_at',
         'revoked_reason',
+        'verification_code',
+        'verification_token',
+        'enrollment_id',
+        'completed_at',
+        'certificate_template_id',
+        'verification_url',
+        'qr_code_path',
+        'pdf_path',
+        'issuer_id',
     ];
 
     protected $casts = [
         'issued_date' => 'date',
+        'completed_at' => 'datetime',
         'revoked_at'  => 'datetime',
     ];
 
@@ -78,11 +88,37 @@ class CourseCertificate extends Model
         $userPart = str_pad((string)$userId, 5, '0', STR_PAD_LEFT);
         
         do {
-            $randomPart = strtoupper(substr(str_shuffle('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 0, 6));
+            // Use cryptographically secure random bytes for the random part
+            $randomBytes = random_bytes(4); // 8 hex characters
+            $randomPart = strtoupper(substr(bin2hex($randomBytes), 0, 8));
             $number = "CERT-{$year}-{$userPart}-{$randomPart}";
         } while (self::where('certificate_number', $number)->exists());
 
         return $number;
+    }
+
+    /**
+     * Generate a cryptographically secure verification token.
+     */
+    public static function generateVerificationToken(): string
+    {
+        do {
+            $token = bin2hex(random_bytes(16)); // 32 chars
+        } while (self::where('verification_token', $token)->exists());
+
+        return $token;
+    }
+
+    /**
+     * Generate a verification code.
+     */
+    public static function generateVerificationCode(): string
+    {
+        do {
+            $code = strtoupper(substr(bin2hex(random_bytes(6)), 0, 10));
+        } while (self::where('verification_code', $code)->exists());
+
+        return $code;
     }
 
     // -------------------------------------------------------------------------

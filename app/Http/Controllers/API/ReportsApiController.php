@@ -588,8 +588,8 @@ class ReportsApiController extends Controller
 
         return [
             'total_orders'        => $allOrdersCount,
-            'total_revenue'       => $orders->sum('final_price') + $subscriptionRevenue,
-            'average_order_value' => $allOrdersCount > 0 ? ($orders->sum('final_price') + $subscriptionRevenue) / $allOrdersCount : 0,
+            'total_revenue'       => $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price) + $subscriptionRevenue,
+            'average_order_value' => $allOrdersCount > 0 ? ($orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price) + $subscriptionRevenue) / $allOrdersCount : 0,
             'completed_orders'    => $orders->where('status', 'completed')->count() + $completedSubs,
             'pending_orders'      => $orders->where('status', 'pending')->count() + $pendingSubs,
             'cancelled_orders'    => $orders->where('status', 'cancelled')->count() + $failedSubs,
@@ -624,8 +624,8 @@ class ReportsApiController extends Controller
         return $query->selectRaw("
                 DATE_FORMAT(created_at, '{$format}') as period,
                 COUNT(*) as orders_count,
-                SUM(final_price) as revenue,
-                AVG(final_price) as avg_order_value
+                SUM(COALESCE(amount_egp, final_price)) as revenue,
+                AVG(COALESCE(amount_egp, final_price)) as avg_order_value
             ")->groupBy('period')->orderBy('period')->get();
     }
 
@@ -635,7 +635,7 @@ class ReportsApiController extends Controller
 
         return [
             'total_commissions' => $commissions->count(),
-            'total_admin_commission' => $commissions->sum('admin_commission_amount'),
+            'total_admin_commission' => $commissions->sum(static fn($c) => $c->admin_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
             'paid_commissions' => $commissions->where('status', 'paid')->count(),
             'pending_commissions' => $commissions->where('status', 'pending')->count(),
             'commission_by_course' => $this->getCommissionByCourse($commissions),
@@ -665,10 +665,10 @@ class ReportsApiController extends Controller
             default => '%Y-%m-%d',
         };
 
-        return $query->selectRaw("
-                DATE_FORMAT(created_at, '{$format}') as period,
-                COUNT(*) as commission_count,
-                SUM(admin_commission_amount) as admin_total
+        return $query->join('orders', 'commissions.order_id', '=', 'orders.id')->selectRaw("
+                DATE_FORMAT(commissions.created_at, '{$format}') as period,
+                COUNT(*) as commissions_count,
+                SUM(commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as admin_total
             ")->groupBy('period')->orderBy('period')->get();
     }
 
@@ -861,9 +861,10 @@ class ReportsApiController extends Controller
         }
 
         $allOrdersCount = $orders->count() + $subscriptionCount;
-        $totalRevenue = $orders->sum('final_price') + $subscriptionRevenue;
+        $totalOrderEgp = $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price);
+        $totalRevenue = $totalOrderEgp + $subscriptionRevenue;
         
-        $orderPaymentMethods = $orders->groupBy('payment_method')->map->sum('final_price');
+        $orderPaymentMethods = $orders->groupBy('payment_method')->map(static fn($group) => $group->sum(static fn($o) => $o->amount_egp ?? $o->final_price));
         $allPaymentMethods = $orderPaymentMethods->mergeRecursive($subPaymentMethods)
             ->map(fn($v) => is_array($v) ? array_sum($v) : $v)
             ->sortDesc();
@@ -912,17 +913,18 @@ class ReportsApiController extends Controller
     private function getRevenueCommissionDistribution(Request $request): array
     {
         $stats = $this->buildRevenueCommissionQuery($request)
-            ->selectRaw('
-                COALESCE(SUM(admin_commission_amount), 0) as admin_share,
-                COALESCE(SUM(instructor_commission_amount), 0) as affiliate_marketing_commission_share
-            ')
+            ->selectRaw("
+                SUM(commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as admin_share,
+                SUM(commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as instructor_share
+            ")
+            ->join('orders', 'commissions.order_id', '=', 'orders.id')
             ->first();
 
         return [
             'admin_share' => (float) ($stats->admin_share ?? 0),
-            'instructor_share' => (float) ($stats->affiliate_marketing_commission_share ?? 0),
-            'affiliate_marketing_share' => (float) ($stats->affiliate_marketing_commission_share ?? 0),
-            'affiliate_marketing_commission_share' => (float) ($stats->affiliate_marketing_commission_share ?? 0),
+            'instructor_share' => (float) ($stats->instructor_share ?? 0),
+            'affiliate_marketing_share' => (float) ($stats->instructor_share ?? 0),
+            'affiliate_marketing_commission_share' => (float) ($stats->instructor_share ?? 0),
         ];
     }
 
@@ -960,7 +962,7 @@ class ReportsApiController extends Controller
 
         $orderData = $orderQuery->selectRaw("
                 DATE_FORMAT(created_at, '{$format}') as period,
-                SUM(final_price) as order_revenue,
+                SUM(COALESCE(amount_egp, final_price)) as order_revenue,
                 COUNT(*) as orders_count
             ")->groupBy('period')->get()->keyBy('period');
 
@@ -1029,8 +1031,8 @@ class ReportsApiController extends Controller
 
         $previousQuery = Order::where('status', 'completed')->whereBetween('created_at', [$previousFrom, $previousTo]);
 
-        $currentOrderRevenue = $currentQuery->sum('final_price');
-        $previousOrderRevenue = $previousQuery->sum('final_price');
+        $currentOrderRevenue = $currentQuery->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, final_price)'));
+        $previousOrderRevenue = $previousQuery->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, final_price)'));
 
         $currentSubRevenue = 0;
         $previousSubRevenue = 0;
@@ -1091,7 +1093,7 @@ class ReportsApiController extends Controller
             ->groupBy('course_id')
             ->map(static fn($orderCourses) => [
                 'course'       => $orderCourses->first()?->course,
-                'total_sales'  => $orderCourses->sum('price'),
+                'total_sales'  => $orderCourses->sum(static fn($oc) => $oc->amount_egp ?? $oc->price),
                 'total_orders' => $orderCourses->count(),
             ])
             ->sortByDesc('total_sales')
@@ -1105,7 +1107,7 @@ class ReportsApiController extends Controller
             ->groupBy('course_id')
             ->map(static fn($courseCommissions) => [
                 'course' => $courseCommissions->first()->course,
-                'total_commission' => $courseCommissions->sum('admin_commission_amount'),
+                'total_commission' => $courseCommissions->sum(static fn($c) => $c->admin_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
                 'commission_count' => $courseCommissions->count(),
             ])
             ->sortByDesc('total_commission')
@@ -1185,9 +1187,8 @@ class ReportsApiController extends Controller
 
     private function getRevenueTrend($orders)
     {
-        return $orders
-            ->groupBy(static fn($order) => $order->created_at->format('Y-m-d'))
-            ->map(static fn($dailyOrders) => $dailyOrders->sum('final_price'))
+        return $orders->groupBy(fn($order) => \Carbon\Carbon::parse($order->created_at)->format('Y-m-d'))
+            ->map(static fn($dailyOrders) => $dailyOrders->sum(static fn($o) => $o->amount_egp ?? $o->final_price))
             ->sortKeys();
     }
 

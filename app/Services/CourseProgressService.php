@@ -44,6 +44,17 @@ class CourseProgressService
             ->where('status', 'completed')
             ->count();
 
+        // Include accepted assignments in completed items count
+        $completedAssignments = \App\Models\Course\CourseChapter\Assignment\UserAssignmentSubmission::where('user_id', $userId)
+            ->whereHas('assignment', function($q) use ($courseId) {
+                $q->where('is_active', 1)
+                  ->whereHas('chapter', fn($c) => $c->where('course_id', $courseId)->where('is_active', 1));
+            })
+            ->where('status', 'accepted')
+            ->count();
+
+        $completedItems += $completedAssignments;
+
         if ($isFullyCompleted) {
             $percentage = 100;
         } else {

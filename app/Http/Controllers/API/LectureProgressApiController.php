@@ -29,21 +29,37 @@ final class LectureProgressApiController extends Controller
         // Support both old format (watched_seconds) and new format (newly_watched_segments)
         $hasSegments = $request->has('newly_watched_segments');
 
+        $metadataRules = [
+            'session_id' => 'nullable|string|max:255',
+            'device' => 'nullable|string|max:255',
+            'browser' => 'nullable|string|max:255',
+            'progress_state' => 'nullable|string|in:playing,paused,seeking,ended',
+        ];
+
         if ($hasSegments) {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'current_position' => 'required|integer|min:0',
                 'total_duration' => 'required|integer|min:1',
                 'newly_watched_segments' => 'required|array|max:' . VideoProgressService::MAX_SEGMENTS_PER_REQUEST,
                 'newly_watched_segments.*' => 'integer|min:0',
-            ]);
+            ], $metadataRules));
         } else {
             // Legacy format support
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'watched_seconds' => 'required|integer|min:0',
                 'last_position' => 'required|integer|min:0',
                 'total_seconds' => 'required|integer|min:1',
-            ]);
+            ], $metadataRules));
         }
+
+        // Extract metadata for the service
+        $metadata = [
+            'session_id' => $validated['session_id'] ?? null,
+            'device' => $validated['device'] ?? null,
+            'browser' => $validated['browser'] ?? null,
+            'ip' => $request->ip(),
+            'progress_state' => $validated['progress_state'] ?? 'playing',
+        ];
 
         $lecture = CourseChapterLecture::find($lectureId);
         if ($lecture === null) {
@@ -62,7 +78,8 @@ final class LectureProgressApiController extends Controller
                 $lecture,
                 (int) $validated['current_position'],
                 (int) $validated['total_duration'],
-                $validated['newly_watched_segments']
+                $validated['newly_watched_segments'],
+                $metadata
             );
 
             return $this->ok(
@@ -84,7 +101,8 @@ final class LectureProgressApiController extends Controller
             $lecture,
             (int) $validated['watched_seconds'],
             (int) $validated['last_position'],
-            (int) $validated['total_seconds']
+            (int) $validated['total_seconds'],
+            $metadata
         );
 
         return $this->ok(

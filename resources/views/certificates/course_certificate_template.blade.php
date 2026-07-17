@@ -158,7 +158,7 @@
 
     @php
         // توليد QR Code داخل القالب مباشرة
-        $verifyUrl = url('/certificate/verify/' . ($certificate->certificate_number ?? ''));
+        $verifyUrl = $certificate->verification_url ?? url('/certificates/verify/' . ($certificate->verification_code ?? $certificate->certificate_number ?? ''));
         $qrDataUri = '';
         try {
             $result = (new \Endroid\QrCode\Builder\Builder(data: $verifyUrl, size: 100))->build();
@@ -199,7 +199,10 @@
                     @if($qrDataUri)
                         <img src="{{ $qrDataUri }}" class="qr-image" alt="QR Code">
                     @endif
-                    <div class="cert-number">{{ $certificate->certificate_number ?? '' }}</div>
+                    <div class="cert-number">ID: {{ $certificate->certificate_number ?? '' }}</div>
+                    @if(!empty($certificate->verification_code))
+                        <div class="cert-number" style="margin-top: 1px;">Verify: {{ $certificate->verification_code }}</div>
+                    @endif
                     <div class="cert-date">{{ \Carbon\Carbon::parse($certificate->issued_date ?? now())->format('Y/m/d') }}</div>
                 </div>
             </div>

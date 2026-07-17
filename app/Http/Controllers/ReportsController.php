@@ -254,8 +254,8 @@ class ReportsController extends Controller
 
             // Calculate totals
             $totalCommissions = $commissions->count();
-            $totalAdminCommission = $commissions->sum('admin_commission_amount');
-            $totalInstructorCommission = $commissions->sum('instructor_commission_amount');
+            $totalAdminCommission = $commissions->sum(static fn($c) => $c->admin_commission_amount * ($c->order->exchange_rate_snapshot ?? 1));
+            $totalInstructorCommission = $commissions->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1));
             $pendingCommissions = $commissions->where('status', 'pending')->count();
             $paidCommissions = $commissions->where('status', 'paid')->count();
 
@@ -267,10 +267,10 @@ class ReportsController extends Controller
 
                     return [
                         'instructor' => $instructor,
-                        'total_commission' => $group->sum('instructor_commission_amount'),
+                        'total_commission' => $group->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
                         'commission_count' => $group->count(),
-                        'pending_amount' => $group->where('status', 'pending')->sum('instructor_commission_amount'),
-                        'paid_amount' => $group->where('status', 'paid')->sum('instructor_commission_amount'),
+                        'pending_amount' => $group->where('status', 'pending')->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
+                        'paid_amount' => $group->where('status', 'paid')->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
                     ];
                 })
                 ->sortByDesc('total_commission')
@@ -286,10 +286,10 @@ class ReportsController extends Controller
                     return [
                         'course' => $course,
                         'total_commission' =>
-                            $group->sum('admin_commission_amount') + $group->sum('instructor_commission_amount'),
+                            $group->sum(static fn($c) => ($c->admin_commission_amount + $c->instructor_commission_amount) * ($c->order->exchange_rate_snapshot ?? 1)),
                         'commission_count' => $group->count(),
-                        'admin_commission' => $group->sum('admin_commission_amount'),
-                        'instructor_commission' => $group->sum('instructor_commission_amount'),
+                        'admin_commission' => $group->sum(static fn($c) => $c->admin_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
+                        'instructor_commission' => $group->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
                     ];
                 })
                 ->sortByDesc('total_commission')
@@ -627,7 +627,7 @@ class ReportsController extends Controller
                     if ($order->orderCourses && $order->orderCourses->isNotEmpty()) {
                         return $order->orderCourses->map(static fn($orderCourse) => [
                             'course' => $orderCourse->course,
-                            'sales' => $order->final_price ?: 0,
+                            'sales' => $order->amount_egp ?? $order->final_price ?: 0,
                             'order_id' => $order->id,
                         ]);
                     }
@@ -652,8 +652,8 @@ class ReportsController extends Controller
 
         return [
             'total_orders' => $orders->count() ?: 0,
-            'total_revenue' => $orders->sum('final_price') ?: 0,
-            'average_order_value' => $orders->avg('final_price') ?: 0,
+            'total_revenue' => $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price) ?: 0,
+            'average_order_value' => $orders->avg(static fn($o) => $o->amount_egp ?? $o->final_price) ?: 0,
             'completed_orders' => $orders->where('status', 'completed')->count() ?: 0,
             'pending_orders' => $orders->where('status', 'pending')->count() ?: 0,
             'cancelled_orders' => $orders->where('status', 'cancelled')->count() ?: 0,
@@ -704,8 +704,8 @@ class ReportsController extends Controller
             $chartData = $chartQuery->selectRaw("
                     DATE_FORMAT(created_at, '{$format}') as period,
                     COUNT(*) as orders_count,
-                    SUM(COALESCE(final_price, 0)) as revenue,
-                    AVG(COALESCE(final_price, 0)) as avg_order_value
+                    SUM(COALESCE(amount_egp, final_price)) as revenue,
+                    AVG(COALESCE(amount_egp, final_price)) as avg_order_value
                 ")->groupBy('period')->orderBy('period')->get();
 
             // If no data from filtered query, try a simple fallback query
@@ -713,8 +713,8 @@ class ReportsController extends Controller
                 $simpleData = Order::selectRaw("
                         DATE_FORMAT(created_at, '{$format}') as period,
                         COUNT(*) as orders_count,
-                        SUM(COALESCE(final_price, 0)) as revenue,
-                        AVG(COALESCE(final_price, 0)) as avg_order_value
+                        SUM(COALESCE(amount_egp, final_price)) as revenue,
+                        AVG(COALESCE(amount_egp, final_price)) as avg_order_value
                     ")
                     ->groupBy('period')
                     ->orderBy('period')
@@ -827,7 +827,7 @@ class ReportsController extends Controller
                             $order->user->email ?? 'N/A',
                             $orderCourse->course->title ?? 'N/A',
                             $orderCourse->course->price ?? 0,
-                            $order->final_price ?? 0,
+                            $order->amount_egp ?? $order->final_price ?? 0,
                             ucfirst($order->payment_method ?? 'N/A'),
                             ucfirst($order->status ?? 'N/A'),
                             $order->created_at->format('Y-m-d H:i:s'),
@@ -2514,14 +2514,14 @@ class ReportsController extends Controller
         $orders = $query->get();
 
         // Calculate basic metrics
-        $totalRevenue = $orders->sum('final_price') ?: 0;
+        $totalRevenue = $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price) ?: 0;
         $totalOrders = $orders->count();
         $averageOrderValue = $totalOrders > 0 ? $totalRevenue / $totalOrders : 0;
 
         // Revenue by payment method
         $revenueByPaymentMethod = $orders
             ->groupBy('payment_method')
-            ->map(static fn($orders) => $orders->sum('final_price'))
+            ->map(static fn($orders) => $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price))
             ->toArray();
 
         // Ensure all payment methods are present
@@ -2577,7 +2577,7 @@ class ReportsController extends Controller
 
         $chartData = $query->selectRaw("
             DATE_FORMAT(created_at, '{$dateFormat}') as period,
-            COALESCE(SUM(final_price), 0) as revenue,
+            SUM(COALESCE(amount_egp, final_price)) as revenue,
             COUNT(*) as orders_count
         ")->groupBy('period')->orderBy('period')->get()->toArray();
 
@@ -2588,7 +2588,7 @@ class ReportsController extends Controller
 
             $fallbackData = $allOrdersQuery->selectRaw("
                 DATE_FORMAT(created_at, '{$dateFormat}') as period,
-                COALESCE(SUM(final_price), 0) as revenue,
+                SUM(COALESCE(amount_egp, final_price)) as revenue,
                 COUNT(*) as orders_count
             ")->groupBy('period')->orderBy('period')->get()->toArray();
 
@@ -2643,11 +2643,11 @@ class ReportsController extends Controller
         $previousQuery = $this->applyRevenueFilters($previousQuery, $request);
 
         // Get metrics
-        $currentRevenue = $currentQuery->sum('final_price') ?: 0;
+        $currentRevenue = $currentQuery->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, final_price)')) ?: 0;
         $currentOrders = $currentQuery->count();
         $currentAvg = $currentOrders > 0 ? $currentRevenue / $currentOrders : 0;
 
-        $previousRevenue = $previousQuery->sum('final_price') ?: 0;
+        $previousRevenue = $previousQuery->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, final_price)')) ?: 0;
         $previousOrders = $previousQuery->count();
         $previousAvg = $previousOrders > 0 ? $previousRevenue / $previousOrders : 0;
 
@@ -2799,7 +2799,7 @@ class ReportsController extends Controller
                             $orderCourse->course->user->name ?? 'N/A',
                             $orderCourse->course->category->name ?? 'N/A',
                             $currencySymbol . number_format($orderCourse->price ?? 0, 2),
-                            $currencySymbol . number_format($order->final_price ?? 0, 2),
+                            'EGP ' . number_format($order->amount_egp ?? $order->final_price ?? 0, 2),
                             ucfirst($order->payment_method ?? 'N/A'),
                             ucfirst($order->status ?? 'N/A'),
                         ]);

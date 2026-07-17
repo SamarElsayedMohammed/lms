@@ -61,6 +61,13 @@ class Course extends Model
         'lectures_count',
     ];
 
+    /**
+     * Default values for model attributes.
+     */
+    protected $attributes = [
+        'certificate_enabled' => true,
+    ];
+
     protected $casts = [
         'is_active' => 'boolean',
         'sequential_access' => 'boolean',

@@ -119,7 +119,7 @@ Route::get('pages', [ApiController::class, 'getPages']); // Get Pages (with opti
 Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO Settings (with optional type, language_id, and language_code filters)
 
 // Public certificate verification — returns only safe fields, no auth needed
-Route::get('certificate/verify', [CertificateController::class, 'verifyApi']);
+Route::get('certificate/verify', [CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
 // Public certificate download — returns the cached PDF directly without auth, using the unguessable certificate number
 Route::get('certificate/public/{certificate_number}/download', [CertificateController::class, 'downloadPublic'])->middleware('throttle:10,1');
 
@@ -755,6 +755,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Users
         Route::get('users', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'index']);
+        Route::get('users/stats', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'stats']);
         Route::get('users/{id}', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'show']);
         Route::put('users/{id}', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'update']);
         Route::post('users/{id}/toggle-status', [\App\Http\Controllers\API\Admin\UserAdminApiController::class, 'toggleStatus']);
@@ -1166,3 +1167,4 @@ Route::delete('remove-user', [ApiController::class, 'removeUser']); // Remove Us
 
 /********************************************************************************************* */
 Route::match(['get', 'post'], 'webhooks/kashier', [\App\Http\Controllers\KashierController::class, 'handleWebhook'])->name('webhooks.kashier');
+Route::post('webhooks/bunny', [\App\Http\Controllers\API\Webhook\BunnyWebhookController::class, 'handle'])->name('webhooks.bunny');
