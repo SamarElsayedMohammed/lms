@@ -145,7 +145,8 @@ final class PricingCalculationService
         $baseDiscountPrice = (float) ($course->discount_price ?? 0);
 
         if ($course->course_type !== 'free' && $baseOriginalPrice <= 0) {
-            throw new \Exception('Pricing error: Paid course has no price configured.');
+            \Log::warning('Pricing error: Paid course has no price configured. Course ID: ' . $course->id);
+            $baseOriginalPrice = 0;
         }
 
         // Determine target currency based on country code

@@ -184,7 +184,6 @@ class HomeApiController extends Controller
                     ->where('is_active', 1)
                     ;
             });
-                        })
                         ->withAvg('ratings', 'rating')
                         ->having('ratings_avg_rating', '>=', 4);
 
@@ -209,7 +208,6 @@ class HomeApiController extends Controller
                     ->where('is_active', 1)
                     ;
             });
-                        })
                         ->withCount('views')
                         ->withAvg('ratings', 'rating')
                         ->withCount('ratings');
@@ -235,7 +233,6 @@ class HomeApiController extends Controller
                     ->where('is_active', 1)
                     ;
             });
-                        })
                         ->whereNull('price')
                         ->where('course_type', 'free');
 

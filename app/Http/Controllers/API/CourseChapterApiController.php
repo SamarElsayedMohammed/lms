@@ -402,8 +402,7 @@ class CourseChapterApiController extends Controller
 
             // Check if course exists and is active
             $course = Course::where('id', $request->course_id)
-                ->where('is_active', true);
-                })
+                ->where('is_active', true)
                 ->first();
 
             if (!$course) {

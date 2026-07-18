@@ -6778,7 +6778,7 @@ class CourseApiController extends Controller
             $enrolledCoursesWithPurchaseDate = $enrollmentService
                 ->resolveEnrolledCourses(
                     (int) $userId,
-                    static fn(
+                    fn(
                         $query,
                     ) => $enrollmentService->applyMyLearningCourseEagerLoad(
                         $query,
@@ -7132,7 +7132,7 @@ class CourseApiController extends Controller
                 $e,
                 "API Course Controller -> getMyLearning Method",
             );
-            ApiResponseService::errorResponse(
+            return ApiResponseService::errorResponse(
                 "Failed to retrieve my learning courses.",
             );
         }
