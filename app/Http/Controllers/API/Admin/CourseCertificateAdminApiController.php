@@ -89,6 +89,12 @@ class CourseCertificateAdminApiController extends AdminCrudApiController
             $data['issued_date'] = now();
         }
 
+        // Check course completion before allowing manual issuance
+        $progress = app(\App\Services\CourseProgressService::class)->getProgressWithCache($data['user_id'], $data['course_id']);
+        if ($progress->progress_percentage != 100) {
+            return $this->jsonError(__('Cannot issue certificate: Course is not fully completed.'), 400);
+        }
+
         $certificate = CourseCertificate::create($data);
 
         return $this->jsonSuccess(__('Certificate issued successfully'), $certificate->load(['user:id,name,email', 'course:id,title']), 201);

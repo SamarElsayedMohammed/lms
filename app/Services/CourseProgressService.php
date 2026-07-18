@@ -32,37 +32,38 @@ class CourseProgressService
     public function calculateAndUpdateProgress(int $userId, int $courseId): UserCourseProgress
     {
         $progress = $this->getProgress($userId, $courseId);
+        $user = \App\Models\User::find($userId);
+        $course = Course::find($courseId);
         
-        $totalItems = $this->getTotalItemsForCourse($courseId);
+        if (!$user || !$course) {
+            return $progress;
+        }
+
+        $videoProgressService = app(\App\Services\VideoProgressService::class);
+        $lectures = $videoProgressService->getAllLecturesForCourse($course);
         
-        // Use CertificateService to check if course is completely finished including assignment approvals
-        $isFullyCompleted = app(\App\Services\CertificateService::class)->checkCourseCompletionStatus($userId, $courseId);
-        
-        $completedItems = UserCurriculumTracking::where('user_id', $userId)
-            ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId)->where('is_active', 1))
-            ->whereHasMorph('trackable', '*', fn($q) => $q->where('is_active', 1))
-            ->where('status', 'completed')
-            ->count();
+        $totalVideoLectures = 0;
+        $completedVideoLectures = 0;
 
-        // Include accepted assignments in completed items count
-        $completedAssignments = \App\Models\Course\CourseChapter\Assignment\UserAssignmentSubmission::where('user_id', $userId)
-            ->whereHas('assignment', function($q) use ($courseId) {
-                $q->where('is_active', 1)
-                  ->whereHas('chapter', fn($c) => $c->where('course_id', $courseId)->where('is_active', 1));
-            })
-            ->where('status', 'accepted')
-            ->count();
-
-        $completedItems += $completedAssignments;
-
-        if ($isFullyCompleted) {
-            $percentage = 100;
-        } else {
-            $percentage = $totalItems > 0 ? round(($completedItems / $totalItems) * 100, 2) : 0;
-            // Cap at 99.99 if not fully completed (e.g. pending assignment review)
-            if ($percentage >= 100) {
-                $percentage = 99.99;
+        foreach ($lectures as $lecture) {
+            // Access the private method lectureHasVideo indirectly or rewrite the check
+            $fileType = strtolower((string) ($lecture->file_type ?? ''));
+            $isVideo = in_array($fileType, ['video', 'mp4', 'hls', 'stream', 'vimeo', 'youtube', 'yt', 'embed', 'url'], true);
+            
+            if ($isVideo) {
+                $totalVideoLectures++;
+                $vp = \App\Models\VideoProgress::forUser($userId)->forLecture($lecture->id)->first();
+                if ($vp !== null && $vp->is_completed) {
+                    $completedVideoLectures++;
+                }
             }
+        }
+
+        $percentage = $totalVideoLectures > 0 ? round(($completedVideoLectures / $totalVideoLectures) * 100, 2) : 100;
+        
+        // Ensure it doesn't exceed 100
+        if ($percentage > 100) {
+            $percentage = 100;
         }
         
         $status = match(true) {
@@ -72,8 +73,8 @@ class CourseProgressService
         };
 
         $progress->update([
-            'completed_items' => $completedItems,
-            'total_items' => $totalItems,
+            'completed_items' => $completedVideoLectures,
+            'total_items' => $totalVideoLectures,
             'progress_percentage' => $percentage,
             'status' => $status,
             'last_accessed_at' => now(),
@@ -135,9 +136,6 @@ class CourseProgressService
             $course = Course::with([
                 'chapters' => fn($q) => $q->where('is_active', 1),
                 'chapters.lectures' => fn($q) => $q->where('is_active', 1),
-                'chapters.quizzes' => fn($q) => $q->where('is_active', 1),
-                'chapters.assignments' => fn($q) => $q->where('is_active', 1),
-                'chapters.resources' => fn($q) => $q->where('is_active', 1),
             ])->find($courseId);
 
             if (!$course) {
@@ -146,10 +144,13 @@ class CourseProgressService
 
             $total = 0;
             foreach ($course->chapters as $chapter) {
-                $total += $chapter->lectures->count()
-                    + $chapter->quizzes->count()
-                    + $chapter->assignments->count()
-                    + $chapter->resources->count();
+                foreach ($chapter->lectures as $lecture) {
+                    $fileType = strtolower((string) ($lecture->file_type ?? ''));
+                    $isVideo = in_array($fileType, ['video', 'mp4', 'hls', 'stream', 'vimeo', 'youtube', 'yt', 'embed', 'url'], true);
+                    if ($isVideo) {
+                        $total++;
+                    }
+                }
             }
 
             return $total;

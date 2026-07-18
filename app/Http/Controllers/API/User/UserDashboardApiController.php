@@ -123,27 +123,36 @@ class UserDashboardApiController extends Controller
 
         if (!$sub) {
             return [
-                'has_active' => false,
-                'plan_name' => null,
-                'status' => 'no_subscription',
+                'has_active'   => false,
+                'plan_name'    => null,
+                'status'       => 'no_subscription',
                 'status_label' => 'لا يوجد اشتراك',
-                'starts_at' => null,
-                'ends_at' => null,
+                'starts_at'    => null,
+                'ends_at'      => null,
                 'days_remaining' => 0,
-                'plan' => null,
+                'plan'         => null,
             ];
         }
 
+        $statusLabel = match ($sub->status) {
+            \App\Models\Subscription::STATUS_ACTIVE    => 'نشط',
+            \App\Models\Subscription::STATUS_EXPIRED   => 'منتهي',
+            \App\Models\Subscription::STATUS_CANCELLED => 'ملغي',
+            \App\Models\Subscription::STATUS_PENDING   => 'قيد الانتظار',
+            \App\Models\Subscription::STATUS_PENDING_APPROVAL => 'قيد المراجعة',
+            default                                    => $sub->status,
+        };
+
         return [
-            'has_active' => true,
-            'plan_name' => $sub->plan->name ?? 'N/A',
-            'status' => $sub->status,
-            'status_label' => $sub->status === Subscription::STATUS_ACTIVE ? 'نشط' : $sub->status,
-            'starts_at' => $sub->starts_at?->toDateString(),
-            'ends_at' => $sub->ends_at?->toDateString(),
+            'has_active'   => true,
+            'plan_name'    => $sub->plan->name ?? 'N/A',
+            'status'       => $sub->status,
+            'status_label' => $statusLabel,
+            'starts_at'    => $sub->starts_at?->toDateString(),
+            'ends_at'      => $sub->ends_at?->toDateString(),
             'days_remaining' => $sub->days_remaining,
-            'plan' => $sub->plan ? [
-                'id' => $sub->plan->id,
+            'plan'         => $sub->plan ? [
+                'id'   => $sub->plan->id,
                 'name' => $sub->plan->name,
             ] : null,
         ];

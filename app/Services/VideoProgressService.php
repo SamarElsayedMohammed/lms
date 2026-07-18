@@ -34,7 +34,7 @@ class VideoProgressService
     /**
      * File types that are considered video lectures (require watch tracking).
      */
-    private const VIDEO_FILE_TYPES = ['video', 'mp4', 'hls', 'stream', 'vimeo', 'youtube', 'embed', 'url'];
+    private const VIDEO_FILE_TYPES = ['video', 'mp4', 'hls', 'stream', 'vimeo', 'youtube', 'yt', 'embed', 'url'];
 
     public function __construct(
         private readonly FeatureFlagService $featureFlagService
@@ -203,26 +203,28 @@ class VideoProgressService
     public function getCourseProgress(User $user, Course $course): float
     {
         $lectures = $this->getAllLecturesForCourse($course);
+        $videoLectures = collect([]);
 
-        if ($lectures->isEmpty()) {
+        foreach ($lectures as $lecture) {
+            if ($this->lectureHasVideo($lecture)) {
+                $videoLectures->push($lecture);
+            }
+        }
+
+        if ($videoLectures->isEmpty()) {
             return 100.0;
         }
 
         $completedCount = 0;
 
-        foreach ($lectures as $lecture) {
-            if (!$this->lectureHasVideo($lecture)) {
-                $completedCount++;
-                continue;
-            }
-
+        foreach ($videoLectures as $lecture) {
             $progress = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
             if ($progress !== null && $progress->is_completed) {
                 $completedCount++;
             }
         }
 
-        return round(($completedCount / $lectures->count()) * 100, 2);
+        return round(($completedCount / $videoLectures->count()) * 100, 2);
     }
 
     /**

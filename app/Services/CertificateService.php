@@ -21,7 +21,8 @@ class CertificateService
      */
     public function checkCourseCompletionStatus(int $userId, int $courseId): bool
     {
-        return $this->checkCourseCompletionFromTracking($userId, $courseId);
+        $progress = app(CourseProgressService::class)->getProgressWithCache($userId, $courseId);
+        return $progress->progress_percentage == 100;
     }
 
     /**
@@ -48,8 +49,8 @@ class CertificateService
                 return null;
             }
 
-            // 3. Check if user actually completed the course (includes video watch time and assignments)
-            if (!$this->checkCourseCompletionFromTracking($userId, $courseId)) {
+            // 3. Check if user actually completed the course (based on the single source of truth percentage)
+            if (!$this->checkCourseCompletionStatus($userId, $courseId)) {
                 return null;
             }
 
@@ -152,111 +153,6 @@ class CertificateService
         } catch (\Exception $e) {
             Log::error('Failed to notify user of certificate: ' . $e->getMessage());
         }
-    }
-
-    /**
-     * Check if user has completed course using user_curriculum_trackings table
-     */
-    private function checkCourseCompletionFromTracking($userId, $courseId)
-    {
-        // Get course with chapters and curriculum items
-        $course = Course::with([
-            'chapters' => static function ($query): void {
-                $query->where('is_active', 1)->orderBy('chapter_order');
-            },
-            'chapters.lectures' => static function ($query): void {
-                $query->where('is_active', 1);
-            },
-            'chapters.quizzes' => static function ($query): void {
-                $query->where('is_active', 1);
-            },
-            'chapters.assignments' => static function ($query): void {
-                $query->where('is_active', 1);
-            },
-            'chapters.resources' => static function ($query): void {
-                $query->where('is_active', 1);
-            },
-        ])->find($courseId);
-
-        if (!$course) {
-            return false;
-        }
-
-        // Count total curriculum items (excluding assignments)
-        $totalLectures = 0;
-        $totalQuizzes = 0;
-        $totalResources = 0;
-
-        foreach ($course->chapters as $chapter) {
-            $totalLectures += $chapter->lectures->count();
-            $totalQuizzes += $chapter->quizzes->count();
-            $totalResources += $chapter->resources->count();
-        }
-
-        // Check completed items from user_curriculum_trackings
-        $completedTracking = \App\Models\UserCurriculumTracking::where('user_id', $userId)
-            ->whereIn('course_chapter_id', $course->chapters->pluck('id'))
-            ->whereHasMorph('trackable', '*', fn($q) => $q->where('is_active', 1))
-            ->where('status', 'completed')
-            ->get();
-
-        $completedLectures = $completedTracking
-            ->where('model_type', \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::class)
-            ->count();
-        $completedQuizzes = $completedTracking
-            ->where('model_type', \App\Models\Course\CourseChapter\Quiz\CourseChapterQuiz::class)
-            ->count();
-        $completedResources = $completedTracking
-            ->where('model_type', \App\Models\Course\CourseChapter\Resource\CourseChapterResource::class)
-            ->count();
-
-        // Check if all curriculum items are completed
-        $curriculumItemsTotal = $totalLectures + $totalQuizzes + $totalResources;
-        $curriculumItemsCompleted = $completedLectures + $completedQuizzes + $completedResources;
-        $allCurriculumCompleted = $curriculumItemsTotal == 0 || $curriculumItemsCompleted >= $curriculumItemsTotal;
-
-        // Check assignment submissions (must be submitted or accepted, or can_skip = 1)
-        $assignmentIds = [];
-        $skippableAssignmentIds = [];
-        foreach ($course->chapters as $chapter) {
-            foreach ($chapter->assignments as $assignment) {
-                $assignmentIds[] = $assignment->id;
-                if ($assignment->can_skip) {
-                    $skippableAssignmentIds[] = $assignment->id;
-                }
-            }
-        }
-
-        $totalAssignments = count($assignmentIds);
-        $skippableAssignments = count($skippableAssignmentIds);
-        $submittedAssignments = 0;
-
-        if (!empty($assignmentIds)) {
-            // Count assignments that have been submitted/accepted (excluding skippable ones)
-            $nonSkippableAssignmentIds = array_diff($assignmentIds, $skippableAssignmentIds);
-            if (!empty($nonSkippableAssignmentIds)) {
-                $submittedAssignments = \App\Models\Course\CourseChapter\Assignment\UserAssignmentSubmission::where(
-                    'user_id',
-                    $userId,
-                )
-                    ->whereIn('course_chapter_assignment_id', $nonSkippableAssignmentIds)
-                    ->where('status', 'accepted')
-                    ->count();
-            }
-        }
-
-        $allAssignmentsSubmitted = CourseCompletionService::allAssignmentsSubmitted(
-            $totalAssignments,
-            $skippableAssignments,
-            $submittedAssignments,
-        );
-
-        // Course is completed only if both conditions are met
-        if ($curriculumItemsTotal == 0 && $totalAssignments == 0) {
-            return false;
-        }
-
-        return $allCurriculumCompleted && $allAssignmentsSubmitted;
     }
 
     /**

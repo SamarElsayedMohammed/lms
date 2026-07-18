@@ -349,8 +349,10 @@ class UserReportApiController extends Controller
                 return ApiResponseService::errorResponse('User not authenticated', null, 401);
             }
 
-            // 1. Get already generated (issued) certificates
+            // 1. Get already generated (issued) active certificates only.
+            // Revoked certificates are excluded — they must not be shown to the student.
             $generatedCertificates = CourseCertificate::where('user_id', $user->id)
+                ->where('status', '!=', 'revoked')
                 ->with('course.category')
                 ->latest('issued_date')
                 ->get()

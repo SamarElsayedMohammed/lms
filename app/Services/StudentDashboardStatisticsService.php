@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\UserCurriculumTracking;
 use App\Models\Wishlist;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Single source of truth for all Student Dashboard Statistics.
@@ -34,6 +35,12 @@ final class StudentDashboardStatisticsService
         $enrolled = $this->enrollmentService->resolveEnrolledCourses((int) $user->id);
         $enrolledCourseIds = $enrolled->pluck('course_id')->toArray();
         $totalCourses = count($enrolledCourseIds);
+
+        if ($totalCourses === 0) {
+            Log::warning('StudentDashboardStatisticsService: no enrolled courses found for user', [
+                'user_id' => $user->id,
+            ]);
+        }
 
         // 2. Initialize progress counters
         $completedCourses = 0;
@@ -102,18 +109,29 @@ final class StudentDashboardStatisticsService
             return 0.0;
         }
 
-        // Sum cumulative watched seconds from video_progress for active lectures
-        // inside the active chapters of the valid enrolled courses.
-        $totalSeconds = DB::table('video_progress')
-            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
-            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
-            ->where('video_progress.user_id', $userId)
-            ->whereIn('course_chapters.course_id', $validCourseIds)
-            // Ensure the lecture and chapter are active
-            ->where('course_chapters.is_active', 1)
-            ->where('course_chapter_lectures.is_active', 1)
-            ->sum('video_progress.watched_seconds');
+        try {
+            // Sum cumulative watched seconds from video_progress for active lectures
+            // inside the active chapters of the valid enrolled courses.
+            $totalSeconds = DB::table('video_progress')
+                ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+                ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+                ->where('video_progress.user_id', $userId)
+                ->whereIn('course_chapters.course_id', $validCourseIds)
+                // Ensure the lecture and chapter are active
+                ->where('course_chapters.is_active', 1)
+                ->where('course_chapter_lectures.is_active', 1)
+                ->sum('video_progress.watched_seconds');
 
-        return round(($totalSeconds ?? 0) / 3600, 2);
+            return round(($totalSeconds ?? 0) / 3600, 2);
+        } catch (\Throwable $e) {
+            // The video_progress table may not exist yet (pending migration).
+            // Return 0 rather than crashing the entire dashboard stats response.
+            Log::warning('StudentDashboardStatisticsService: could not calculate learning hours', [
+                'user_id' => $userId,
+                'error'   => $e->getMessage(),
+            ]);
+
+            return 0.0;
+        }
     }
 }
