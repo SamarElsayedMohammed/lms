@@ -36,6 +36,13 @@ class PublicWebinarController extends Controller
             $perPage = min((int) $request->input('per_page', 15), 50);
             $webinars = $query->orderBy('start_at', 'asc')->paginate($perPage);
 
+            $webinars->getCollection()->transform(function ($webinar) {
+                if (isset($webinar->is_registered_exists)) {
+                    $webinar->is_registered = $webinar->is_registered_exists;
+                }
+                return $webinar;
+            });
+
             return ApiResponseService::successResponse('Webinars retrieved successfully', $webinars);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve webinars: ' . $e->getMessage());

@@ -141,15 +141,15 @@ class UserReportApiController extends Controller
 
     /**
      * Calculate total hours spent on lectures
-     * Uses cumulative watched time (watched_seconds) from video_progresses for accuracy.
+     * Uses cumulative watched time (watched_seconds) from video_progress for accuracy.
      */
     private function calculateLearningHours($userId)
     {
-        $totalSeconds = DB::table('video_progresses')
-            ->join('course_chapter_lectures', 'video_progresses.lecture_id', '=', 'course_chapter_lectures.id')
-            ->where('video_progresses.user_id', $userId)
+        $totalSeconds = DB::table('video_progress')
+            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+            ->where('video_progress.user_id', $userId)
             ->where('course_chapter_lectures.is_active', 1)
-            ->sum('video_progresses.watched_seconds');
+            ->sum('video_progress.watched_seconds');
 
         return round(($totalSeconds ?? 0) / 3600, 2);
     }

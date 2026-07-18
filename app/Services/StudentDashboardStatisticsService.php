@@ -94,7 +94,7 @@ final class StudentDashboardStatisticsService
 
     /**
      * Calculate learning hours ONLY for lectures inside the user's valid enrolled courses.
-     * Uses cumulative watched time (watched_seconds) from video_progresses for accuracy.
+     * Uses cumulative watched time (watched_seconds) from video_progress for accuracy.
      */
     private function calculateLearningHoursForEnrolledCourses(int $userId, array $validCourseIds): float
     {
@@ -102,17 +102,17 @@ final class StudentDashboardStatisticsService
             return 0.0;
         }
 
-        // Sum cumulative watched seconds from video_progresses for active lectures
+        // Sum cumulative watched seconds from video_progress for active lectures
         // inside the active chapters of the valid enrolled courses.
-        $totalSeconds = DB::table('video_progresses')
-            ->join('course_chapter_lectures', 'video_progresses.lecture_id', '=', 'course_chapter_lectures.id')
+        $totalSeconds = DB::table('video_progress')
+            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
             ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
-            ->where('video_progresses.user_id', $userId)
+            ->where('video_progress.user_id', $userId)
             ->whereIn('course_chapters.course_id', $validCourseIds)
             // Ensure the lecture and chapter are active
             ->where('course_chapters.is_active', 1)
             ->where('course_chapter_lectures.is_active', 1)
-            ->sum('video_progresses.watched_seconds');
+            ->sum('video_progress.watched_seconds');
 
         return round(($totalSeconds ?? 0) / 3600, 2);
     }
