@@ -6973,7 +6973,7 @@ class CourseApiController extends Controller
                 "My learning courses retrieved successfully",
                 $paginatedCourses
             );
-        } catch (IlluminateHttpExceptionsHttpResponseException $e) {
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, "API Course Controller -> getMyLearning Method");
