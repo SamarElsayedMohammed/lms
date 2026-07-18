@@ -651,119 +651,32 @@ class CourseApiController extends Controller
             $query->orderBy($sortField, $sortOrder);
         }
 
-        // Get all courses first if filters are applied (we need to calculate duration for each)
-        $needsPostFiltering =
-            $request->filled("rating_filter") ||
-            $request->filled("duration_filter");
-
-        if ($needsPostFiltering) {
-            // Get all matching courses without pagination
-            $allCourses = $query->get();
-
-            // Apply rating filter
-            if ($request->filled("rating_filter")) {
-                $ratingFilters = array_map(
-                    intval(...),
-                    explode(",", $request->rating_filter),
-                );
-                // Use the lowest selected rating as a minimum threshold (e.g., 4 means 4+ stars)
-                $minRating = min($ratingFilters);
-                $allCourses = $allCourses
-                    ->filter(static function ($course) use ($minRating) {
-                        $avgRating = $course->ratings_avg_rating ?? 0;
-                        return $avgRating >= $minRating;
-                    })
-                    ->values(); // Reset collection keys to 0, 1, 2, ...
-            }
-
-            // Apply duration filter
-            if ($request->filled("duration_filter")) {
-                $durationFilters = explode(",", $request->duration_filter);
-                $allCourses = $allCourses
-                    ->filter(static function ($course) use ($durationFilters) {
-                        // Calculate total course duration
-                        $totalDuration = $course->duration_seconds;
-
-                        // Check if duration matches any filter
-                        foreach ($durationFilters as $durationFilter) {
-                            $durationFilter = trim($durationFilter);
-
-                            if ($durationFilter === "1-4_weeks") {
-                                // 1-4 weeks = 7-28 days = 604800-2419200 seconds
-                                if (
-                                    $totalDuration >= 604800 &&
-                                    $totalDuration <= 2419200
-                                ) {
-                                    return true;
-                                }
-                            } elseif ($durationFilter === "4-12_weeks") {
-                                // 4-12 weeks = 28-84 days = 2419200-7257600 seconds
-                                if (
-                                    $totalDuration >= 2419200 &&
-                                    $totalDuration <= 7257600
-                                ) {
-                                    return true;
-                                }
-                            } elseif ($durationFilter === "3-6_months") {
-                                // 3-6 months = 90-180 days = 7776000-15552000 seconds
-                                if (
-                                    $totalDuration >= 7776000 &&
-                                    $totalDuration <= 15552000
-                                ) {
-                                    return true;
-                                }
-                            } elseif ($durationFilter === "6-12_months") {
-                                // 6-12 months = 180-365 days = 15552000-31536000 seconds
-                                if (
-                                    $totalDuration >= 15552000 &&
-                                    $totalDuration <= 31536000
-                                ) {
-                                    return true;
-                                }
-                            }
-                        }
-
-                        return false;
-                    })
-                    ->values(); // Reset collection keys to 0, 1, 2, ...
-            }
-
-            // Re-sort by most_popular if that filter was applied (after post-filtering)
-            if (
-                $request->filled("post_filter") &&
-                $request->post_filter == "most_popular"
-            ) {
-                $allCourses = $allCourses
-                    ->sortByDesc(
-                        // Fallback: count enrollments for this course
-
-                        static fn($course) => $course->order_courses_count ??
-                            OrderCourse::where("course_id", $course->id)
-                                ->whereHas("order", static function (
-                                    $orderQuery,
-                                ): void {
-                                    $orderQuery->where("status", "completed");
-                                })
-                                ->count(),
-                    )
-                    ->values();
-            }
-
-            // Manual pagination
-            $perPage = $request->per_page ?? 15;
-            $page = $request->page ?? 1;
-            $total = $allCourses->count();
-            $courses = new LengthAwarePaginator(
-                $allCourses->forPage($page, $perPage)->values(), // Reset keys after pagination too
-                $total,
-                $perPage,
-                $page,
-                ["path" => Paginator::resolveCurrentPath()],
-            );
-        } else {
-            $perPage = $request->per_page ?? 15;
-            $courses = $query->paginate($perPage);
+        if ($request->filled("rating_filter")) {
+            $ratingFilters = array_map(intval(...), explode(",", $request->rating_filter));
+            $minRating = min($ratingFilters);
+            $query->having('ratings_avg_rating', '>=', $minRating);
         }
+
+        if ($request->filled("duration_filter")) {
+            $durationFilters = explode(",", $request->duration_filter);
+            $query->where(function ($q) use ($durationFilters) {
+                foreach ($durationFilters as $filter) {
+                    $filter = trim($filter);
+                    if ($filter === "1-4_weeks") {
+                        $q->orWhereBetween('duration_seconds', [604800, 2419200]);
+                    } elseif ($filter === "4-12_weeks") {
+                        $q->orWhereBetween('duration_seconds', [2419200, 7257600]);
+                    } elseif ($filter === "3-6_months") {
+                        $q->orWhereBetween('duration_seconds', [7776000, 15552000]);
+                    } elseif ($filter === "6-12_months") {
+                        $q->orWhereBetween('duration_seconds', [15552000, 31536000]);
+                    }
+                }
+            });
+        }
+
+        $perPage = $request->per_page ?? 15;
+        $courses = $query->paginate($perPage);
 
         // Get country code and tax percentage using service
         $countryCode = $this->pricingService->getCountryCodeFromRequest(
