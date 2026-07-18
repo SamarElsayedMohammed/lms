@@ -6980,6 +6980,9 @@ class CourseApiController extends Controller
             return ApiResponseService::errorResponse("Failed to retrieve my learning courses.");
         }
     }
+
+    /**
+     * Get progress status based on percentage
      */
     private function getProgressStatus($percentage)
     {
