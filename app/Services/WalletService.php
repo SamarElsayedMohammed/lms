@@ -41,9 +41,21 @@ class WalletService
 
             $user->update(['wallet_balance' => $newBalance]);
 
+            $countryCode = $user->country_code ?? 'EG';
+            $pricingService = app(\App\Services\PricingService::class);
+            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
+            $currencyCode = $currencyObj ? $currencyObj->currency_code : 'EGP';
+            
+            $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
+            $exchangeRate = $currencyConversionService->getExchangeRateToEgp($currencyCode);
+            $localAmount = $currencyConversionService->convertFromEgp($amount, $currencyCode);
+
             return WalletHistory::create([
                 'user_id' => $userId,
-                'amount' => $amount,
+                'amount' => $localAmount,
+                'amount_egp' => $amount,
+                'exchange_rate_snapshot' => $exchangeRate,
+                'currency_code' => $currencyCode,
                 'type' => 'credit',
                 'transaction_type' => $transactionType,
                 'entry_type' => $entryType,
@@ -93,9 +105,21 @@ class WalletService
 
             $user->update(['wallet_balance' => $newBalance]);
 
+            $countryCode = $user->country_code ?? 'EG';
+            $pricingService = app(\App\Services\PricingService::class);
+            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
+            $currencyCode = $currencyObj ? $currencyObj->currency_code : 'EGP';
+            
+            $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
+            $exchangeRate = $currencyConversionService->getExchangeRateToEgp($currencyCode);
+            $localAmount = $currencyConversionService->convertFromEgp($amount, $currencyCode);
+
             return WalletHistory::create([
                 'user_id' => $userId,
-                'amount' => $amount,
+                'amount' => $localAmount,
+                'amount_egp' => $amount,
+                'exchange_rate_snapshot' => $exchangeRate,
+                'currency_code' => $currencyCode,
                 'type' => 'debit',
                 'transaction_type' => $transactionType,
                 'entry_type' => $entryType,

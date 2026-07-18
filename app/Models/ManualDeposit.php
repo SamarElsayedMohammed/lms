@@ -11,15 +11,13 @@ class ManualDeposit extends Model
         'user_id',
         'manual_deposit_method_id',
         'amount',
+        'amount_egp',
+        'exchange_rate_snapshot',
+        'currency_code',
         'transaction_id',
         'receipt',
         'status',
         'admin_notes',
-        'submitted_fields',
-    ];
-
-    protected $casts = [
-        'submitted_fields' => 'array',
     ];
 
     public function user()

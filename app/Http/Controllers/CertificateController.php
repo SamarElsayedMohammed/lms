@@ -435,7 +435,7 @@ class CertificateController extends Controller
         $html =
             '
     <!DOCTYPE html>
-    <html>
+    <html dir="rtl" lang="ar">
     <head>
         <meta charset="UTF-8">
         <style>

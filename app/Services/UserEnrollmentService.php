@@ -25,7 +25,7 @@ final class UserEnrollmentService
     /**
      * @return Collection<int, array{course_id: int, course: Course, purchase_date: Carbon, source: string}>
      */
-    public function resolveEnrolledCourses(int $userId, ?callable $courseQueryModifier = null): Collection
+    public function resolveEnrolledCourseIds(int $userId): Collection
     {
         $user = User::find($userId);
         if ($user === null) {
@@ -92,6 +92,16 @@ final class UserEnrollmentService
                     );
                 });
         }
+
+        return $enrolled;
+    }
+
+    /**
+     * @return Collection<int, array{course_id: int, course: Course, purchase_date: Carbon, source: string}>
+     */
+    public function resolveEnrolledCourses(int $userId, ?callable $courseQueryModifier = null): Collection
+    {
+        $enrolled = $this->resolveEnrolledCourseIds($userId);
 
         if ($enrolled->isEmpty()) {
             return collect();

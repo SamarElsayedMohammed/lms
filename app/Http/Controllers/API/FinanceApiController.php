@@ -432,11 +432,30 @@ class FinanceApiController extends Controller
 
             // Determine entry type (instructor)
             $entryType = 'instructor';
-
+            
+            $countryCode = $user->country_code ?? 'EG';
+            $pricingService = app(\App\Services\PricingService::class);
+            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
+            $currencyCode = $currencyObj ? $currencyObj->currency_code : 'EGP';
+            
+            $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
+            // $amount is EGP because wallet_balance is EGP
+            $exchangeRate = $currencyConversionService->getExchangeRateToEgp($currencyCode);
+            $amountEgp = $amount;
+            // Local amount not saved in WithdrawalRequest natively, so amount remains EGP. Wait.
+            // Let's assume amount is local, amount_egp is EGP.
+            // If amount is local, then we convert to EGP.
+            // Wait, the validation uses $user->wallet_balance < $amount. So $amount is ALREADY EGP.
+            // Let's just store amount_egp = $amount, currency_code = 'EGP' for consistency, OR user currency.
+            // I'll store user currency and exchange_rate but amount_egp = $amount.
+            
             // Create withdrawal request
             $withdrawalRequest = WithdrawalRequest::create([
                 'user_id' => $user->id,
                 'amount' => $amount,
+                'amount_egp' => $amountEgp,
+                'exchange_rate_snapshot' => $exchangeRate,
+                'currency_code' => $currencyCode,
                 'entry_type' => $entryType,
                 'payment_method' => $request->payment_method,
                 'payment_details' => $request->payment_details,
@@ -716,7 +735,10 @@ class FinanceApiController extends Controller
             // Format the response
             $formattedRequests = $withdrawalRequests->map(static fn($request) => [
                 'id' => $request->id,
-                'amount' => $request->amount,
+                'amount' => $request->amount_egp ?? $request->amount, // Backward compatibility
+                'amount_egp' => $request->amount_egp ?? $request->amount,
+                'original_amount' => $request->amount,
+                'original_currency' => $request->currency_code ?? 'EGP',
                 'status' => $request->status,
                 'status_label' => ucfirst((string) $request->status),
                 'payment_method' => $request->payment_method,
@@ -751,9 +773,9 @@ class FinanceApiController extends Controller
                 'rejected_requests' => WithdrawalRequest::where('status', 'rejected')->count(),
                 'processing_requests' => WithdrawalRequest::where('status', 'processing')->count(),
                 'completed_requests' => WithdrawalRequest::where('status', 'completed')->count(),
-                'total_amount_pending' => WithdrawalRequest::where('status', 'pending')->sum('amount'),
-                'total_amount_approved' => WithdrawalRequest::where('status', 'approved')->sum('amount'),
-                'total_amount_completed' => WithdrawalRequest::where('status', 'completed')->sum('amount'),
+                'total_amount_pending' => WithdrawalRequest::where('status', 'pending')->sum(DB::raw('COALESCE(amount_egp, amount)')),
+                'total_amount_approved' => WithdrawalRequest::where('status', 'approved')->sum(DB::raw('COALESCE(amount_egp, amount)')),
+                'total_amount_completed' => WithdrawalRequest::where('status', 'completed')->sum(DB::raw('COALESCE(amount_egp, amount)')),
             ];
 
             return ApiResponseService::successResponse('Withdrawal requests retrieved successfully', [

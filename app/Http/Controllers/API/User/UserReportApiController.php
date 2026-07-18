@@ -52,51 +52,6 @@ class UserReportApiController extends Controller
         }
     }
 
-    /**
-     * Get comprehensive report for a user
-     */
-    public function getComprehensiveReport(Request $request)
-    {
-        try {
-            /** @var User $currentUser */
-            $currentUser = Auth::user();
-
-            if (!$currentUser) {
-                return ApiResponseService::errorResponse('User not authenticated', null, 401);
-            }
-
-            // Target user (self or specified by admin)
-            $targetUser = $currentUser;
-            if ($request->has('user_id') && ($currentUser->hasRole('Super Admin') || $currentUser->hasRole('Admin'))) {
-                $targetUser = User::find($request->user_id);
-                if (!$targetUser) {
-                    return ApiResponseService::errorResponse('Target user not found');
-                }
-            }
-
-            $data = [
-                'user_info' => [
-                    'id' => $targetUser->id,
-                    'name' => $targetUser->name,
-                    'email' => $targetUser->email,
-                ],
-                'learning_summary' => $this->getLearningSummary($targetUser),
-                'enrolled_courses' => $this->getEnrolledCoursesReport($targetUser),
-                'quiz_performance' => $this->getQuizPerformanceReport($targetUser),
-                'assignment_summary' => $this->getAssignmentSummary($targetUser),
-                'financial_summary' => $this->getFinancialSummary($targetUser),
-                'webinar_summary' => $this->getWebinarSummary($targetUser),
-                'recent_activities' => $this->getRecentActivities($targetUser),
-                'generated_at' => Carbon::now()->toDateTimeString(),
-            ];
-
-            return ApiResponseService::successResponse('Comprehensive user report generated successfully', $data);
-        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to generate report: ' . $e->getMessage());
-        }
-    }
 
     /**
      * Get summary of learning progress

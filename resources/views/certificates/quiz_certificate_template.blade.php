@@ -1,5 +1,5 @@
-﻿<!DOCTYPE html>
-<html>
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
 <head>
     <meta charset="utf-8">
     <title> {{ __('Quiz Certificate') }} </title>

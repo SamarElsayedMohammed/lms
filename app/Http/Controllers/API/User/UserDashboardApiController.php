@@ -232,8 +232,11 @@ class UserDashboardApiController extends Controller
         // === Source 3: Enrolled courses with no tracking/progress rows yet ===
         // Bug 5 fix: for truly unstarted courses we set last_accessed = null.
         // These are only shown to fill the 5-slot limit after real-activity courses.
+        // We also filter out 'subscription' source to avoid calculating progress for 5000+ catalog courses!
         $fallbackEnrolled = $enrolled
+            ->filter(fn($item) => $item['source'] !== 'subscription')
             ->sortByDesc('purchase_date')
+            ->take(5)
             ->map(function (array $item) use ($user) {
                 $course = $item['course'];
                 $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
@@ -314,32 +317,35 @@ class UserDashboardApiController extends Controller
             });
     }
 
-    /**
-     * Get completed courses
-     */
     private function getCompletedCourses($user)
     {
         $enrollmentService = app(UserEnrollmentService::class);
         $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+        $enrolledCourseIds = $enrolled->pluck('course_id')->toArray();
         
         $completed = collect();
 
-        foreach ($enrolled as $item) {
-            $course = $item['course'];
+        // Instead of calculating progress for 5000+ subscription courses, 
+        // we strictly fetch those that are 100% complete from UserCourseProgress
+        $completedProgresses = UserCourseProgress::where('user_id', $user->id)
+            ->whereIn('course_id', $enrolledCourseIds)
+            ->where('progress_percentage', 100)
+            ->get();
+            
+        $coursesById = $enrolled->pluck('course', 'course_id');
+
+        foreach ($completedProgresses as $progress) {
+            $course = $coursesById->get($progress->course_id);
             if (!$course) continue;
 
-            $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
-            
-            if ($progress >= 100) {
-                $completed->push([
-                    'id'                  => $course->id,
-                    'title'               => $course->title,
-                    'thumbnail'           => $course->thumbnail,
-                    'image'               => $course->thumbnail,
-                    'progress'            => $progress,
-                    'progress_percentage' => $progress,
-                ]);
-            }
+            $completed->push([
+                'id'                  => $course->id,
+                'title'               => $course->title,
+                'thumbnail'           => $course->thumbnail,
+                'image'               => $course->thumbnail,
+                'progress'            => 100.0,
+                'progress_percentage' => 100.0,
+            ]);
         }
 
         return $completed->values();

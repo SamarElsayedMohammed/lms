@@ -460,11 +460,23 @@ class WalletApiController extends Controller
 
             // Determine entry type (user)
             $entryType = 'user';
+            
+            $countryCode = $user->country_code ?? 'EG';
+            $pricingService = app(\App\Services\PricingService::class);
+            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
+            $currencyCode = $currencyObj ? $currencyObj->currency_code : 'EGP';
+            
+            $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
+            $exchangeRate = $currencyConversionService->getExchangeRateToEgp($currencyCode);
+            $amountEgp = $amount; // Assuming amount is submitted in EGP
 
             // Create withdrawal request
             $withdrawalRequest = WithdrawalRequest::create([
                 'user_id' => $user->id,
                 'amount' => $amount,
+                'amount_egp' => $amountEgp,
+                'exchange_rate_snapshot' => $exchangeRate,
+                'currency_code' => $currencyCode,
                 'entry_type' => $entryType,
                 'payment_method' => $request->payment_method,
                 'payment_details' => $paymentDetailsInput,

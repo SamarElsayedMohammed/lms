@@ -30,25 +30,12 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $this->checkPermission('finance-list'); // Assuming finance permission
 
         $methods = ManualDepositMethod::all()->map(function ($method) {
-            $details = json_decode($method->account_details, true) ?: [];
             return [
                 'id' => $method->id,
                 'name' => $method->name,
-                'type' => $details['type'] ?? 'bank_transfer',
-                'account_name' => $details['account_name'] ?? null,
-                'account_number' => $details['account_number'] ?? null,
-                'instapay_id' => $details['instapay_id'] ?? null,
-                'merchant_code' => $details['merchant_code'] ?? null,
-                'instructions' => $method->instructions,
+                'account_details' => $method->account_details,
                 'is_active' => $method->is_active,
-                'countries' => $method->countries,
                 'image' => $method->image,
-                'currency' => $method->currency,
-                'min_amount' => $method->min_amount,
-                'max_amount' => $method->max_amount,
-                'fixed_fee' => $method->fixed_fee,
-                'percent_fee' => $method->percent_fee,
-                'dynamic_fields' => $method->dynamic_fields,
             ];
         });
         return ApiResponseService::successResponse('Manual deposit methods retrieved successfully', $methods);
@@ -66,40 +53,17 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'name' => 'required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'image_url' => 'nullable|url|max:2048',
-            'instructions' => 'nullable|string',
-            'countries' => 'nullable|array',
-            'countries.*' => 'nullable|string|max:10',
+            'account_details' => 'nullable|string',
             'is_active' => 'nullable|boolean',
-            'type' => 'nullable|string',
-            'account_name' => 'nullable|string',
-            'account_number' => 'nullable|string',
-            'instapay_id' => 'nullable|string',
-            'merchant_code' => 'nullable|string',
-            'currency' => 'nullable|string|max:10',
-            'min_amount' => 'nullable|numeric|min:0',
-            'max_amount' => 'nullable|numeric|min:0',
-            'fixed_fee' => 'nullable|numeric|min:0',
-            'percent_fee' => 'nullable|numeric|min:0|max:100',
-            'dynamic_fields' => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $accountDetails = json_encode([
-            'type' => $request->input('type'),
-            'account_name' => $request->input('account_name'),
-            'account_number' => $request->input('account_number'),
-            'instapay_id' => $request->input('instapay_id'),
-            'merchant_code' => $request->input('merchant_code'),
-        ]);
-
         $data = $request->only([
-            'name', 'instructions', 'countries', 'is_active',
-            'currency', 'min_amount', 'max_amount', 'fixed_fee', 'percent_fee', 'dynamic_fields'
+            'name', 'account_details', 'is_active'
         ]);
-        $data['account_details'] = $accountDetails;
         
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndUpload($request->file('image'), $this->methodFolder);
@@ -126,40 +90,17 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'name' => 'sometimes|required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'image_url' => 'nullable|url|max:2048',
-            'instructions' => 'nullable|string',
-            'countries' => 'nullable|array',
-            'countries.*' => 'nullable|string|max:10',
+            'account_details' => 'nullable|string',
             'is_active' => 'nullable|boolean',
-            'type' => 'nullable|string',
-            'account_name' => 'nullable|string',
-            'account_number' => 'nullable|string',
-            'instapay_id' => 'nullable|string',
-            'merchant_code' => 'nullable|string',
-            'currency' => 'nullable|string|max:10',
-            'min_amount' => 'nullable|numeric|min:0',
-            'max_amount' => 'nullable|numeric|min:0',
-            'fixed_fee' => 'nullable|numeric|min:0',
-            'percent_fee' => 'nullable|numeric|min:0|max:100',
-            'dynamic_fields' => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $accountDetails = json_encode([
-            'type' => $request->input('type'),
-            'account_name' => $request->input('account_name'),
-            'account_number' => $request->input('account_number'),
-            'instapay_id' => $request->input('instapay_id'),
-            'merchant_code' => $request->input('merchant_code'),
-        ]);
-
         $data = $request->only([
-            'name', 'instructions', 'countries', 'is_active',
-            'currency', 'min_amount', 'max_amount', 'fixed_fee', 'percent_fee', 'dynamic_fields'
+            'name', 'account_details', 'is_active'
         ]);
-        $data['account_details'] = $accountDetails;
 
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndReplace($request->file('image'), $this->methodFolder, $method->getRawOriginal('image'));
@@ -208,6 +149,15 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $perPage = min((int) $request->input('per_page', 15), 100);
         $deposits = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
+        $deposits->getCollection()->transform(function ($deposit) {
+            $depositArray = $deposit->toArray();
+            $depositArray['original_amount'] = $deposit->amount;
+            $depositArray['original_currency'] = $deposit->currency_code ?? 'EGP';
+            $depositArray['amount_egp'] = $deposit->amount_egp ?? $deposit->amount;
+            $depositArray['amount'] = $deposit->amount_egp ?? $deposit->amount; // Make the primary amount EGP
+            return $depositArray;
+        });
+
         return ApiResponseService::successResponse('Manual deposits retrieved successfully', $deposits);
     }
 
@@ -245,15 +195,14 @@ class ManualDepositAdminApiController extends AdminCrudApiController
                 // Credit user wallet
                 $walletService = app(WalletService::class);
                 
-                $method = $deposit->method;
-                $fixedFee = (float) ($method->fixed_fee ?? 0);
-                $percentFee = (float) ($method->percent_fee ?? 0);
-                
-                $feeAmount = round($fixedFee + ($deposit->amount * ($percentFee / 100)), 2);
-                $netAmount = round(max(0, $deposit->amount - $feeAmount), 2);
+                $netAmount = round($deposit->amount_egp ?? $deposit->amount, 2);
 
-                $deposit->fee_amount = $feeAmount;
-                $deposit->net_amount = $netAmount;
+                if (\Illuminate\Support\Facades\Schema::hasColumn('manual_deposits', 'fee_amount')) {
+                    $deposit->fee_amount = 0;
+                }
+                if (\Illuminate\Support\Facades\Schema::hasColumn('manual_deposits', 'net_amount')) {
+                    $deposit->net_amount = $netAmount;
+                }
 
                 $walletService->creditWallet(
                     $deposit->user_id,

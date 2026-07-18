@@ -174,10 +174,9 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'all_completed' => 0,
         ];
 
-        $studentIds = User::where(function ($q) {
-            $q->whereHas('orders', fn ($oq) => $oq->where('status', 'completed'))
-              ->orWhereHas('subscriptions');
-        })->limit(500)->pluck('id');
+        $studentIds = User::role(config('constants.SYSTEM_ROLES.USER', 'User'))
+            ->limit(500)
+            ->pluck('id');
 
         $totalCompletedCourseEnrollments = 0;
         $totalInProgressCourseEnrollments = 0;
@@ -275,10 +274,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
 
     private function getSummaryReport(Request $request): array
     {
-        $query = User::where(function ($q) {
-            $q->whereHas('orders', fn($oq) => $oq->where('status', 'completed'))
-              ->orWhereHas('subscriptions');
-        });
+        $query = User::role(config('constants.SYSTEM_ROLES.USER', 'User'));
 
         if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);

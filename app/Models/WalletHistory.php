@@ -12,6 +12,9 @@ class WalletHistory extends Model
     protected $fillable = [
         'user_id',
         'amount',
+        'amount_egp',
+        'exchange_rate_snapshot',
+        'currency_code',
         'type',
         'transaction_type',
         'entry_type',

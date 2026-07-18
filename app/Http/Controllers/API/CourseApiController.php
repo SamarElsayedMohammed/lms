@@ -6750,8 +6750,7 @@ class CourseApiController extends Controller
             $validator = Validator::make($request->all(), [
                 "per_page" => "nullable|integer|min:1|max:100",
                 "page" => "nullable|integer|min:1",
-                "sort_by" =>
-                    "nullable|in:id,title,created_at,updated_at,purchase_date",
+                "sort_by" => "nullable|in:id,title,created_at,updated_at,purchase_date",
                 "sort_order" => "nullable|in:asc,desc",
                 "search" => "nullable|string|max:255",
                 "category_id" => "nullable|exists:categories,id",
@@ -6761,166 +6760,103 @@ class CourseApiController extends Controller
             ]);
 
             if ($validator->fails()) {
-                return ApiResponseService::validationError(
-                    $validator->errors()->first(),
-                );
+                return ApiResponseService::validationError($validator->errors()->first());
             }
 
             $userId = Auth::user()?->id;
 
             // Get refund settings
-            $refundEnabled =
-                HelperService::systemSettings("refund_enabled") == 1;
-            $refundPeriodDays =
-                (int) HelperService::systemSettings("refund_period_days") ?? 7;
+            $refundEnabled = HelperService::systemSettings("refund_enabled") == 1;
+            $refundPeriodDays = (int) HelperService::systemSettings("refund_period_days") ?? 7;
 
             $enrollmentService = app(UserEnrollmentService::class);
-            $enrolledCoursesWithPurchaseDate = $enrollmentService
-                ->resolveEnrolledCourses(
-                    (int) $userId,
-                    fn(
-                        $query,
-                    ) => $enrollmentService->applyMyLearningCourseEagerLoad(
-                        $query,
-                    ),
-                )
-                ->sortByDesc("purchase_date")
-                ->values();
+            $enrolledItems = $enrollmentService->resolveEnrolledCourseIds((int) $userId);
 
-            $enrolledCourses = $enrolledCoursesWithPurchaseDate
-                ->pluck("course")
-                ->filter()
-                ->values();
+            if ($enrolledItems->isEmpty()) {
+                return ApiResponseService::successResponse(
+                    "My learning courses retrieved successfully",
+                    new LengthAwarePaginator([], 0, $request->per_page ?? 15, $request->page ?? 1, [
+                        "path" => request()->url(),
+                        "pageName" => "page",
+                    ])
+                );
+            }
 
-            // Apply filters
+            $courseIds = $enrolledItems->pluck('course_id')->toArray();
+            $purchaseDatesMap = $enrolledItems->keyBy('course_id')->map(fn($i) => $i['purchase_date']);
+
+            $query = Course::whereIn('id', $courseIds)
+                ->where('status', 'publish')
+                ->where('approval_status', 'approved')
+                ->where('is_active', true);
+
             if ($request->filled("search")) {
                 $search = $request->search;
-                $enrolledCourses = $enrolledCourses
-                    ->filter(
-                        static fn($course) => $course &&
-                            (stripos(
-                                (string) $course->title,
-                                (string) $search,
-                            ) !== false ||
-                                stripos(
-                                    (string) $course->short_description,
-                                    (string) $search,
-                                ) !== false ||
-                                stripos(
-                                    (string) $course->level,
-                                    (string) $search,
-                                ) !== false ||
-                                ($course->category &&
-                                    stripos(
-                                        (string) $course->category->name,
-                                        (string) $search,
-                                    ) !== false) ||
-                                ($course->user &&
-                                    stripos(
-                                        (string) $course->user->name,
-                                        (string) $search,
-                                    ) !== false)),
-                    )
-                    ->values();
+                $query->where(function($q) use ($search) {
+                    $q->where('title', 'LIKE', "%{$search}%")
+                      ->orWhere('short_description', 'LIKE', "%{$search}%")
+                      ->orWhere('level', 'LIKE', "%{$search}%")
+                      ->orWhereHas('category', fn($cq) => $cq->where('name', 'LIKE', "%{$search}%"))
+                      ->orWhereHas('user', fn($uq) => $uq->where('name', 'LIKE', "%{$search}%"));
+                });
             }
 
             if ($request->filled("category_id")) {
-                $enrolledCourses = $enrolledCourses
-                    ->filter(
-                        static fn($course) => $course &&
-                            $course->category &&
-                            $course->category->id == $request->category_id,
-                    )
-                    ->values();
+                $query->where('category_id', $request->category_id);
             }
 
             if ($request->filled("level")) {
-                $levels = explode(",", $request->level);
-                $enrolledCourses = $enrolledCourses
-                    ->filter(
-                        static fn($course) => $course &&
-                            in_array($course->level, $levels),
-                    )
-                    ->values();
+                $query->whereIn('level', explode(',', $request->level));
             }
 
-            if ($request->filled("course_type")) {
-                $courseTypeFilter = $request->course_type;
-                if ($courseTypeFilter === "free") {
-                    // Filter only free courses
-                    $enrolledCourses = $enrolledCourses
-                        ->filter(
-                            static fn($course) => $course &&
-                                $course->course_type === "free",
-                        )
-                        ->values();
-                } elseif ($courseTypeFilter === "paid") {
-                    // Filter only paid courses (not free)
-                    $enrolledCourses = $enrolledCourses
-                        ->filter(
-                            static fn($course) => $course &&
-                                $course->course_type !== "free",
-                        )
-                        ->values();
+            if ($request->filled("course_type") && $request->course_type !== 'all') {
+                if ($request->course_type === 'free') {
+                    $query->where('course_type', 'free');
+                } else {
+                    $query->where('course_type', '!=', 'free');
                 }
-
-                // If 'all', no filtering needed - show all courses
             }
 
-            // Store purchase dates for sorting
-            $purchaseDatesMap = $enrolledCoursesWithPurchaseDate
-                ->keyBy("course_id")
-                ->map(static fn($item) => $item["purchase_date"]);
+            // Sorting logic
+            $sortBy = $request->sort_by ?? 'purchase_date';
+            $sortOrder = $request->sort_order ?? 'desc';
 
-            // Apply sorting
-            $sortBy = $request->sort_by ?? "purchase_date"; // Default to purchase_date
-            $sortOrder = $request->sort_order ?? "desc";
+            if ($sortBy === 'purchase_date') {
+                // PHP-side sorting of the IDs based on the mapped purchase dates
+                $sortedIds = $enrolledItems->sortBy(fn($item) => $item['purchase_date'], SORT_REGULAR, $sortOrder === 'desc')
+                    ->pluck('course_id')->toArray();
+                if (!empty($sortedIds)) {
+                    $orderedIdsStr = implode(',', $sortedIds);
+                    $query->orderByRaw("FIELD(id, {$orderedIdsStr})");
+                }
+            } else {
+                $query->orderBy($sortBy, $sortOrder);
+            }
 
-            $enrolledCourses = $enrolledCourses->sortBy(
-                static function ($course) use ($sortBy, $purchaseDatesMap) {
-                    // Skip null courses
-                    if (!$course) {
-                        return null;
-                    }
+            // Pagination
+            $perPage = $request->per_page ?? 15;
+            $paginatedCourses = $query->paginate($perPage);
 
-                    return match ($sortBy) {
-                        // Sort by last purchase date (most recent first)
-                        "purchase_date" => $purchaseDatesMap[$course->id] ??
-                            $course->created_at,
-                        "id" => $course->id,
-                        "title" => $course->title,
-                        "created_at" => $course->created_at,
-                        "updated_at" => $course->updated_at,
-                        // Default to purchase date
-                        default => $purchaseDatesMap[$course->id] ??
-                            $course->created_at,
-                    };
-                },
-                SORT_REGULAR,
-                $sortOrder === "desc",
-            );
+            // Fetch relations only for paginated items
+            $paginatedIds = collect($paginatedCourses->items())->pluck('id')->toArray();
+            
+            if (empty($paginatedIds)) {
+                return ApiResponseService::successResponse("My learning courses retrieved successfully", $paginatedCourses);
+            }
 
-            // Filter out null courses
-            $coursesData = $enrolledCourses
-                ->filter(static fn($course) => $course !== null)
-                ->values();
+            // We must hydrate the models properly for the transformations
+            $hydratedQuery = Course::whereIn('id', $paginatedIds);
+            $enrollmentService->applyMyLearningCourseEagerLoad($hydratedQuery);
+            $hydratedCourses = $hydratedQuery->get()->keyBy('id');
 
-            // Store purchase dates map for use in transformation
-            $purchaseDatesMap = $enrolledCoursesWithPurchaseDate
-                ->keyBy("course_id")
-                ->map(static fn($item) => $item["purchase_date"]);
-
-            // Preload data to fix N+1 issues
-            $courseIdsArray = $coursesData->pluck('id')->toArray();
-
-            $wishlistedCourseIds = \App\Models\Wishlist::where('user_id', $userId)
-                ->whereIn('course_id', $courseIdsArray)
+            $wishlistedCourseIds = AppModelsWishlist::where('user_id', $userId)
+                ->whereIn('course_id', $paginatedIds)
                 ->pluck('course_id')
                 ->toArray();
 
-            $latestTrackings = \App\Models\UserCurriculumTracking::where('user_id', $userId)
-                ->whereHas('chapter', function($q) use ($courseIdsArray) { 
-                    $q->whereIn('course_id', $courseIdsArray); 
+            $latestTrackings = AppModelsUserCurriculumTracking::where('user_id', $userId)
+                ->whereHas('chapter', function($q) use ($paginatedIds) { 
+                    $q->whereIn('course_id', $paginatedIds); 
                 })
                 ->with('chapter')
                 ->orderByDesc('completed_at')
@@ -6929,217 +6865,121 @@ class CourseApiController extends Controller
                     return $item->chapter->course_id ?? 0;
                 });
 
-            $firstChapters = \App\Models\Course\CourseChapter\CourseChapter::whereIn('course_id', $courseIdsArray)
+            $firstChapters = AppModelsCourseCourseChapterCourseChapter::whereIn('course_id', $paginatedIds)
                 ->where('is_active', 1)
                 ->orderBy('chapter_order')
                 ->get()
                 ->groupBy('course_id');
 
-            // Transform the collection with progress tracking first
-            $transformedCourses = $coursesData
-                ->map(function ($course) use (
-                    $userId,
-                    $refundEnabled,
-                    $refundPeriodDays,
-                    $purchaseDatesMap,
-                    $wishlistedCourseIds,
-                    $latestTrackings,
-                    $firstChapters,
-                ) {
-                    // Skip null courses
-                    if (!$course) {
-                        return null;
-                    }
-
-                    // Note: Refunded orders are already filtered out at the order level above
-                    // No need to check course-level refunds here as we're using order-specific refund logic
-
-                    // Use CourseProgressService as single source of truth for progress metrics
-                    $cachedProgress = app(\App\Services\CourseProgressService::class)->getProgressWithCache($userId, $course->id);
-                    $progressPercentage = (float) $cachedProgress->progress_percentage;
-                    $totalCurriculumItems = $cachedProgress->total_items;
-                    $completedCurriculumItems = $cachedProgress->completed_items;
-                    $startedCurriculumItems = $cachedProgress->status === 'not_started' ? 0 : max(1, $completedCurriculumItems);
-                    
-                    $totalChapters = 0; // The frontend doesn't actually depend on this exact number for the card, it relies on curriculum items for progress bar.
-                    $completedChapters = 0;
-
-                    // Determine current chapter name
-                    $currentChapterName = null;
-                    if ($completedCurriculumItems > 0) {
-                        $lastTracking = $latestTrackings->get($course->id)?->first();
-                            
-                        if ($lastTracking && $lastTracking->chapter) {
-                            $currentChapterName = $lastTracking->chapter->title;
-                            $currentChapterName = preg_replace('/^Chapter\s+\d+:\s*/i', '', $currentChapterName);
-                            $currentChapterName = trim($currentChapterName);
-                        }
-                    } else {
-                        $firstChapter = $firstChapters->get($course->id)?->first();
-                        $currentChapterName = $firstChapter ? $firstChapter->title : null;
-                    }
-
-                    // Check if wishlisted
-                    $isWishlisted = in_array($course->id, $wishlistedCourseIds);
-
-                    // Always enrolled (true) for my learning
-                    $isEnrolled = true;
-
-                    // Get order date for refund eligibility check (use purchase date from map)
-                    $orderDate =
-                        $purchaseDatesMap[$course->id] ??
-                        Order::where("user_id", $userId)
-                            ->where("status", "completed")
-                            ->whereHas("orderCourses", static function (
-                                $q,
-                            ) use ($course): void {
-                                $q->where("course_id", $course->id);
-                            })
-                            ->orderBy("created_at", "desc")
-                            ->value("created_at");
-
-                    // Check if course is eligible for refund
-                    $isRefundEligible = false;
-                    $refundDaysRemaining = 0;
-                    if (
-                        $refundEnabled &&
-                        $orderDate &&
-                        $course->course_type !== "free"
-                    ) {
-                        $daysSincePurchase = now()->diffInDays($orderDate);
-                        if ($daysSincePurchase <= $refundPeriodDays) {
-                            $isRefundEligible = true;
-                            $refundDaysRemaining =
-                                $refundPeriodDays - $daysSincePurchase;
-                        }
-                    }
-
-                    $discountPercentage = 0;
-                    if ($course->display_price > 0 && $course->display_discount_price > 0 && $course->display_price > $course->display_discount_price) {
-                        $discountPercentage = round((($course->display_price - $course->display_discount_price) / $course->display_price) * 100);
-                    }
-
-                    return [
-                        "id" => $course->id,
-                        "slug" => $course->slug,
-                        "image" => $course->thumbnail,
-                        "category_id" => $course->category->id ?? null,
-                        "category_name" => $course->category->name ?? null,
-                        "course_type" => $course->course_type,
-                        "level" => $course->level,
-                        "sequential_access" =>
-                            $course->sequential_access ?? true,
-                        "certificate_enabled" =>
-                            $course->certificate_enabled ?? false,
-                        "certificate_fee" => $course->certificate_fee
-                            ? (float) $course->certificate_fee
-                            : null,
-                        "ratings" => $course->ratings_count ?? 0,
-                        "average_rating" => round(
-                            $course->ratings_avg_rating ?? 0,
-                            2,
-                        ),
-                        "title" => $course->title,
-                        "short_description" => $course->short_description,
-                        "author_id" => $course->user->id ?? null,
-                        "author_name" => $course->user->name ?? null,
-                        "author_slug" => $course->user->slug ?? null,
-                        "price" => (float) $course->display_price,
-                        "discount_price" =>
-                            (float) $course->display_discount_price,
-                        "total_tax_percentage" =>
-                            (float) $course->total_tax_percentage,
-                        "tax_amount" => (float) $course->tax_amount,
-                        "discount_percentage" => $discountPercentage,
-                        "is_wishlisted" => $isWishlisted,
-                        "is_enrolled" => $isEnrolled,
-                        "enrolled_at" => $course->created_at, // When course was enrolled
-                        // Progress tracking data
-                        "total_chapters" => $totalChapters,
-                        "completed_chapters" => $completedChapters,
-                        "current_chapter_name" => $currentChapterName,
-                        "total_curriculum_items" => $totalCurriculumItems,
-                        "completed_curriculum_items" => $completedCurriculumItems,
-                        "started_curriculum_items" => $startedCurriculumItems,
-                        "progress_percentage" => $progressPercentage,
-                        "progress_status" => $this->getProgressStatusWithStarted(
-                            $progressPercentage,
-                            $startedCurriculumItems,
-                        ),
-                        // Refund information
-                        "refund_enabled" => $refundEnabled,
-                        "refund_period_days" => $refundPeriodDays,
-                        "is_refund_eligible" => $isRefundEligible,
-                        "refund_days_remaining" => $refundDaysRemaining,
-                        "purchase_date" => $orderDate
-                            ? $orderDate->format("Y-m-d H:i:s")
-                            : null,
-                    ];
-                })
-                ->filter(static fn($course) => $course !== null)
-                ->values();
-
-            // Apply progress status filter
-            if (
-                $request->filled("progress_status") &&
-                $request->progress_status !== "all"
+            // Map the paginated collection
+            $transformedItems = collect($paginatedCourses->items())->map(function($basicCourse) use (
+                $userId, $hydratedCourses, $purchaseDatesMap, $wishlistedCourseIds, $latestTrackings, $firstChapters, $refundEnabled, $refundPeriodDays
             ) {
-                $progressStatus = $request->progress_status;
-                $transformedCourses = $transformedCourses->filter(
-                    static function ($course) use ($progressStatus) {
-                        if ($progressStatus === "in_progress") {
-                            return $course["progress_percentage"] > 0 &&
-                                $course["progress_percentage"] < 100;
-                        } elseif ($progressStatus === "completed") {
-                            return $course["progress_percentage"] == 100;
-                        }
+                $course = $hydratedCourses->get($basicCourse->id);
+                if (!$course) return null;
 
-                        return true;
-                    },
-                );
+                $cachedProgress = app(AppServicesCourseProgressService::class)->getProgressWithCache($userId, $course->id);
+                $progressPercentage = (float) $cachedProgress->progress_percentage;
+                $totalCurriculumItems = $cachedProgress->total_items;
+                $completedCurriculumItems = $cachedProgress->completed_items;
+                $startedCurriculumItems = $cachedProgress->status === 'not_started' ? 0 : max(1, $completedCurriculumItems);
+
+                $currentChapterName = null;
+                if ($completedCurriculumItems > 0) {
+                    $lastTracking = $latestTrackings->get($course->id)?->first();
+                    if ($lastTracking && $lastTracking->chapter) {
+                        $currentChapterName = trim(preg_replace('/^Chapters+d+:s*/i', '', $lastTracking->chapter->title));
+                    }
+                } else {
+                    $firstChapter = $firstChapters->get($course->id)?->first();
+                    $currentChapterName = $firstChapter ? $firstChapter->title : null;
+                }
+
+                $orderDate = $purchaseDatesMap[$course->id] ?? null;
+
+                $isRefundEligible = false;
+                $refundDaysRemaining = 0;
+                if ($refundEnabled && $orderDate && $course->course_type !== "free") {
+                    $daysSincePurchase = now()->diffInDays($orderDate);
+                    if ($daysSincePurchase <= $refundPeriodDays) {
+                        $isRefundEligible = true;
+                        $refundDaysRemaining = $refundPeriodDays - $daysSincePurchase;
+                    }
+                }
+
+                $discountPercentage = 0;
+                if ($course->display_price > 0 && $course->display_discount_price > 0 && $course->display_price > $course->display_discount_price) {
+                    $discountPercentage = round((($course->display_price - $course->display_discount_price) / $course->display_price) * 100);
+                }
+
+                return [
+                    "id" => $course->id,
+                    "slug" => $course->slug,
+                    "image" => $course->thumbnail,
+                    "category_id" => $course->category->id ?? null,
+                    "category_name" => $course->category->name ?? null,
+                    "course_type" => $course->course_type,
+                    "level" => $course->level,
+                    "sequential_access" => $course->sequential_access ?? true,
+                    "certificate_enabled" => $course->certificate_enabled ?? false,
+                    "certificate_fee" => $course->certificate_fee ? (float) $course->certificate_fee : null,
+                    "ratings" => $course->ratings_count ?? 0,
+                    "average_rating" => round($course->ratings_avg_rating ?? 0, 2),
+                    "title" => $course->title,
+                    "short_description" => $course->short_description,
+                    "author_id" => $course->user->id ?? null,
+                    "author_name" => $course->user->name ?? null,
+                    "author_slug" => $course->user->slug ?? null,
+                    "price" => (float) $course->display_price,
+                    "discount_price" => (float) $course->display_discount_price,
+                    "total_tax_percentage" => (float) $course->total_tax_percentage,
+                    "tax_amount" => (float) $course->tax_amount,
+                    "discount_percentage" => $discountPercentage,
+                    "is_wishlisted" => in_array($course->id, $wishlistedCourseIds),
+                    "is_enrolled" => true,
+                    "enrolled_at" => $course->created_at,
+                    "total_chapters" => 0,
+                    "completed_chapters" => 0,
+                    "current_chapter_name" => $currentChapterName,
+                    "total_curriculum_items" => $totalCurriculumItems,
+                    "completed_curriculum_items" => $completedCurriculumItems,
+                    "started_curriculum_items" => $startedCurriculumItems,
+                    "progress_percentage" => $progressPercentage,
+                    "progress_status" => $this->getProgressStatusWithStarted($progressPercentage, $startedCurriculumItems),
+                    "refund_enabled" => $refundEnabled,
+                    "refund_period_days" => $refundPeriodDays,
+                    "is_refund_eligible" => $isRefundEligible,
+                    "refund_days_remaining" => $refundDaysRemaining,
+                    "purchase_date" => $orderDate ? $orderDate->format("Y-m-d H:i:s") : null,
+                ];
+            })->filter()->values();
+
+            if ($request->filled("progress_status") && $request->progress_status !== "all") {
+                $progressStatus = $request->progress_status;
+                $transformedItems = $transformedItems->filter(function($course) use ($progressStatus) {
+                    if ($progressStatus === "in_progress") {
+                        return $course["progress_percentage"] > 0 && $course["progress_percentage"] < 100;
+                    } elseif ($progressStatus === "completed") {
+                        return $course["progress_percentage"] == 100;
+                    }
+                    return true;
+                })->values();
             }
 
-            // Apply pagination after filtering
-            $perPage = $request->per_page ?? 15;
-            $currentPage = $request->page ?? 1;
-            $offset = ($currentPage - 1) * $perPage;
-
-            $totalCourses = $transformedCourses->count();
-            $paginatedCourses = $transformedCourses
-                ->slice($offset, $perPage)
-                ->values();
-
-            // Create pagination object similar to Laravel's paginate()
-            $pagination = new LengthAwarePaginator(
-                $paginatedCourses,
-                $totalCourses,
-                $perPage,
-                $currentPage,
-                [
-                    "path" => request()->url(),
-                    "pageName" => "page",
-                ],
-            );
+            // Update the paginator with the transformed items
+            $paginatedCourses->setCollection($transformedItems);
 
             return ApiResponseService::successResponse(
                 "My learning courses retrieved successfully",
-                $pagination,
+                $paginatedCourses
             );
-        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+        } catch (IlluminateHttpExceptionsHttpResponseException $e) {
             throw $e;
         } catch (Throwable $e) {
-            ApiResponseService::logErrorResponse(
-                $e,
-                "API Course Controller -> getMyLearning Method",
-            );
-            return ApiResponseService::errorResponse(
-                "Failed to retrieve my learning courses.",
-            );
+            ApiResponseService::logErrorResponse($e, "API Course Controller -> getMyLearning Method");
+            return ApiResponseService::errorResponse("Failed to retrieve my learning courses.");
         }
     }
-
-    /**
-     * Get progress status based on percentage
      */
     private function getProgressStatus($percentage)
     {

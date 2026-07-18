@@ -32,8 +32,34 @@ final class StudentDashboardStatisticsService
     public function getDashboardStats(User $user): array
     {
         // 1. Resolve mathematically correct accessible courses
-        $enrolled = $this->enrollmentService->resolveEnrolledCourses((int) $user->id);
-        $enrolledCourseIds = $enrolled->pluck('course_id')->toArray();
+        $enrolled = $this->enrollmentService->resolveEnrolledCourseIds((int) $user->id);
+        
+        $explicitCourseIds = [];
+        $subscriptionCourseIds = [];
+        
+        foreach ($enrolled as $item) {
+            if ($item['source'] !== 'subscription') {
+                $explicitCourseIds[] = $item['course_id'];
+            } else {
+                $subscriptionCourseIds[] = $item['course_id'];
+            }
+        }
+        
+        $explicitCourseIds = array_unique($explicitCourseIds);
+        
+        // Find subscription courses the user has actually started
+        if (!empty($subscriptionCourseIds)) {
+            $startedCourseIds = DB::table('user_curriculum_trackings')
+                ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+                ->where('user_curriculum_trackings.user_id', $user->id)
+                ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
+                ->pluck('course_chapters.course_id')
+                ->toArray();
+                
+            $explicitCourseIds = array_unique(array_merge($explicitCourseIds, $startedCourseIds));
+        }
+        
+        $enrolledCourseIds = $explicitCourseIds;
         $totalCourses = count($enrolledCourseIds);
 
         if ($totalCourses === 0) {

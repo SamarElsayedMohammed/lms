@@ -334,7 +334,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('user/dashboard', [\App\Http\Controllers\API\User\UserDashboardApiController::class, 'getDashboardData']); // User Dashboard API
     Route::get('user/certificates', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getUserCertificates']); // User Certificates List
     Route::get('user/learning-stats', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getLearningStats']); // Student learning progress summary
-    Route::get('reports/comprehensive', [\App\Http\Controllers\API\User\UserReportApiController::class, 'getComprehensiveReport']); // Comprehensive User Report
     
     // Course Chatbot (AI — per course, subscribers only)
     Route::post('chatbot/course-message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendCourseMessage'])
@@ -1110,8 +1109,6 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
         Route::get('course', [ReportsApiController::class, 'getCourseReport']); // Course reports
         Route::get('instructor', [ReportsApiController::class, 'getInstructorReport']); // Instructor reports
         Route::get('enrollment', [ReportsApiController::class, 'getEnrollmentReport']); // Enrollment reports
-        Route::get('revenue', [ReportsApiController::class, 'getRevenueReport']); // Revenue reports
-        Route::get('credit-cards-revenue', [ReportsApiController::class, 'getCreditCardRevenue']); // Credit Card Revenue
 
         // [8] Student Reports
         Route::get('students/completion-stats', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'completionStats']);

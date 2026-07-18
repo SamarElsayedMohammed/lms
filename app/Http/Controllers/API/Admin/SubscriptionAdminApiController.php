@@ -95,6 +95,22 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         $perPage = min((int) $request->input('per_page', 15), 100);
         $subscriptions = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
+        $subscriptions->getCollection()->transform(function ($sub) {
+            $latestPayment = $sub->payments->first();
+            $data = $sub->toArray();
+            $data['payment_info'] = $latestPayment ? [
+                'original_currency' => $latestPayment->currency_code ?? 'EGP',
+                'original_amount' => (float) $latestPayment->final_amount,
+                'converted_amount' => (float) ($latestPayment->amount_egp ?? ($latestPayment->final_amount * ($latestPayment->exchange_rate_snapshot ?? 1))),
+                'exchange_rate' => (float) ($latestPayment->exchange_rate_snapshot ?? 1),
+                'payment_date' => $latestPayment->paid_at ?? $latestPayment->created_at,
+                'payment_method' => $latestPayment->payment_method ?? 'Unknown',
+                'country' => $latestPayment->resolved_country ?? 'Unknown',
+                'status' => $latestPayment->status,
+            ] : null;
+            return $data;
+        });
+
         return ApiResponseService::successResponse('Subscriptions dashboard retrieved successfully', [
             'statistics' => $statistics,
             'subscriptions' => $subscriptions
@@ -108,7 +124,9 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     {
         $this->ensureAdmin();
 
-        $query = Subscription::with(['user', 'plan', 'payments.manualDepositMethod']);
+        $query = Subscription::with(['user', 'plan', 'payments' => function($q) {
+            $q->latest()->with('manualDepositMethod');
+        }]);
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -124,6 +142,22 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
         $perPage = min((int) $request->input('per_page', 15), 100);
         $subscriptions = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+        $subscriptions->getCollection()->transform(function ($sub) {
+            $latestPayment = $sub->payments->first();
+            $data = $sub->toArray();
+            $data['payment_info'] = $latestPayment ? [
+                'original_currency' => $latestPayment->currency_code ?? 'EGP',
+                'original_amount' => (float) $latestPayment->final_amount,
+                'converted_amount' => (float) ($latestPayment->amount_egp ?? ($latestPayment->final_amount * ($latestPayment->exchange_rate_snapshot ?? 1))),
+                'exchange_rate' => (float) ($latestPayment->exchange_rate_snapshot ?? 1),
+                'payment_date' => $latestPayment->paid_at ?? $latestPayment->created_at,
+                'payment_method' => $latestPayment->payment_method ?? 'Unknown',
+                'country' => $latestPayment->resolved_country ?? 'Unknown',
+                'status' => $latestPayment->status,
+            ] : null;
+            return $data;
+        });
 
         return ApiResponseService::successResponse('Subscriptions retrieved successfully', $subscriptions);
     }
@@ -243,10 +277,12 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             // 6. Facebook / GA4 purchase tracking events
             try {
                 if (class_exists(\App\Services\TrackingService::class)) {
+                    $trackingValue = (float) ($payment->amount_egp ?? ($payment->final_amount * ($payment->exchange_rate_snapshot ?? 1)));
+                    
                     \App\Services\TrackingService::sendFacebookEvent('Purchase', [
                         'em' => hash('sha256', $user->email),
                     ], [
-                        'value' => (float) $subscription->plan->price,
+                        'value' => $trackingValue,
                         'currency' => 'EGP',
                         'content_name' => $subscription->plan->name,
                         'content_ids' => [(string) $subscription->plan->id],
@@ -254,7 +290,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                     ]);
                     \App\Services\TrackingService::sendGA4Event('purchase', [
                         'transaction_id' => 'SUB-' . $subscription->id,
-                        'value' => (float) $subscription->plan->price,
+                        'value' => $trackingValue,
                         'currency' => 'EGP',
                         'items' => [
                             ['item_id' => (string) $subscription->plan->id, 'item_name' => $subscription->plan->name]

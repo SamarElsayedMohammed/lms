@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html dir="rtl" lang="ar">
 <head>
     <meta charset="UTF-8">
     <title>Certificate of Completion</title>

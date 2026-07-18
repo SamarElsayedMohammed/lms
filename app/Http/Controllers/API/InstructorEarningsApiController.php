@@ -493,10 +493,22 @@ final class InstructorEarningsApiController extends Controller
                 . number_format($availableToWithdraw, 2));
             }
 
+            $countryCode = $user->country_code ?? 'EG';
+            $pricingService = app(\App\Services\PricingService::class);
+            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
+            $currencyCode = $currencyObj ? $currencyObj->currency_code : 'EGP';
+            
+            $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
+            $exchangeRate = $currencyConversionService->getExchangeRateToEgp($currencyCode);
+            $amountEgp = $request->amount; // Earnings are in EGP
+
             // Create withdrawal request
             $withdrawal = WithdrawalRequest::create([
                 'user_id' => $user->id,
                 'amount' => $request->amount,
+                'amount_egp' => $amountEgp,
+                'exchange_rate_snapshot' => $exchangeRate,
+                'currency_code' => $currencyCode,
                 'account_holder_name' => $request->account_holder_name,
                 'account_number' => $request->account_number,
                 'bank_name' => $request->bank_name,
