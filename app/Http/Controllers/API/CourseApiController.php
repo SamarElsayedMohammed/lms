@@ -6763,12 +6763,12 @@ class CourseApiController extends Controller
             $enrollmentService->applyMyLearningCourseEagerLoad($hydratedQuery);
             $hydratedCourses = $hydratedQuery->get()->keyBy('id');
 
-            $wishlistedCourseIds = AppModelsWishlist::where('user_id', $userId)
+            $wishlistedCourseIds = \App\Models\Wishlist::where('user_id', $userId)
                 ->whereIn('course_id', $paginatedIds)
                 ->pluck('course_id')
                 ->toArray();
 
-            $latestTrackings = AppModelsUserCurriculumTracking::where('user_id', $userId)
+            $latestTrackings = \App\Models\UserCurriculumTracking::where('user_id', $userId)
                 ->whereHas('chapter', function($q) use ($paginatedIds) { 
                     $q->whereIn('course_id', $paginatedIds); 
                 })
@@ -6779,7 +6779,7 @@ class CourseApiController extends Controller
                     return $item->chapter->course_id ?? 0;
                 });
 
-            $firstChapters = AppModelsCourseCourseChapterCourseChapter::whereIn('course_id', $paginatedIds)
+            $firstChapters = \App\Models\Course\CourseChapter\CourseChapter::whereIn('course_id', $paginatedIds)
                 ->where('is_active', 1)
                 ->orderBy('chapter_order')
                 ->get()
