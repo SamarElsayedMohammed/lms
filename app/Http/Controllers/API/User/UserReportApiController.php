@@ -37,12 +37,18 @@ class UserReportApiController extends Controller
                 return ApiResponseService::errorResponse('User not authenticated', null, 401);
             }
 
-            $summary = $this->getLearningSummary($user);
-            $summary['not_started_courses'] = max(
-                0,
-                $summary['total_enrolled_courses'] - $summary['completed_courses'] - $summary['in_progress_courses'],
-            );
-            $summary['open_courses'] = max(0, $summary['total_enrolled_courses'] - $summary['completed_courses']);
+            $stats = app(\App\Services\StudentDashboardStatisticsService::class)->getDashboardStats($user);
+            
+            $summary = [
+                'total_enrolled_courses' => $stats['total_courses'],
+                'completed_courses'      => $stats['completed_courses'],
+                'in_progress_courses'    => $stats['in_progress_courses'],
+                'not_started_courses'    => $stats['not_started_courses'],
+                'average_progress'       => $stats['average_progress'],
+                'total_certificates'     => $stats['certificates'],
+                'learning_hours'         => $stats['learning_hours'],
+                'open_courses'           => $stats['open_courses'],
+            ];
 
             return ApiResponseService::successResponse('Learning stats retrieved successfully', $summary);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -53,71 +59,7 @@ class UserReportApiController extends Controller
     }
 
 
-    /**
-     * Get summary of learning progress
-     */
-    private function getLearningSummary(User $user)
-    {
-        // Use UserEnrollmentService to resolve all sources (orders, tracks, subscription)
-        $enrollmentService = app(UserEnrollmentService::class);
-        $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
-        $enrolledCourseIds = $enrolled->pluck('course_id')->toArray();
 
-        $totalEnrolled = count($enrolledCourseIds);
-        $completedCoursesCount = 0;
-        $inProgressCoursesCount = 0;
-        $totalProgress = 0;
-
-        foreach ($enrolledCourseIds as $courseId) {
-            $progress = $this->calculateCourseProgress($user->id, $courseId);
-            $totalProgress += $progress;
-
-            if ($progress >= 100) {
-                $completedCoursesCount++;
-            } elseif ($progress > 0) {
-                $inProgressCoursesCount++;
-            }
-        }
-
-        $avgProgress = $totalEnrolled > 0 ? $totalProgress / $totalEnrolled : 0;
-
-        // Certificates
-        $certificatesCount = CourseCertificate::where('user_id', $user->id)->count();
-
-        return [
-            'total_enrolled_courses' => $totalEnrolled,
-            'completed_courses'      => $completedCoursesCount,
-            'in_progress_courses'    => $inProgressCoursesCount,
-            'average_progress'       => round($avgProgress, 2),
-            'total_certificates'     => $certificatesCount,
-            'learning_hours'         => $this->calculateLearningHours($user->id),
-        ];
-    }
-
-    /**
-     * Calculate total hours spent on lectures
-     * Uses cumulative watched time (watched_seconds) from video_progress for accuracy.
-     */
-    private function calculateLearningHours($userId)
-    {
-        $totalSeconds = DB::table('video_progress')
-            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
-            ->where('video_progress.user_id', $userId)
-            ->where('course_chapter_lectures.is_active', 1)
-            ->sum('video_progress.watched_seconds');
-
-        return round(($totalSeconds ?? 0) / 3600, 2);
-    }
-
-    /**
-     * Calculate progress for a specific course
-     */
-    private function calculateCourseProgress($userId, $courseId)
-    {
-        return (float) app(\App\Services\CourseProgressService::class)
-            ->getProgressWithCache($userId, $courseId)
-            ->progress_percentage;
-    }
 
     /**
      * Get detailed report of enrolled courses
@@ -135,7 +77,7 @@ class UserReportApiController extends Controller
             $course = $item['course'];
             if (!$course) return null;
 
-            $progress = $this->calculateCourseProgress($user->id, $course->id);
+            $progress = (float) app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id)->progress_percentage;
 
             $hasReviewed = Rating::where('user_id', $user->id)
                 ->where('rateable_id', $course->id)
@@ -359,13 +301,11 @@ class UserReportApiController extends Controller
                     continue;
                 }
 
-                // Check completion (Bug 2 note: CertificateService is the correct authority
-                // for certificate eligibility — it checks all required items including quizzes)
+                // Check completion (CertificateService is the correct authority)
                 $isCompleted  = $certService->checkCourseCompletionStatus($user->id, $course->id);
-                $videoProgress = $videoService->getCourseProgress($user, $course);
 
-                if ($isCompleted && $videoProgress >= \App\Services\VideoProgressService::COMPLETION_THRESHOLD) {
-                    $progressPercentage = app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id)->progress_percentage ?? 100.0;
+                if ($isCompleted) {
+                    $progressPercentage = 100.0;
 
                     $result[] = [
                         'id'                 => null,

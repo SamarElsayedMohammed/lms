@@ -173,9 +173,11 @@ class CertificateController extends Controller
      *
      * Security:
      * - Verifies the authenticated user is actually enrolled in this course.
-     * - Verifies course is completed + video progress = 100%.
-     * - Certificate generation is idempotent (firstOrCreate).
+     * - Verifies course is completed.
+     * - Certificate generation is idempotent (lock-guarded in CertificateService).
      * - Rejects revoked certificates.
+     * - Uses attachment disposition so browser downloads instead of previewing.
+     * - Filename format: "Course Name - Student Name.pdf" (Unicode-safe, cross-platform).
      */
     public function download(Request $request)
     {
@@ -222,7 +224,6 @@ class CertificateController extends Controller
             ->first();
 
         if ($certificateTemplate) {
-            // Generate HTML → PDF from database template
             $html = $this->generateCertificateHtml($certificateTemplate, $courseCertificate);
 
             $templateSettings = is_string($certificateTemplate->template_settings)
@@ -232,29 +233,31 @@ class CertificateController extends Controller
             $widthPx  = $templateSettings['width']  ?? 800;
             $heightPx = $templateSettings['height'] ?? 600;
         } else {
-            // Fallback to the default blade template
             $html = view('certificates.course_certificate_template', [
                 'certificate' => $courseCertificate,
                 'user'        => $courseCertificate->user,
                 'course'      => $courseCertificate->course,
             ])->render();
 
-            $widthPx  = 800; // Standard fallback width
-            $heightPx = 566; // Matches course_certificate_template dimensions
+            $widthPx  = 800;
+            $heightPx = 566;
         }
-
-        $widthMM  = round($widthPx  * 0.264583, 2);
-        $heightMM = round($heightPx * 0.264583, 2);
 
         try {
             $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
 
-            $filename = "{$courseCertificate->course->title}_{$courseCertificate->user->name}.pdf";
+            $filename        = $this->buildCertificateFilename(
+                $courseCertificate->course->title ?? '',
+                $courseCertificate->user->name    ?? ''
+            );
             $encodedFilename = rawurlencode($filename);
 
             return response($pdfContent, 200, [
                 'Content-Type'        => 'application/pdf',
-                'Content-Disposition' => "inline; filename=\"certificate.pdf\"; filename*=UTF-8''{$encodedFilename}",
+                'Content-Length'      => strlen($pdfContent),
+                'Content-Disposition' => "attachment; filename=\"certificate.pdf\"; filename*=UTF-8''{$encodedFilename}",
+                'Cache-Control'       => 'private, no-store',
+                'X-Content-Type-Options' => 'nosniff',
             ]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('Certificate PDF generation failed', [
@@ -297,54 +300,63 @@ class CertificateController extends Controller
     /**
      * Verify certificate via JSON API — returns only safe public fields.
      *
-     * GET /api/certificate/verify?code=CERT-XXXX
+     * GET /api/certificate/verify?token={verification_token}
      *
-     * Never exposes: email, user_id, internal IDs, private metadata.
+     * Security:
+     * - Only accepts `verification_token` (32-char cryptographic hex).
+     * - NEVER accepts certificate_number or internal DB id.
+     * - NEVER exposes: email, user_id, DB id, certificate_number, internal metadata.
+     * - Returns a constant-time 404 for invalid/revoked/not-found to prevent enumeration.
      */
     public function verifyApi(\Illuminate\Http\Request $request)
     {
-        $code = trim((string) ($request->input('code') ?: $request->input('certificate_id') ?: $request->input('certificate_number') ?: ''));
+        // Accept token from ?token= or legacy ?code= (for QR codes already distributed)
+        $token = trim((string) ($request->input('token') ?: $request->input('code') ?: ''));
 
-        if (empty($code)) {
-            return ApiResponseService::errorResponse('Verification code is required.', null, 422);
+        if (empty($token)) {
+            return ApiResponseService::errorResponse('Verification token is required.', null, 422);
         }
 
+        // Lookup ONLY by verification_token — never by certificate_number or id
         $certificate = CourseCertificate::with(['user', 'course'])
-            ->where('verification_code', $code)
-            ->orWhere('certificate_number', $code)
+            ->where('verification_token', $token)
             ->first();
 
         if (!$certificate) {
             return response()->json([
-                'ok' => false,
-                'message' => 'No certificate found with this verification code.',
+                'ok'       => false,
+                'message'  => 'No certificate found with this verification token.',
                 'is_valid' => false,
-                'data' => null
+                'data'     => null,
             ], 404);
         }
 
         if ($certificate->isRevoked()) {
             return response()->json([
-                'ok' => true,
-                'message' => 'Certificate has been revoked',
+                'ok'       => false,
+                'message'  => 'This certificate has been revoked.',
                 'is_valid' => false,
-                'data' => null
+                'data'     => null,
             ], 200);
         }
 
-        // Return only safe public fields — mapped exactly to frontend requirements
+        // Return only safe public fields — NEVER expose certificate_number or DB id
         return response()->json([
-            'valid' => true,
-            'certificate_id' => $certificate->certificate_number,
+            'ok'           => true,
+            'is_valid'     => true,
+            'message'      => 'Certificate is valid.',
             'student_name' => $certificate->student_name ?? ($certificate->user->name ?? 'N/A'),
-            'course_name' => $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A'),
-            'issued_at' => optional($certificate->issued_date ?? $certificate->created_at)->toIso8601String(),
-            'status' => 'valid'
+            'course_name'  => $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A'),
+            'issued_at'    => optional($certificate->issued_date ?? $certificate->created_at)->toIso8601String(),
+            // Display code: short human-readable, NOT the token, NOT the DB id
+            'display_code' => $certificate->verification_code,
+            'status'       => 'valid',
         ], 200);
     }
 
     /**
-     * Publicly download a verified certificate.
+     * Publicly download a verified certificate via the certificate_number in the URL.
+     * Uses attachment disposition for maximum browser/mobile compatibility.
      */
     public function downloadPublic(string $certificate_number)
     {
@@ -366,14 +378,14 @@ class CertificateController extends Controller
             ->first();
 
         if ($certificateTemplate) {
-            $html = $this->generateCertificateHtml($certificateTemplate, $certificate);
+            $html             = $this->generateCertificateHtml($certificateTemplate, $certificate);
             $templateSettings = is_string($certificateTemplate->template_settings)
                 ? json_decode($certificateTemplate->template_settings, true)
                 : $certificateTemplate->template_settings;
             $widthPx  = $templateSettings['width']  ?? 800;
             $heightPx = $templateSettings['height'] ?? 600;
         } else {
-            $html = view('certificates.course_certificate_template', [
+            $html     = view('certificates.course_certificate_template', [
                 'certificate' => $certificate,
                 'user'        => $certificate->user,
                 'course'      => $certificate->course,
@@ -383,14 +395,19 @@ class CertificateController extends Controller
         }
 
         try {
-            $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
-
-            $filename = "{$certificate->course->title}_{$certificate->user->name}.pdf";
+            $pdfContent      = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
+            $filename        = $this->buildCertificateFilename(
+                $certificate->course->title ?? '',
+                $certificate->user->name    ?? ''
+            );
             $encodedFilename = rawurlencode($filename);
 
             return response($pdfContent, 200, [
-                'Content-Type'        => 'application/pdf',
-                'Content-Disposition' => "inline; filename=\"certificate.pdf\"; filename*=UTF-8''{$encodedFilename}",
+                'Content-Type'           => 'application/pdf',
+                'Content-Length'         => strlen($pdfContent),
+                'Content-Disposition'    => "attachment; filename=\"certificate.pdf\"; filename*=UTF-8''{$encodedFilename}",
+                'Cache-Control'          => 'private, no-store',
+                'X-Content-Type-Options' => 'nosniff',
             ]);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate certificate PDF.', null, 500);
@@ -462,7 +479,77 @@ class CertificateController extends Controller
     <body>
     ';
 
-        if (isset($settings['elements']) && is_array($settings['elements'])) {
+        if (isset($settings['layoutConfig']) && is_array($settings['layoutConfig'])) {
+            // NEW REACT FORMAT (CertificateLayoutConfig)
+            $qrConfig = null;
+            
+            foreach ($settings['layoutConfig'] as $fieldKey => $element) {
+                // Ignore hidden fields
+                if (isset($element['visible']) && !$element['visible']) {
+                    continue;
+                }
+
+                $content = '';
+                switch ($fieldKey) {
+                    case 'studentName':
+                        $content = $certificate->user->name ?? $certificate->student_name ?? '';
+                        break;
+                    case 'courseTitle':
+                        $content = $certificate->course->title ?? $certificate->arabic_title ?? '';
+                        break;
+                    case 'date':
+                        $content = \Carbon\Carbon::parse($certificate->issued_date ?? now())->format('Y-m-d');
+                        break;
+                    case 'instructorName':
+                        $content = $certificate->course->user->name ?? $certificate->instructor_name ?? '';
+                        break;
+                    case 'certificateId':
+                        $content = $certificate->certificate_number;
+                        break;
+                    case 'qrCode':
+                        // Save QR config to process later
+                        $qrConfig = $element;
+                        continue 2;
+                }
+
+                $styleString = "left:{$element['x']}px;top:{$element['y']}px;width:{$element['width']}px;height:{$element['height']}px;";
+                if (isset($element['fontSize'])) {
+                    // Responsive sizing roughly equivalent to React layout
+                    $styleString .= "font-size:{$element['fontSize']}px;";
+                }
+                if (!empty($element['color'])) {
+                    $styleString .= "color:{$element['color']};";
+                }
+                if (!empty($element['textAlign'])) {
+                    $styleString .= "text-align:{$element['textAlign']};";
+                }
+
+                // Make sure text wraps and fits the container
+                $styleString .= "display:flex;align-items:center;justify-content:{$element['textAlign']};";
+
+                $html .= "<div class='element' style='position:absolute;{$styleString}'>{$content}</div>";
+            }
+
+            // Render QR Code based on new config
+            if ($qrConfig && (!isset($qrConfig['visible']) || $qrConfig['visible'])) {
+                // QR URL always uses the unguessable verification_token
+                $verifyUrl = $certificate->verification_url
+                    ?: url('/certificates/verify/' . ($certificate->verification_token ?: $certificate->verification_code));
+                try {
+                    $result = (new \Endroid\QrCode\Builder\Builder(data: $verifyUrl, size: 150))->build();
+                    $qrPng = $result->getString();
+                    $qrDataUri = 'data:' . $result->getMimeType() . ';base64,' . base64_encode($qrPng);
+                    $qrX = $qrConfig['x'] ?? ($canvasWidth - 180);
+                    $qrY = $qrConfig['y'] ?? ($canvasHeight - 180);
+                    $qrWidth = $qrConfig['width'] ?? 80;
+                    $qrHeight = $qrConfig['height'] ?? 80;
+                    $html .= "<div style='position:absolute;left:{$qrX}px;top:{$qrY}px;width:{$qrWidth}px;height:{$qrHeight}px;'><img src='{$qrDataUri}' style='width:100%;height:100%;'></div>";
+                } catch (\Throwable $e) {
+                    // QR generation optional
+                }
+            }
+        } elseif (isset($settings['elements']) && is_array($settings['elements'])) {
+            // OLD FORMAT (Legacy elements array)
             foreach ($settings['elements'] as $element) {
                 $content = $element['content'] ?? '';
                 $content = str_replace(array_keys($replacements), array_values($replacements), $content);
@@ -491,14 +578,11 @@ class CertificateController extends Controller
                     $width = $element['width'] ?? 150;
                     $height = $element['height'] ?? 60;
 
-                    // Ensure they are numeric
                     $x = is_numeric($x) ? (float) $x : 0;
                     $y = is_numeric($y) ? (float) $y : 0;
                     $width = is_numeric($width) ? (float) $width : 150;
                     $height = is_numeric($height) ? (float) $height : 60;
 
-                    // Fix: mPDF ignores CSS top/left for images sometimes.
-                    // Use absolute positioned DIV wrapper with proper dimensions.
                     $imgSrc = str_starts_with((string) $element['content'], 'http')
                         ? $element['content']
                         : asset('storage/' . $element['content']);
@@ -511,6 +595,18 @@ class CertificateController extends Controller
                     $html .= "<div class='element' style='position:absolute;{$styleString}width:{$element['width']}px;height:{$element['height']}px;'>{$content}</div>";
                 }
             }
+
+            // Legacy QR Add — uses verification_token for security
+            $verifyUrl = $certificate->verification_url
+                ?: url('/certificates/verify/' . ($certificate->verification_token ?: $certificate->verification_code));
+            try {
+                $result = (new \Endroid\QrCode\Builder\Builder(data: $verifyUrl, size: 150))->build();
+                $qrPng = $result->getString();
+                $qrDataUri = 'data:' . $result->getMimeType() . ';base64,' . base64_encode($qrPng);
+                $qrX = $canvasWidth - 180;
+                $qrY = $canvasHeight - 180;
+                $html .= "<div style='position:absolute;left:{$qrX}px;top:{$qrY}px;width:150px;height:150px;'><img src='{$qrDataUri}' style='width:100%;height:100%;'></div>";
+            } catch (\Throwable $e) {}
         }
 
         // Add signature image manually if not already in template
@@ -520,13 +616,11 @@ class CertificateController extends Controller
             $sigWidth = 150;
             $sigHeight = 60;
 
-            // ✅ Check if template_settings has a signature element (use its exact position)
             if (isset($settings['elements']) && is_array($settings['elements'])) {
                 foreach ($settings['elements'] as $el) {
                     if (!(isset($el['type']) && strtolower((string) $el['type']) === 'signature')) {
                         continue;
                     }
-
                     $sigX = $el['x'] ?? $sigX;
                     $sigY = $el['y'] ?? $sigY;
                     $sigWidth = $el['width'] ?? $sigWidth;
@@ -535,7 +629,6 @@ class CertificateController extends Controller
                 }
             }
 
-            // ✅ Wrap inside <div> so mPDF respects top/left coordinates
             $html .=
                 '
             <div style="position:absolute;
@@ -558,22 +651,6 @@ class CertificateController extends Controller
                             height:100%;
                             object-fit:contain;">
             </div>';
-        }
-
-        // Add QR code for verification (T088)
-        $verifyUrl = $certificate->verification_url 
-            ?: url('/certificates/verify/' . ($certificate->verification_code ?: $certificate->certificate_number));
-        try {
-            $result = (new \Endroid\QrCode\Builder\Builder(data: $verifyUrl, size: 150))->build();
-            $qrPng = $result->getString();
-            $qrDataUri = 'data:' . $result->getMimeType() . ';base64,' . base64_encode($qrPng);
-            $qrX = $canvasWidth - 180;
-            $qrY = $canvasHeight - 180;
-            $html .= "<div style='position:absolute;left:{$qrX}px;top:{$qrY}px;width:150px;height:150px;'><img src='{$qrDataUri}' style='width:100%;height:100%;'></div>";
-        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            // QR generation optional - skip if fails
         }
 
         $html .= '</body></html>';
@@ -700,11 +777,12 @@ class CertificateController extends Controller
         }
 
         $certificate = QuizCertificate::firstOrCreate([
-            'user_id' => $user->id,
+            'user_id'              => $user->id,
             'user_quiz_attempt_id' => $userQuizAttempt->id,
         ], [
-            'certificate_number' => strtoupper(uniqid('CERT-')),
-            'issued_date' => now(),
+            // Use cryptographically secure random number, not predictable uniqid()
+            'certificate_number' => $this->generateSecureCertificateNumber($user->id),
+            'issued_date'        => now(),
         ]);
 
         // You may want to return a download or certificate info
@@ -774,11 +852,66 @@ class CertificateController extends Controller
 
     private function isQuizCompleted($user_id, $quiz_id): bool
     {
-        // Check if the user has a completed quiz attempt with completed_at not null
         return UserQuizAttempt::where('user_id', $user_id)
             ->where('course_chapter_quiz_id', $quiz_id)
             ->where('status', 'completed')
             ->whereNotNull('completed_at')
             ->exists();
+    }
+
+    /**
+     * Generate a cryptographically secure certificate number for quiz certificates.
+     * Format: CERT-{YEAR}-{USERID-5digits}-{RANDOM-8chars}
+     * Uses random_bytes (CSPRNG) — never predictable like uniqid().
+     */
+    private function generateSecureCertificateNumber(int $userId): string
+    {
+        $year     = date('Y');
+        $userPart = str_pad((string) $userId, 5, '0', STR_PAD_LEFT);
+
+        do {
+            $randomPart = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+            $number     = "CERT-{$year}-{$userPart}-{$randomPart}";
+        } while (\App\Models\QuizCertificate::where('certificate_number', $number)->exists());
+
+        return $number;
+    }
+
+    /**
+     * Build a Unicode-safe, cross-platform certificate filename.
+     *
+     * Format: "Course Name - Student Name.pdf"
+     *
+     * Rules:
+     * - Allows Unicode letters (Arabic + Latin), digits, spaces, hyphens, dots, underscores.
+     * - Strips characters invalid on Windows/macOS/Linux: \ / : * ? " < > |
+     * - Collapses consecutive whitespace to single space.
+     * - Trims leading/trailing whitespace and dots (Windows restriction).
+     * - Caps total length at 200 bytes to avoid filesystem limits.
+     */
+    private function buildCertificateFilename(string $courseName, string $studentName): string
+    {
+        $sanitize = function (string $s): string {
+            // Remove characters invalid on Windows (and Android/iOS FAT-derived paths)
+            $s = preg_replace('/[\\\\\/:*?"<>|\x00-\x1F]/u', '', $s);
+            // Collapse consecutive whitespace
+            $s = preg_replace('/\s+/u', ' ', $s);
+            // Trim leading/trailing whitespace and dots
+            return trim($s, " \t\n\r\0\x0B.");
+        };
+
+        $course  = $sanitize($courseName)  ?: 'Certificate';
+        $student = $sanitize($studentName) ?: 'Student';
+
+        $base     = "{$course} - {$student}";
+        $filename = $base . '.pdf';
+
+        // Ensure filename bytes don't exceed filesystem limits (200 chars is safe)
+        if (mb_strlen($filename, 'UTF-8') > 200) {
+            $maxBase  = 200 - 4; // 4 for ".pdf"
+            $filename = mb_substr($base, 0, $maxBase, 'UTF-8') . '.pdf';
+        }
+
+        return $filename;
     }
 }

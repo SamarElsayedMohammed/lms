@@ -20,10 +20,21 @@ class CourseProgressService
      */
     public function getProgress(int $userId, int $courseId): UserCourseProgress
     {
-        return UserCourseProgress::firstOrCreate(
-            ['user_id' => $userId, 'course_id' => $courseId],
-            ['total_items' => $this->getTotalItemsForCourse($courseId)]
-        );
+        try {
+            return UserCourseProgress::firstOrCreate(
+                ['user_id' => $userId, 'course_id' => $courseId],
+                ['total_items' => $this->getTotalItemsForCourse($courseId)]
+            );
+        } catch (\Throwable $e) {
+            return new UserCourseProgress([
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'total_items' => $this->getTotalItemsForCourse($courseId),
+                'progress_percentage' => 0,
+                'completed_items' => 0,
+                'status' => 'not_started'
+            ]);
+        }
     }
 
     /**
@@ -79,13 +90,21 @@ class CourseProgressService
             default => 'in_progress',
         };
 
-        $progress->update([
-            'completed_items' => $completedVideoLectures,
-            'total_items' => $totalVideoLectures,
-            'progress_percentage' => $percentage,
-            'status' => $status,
-            'last_accessed_at' => now(),
-        ]);
+        try {
+            $progress->update([
+                'completed_items' => $completedVideoLectures,
+                'total_items' => $totalVideoLectures,
+                'progress_percentage' => $percentage,
+                'status' => $status,
+                'last_accessed_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            $progress->completed_items = $completedVideoLectures;
+            $progress->total_items = $totalVideoLectures;
+            $progress->progress_percentage = $percentage;
+            $progress->status = $status;
+            $progress->last_accessed_at = now();
+        }
 
         $this->clearCache($userId, $courseId);
 
@@ -93,7 +112,7 @@ class CourseProgressService
             app(\App\Services\CertificateService::class)->autoGenerateCertificate($userId, $courseId);
         }
 
-        return $progress->fresh();
+        return $progress->exists ? $progress->fresh() : $progress;
     }
 
     /**
@@ -104,15 +123,19 @@ class CourseProgressService
         $cacheKey = "user:{$userId}:course:{$courseId}:progress";
 
         return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($userId, $courseId) {
-            $progress = UserCourseProgress::where('user_id', $userId)
-                ->where('course_id', $courseId)
-                ->first();
+            try {
+                $progress = UserCourseProgress::where('user_id', $userId)
+                    ->where('course_id', $courseId)
+                    ->first();
 
-            if (!$progress) {
+                if (!$progress) {
+                    return $this->calculateAndUpdateProgress($userId, $courseId);
+                }
+
+                return $progress;
+            } catch (\Throwable $e) {
                 return $this->calculateAndUpdateProgress($userId, $courseId);
             }
-
-            return $progress;
         });
     }
 
@@ -124,11 +147,15 @@ class CourseProgressService
         $cacheKey = "user:{$userId}:all-progress";
 
         return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($userId) {
-            return UserCourseProgress::where('user_id', $userId)
-                ->with('course')
-                ->get()
-                ->groupBy('status')
-                ->toArray();
+            try {
+                return UserCourseProgress::where('user_id', $userId)
+                    ->with('course')
+                    ->get()
+                    ->groupBy('status')
+                    ->toArray();
+            } catch (\Throwable $e) {
+                return [];
+            }
         });
     }
 

@@ -212,7 +212,7 @@ class UserDashboardApiController extends Controller
                 $course = $track->chapter->course ?? null;
                 if (!$course || !$enrolledCourseIds->contains((int) $course->id)) return null;
 
-                $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
+                $progress = round((float) app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id)->progress_percentage, 2);
 
                 return [
                     'id'                  => $course->id,
@@ -239,7 +239,7 @@ class UserDashboardApiController extends Controller
             ->take(5)
             ->map(function (array $item) use ($user) {
                 $course = $item['course'];
-                $progress = round($this->calculateCourseProgress($user->id, $course->id), 2);
+                $progress = round((float) app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id)->progress_percentage, 2);
 
                 return [
                     'id'                  => $course->id,
@@ -351,13 +351,5 @@ class UserDashboardApiController extends Controller
         return $completed->values();
     }
 
-    /**
-     * Duplicate logic from UserReportApiController for standalone use or better performance
-     */
-    private function calculateCourseProgress($userId, $courseId)
-    {
-        return (float) app(\App\Services\CourseProgressService::class)
-            ->getProgressWithCache($userId, $courseId)
-            ->progress_percentage;
-    }
+
 }

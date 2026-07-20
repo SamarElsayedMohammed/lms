@@ -851,6 +851,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Admin: Certificate Templates
         Route::get('certificate-templates', [\App\Http\Controllers\API\Admin\CertificateTemplateAdminApiController::class, 'getTemplate']);
         Route::post('certificate-templates', [\App\Http\Controllers\API\Admin\CertificateTemplateAdminApiController::class, 'upsertTemplate']);
+        Route::post('certificate-templates/preview', [\App\Http\Controllers\API\Admin\CertificateTemplateAdminApiController::class, 'previewPdf']);
 
         // Courses
         Route::get('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'index']);

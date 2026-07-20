@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 final class PricingCalculationService
 {
@@ -145,7 +146,7 @@ final class PricingCalculationService
         $baseDiscountPrice = (float) ($course->discount_price ?? 0);
 
         if ($course->course_type !== 'free' && $baseOriginalPrice <= 0) {
-            \Log::warning('Pricing error: Paid course has no price configured. Course ID: ' . $course->id);
+            Log::warning('Pricing error: Paid course has no price configured. Course ID: ' . $course->id);
             $baseOriginalPrice = 0;
         }
 

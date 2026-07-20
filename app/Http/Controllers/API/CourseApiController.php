@@ -777,6 +777,7 @@ class CourseApiController extends Controller
                     "author_name" => $course->user->name ?? null,
                     "author_slug" => $course->user->slug ?? null,
                     "is_featured" => (bool) $course->is_featured,
+                    "created_at" => $course->created_at,
                     ...$coursePricingData,
                     "discount_percentage" => $discountPercentage,
                     "total_duration" => $totalDuration, // in seconds
@@ -6890,7 +6891,7 @@ class CourseApiController extends Controller
             throw $e;
         } catch (Throwable $e) {
             ApiResponseService::logErrorResponse($e, "API Course Controller -> getMyLearning Method");
-            return ApiResponseService::errorResponse("Failed to retrieve my learning courses.");
+            return ApiResponseService::errorResponse($e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
         }
     }
 

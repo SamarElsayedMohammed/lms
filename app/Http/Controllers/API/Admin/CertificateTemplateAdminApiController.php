@@ -144,4 +144,71 @@ class CertificateTemplateAdminApiController extends AdminCrudApiController
             return $this->jsonError('Failed to save certificate template: ' . $e->getMessage(), 500);
         }
     }
+
+    /**
+     * Generate a live PDF preview based on provided layout settings.
+     * POST /api/admin/certificate-templates/preview
+     */
+    public function previewPdf(Request $request)
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('certificates-edit');
+
+        $type = $request->input('type', 'course_completion');
+        $template = Certificate::where('type', $type)->first();
+
+        if (!$template) {
+            return $this->jsonError('Template not found', 404);
+        }
+
+        // Apply any incoming settings over the existing ones
+        $layoutConfig = $request->input('layoutConfig');
+        if ($layoutConfig && is_array($layoutConfig)) {
+            $currentSettings = is_string($template->template_settings) ? json_decode($template->template_settings, true) : ($template->template_settings ?? []);
+            $currentSettings['layoutConfig'] = $layoutConfig;
+            $template->template_settings = $currentSettings;
+        }
+
+        // Create dummy certificate
+        $dummyCertificate = new \App\Models\Course\CourseCertificate([
+            'certificate_number' => $request->input('certificateId', 'PREVIEW-' . date('Ymd')),
+            'issued_date' => now(),
+            'student_name' => $request->input('studentName', 'أحمد محمد'),
+            'arabic_title' => $request->input('arabicCourseTitle', 'دورة تجريبية لمعاينة الشهادة'),
+            'english_title' => $request->input('englishCourseTitle', 'SAMPLE COURSE FOR PREVIEW'),
+            'instructor_name' => $request->input('instructorName', 'اسم المدرب'),
+        ]);
+
+        $dummyCertificate->setRelation('user', new \App\Models\User(['name' => $request->input('studentName', 'أحمد محمد')]));
+        $dummyCourse = new \App\Models\Course\Course(['title' => $request->input('arabicCourseTitle', 'دورة تجريبية لمعاينة الشهادة')]);
+        $dummyCourse->setRelation('user', new \App\Models\User(['name' => $request->input('instructorName', 'اسم المدرب')]));
+        $dummyCertificate->setRelation('course', $dummyCourse);
+
+        $html = app(\App\Http\Controllers\CertificateController::class)->generateCertificateHtmlPublic($template, $dummyCertificate);
+
+        $widthPx  = $currentSettings['width'] ?? 1200;
+        $heightPx = $currentSettings['height'] ?? 800;
+        $widthMM  = round($widthPx  * 0.264583, 2);
+        $heightMM = round($heightPx * 0.264583, 2);
+
+        $mpdf = new \Mpdf\Mpdf([
+            'mode'             => 'utf-8',
+            'format'           => [$widthMM, $heightMM],
+            'margin_left'      => 0,
+            'margin_right'     => 0,
+            'margin_top'       => 0,
+            'margin_bottom'    => 0,
+            'autoScriptToLang' => true,
+            'autoLangToFont'   => true,
+            'tempDir'          => storage_path('app/temp'),
+        ]);
+
+        $mpdf->WriteHTML($html);
+        $pdfContent = $mpdf->Output('', 'S');
+
+        return response($pdfContent, 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="preview.pdf"',
+        ]);
+    }
 }
