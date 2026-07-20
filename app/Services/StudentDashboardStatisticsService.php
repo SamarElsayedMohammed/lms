@@ -49,13 +49,28 @@ final class StudentDashboardStatisticsService
         
         // Find subscription courses the user has actually started
         if (!empty($subscriptionCourseIds)) {
-            $startedCourseIds = DB::table('user_curriculum_trackings')
+            $startedViaTrackings = DB::table('user_curriculum_trackings')
                 ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
                 ->where('user_curriculum_trackings.user_id', $user->id)
                 ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
                 ->pluck('course_chapters.course_id')
                 ->toArray();
                 
+            $startedViaVideos = [];
+            try {
+                $startedViaVideos = DB::table('video_progress')
+                    ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+                    ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+                    ->where('video_progress.user_id', $user->id)
+                    ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
+                    ->where('video_progress.watched_seconds', '>', 0)
+                    ->pluck('course_chapters.course_id')
+                    ->toArray();
+            } catch (\Throwable $e) {
+                // video_progress table may not exist
+            }
+                
+            $startedCourseIds = array_unique(array_merge($startedViaTrackings, $startedViaVideos));
             $explicitCourseIds = array_unique(array_merge($explicitCourseIds, $startedCourseIds));
         }
         
@@ -73,9 +88,22 @@ final class StudentDashboardStatisticsService
         $inProgressCourses = 0;
         $notStartedCourses = 0;
         $totalProgressPercentage = 0;
+        
+        // Get courses where user has a certificate to logically enforce 100% completion
+        $certifiedCourseIds = CourseCertificate::where('user_id', $user->id)
+            ->pluck('course_id')
+            ->toArray();
 
         foreach ($enrolledCourseIds as $courseId) {
             $progress = $this->calculateDeterministicProgress($user->id, $courseId);
+            $hasCertificate = in_array($courseId, $certifiedCourseIds);
+            
+            // Business rule: If a certificate was issued, treat it as 100% completed
+            // even if new lectures were later added causing raw progress to drop.
+            if ($hasCertificate) {
+                $progress = 100.0;
+            }
+
             $totalProgressPercentage += $progress;
 
             if ($progress === 100.0) {
@@ -95,9 +123,7 @@ final class StudentDashboardStatisticsService
         $learningHours = $this->calculateLearningHoursForEnrolledCourses($user->id, $enrolledCourseIds);
 
         // 4. Certificates (Only actual generated certificates)
-        $certificatesCount = CourseCertificate::where('user_id', $user->id)
-            // Ensure we only count certificates for currently valid/published courses (if business rules dictate, but generally a certificate is permanent. We will count all generated certificates to match the UI `my-certificates` list.)
-            ->count();
+        $certificatesCount = count($certifiedCourseIds);
 
         // 5. Wishlist
         $wishlistCount = Wishlist::where('user_id', $user->id)->count();

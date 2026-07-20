@@ -37,9 +37,6 @@ class CourseProgressService
         }
     }
 
-    /**
-     * Calculate and update progress (heavy operation - use wisely)
-     */
     public function calculateAndUpdateProgress(int $userId, int $courseId): UserCourseProgress
     {
         $progress = $this->getProgress($userId, $courseId);
@@ -50,66 +47,38 @@ class CourseProgressService
             return $progress;
         }
 
-        $videoProgressService = app(\App\Services\VideoProgressService::class);
-        $lectures = $videoProgressService->getAllLecturesForCourse($course);
-        
-        $totalVideoLectures = 0;
-        $completedVideoLectures = 0;
-
-        foreach ($lectures as $lecture) {
-            // Access the private method lectureHasVideo indirectly or rewrite the check
-            $fileType = strtolower((string) ($lecture->file_type ?? ''));
-            $isVideo = in_array($fileType, ['video', 'mp4', 'hls', 'stream', 'vimeo', 'youtube', 'yt', 'embed', 'url'], true);
-            
-            if ($isVideo) {
-                $totalVideoLectures++;
-                try {
-                    $vp = \App\Models\VideoProgress::forUser($userId)->forLecture($lecture->id)->first();
-                    if ($vp !== null && $vp->is_completed) {
-                        $completedVideoLectures++;
-                    }
-                } catch (\Throwable $e) {
-                    // Gracefully fallback if video_progress table is missing
-                    if ($completedVideoLectures === 0) {
-                         // We could fallback to curriculum trackings if necessary
-                    }
-                }
-            }
-        }
-
-        $percentage = $totalVideoLectures > 0 ? round(($completedVideoLectures / $totalVideoLectures) * 100, 2) : 100;
-        
-        // Ensure it doesn't exceed 100
-        if ($percentage > 100) {
-            $percentage = 100;
-        }
-        
-        $status = match(true) {
-            $percentage == 0 => 'not_started',
-            $percentage == 100 => 'completed',
-            default => 'in_progress',
-        };
-
         try {
+            $detailed = $this->getDetailedProgress($userId, $courseId);
+            $completedItems = $detailed['summary']['completed_items'] ?? 0;
+            $totalItems = $detailed['summary']['total_items'] ?? 0;
+            $percentage = $detailed['course']['progress_percentage'] ?? 0;
+            
+            // Ensure it doesn't exceed 100
+            if ($percentage > 100) {
+                $percentage = 100;
+            }
+            
+            $status = match(true) {
+                $percentage == 0 => 'not_started',
+                $percentage == 100 => 'completed',
+                default => 'in_progress',
+            };
+
             $progress->update([
-                'completed_items' => $completedVideoLectures,
-                'total_items' => $totalVideoLectures,
+                'completed_items' => $completedItems,
+                'total_items' => $totalItems,
                 'progress_percentage' => $percentage,
                 'status' => $status,
                 'last_accessed_at' => now(),
             ]);
+            
+            $this->clearCache($userId, $courseId);
+
+            if ($percentage == 100) {
+                app(\App\Services\CertificateService::class)->autoGenerateCertificate($userId, $courseId);
+            }
         } catch (\Throwable $e) {
-            $progress->completed_items = $completedVideoLectures;
-            $progress->total_items = $totalVideoLectures;
-            $progress->progress_percentage = $percentage;
-            $progress->status = $status;
-            $progress->last_accessed_at = now();
-        }
-
-        $this->clearCache($userId, $courseId);
-
-        if ($percentage == 100) {
-            app(\App\Services\CertificateService::class)->autoGenerateCertificate($userId, $courseId);
+            Log::error('Error calculating progress: ' . $e->getMessage());
         }
 
         return $progress->exists ? $progress->fresh() : $progress;
@@ -178,13 +147,10 @@ class CourseProgressService
 
             $total = 0;
             foreach ($course->chapters as $chapter) {
-                foreach ($chapter->lectures as $lecture) {
-                    $fileType = strtolower((string) ($lecture->file_type ?? ''));
-                    $isVideo = in_array($fileType, ['video', 'mp4', 'hls', 'stream', 'vimeo', 'youtube', 'yt', 'embed', 'url'], true);
-                    if ($isVideo) {
-                        $total++;
-                    }
-                }
+                $total += $chapter->lectures->count();
+                $total += $chapter->quizzes->count();
+                $total += $chapter->assignments->count();
+                $total += $chapter->resources->count();
             }
 
             return $total;
@@ -217,7 +183,7 @@ class CourseProgressService
     public function getDetailedProgress(int $userId, int $courseId): array
     {
         try {
-            $course = Course::with(['chapters.lectures', 'chapters.quizzes', 'chapters.assignments'])
+            $course = Course::with(['chapters.lectures', 'chapters.quizzes', 'chapters.assignments', 'chapters.resources'])
                 ->findOrFail($courseId);
         } catch (\Throwable $e) {
             Log::error('Error loading course with relationships: ' . $e->getMessage(), [
@@ -252,6 +218,7 @@ class CourseProgressService
         $chaptersData = [];
         $totalItems = 0;
         $completedItems = 0;
+        $rawProgressScore = 0;
         $nextItem = null;
 
         foreach ($course->chapters as $chapter) {
@@ -264,8 +231,13 @@ class CourseProgressService
                 $video = $videoProgress->get($lecture->id);
                 
                 $isCompleted = $track?->status === 'completed' || ($video?->is_completed ?? false);
+                $watchPercentage = $video?->watch_percentage ?? 0;
+
                 if ($isCompleted) {
                     $completedItems++;
+                    $rawProgressScore += 1;
+                } else if ($watchPercentage > 0) {
+                    $rawProgressScore += ($watchPercentage / 100);
                 }
                 
                 if (!$nextItem && !$isCompleted) {
@@ -296,6 +268,7 @@ class CourseProgressService
                 $isCompleted = $track?->status === 'completed';
                 if ($isCompleted) {
                     $completedItems++;
+                    $rawProgressScore += 1;
                 }
                 
                 if (!$nextItem && !$isCompleted) {
@@ -324,6 +297,7 @@ class CourseProgressService
                 $isCompleted = $track?->status === 'completed';
                 if ($isCompleted) {
                     $completedItems++;
+                    $rawProgressScore += 1;
                 }
                 
                 if (!$nextItem && !$isCompleted) {
@@ -351,6 +325,7 @@ class CourseProgressService
                 $isCompleted = $track?->status === 'completed';
                 if ($isCompleted) {
                     $completedItems++;
+                    $rawProgressScore += 1;
                 }
                 
                 if (!$nextItem && !$isCompleted) {
@@ -371,12 +346,19 @@ class CourseProgressService
                 ];
             }
 
-            $chapterCompleted = count(array_filter($items, fn($i) => $i['status'] === 'completed'));
+            $chapterProgressScore = 0;
+            foreach($items as $i) {
+                if ($i['status'] === 'completed') {
+                    $chapterProgressScore += 1;
+                } else if ($i['type'] === 'lecture' && ($i['watch_percentage'] ?? 0) > 0) {
+                    $chapterProgressScore += ($i['watch_percentage'] / 100);
+                }
+            }
             
             $chaptersData[] = [
                 'chapter_id' => $chapter->id,
                 'chapter_name' => $chapter->name,
-                'progress_percentage' => count($items) > 0 ? round(($chapterCompleted / count($items)) * 100, 2) : 0,
+                'progress_percentage' => count($items) > 0 ? round(($chapterProgressScore / count($items)) * 100, 2) : 0,
                 'items' => $items,
             ];
         }
@@ -386,7 +368,7 @@ class CourseProgressService
                 'id' => $course->id,
                 'name' => $course->name,
                 'thumbnail' => $course->thumbnail,
-                'progress_percentage' => $totalItems > 0 ? round(($completedItems / $totalItems) * 100, 2) : 0,
+                'progress_percentage' => $totalItems > 0 ? round(($rawProgressScore / $totalItems) * 100, 2) : 0,
                 'status' => $completedItems === 0 ? 'not_started' : ($completedItems === $totalItems ? 'completed' : 'in_progress'),
             ],
             'chapters' => $chaptersData,

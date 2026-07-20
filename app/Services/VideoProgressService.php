@@ -146,6 +146,12 @@ class VideoProgressService
             if ($chapter) {
                 CurriculumItemCompleted::dispatch($user->id, $chapter->course_id);
             }
+        } else if ($lecture->course_chapter_id) {
+            // For partial progress updates, clear the cache so the dashboard reflects the new percentage
+            $chapter = CourseChapter::find($lecture->course_chapter_id);
+            if ($chapter) {
+                app(\App\Services\CourseProgressService::class)->clearCache($user->id, $chapter->course_id);
+            }
         }
 
         return $progress;
