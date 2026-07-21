@@ -6792,7 +6792,7 @@ class CourseApiController extends Controller
                 $course = $hydratedCourses->get($basicCourse->id);
                 if (!$course) return null;
 
-                $cachedProgress = app(AppServicesCourseProgressService::class)->getProgressWithCache($userId, $course->id);
+                $cachedProgress = app(\App\Services\CourseProgressService::class)->getProgressWithCache($userId, $course->id);
                 $progressPercentage = (float) $cachedProgress->progress_percentage;
                 $totalCurriculumItems = $cachedProgress->total_items;
                 $completedCurriculumItems = $cachedProgress->completed_items;
