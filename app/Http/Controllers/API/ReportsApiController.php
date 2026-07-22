@@ -28,16 +28,16 @@ class ReportsApiController extends Controller
                 'date_to' => $request->date_to ?? $request->to_date
             ]);
             $validator = Validator::make($request->all(), [
-                'date_from' => 'nullable|date',
-                'date_to' => 'nullable|date|after_or_equal:date_from',
-                'course_id' => 'nullable|exists:courses,id',
-                'instructor_id' => 'nullable|exists:users,id',
-                'status' => 'nullable|in:pending,completed,cancelled,failed',
-                'payment_method' => 'nullable|in:stripe,razorpay,flutterwave,wallet',
-                'category_id' => 'nullable|exists:categories,id',
-                'report_type' => 'nullable|in:summary,detailed,chart',
-                'group_by' => 'nullable|in:day,week,month,year',
-                'per_page' => 'nullable|integer|min:1|max:100',
+                'date_from'      => 'nullable|date',
+                'date_to'        => 'nullable|date|after_or_equal:date_from',
+                'course_id'      => 'nullable|exists:courses,id',
+                'instructor_id'  => 'nullable|exists:users,id',
+                'status'         => 'nullable|in:pending,completed,cancelled,failed',
+                'payment_method' => 'nullable|string|max:50',
+                'category_id'    => 'nullable|exists:categories,id',
+                'report_type'    => 'nullable|in:summary,detailed,chart',
+                'group_by'       => 'nullable|in:day,week,month,year',
+                'per_page'       => 'nullable|integer|min:1|max:100',
             ]);
 
             if ($validator->fails()) {
@@ -398,7 +398,8 @@ class ReportsApiController extends Controller
             $query->where('approval_status', $request->approval_status);
         }
         if ($request->filled('course_type')) {
-            $query->where('course_type', $request->course_type);
+            // course_type=free maps to is_free=1, course_type=paid maps to is_free=0
+            $query->where('is_free', $request->course_type === 'free' ? 1 : 0);
         }
         if ($request->filled('level')) {
             $query->where('level', $request->level);
@@ -486,10 +487,18 @@ class ReportsApiController extends Controller
                 ->value('total_revenue') ?? 0;
         }
 
-        $allOrdersCount = $orders->count() + $subscriptionPayments->count();
-        $completedSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)->count();
-        $pendingSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_PENDING)->count();
-        $failedSubs = $subscriptionPayments->where('status', \App\Models\SubscriptionPayment::STATUS_FAILED)->count();
+        $allOrdersCount    = $orders->count() + $subscriptionPayments->count();
+        $completedOrders   = $orders->where('status', 'completed');
+        $completedSubs     = $subscriptionPayments->where('status', SubscriptionPayment::STATUS_COMPLETED);
+        $pendingSubs       = $subscriptionPayments->where('status', SubscriptionPayment::STATUS_PENDING);
+        $failedSubs        = $subscriptionPayments->where('status', SubscriptionPayment::STATUS_FAILED);
+
+        // Revenue from completed transactions only
+        $orderRevenue       = $completedOrders->sum(static fn($o) => $o->amount_egp ?? $o->final_price);
+        $totalRevenue       = $orderRevenue + $subscriptionRevenue;
+        // Average is calculated over completed transactions only to avoid skewing by failed/pending
+        $completedCount     = $completedOrders->count() + $completedSubs->count();
+        $avgOrderValue      = $completedCount > 0 ? round($totalRevenue / $completedCount, 2) : 0;
 
         // دمج طرق الدفع من الأوردرات والاشتراكات معاً
         $orderPaymentMethods = $orders
@@ -524,17 +533,18 @@ class ReportsApiController extends Controller
         ]);
 
         return [
-            'total_orders'        => $allOrdersCount,
-            'total_revenue'       => $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price) + $subscriptionRevenue,
-            'average_order_value' => $allOrdersCount > 0 ? ($orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price) + $subscriptionRevenue) / $allOrdersCount : 0,
-            'completed_orders'    => $orders->where('status', 'completed')->count() + $completedSubs,
-            'pending_orders'      => $orders->where('status', 'pending')->count() + $pendingSubs,
-            'cancelled_orders'    => $orders->where('status', 'cancelled')->count() + $failedSubs,
-            'payment_methods'     => $allPaymentMethods,
-            'recent_orders'       => $recentOrders,
-            'recent_subscriptions'=> $recentSubscriptions,
-            'subscription_revenue'=> $subscriptionRevenue,
-            'subscription_count'  => $subscriptionPayments->count(),
+            'total_orders'         => $allOrdersCount,
+            'total_revenue'        => $totalRevenue,
+            'average_order_value'  => $avgOrderValue,
+            'completed_orders'     => $completedOrders->count() + $completedSubs->count(),
+            'pending_orders'       => $orders->where('status', 'pending')->count() + $pendingSubs->count(),
+            'cancelled_orders'     => $orders->where('status', 'cancelled')->count(),
+            'failed_orders'        => $orders->where('status', 'failed')->count() + $failedSubs->count(),
+            'payment_methods'      => $allPaymentMethods,
+            'recent_orders'        => $recentOrders,
+            'recent_subscriptions' => $recentSubscriptions,
+            'subscription_revenue' => $subscriptionRevenue,
+            'subscription_count'   => $subscriptionPayments->count(),
         ];
     }
 
@@ -612,43 +622,46 @@ class ReportsApiController extends Controller
     private function getCourseSummaryData($query, $request)
     {
         $courses = $query->withCount([
-            'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')), 
-            'ratings'
-        ])->get();
+            'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')),
+            'ratings',
+        ])->withAvg('ratings', 'rating')->get();
 
         return [
-            'total_courses' => $courses->count(),
-            'active_courses' => $courses->where('is_active', true)->count(),
-            'free_courses' => $courses->where('course_type', 'free')->count(),
-            'paid_courses' => $courses->where('course_type', 'paid')->count(),
-            'average_rating' => $courses->avg('ratings_avg_rating'),
-            'total_enrollments' => $courses->sum('order_courses_count'),
-            'courses_by_category' => $this->getCoursesByCategory($courses),
-            'courses_by_level' => $courses->groupBy('level')->map->count(),
-            'top_rated_courses' => $courses->sortByDesc('ratings_avg_rating')->take(10)->values(),
+            'total_courses'        => $courses->count(),
+            'active_courses'       => $courses->where('is_active', true)->count(),
+            'free_courses'         => $courses->where('is_free', true)->count(),
+            'paid_courses'         => $courses->where('is_free', false)->count(),
+            'average_rating'       => round($courses->avg('ratings_avg_rating') ?? 0, 2),
+            'total_enrollments'    => $courses->sum('order_courses_count'),
+            'courses_by_category'  => $this->getCoursesByCategory($courses),
+            'courses_by_level'     => $courses->groupBy('level')->map->count(),
+            'top_rated_courses'    => $courses->sortByDesc('ratings_avg_rating')->take(10)->values(),
         ];
     }
 
     private function getDetailedCourseData($query, $request)
     {
-        $perPage = $request->per_page ?? 15;
+        $perPage        = $request->per_page ?? 15;
         $paginatedQuery = clone $query;
         $paginatedResult = $paginatedQuery
             ->withCount([
-                'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')), 
-                'ratings'
+                'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')),
+                'ratings',
             ])
             ->withAvg('ratings', 'rating')
+            // Use a subquery to compute revenue per course in a single round-trip
+            // instead of firing one query per course (N+1).
+            ->withSum(
+                [
+                    'orderCourses as revenue' => fn($q) => $q
+                        ->whereHas('order', fn($oq) => $oq->where('status', 'completed'))
+                        ->select(\Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, price)')),
+                ],
+                \Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, price)')
+            )
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
-            
-        $paginatedResult->getCollection()->transform(function($course) {
-             $course->revenue = \App\Models\OrderCourse::where('course_id', $course->id)
-                    ->whereHas('order', fn($oq) => $oq->where('status', 'completed'))
-                    ->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, price)'));
-             return $course;
-        });
-            
+
         $summary = $this->getCourseSummaryData($query, $request);
         return array_merge($paginatedResult->toArray(), $summary);
     }
@@ -657,23 +670,27 @@ class ReportsApiController extends Controller
     {
         return $query
             ->withCount([
-                'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')), 
-                'ratings'
+                'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')),
+                'ratings',
             ])
             ->withAvg('ratings', 'rating')
+            ->withSum(
+                [
+                    'orderCourses as revenue' => fn($q) => $q
+                        ->whereHas('order', fn($oq) => $oq->where('status', 'completed'))
+                        ->select(\Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, price)')),
+                ],
+                \Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, price)')
+            )
             ->get()
-            ->map(function($course) {
-                $revenue = \App\Models\OrderCourse::where('course_id', $course->id)
-                    ->whereHas('order', fn($oq) => $oq->where('status', 'completed'))
-                    ->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(amount_egp, price)'));
-                    
+            ->map(function ($course) {
                 return [
-                    'course' => $course,
+                    'course'              => $course,
                     'performance_metrics' => [
-                        'enrollments' => $course->order_courses_count,
-                        'revenue' => $revenue,
-                        'rating' => round($course->ratings_avg_rating ?? 0, 2),
-                        'reviews_count' => $course->ratings_count,
+                        'enrollments'    => $course->order_courses_count,
+                        'revenue'        => $course->revenue ?? 0,
+                        'rating'         => round($course->ratings_avg_rating ?? 0, 2),
+                        'reviews_count'  => $course->ratings_count,
                     ],
                 ];
             });

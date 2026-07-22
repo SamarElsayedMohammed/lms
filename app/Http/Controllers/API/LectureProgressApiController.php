@@ -7,6 +7,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
+use App\Services\CourseProgressService;
 use App\Services\VideoProgressService;
 use App\Traits\HasApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -18,7 +19,8 @@ final class LectureProgressApiController extends Controller
     use HasApiResponse;
 
     public function __construct(
-        private readonly VideoProgressService $videoProgressService
+        private readonly VideoProgressService $videoProgressService,
+        private readonly CourseProgressService $courseProgressService,
     ) {}
 
     /**
@@ -153,6 +155,10 @@ final class LectureProgressApiController extends Controller
 
     /**
      * Get full course progress breakdown.
+     *
+     * Uses CourseProgressService as the single source of truth so that
+     * quizzes, assignments, and resources are included in the percentage
+     * (not just video lectures).
      */
     public function getCourseProgress(int $courseId): JsonResponse
     {
@@ -166,25 +172,36 @@ final class LectureProgressApiController extends Controller
             return $this->unauthorized();
         }
 
-        $overallPercentage = $this->videoProgressService->getCourseProgress($user, $course);
+        try {
+            $detailed = $this->courseProgressService->getDetailedProgress($user->id, $courseId);
+        } catch (\Throwable $e) {
+            return $this->error('Failed to retrieve course progress');
+        }
 
+        // Flatten per-lecture detail for backward-compat with existing consumers.
         $lessons = [];
-        foreach ($course->chapters()->orderBy('chapter_order')->get() as $chapter) {
-            foreach ($chapter->lectures()->orderBy('chapter_order')->get() as $lecture) {
-                $progress = $this->videoProgressService->getProgress($user, $lecture);
+        foreach ($detailed['chapters'] as $chapter) {
+            foreach ($chapter['items'] as $item) {
+                if ($item['type'] !== 'lecture') {
+                    continue;
+                }
                 $lessons[] = [
-                    'lecture_id' => $lecture->id,
-                    'title' => $lecture->title,
-                    'watch_percentage' => $progress !== null ? (float) $progress['watch_percentage'] : 0,
-                    'is_completed' => $progress !== null && $progress['is_completed'],
+                    'lecture_id'       => $item['item_id'],
+                    'title'            => $item['title'],
+                    'watch_percentage' => $item['watch_percentage'] ?? 0,
+                    'is_completed'     => $item['status'] === 'completed',
                 ];
             }
         }
 
         return $this->ok(data: [
-            'course_id' => $course->id,
-            'overall_percentage' => $overallPercentage,
-            'lessons' => $lessons,
+            'course_id'          => $courseId,
+            'overall_percentage' => $detailed['course']['progress_percentage'],
+            'status'             => $detailed['course']['status'],
+            'completed_items'    => $detailed['summary']['completed_items'],
+            'total_items'        => $detailed['summary']['total_items'],
+            'next_item'          => $detailed['next_item'],
+            'lessons'            => $lessons,
         ]);
     }
 }

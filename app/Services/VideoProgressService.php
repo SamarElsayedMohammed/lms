@@ -67,20 +67,24 @@ class VideoProgressService
                 // Allow up to 4x playback speed + 15s buffer for legacy tracking
                 if (($timePassed * 4) + 15 < $reportedSeconds) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported in legacy method', [
-                        'user_id' => $user->id,
-                        'lecture_id' => $lecture->id,
+                        'user_id'       => $user->id,
+                        'lecture_id'    => $lecture->id,
                         'reported_diff' => $reportedSeconds,
-                        'time_passed' => $timePassed
+                        'time_passed'   => $timePassed,
                     ]);
                     return $existing ?: new VideoProgress(); // Reject update and return current state
                 }
             } else {
-                // Initial request (no cache) - allow max 15 seconds to prevent jumping to 100% instantly
-                if ($reportedSeconds > 15) {
+                // Initial request or cache expired (user resumed after a break).
+                // Allow up to MAX_SEGMENTS_PER_REQUEST full segments + a small buffer.
+                // This is stricter than a live session but realistic for a resume scenario.
+                $initialAllowance = (self::MAX_SEGMENTS_PER_REQUEST * self::DEFAULT_SEGMENT_SIZE) + 15;
+                if ($reportedSeconds > $initialAllowance) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic initial watch time reported in legacy method', [
-                        'user_id' => $user->id,
-                        'lecture_id' => $lecture->id,
-                        'reported_diff' => $reportedSeconds,
+                        'user_id'          => $user->id,
+                        'lecture_id'       => $lecture->id,
+                        'reported_diff'    => $reportedSeconds,
+                        'initial_allowance'=> $initialAllowance,
                     ]);
                     return $existing ?: new VideoProgress(); // Reject update and return current state
                 }
@@ -302,20 +306,23 @@ class VideoProgressService
                 // Allow up to 4x playback speed + 15s buffer for segment tracking
                 if (($timePassed * 4) + 15 < $reportedSeconds) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported', [
-                        'user_id' => $user->id,
-                        'lecture_id' => $lecture->id,
+                        'user_id'          => $user->id,
+                        'lecture_id'       => $lecture->id,
                         'reported_seconds' => $reportedSeconds,
-                        'time_passed' => $timePassed
+                        'time_passed'      => $timePassed,
                     ]);
                     return $progress; // Reject update and return current state
                 }
             } else {
-                // Initial request (no cache) - allow max 15 seconds to prevent jumping to 100% instantly
-                if ($reportedSeconds > 15) {
+                // Initial request or cache expired (user resumed after a break).
+                // Allow up to MAX_SEGMENTS_PER_REQUEST full segments + a small buffer.
+                $initialAllowance = (self::MAX_SEGMENTS_PER_REQUEST * self::DEFAULT_SEGMENT_SIZE) + 15;
+                if ($reportedSeconds > $initialAllowance) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic initial watch time reported', [
-                        'user_id' => $user->id,
-                        'lecture_id' => $lecture->id,
-                        'reported_seconds' => $reportedSeconds,
+                        'user_id'           => $user->id,
+                        'lecture_id'        => $lecture->id,
+                        'reported_seconds'  => $reportedSeconds,
+                        'initial_allowance' => $initialAllowance,
                     ]);
                     return $progress; // Reject update and return current state
                 }
