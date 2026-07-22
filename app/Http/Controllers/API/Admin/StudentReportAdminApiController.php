@@ -75,6 +75,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             return $this->jsonError('Student not found', 404);
         }
 
+        // ── Resolve enrolled course IDs (batch, no N+1) ────────────────────
         $purchasedIds = OrderCourse::whereHas('order', function ($q) use ($user) {
             $q->where('user_id', $user->id)->where('status', 'completed');
         })->pluck('course_id')->unique()->toArray();
@@ -85,15 +86,110 @@ class StudentReportAdminApiController extends AdminCrudApiController
 
         $enrolledCourseIds = array_unique(array_merge($purchasedIds, $trackedIds));
 
-        $totalEnrolled   = count($enrolledCourseIds);
-        $completedCourses = 0;
+        if (empty($enrolledCourseIds)) {
+            return $this->jsonSuccess('Student tracking report retrieved', [
+                'student'      => [
+                    'id'        => $user->id,
+                    'name'      => $user->name,
+                    'email'     => $user->email,
+                    'phone'     => $user->mobile ?? null,
+                    'joined_at' => $user->created_at?->toDateString(),
+                ],
+                'summary'      => [
+                    'total_enrolled'      => 0,
+                    'completed_courses'   => 0,
+                    'in_progress_courses' => 0,
+                    'not_started_courses' => 0,
+                    'completion_rate'     => 0,
+                ],
+                'courses'      => [],
+                'generated_at' => Carbon::now()->toDateTimeString(),
+            ]);
+        }
+
+        // ── Batch-load everything needed for all courses at once ───────────
+
+        // Courses metadata
+        $courses = Course::with('category', 'user')
+            ->whereIn('id', $enrolledCourseIds)
+            ->get()
+            ->keyBy('id');
+
+        // Total items per course (lectures + quizzes + assignments + resources)
+        $totalItemsMap = DB::table('course_chapter_lectures as ccl')
+            ->join('course_chapters as cc', 'ccl.course_chapter_id', '=', 'cc.id')
+            ->whereIn('cc.course_id', $enrolledCourseIds)
+            ->where('ccl.is_active', 1)
+            ->selectRaw('cc.course_id, COUNT(*) as cnt')
+            ->groupBy('cc.course_id')
+            ->pluck('cnt', 'course_id');
+
+        $quizMap = DB::table('course_chapter_quizzes as ccq')
+            ->join('course_chapters as cc', 'ccq.course_chapter_id', '=', 'cc.id')
+            ->whereIn('cc.course_id', $enrolledCourseIds)
+            ->where('ccq.is_active', 1)
+            ->selectRaw('cc.course_id, COUNT(*) as cnt')
+            ->groupBy('cc.course_id')
+            ->pluck('cnt', 'course_id');
+
+        $assignmentMap = DB::table('course_chapter_assignments as cca')
+            ->join('course_chapters as cc', 'cca.course_chapter_id', '=', 'cc.id')
+            ->whereIn('cc.course_id', $enrolledCourseIds)
+            ->where('cca.is_active', 1)
+            ->selectRaw('cc.course_id, COUNT(*) as cnt')
+            ->groupBy('cc.course_id')
+            ->pluck('cnt', 'course_id');
+
+        $resourceMap = DB::table('course_chapter_resources as ccr')
+            ->join('course_chapters as cc', 'ccr.course_chapter_id', '=', 'cc.id')
+            ->whereIn('cc.course_id', $enrolledCourseIds)
+            ->where('ccr.is_active', 1)
+            ->selectRaw('cc.course_id, COUNT(*) as cnt')
+            ->groupBy('cc.course_id')
+            ->pluck('cnt', 'course_id');
+
+        // Completed tracking items per course for this student
+        $completedItemsMap = UserCurriculumTracking::where('user_id', $user->id)
+            ->join('course_chapters as cc', 'user_curriculum_trackings.course_chapter_id', '=', 'cc.id')
+            ->whereIn('cc.course_id', $enrolledCourseIds)
+            ->where('status', 'completed')
+            ->selectRaw('cc.course_id, COUNT(*) as cnt')
+            ->groupBy('cc.course_id')
+            ->pluck('cnt', 'course_id');
+
+        // Last activity per course
+        $lastActivityMap = UserCurriculumTracking::where('user_id', $user->id)
+            ->join('course_chapters as cc', 'user_curriculum_trackings.course_chapter_id', '=', 'cc.id')
+            ->whereIn('cc.course_id', $enrolledCourseIds)
+            ->selectRaw('cc.course_id, MAX(user_curriculum_trackings.updated_at) as last_at')
+            ->groupBy('cc.course_id')
+            ->pluck('last_at', 'course_id');
+
+        // Enrollment date per course (first completed order)
+        $enrolledAtMap = DB::table('order_courses as oc')
+            ->join('orders as o', 'oc.order_id', '=', 'o.id')
+            ->where('o.user_id', $user->id)
+            ->where('o.status', 'completed')
+            ->whereIn('oc.course_id', $enrolledCourseIds)
+            ->selectRaw('oc.course_id, MIN(o.created_at) as enrolled_at')
+            ->groupBy('oc.course_id')
+            ->pluck('enrolled_at', 'course_id');
+
+        // ── Build course details from in-memory maps (zero extra queries) ──
+        $totalEnrolled     = count($enrolledCourseIds);
+        $completedCourses  = 0;
         $inProgressCourses = 0;
         $notStartedCourses = 0;
-        $courseDetails = [];
+        $courseDetails     = [];
 
         foreach ($enrolledCourseIds as $courseId) {
-            $course   = Course::with('category', 'user')->find($courseId);
-            $progress = $this->calculateCourseProgress($user->id, $courseId);
+            $total = ($totalItemsMap[$courseId] ?? 0)
+                   + ($quizMap[$courseId] ?? 0)
+                   + ($assignmentMap[$courseId] ?? 0)
+                   + ($resourceMap[$courseId] ?? 0);
+
+            $completed = (int) ($completedItemsMap[$courseId] ?? 0);
+            $progress  = $total > 0 ? round(($completed / $total) * 100, 2) : 0;
 
             $status = 'not_started';
             if ($progress >= 100) {
@@ -106,57 +202,44 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 $notStartedCourses++;
             }
 
-            $lastActivity = UserCurriculumTracking::where('user_id', $user->id)
-                ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId))
-                ->latest('updated_at')
-                ->value('updated_at');
-
-            $completedItems = UserCurriculumTracking::where('user_id', $user->id)
-                ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId))
-                ->where('status', 'completed')
-                ->count();
-
-            $enrolledAt = \App\Models\OrderCourse::join('orders', 'order_courses.order_id', '=', 'orders.id')
-                ->where('orders.user_id', $user->id)
-                ->where('order_courses.course_id', $courseId)
-                ->where('orders.status', 'completed')
-                ->value('orders.created_at');
+            $course = $courses[$courseId] ?? null;
 
             $courseDetails[] = [
-                'course_id'         => $courseId,
-                'title'             => $course?->title ?? 'N/A',
-                'category'          => $course?->category?->name ?? 'N/A',
-                'instructor'        => $course?->user?->name ?? 'N/A',
-                'progress_percent'  => round($progress, 2),
-                'status'            => $status,
-                'completed_items'   => $completedItems,
-                'last_activity_at'  => $lastActivity,
-                'enrolled_at'       => $enrolledAt ? \Carbon\Carbon::parse($enrolledAt)->toDateTimeString() : null,
+                'course_id'        => $courseId,
+                'title'            => $course?->title ?? 'N/A',
+                'category'         => $course?->category?->name ?? 'N/A',
+                'instructor'       => $course?->user?->name ?? 'N/A',
+                'progress_percent' => $progress,
+                'status'           => $status,
+                'completed_items'  => $completed,
+                'total_items'      => $total,
+                'last_activity_at' => $lastActivityMap[$courseId] ?? null,
+                'enrolled_at'      => isset($enrolledAtMap[$courseId])
+                    ? Carbon::parse($enrolledAtMap[$courseId])->toDateTimeString()
+                    : null,
             ];
         }
 
-        $data = [
-            'student' => [
-                'id'    => $user->id,
-                'name'  => $user->name,
-                'email' => $user->email,
-                'phone' => $user->mobile ?? null,
+        return $this->jsonSuccess('Student tracking report retrieved', [
+            'student'      => [
+                'id'        => $user->id,
+                'name'      => $user->name,
+                'email'     => $user->email,
+                'phone'     => $user->mobile ?? null,
                 'joined_at' => $user->created_at?->toDateString(),
             ],
-            'summary' => [
-                'total_enrolled'    => $totalEnrolled,
-                'completed_courses' => $completedCourses,
+            'summary'      => [
+                'total_enrolled'      => $totalEnrolled,
+                'completed_courses'   => $completedCourses,
                 'in_progress_courses' => $inProgressCourses,
                 'not_started_courses' => $notStartedCourses,
-                'completion_rate'   => $totalEnrolled > 0
+                'completion_rate'     => $totalEnrolled > 0
                     ? round(($completedCourses / $totalEnrolled) * 100, 2)
                     : 0,
             ],
-            'courses' => $courseDetails,
+            'courses'      => $courseDetails,
             'generated_at' => Carbon::now()->toDateTimeString(),
-        ];
-
-        return $this->jsonSuccess('Student tracking report retrieved', $data);
+        ]);
     }
 
     /**
@@ -168,74 +251,148 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
 
         $brackets = [
-            'no_courses' => 0,
-            'not_started' => 0,
-            'in_progress' => 0,
+            'no_courses'    => 0,
+            'not_started'   => 0,
+            'in_progress'   => 0,
             'all_completed' => 0,
         ];
 
-        $studentIds = User::role(config('constants.SYSTEM_ROLES.USER', 'User'))
-            ->limit(500)
-            ->pluck('id');
-
+        $totalStudentsCount              = 0;
         $totalCompletedCourseEnrollments = 0;
-        $totalInProgressCourseEnrollments = 0;
-        $courseCompletionCounts = [];
+        $totalInProgressCourseEnrollments= 0;
+        $courseCompletionCounts          = [];
 
-        foreach ($studentIds as $userId) {
-            $purchasedIds = OrderCourse::whereHas('order', fn ($q) => $q->where('user_id', $userId)->where('status', 'completed'))
-                ->pluck('course_id')
-                ->unique()
-                ->toArray();
+        // Process all students in chunks to avoid memory issues with large datasets
+        User::role(config('constants.SYSTEM_ROLES.USER', 'User'))
+            ->select('id')
+            ->chunk(200, function ($chunk) use (
+                &$brackets,
+                &$totalStudentsCount,
+                &$totalCompletedCourseEnrollments,
+                &$totalInProgressCourseEnrollments,
+                &$courseCompletionCounts
+            ) {
+                $totalStudentsCount += $chunk->count();
+                $chunkIds = $chunk->pluck('id')->toArray();
 
-            $trackedIds = UserCurriculumTracking::where('user_curriculum_trackings.user_id', $userId)
-                ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
-                ->pluck('course_chapters.course_id')
-                ->unique()
-                ->toArray();
+                // Batch: purchased courses
+                $purchasedRows = OrderCourse::join('orders', 'order_courses.order_id', '=', 'orders.id')
+                    ->whereIn('orders.user_id', $chunkIds)
+                    ->where('orders.status', 'completed')
+                    ->select('orders.user_id', 'order_courses.course_id')
+                    ->get()
+                    ->groupBy('user_id')
+                    ->map(fn($r) => $r->pluck('course_id')->unique()->toArray());
 
-            $enrolledIds = array_unique(array_merge($purchasedIds, $trackedIds));
+                // Batch: tracked courses
+                $trackedRows = UserCurriculumTracking::whereIn('user_curriculum_trackings.user_id', $chunkIds)
+                    ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+                    ->select('user_curriculum_trackings.user_id', 'course_chapters.course_id')
+                    ->get()
+                    ->groupBy('user_id')
+                    ->map(fn($r) => $r->pluck('course_id')->unique()->toArray());
 
-            if ($enrolledIds === []) {
-                $brackets['no_courses']++;
-                continue;
-            }
+                // All unique course IDs for this chunk
+                $allCourseIds = collect($purchasedRows->values()->toArray())
+                    ->merge(collect($trackedRows->values()->toArray()))
+                    ->flatten()->unique()->filter()->values()->toArray();
 
-            $completed = 0;
-            $inProgress = 0;
-
-            foreach ($enrolledIds as $courseId) {
-                $progress = $this->calculateCourseProgress((int) $userId, (int) $courseId);
-
-                if ($progress >= 100) {
-                    $completed++;
-                    $courseCompletionCounts[$courseId] = ($courseCompletionCounts[$courseId] ?? 0) + 1;
-                } elseif ($progress > 0) {
-                    $inProgress++;
+                if (empty($allCourseIds)) {
+                    foreach ($chunkIds as $uid) {
+                        $brackets['no_courses']++;
+                    }
+                    return;
                 }
-            }
 
-            $totalCompletedCourseEnrollments += $completed;
-            $totalInProgressCourseEnrollments += $inProgress;
+                // Batch: total items per course
+                $lectureMap = DB::table('course_chapter_lectures as ccl')
+                    ->join('course_chapters as cc', 'ccl.course_chapter_id', '=', 'cc.id')
+                    ->whereIn('cc.course_id', $allCourseIds)->where('ccl.is_active', 1)
+                    ->selectRaw('cc.course_id, COUNT(*) as cnt')->groupBy('cc.course_id')
+                    ->pluck('cnt', 'course_id');
 
-            if ($completed === count($enrolledIds)) {
-                $brackets['all_completed']++;
-            } elseif ($inProgress > 0) {
-                $brackets['in_progress']++;
-            } else {
-                $brackets['not_started']++;
-            }
-        }
+                $quizMap = DB::table('course_chapter_quizzes as ccq')
+                    ->join('course_chapters as cc', 'ccq.course_chapter_id', '=', 'cc.id')
+                    ->whereIn('cc.course_id', $allCourseIds)->where('ccq.is_active', 1)
+                    ->selectRaw('cc.course_id, COUNT(*) as cnt')->groupBy('cc.course_id')
+                    ->pluck('cnt', 'course_id');
+
+                $assignMap = DB::table('course_chapter_assignments as cca')
+                    ->join('course_chapters as cc', 'cca.course_chapter_id', '=', 'cc.id')
+                    ->whereIn('cc.course_id', $allCourseIds)->where('cca.is_active', 1)
+                    ->selectRaw('cc.course_id, COUNT(*) as cnt')->groupBy('cc.course_id')
+                    ->pluck('cnt', 'course_id');
+
+                $resMap = DB::table('course_chapter_resources as ccr')
+                    ->join('course_chapters as cc', 'ccr.course_chapter_id', '=', 'cc.id')
+                    ->whereIn('cc.course_id', $allCourseIds)->where('ccr.is_active', 1)
+                    ->selectRaw('cc.course_id, COUNT(*) as cnt')->groupBy('cc.course_id')
+                    ->pluck('cnt', 'course_id');
+
+                // Batch: completed items per user+course
+                $completedMap = UserCurriculumTracking::whereIn('user_curriculum_trackings.user_id', $chunkIds)
+                    ->where('status', 'completed')
+                    ->join('course_chapters as cc', 'user_curriculum_trackings.course_chapter_id', '=', 'cc.id')
+                    ->whereIn('cc.course_id', $allCourseIds)
+                    ->selectRaw('user_curriculum_trackings.user_id, cc.course_id, COUNT(*) as cnt')
+                    ->groupBy('user_curriculum_trackings.user_id', 'cc.course_id')
+                    ->get()
+                    ->groupBy('user_id')
+                    ->map(fn($rows) => $rows->pluck('cnt', 'course_id'));
+
+                foreach ($chunkIds as $userId) {
+                    $purchased = $purchasedRows->get($userId, []);
+                    $tracked   = $trackedRows->get($userId, []);
+                    $enrolledIds = array_unique(array_merge($purchased, $tracked));
+
+                    if (empty($enrolledIds)) {
+                        $brackets['no_courses']++;
+                        continue;
+                    }
+
+                    $completed  = 0;
+                    $inProgress = 0;
+
+                    foreach ($enrolledIds as $courseId) {
+                        $total = ($lectureMap[$courseId] ?? 0)
+                               + ($quizMap[$courseId] ?? 0)
+                               + ($assignMap[$courseId] ?? 0)
+                               + ($resMap[$courseId] ?? 0);
+
+                        if ($total === 0) continue;
+
+                        $done     = (int) ($completedMap->get($userId)?->get($courseId) ?? 0);
+                        $progress = ($done / $total) * 100;
+
+                        if ($progress >= 100) {
+                            $completed++;
+                            $courseCompletionCounts[$courseId] = ($courseCompletionCounts[$courseId] ?? 0) + 1;
+                        } elseif ($progress > 0) {
+                            $inProgress++;
+                        }
+                    }
+
+                    $totalCompletedCourseEnrollments  += $completed;
+                    $totalInProgressCourseEnrollments += $inProgress;
+
+                    if ($completed === count($enrolledIds)) {
+                        $brackets['all_completed']++;
+                    } elseif ($inProgress > 0) {
+                        $brackets['in_progress']++;
+                    } else {
+                        $brackets['not_started']++;
+                    }
+                }
+            });
 
         $topCompletedCourses = collect($courseCompletionCounts)
             ->sortDesc()
             ->take(10)
             ->map(function ($completions, $courseId) {
                 $course = Course::find($courseId);
-
                 return [
-                    'course_id' => (int) $courseId,
-                    'title' => $course?->title ?? 'N/A',
+                    'course_id'   => (int) $courseId,
+                    'title'       => $course?->title ?? 'N/A',
                     'completions' => $completions,
                 ];
             })
@@ -259,14 +416,14 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->get();
 
         return $this->jsonSuccess('Completion statistics retrieved', [
-            'total_students' => $studentIds->count(),
-            'students_with_enrollments' => $studentIds->count() - $brackets['no_courses'],
-            'completion_brackets' => $brackets,
-            'total_completed_course_enrollments' => $totalCompletedCourseEnrollments,
+            'total_students'                       => $totalStudentsCount,
+            'students_with_enrollments'            => $totalStudentsCount - $brackets['no_courses'],
+            'completion_brackets'                  => $brackets,
+            'total_completed_course_enrollments'   => $totalCompletedCourseEnrollments,
             'total_in_progress_course_enrollments' => $totalInProgressCourseEnrollments,
-            'top_completed_courses' => $topCompletedCourses,
-            'monthly_enrollment_trend' => $combinedTrend,
-            'generated_at' => Carbon::now()->toDateTimeString(),
+            'top_completed_courses'                => $topCompletedCourses,
+            'monthly_enrollment_trend'             => $combinedTrend,
+            'generated_at'                         => Carbon::now()->toDateTimeString(),
         ]);
     }
 
@@ -498,18 +655,39 @@ class StudentReportAdminApiController extends AdminCrudApiController
         ];
     }
 
+    /**
+     * Calculate course progress for a student.
+     *
+     * Counts all active curriculum items: lectures, quizzes, assignments, resources.
+     * Previously only counted lectures + quizzes, which inflated percentages.
+     */
     private function calculateCourseProgress(int $userId, int $courseId): float
     {
-        $totalItems = DB::table('course_chapter_lectures')
-            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
-            ->where('course_chapters.course_id', $courseId)
-            ->where('course_chapter_lectures.is_active', 1)
-            ->count()
-            + DB::table('course_chapter_quizzes')
-            ->join('course_chapters', 'course_chapter_quizzes.course_chapter_id', '=', 'course_chapters.id')
-            ->where('course_chapters.course_id', $courseId)
-            ->where('course_chapter_quizzes.is_active', 1)
+        $lectureCount = DB::table('course_chapter_lectures as ccl')
+            ->join('course_chapters as cc', 'ccl.course_chapter_id', '=', 'cc.id')
+            ->where('cc.course_id', $courseId)
+            ->where('ccl.is_active', 1)
             ->count();
+
+        $quizCount = DB::table('course_chapter_quizzes as ccq')
+            ->join('course_chapters as cc', 'ccq.course_chapter_id', '=', 'cc.id')
+            ->where('cc.course_id', $courseId)
+            ->where('ccq.is_active', 1)
+            ->count();
+
+        $assignmentCount = DB::table('course_chapter_assignments as cca')
+            ->join('course_chapters as cc', 'cca.course_chapter_id', '=', 'cc.id')
+            ->where('cc.course_id', $courseId)
+            ->where('cca.is_active', 1)
+            ->count();
+
+        $resourceCount = DB::table('course_chapter_resources as ccr')
+            ->join('course_chapters as cc', 'ccr.course_chapter_id', '=', 'cc.id')
+            ->where('cc.course_id', $courseId)
+            ->where('ccr.is_active', 1)
+            ->count();
+
+        $totalItems = $lectureCount + $quizCount + $assignmentCount + $resourceCount;
 
         if ($totalItems === 0) {
             return 0.0;

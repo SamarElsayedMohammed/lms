@@ -137,8 +137,11 @@ class CourseProgressService
 
         return Cache::remember($cacheKey, 3600, function () use ($courseId) {
             $course = Course::with([
-                'chapters' => fn($q) => $q->where('is_active', 1),
-                'chapters.lectures' => fn($q) => $q->where('is_active', 1),
+                'chapters'              => fn($q) => $q->where('is_active', 1),
+                'chapters.lectures'     => fn($q) => $q->where('is_active', 1),
+                'chapters.quizzes'      => fn($q) => $q->where('is_active', 1),
+                'chapters.assignments'  => fn($q) => $q->where('is_active', 1),
+                'chapters.resources'    => fn($q) => $q->where('is_active', 1),
             ])->find($courseId);
 
             if (!$course) {
@@ -423,7 +426,20 @@ class CourseProgressService
                     JOIN course_chapters cc ON uct.course_chapter_id = cc.id
                     WHERE cc.course_id = courses.id
                     AND uct.status = "in_progress"
-                ) as in_progress_students');
+                ) as in_progress_students')
+                ->selectRaw('(
+                    SELECT COUNT(*) FROM (
+                        SELECT o.user_id
+                        FROM order_courses oc
+                        JOIN orders o ON oc.order_id = o.id
+                        WHERE oc.course_id = courses.id AND o.status = "completed"
+                        UNION
+                        SELECT s.user_id
+                        FROM subscriptions s
+                        WHERE s.status = "active"
+                        AND (s.ends_at IS NULL OR s.ends_at > NOW())
+                    ) AS unique_students
+                ) as total_students');
                 
             if (\Illuminate\Support\Facades\Schema::hasTable('video_progress')) {
                 $query->selectRaw('(
@@ -457,19 +473,16 @@ class CourseProgressService
 
             // Transform results to calculate total_students and format response
             $data = collect($results->items())->map(function ($course) {
-                // Total students = purchased + subscription (subscription users can access all courses)
-                $purchased = (int) $course->purchased_students;
+                $purchased   = (int) $course->purchased_students;
                 $subscription = (int) $course->subscription_students;
-                
-                // Note: A user might be counted in both (purchased + has subscription)
-                // For accurate count, we'd need to UNION the user IDs, but for overview:
-                $totalStudents = max($purchased, $subscription); // Approximation
+                // total_students is now a precise UNION count from the DB (no double-counting)
+                $totalStudents = (int) $course->total_students;
 
                 // Progress distribution
                 $completed = (int) $course->completed_students;
                 $inProgress = (int) $course->in_progress_students;
                 $started = (int) $course->started_students;
-                
+
                 // Calculate not_started (started but no progress tracking)
                 $notStarted = max(0, $started - $completed - $inProgress);
 
@@ -477,19 +490,19 @@ class CourseProgressService
                 $avgProgress = $this->calculateCourseAvgProgress($course->course_id);
 
                 return [
-                    'course_id' => $course->course_id,
-                    'course_name' => $course->course_name,
-                    'thumbnail' => $course->thumbnail,
-                    'course_status' => $course->course_status,
-                    'total_students' => $totalStudents,
-                    'purchased_count' => $purchased,
+                    'course_id'          => $course->course_id,
+                    'course_name'        => $course->course_name,
+                    'thumbnail'          => $course->thumbnail,
+                    'course_status'      => $course->course_status,
+                    'total_students'     => $totalStudents,
+                    'purchased_count'    => $purchased,
                     'subscription_count' => $subscription,
-                    'completed_count' => $completed,
-                    'in_progress_count' => $inProgress,
-                    'not_started_count' => $notStarted,
-                    'started_count' => $started,
-                    'avg_progress' => round($avgProgress, 2),
-                    'last_activity' => $course->last_activity,
+                    'completed_count'    => $completed,
+                    'in_progress_count'  => $inProgress,
+                    'not_started_count'  => $notStarted,
+                    'started_count'      => $started,
+                    'avg_progress'       => round($avgProgress, 2),
+                    'last_activity'      => $course->last_activity,
                 ];
             });
 
