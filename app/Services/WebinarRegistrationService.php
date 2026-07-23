@@ -26,29 +26,24 @@ class WebinarRegistrationService
             throw new Exception('This webinar is no longer available for registration.', 400);
         }
 
-        // Capacity check
-        // "if (count >= max_attendees) abort(409)"
-        if ($webinar->max_attendees > 0) {
-            // Lock the row to prevent race conditions
-            $currentCount = WebinarRegistration::where('webinar_id', $webinar->id)->lockForUpdate()->count();
-            if ($currentCount >= $webinar->max_attendees) {
+        $registration = DB::transaction(function () use ($webinar, $user, $paymentStatus, $paidAmount) {
+            // Lock the webinar row first; locking an aggregate count does not protect
+            // the range from concurrent inserts.
+            $lockedWebinar = Webinar::query()->whereKey($webinar->id)->lockForUpdate()->firstOrFail();
+            if ($lockedWebinar->status === 'completed' || $lockedWebinar->status === 'cancelled') {
+                throw new Exception('This webinar is no longer available for registration.', 400);
+            }
+            if ($lockedWebinar->max_attendees > 0 &&
+                WebinarRegistration::where('webinar_id', $lockedWebinar->id)->count() >= $lockedWebinar->max_attendees) {
                 throw new Exception('webinar_is_full', 409);
             }
-        }
+            if (WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $lockedWebinar->id)->exists()) {
+                throw new Exception('already_registered', 409);
+            }
 
-        // Duplication check
-        $exists = WebinarRegistration::where('user_id', $user->id)
-            ->where('webinar_id', $webinar->id)
-            ->exists();
-
-        if ($exists) {
-            throw new Exception('already_registered', 409);
-        }
-
-        return DB::transaction(function () use ($webinar, $user, $paymentStatus, $paidAmount) {
             $registration = WebinarRegistration::create([
                 'user_id' => $user->id,
-                'webinar_id' => $webinar->id,
+                'webinar_id' => $lockedWebinar->id,
                 'payment_status' => $paymentStatus,
                 'paid_amount' => $paidAmount,
             ]);
@@ -56,12 +51,14 @@ class WebinarRegistrationService
             // If registrations_count is a column, increment it:
             // $webinar->increment('registrations_count');
 
-            // Fire event
-            if (class_exists(WebinarRegistered::class)) {
-                event(new WebinarRegistered($registration));
-            }
-
             return $registration;
         });
+
+        // Dispatch after the transaction commits so queued listeners never observe
+        // an uncommitted registration.
+        if (class_exists(WebinarRegistered::class)) {
+            event(new WebinarRegistered($registration));
+        }
+        return $registration;
     }
 }

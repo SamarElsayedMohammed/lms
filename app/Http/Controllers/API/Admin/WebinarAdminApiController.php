@@ -132,7 +132,7 @@ class WebinarAdminApiController extends AdminCrudApiController
         }
 
         try {
-            $data                 = $request->all();
+            $data                 = $validator->validated();
             $data['instructor_id'] = Auth::id();
             $data['slug']         = Str::slug($request->title) . '-' . Str::random(5);
 
@@ -224,7 +224,11 @@ class WebinarAdminApiController extends AdminCrudApiController
         }
 
         try {
-            $webinar->update($request->all());
+            $data = $validator->validated();
+            if (($data['is_free'] ?? false) === true) {
+                $data['price'] = 0;
+            }
+            $webinar->update($data);
             return $this->jsonSuccess('Webinar updated successfully', $webinar->fresh('instructor'));
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;

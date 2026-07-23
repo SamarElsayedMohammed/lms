@@ -128,7 +128,7 @@ class AdminWebinarController extends AdminCrudApiController
         }
 
         try {
-            $data                 = $request->all();
+            $data                 = $validator->validated();
             $data['instructor_id'] = Auth::id();
             $data['slug']         = Str::slug($request->title) . '-' . Str::random(5);
 
@@ -232,7 +232,7 @@ class AdminWebinarController extends AdminCrudApiController
         }
 
         try {
-            $data = $request->all();
+            $data = $validator->validated();
 
             if (isset($data['is_free']) && $data['is_free']) {
                 $data['price'] = 0; // Price Constraint

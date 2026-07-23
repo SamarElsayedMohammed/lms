@@ -5,7 +5,7 @@ namespace App\Listeners;
 use App\Events\WebinarStartingSoon;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Support\Facades\Log;
+use App\Notifications\WebinarRegistrationNotification;
 
 class SendWebinarReminder implements ShouldQueue
 {
@@ -16,11 +16,11 @@ class SendWebinarReminder implements ShouldQueue
      */
     public function handle(WebinarStartingSoon $event): void
     {
-        // TODO: Send webinar reminder
         $registrations = $event->webinar->registrations()->with('user')->get();
         foreach ($registrations as $reg) {
-            // Mail::to($reg->user->email)->send(new WebinarReminderMail($event->webinar));
-            Log::info('Webinar reminder email sent to ' . $reg->user->email);
+            if ($reg->user) {
+                $reg->user->notify(new WebinarRegistrationNotification($event->webinar, true));
+            }
         }
     }
 }

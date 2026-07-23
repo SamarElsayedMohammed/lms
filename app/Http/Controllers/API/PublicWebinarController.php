@@ -105,8 +105,12 @@ class PublicWebinarController extends Controller
                 ->where('webinar_id', $webinar->id)
                 ->first();
 
-            if (!$registration && !$webinar->is_free) {
-                return ApiResponseService::errorResponse('You must register for this webinar first.');
+            if (!$webinar->is_published || $webinar->status === 'cancelled') {
+                return ApiResponseService::errorResponse('Webinar is not available.', [], 404);
+            }
+
+            if (!$registration || (!$webinar->is_free && !in_array($registration->payment_status, ['paid', 'free'], true))) {
+                return ApiResponseService::errorResponse('You must complete registration and payment for this webinar first.', [], 403);
             }
 
             if ($webinar->status === 'scheduled' && $webinar->start_at->gt(now()->addMinutes(15))) {

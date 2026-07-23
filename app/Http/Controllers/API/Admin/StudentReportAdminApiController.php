@@ -10,6 +10,7 @@ use App\Models\OrderCourse;
 use App\Models\User;
 use App\Models\UserCurriculumTracking;
 use App\Services\ApiResponseService;
+use App\Support\RoleManager;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,11 @@ use Illuminate\Support\Facades\Validator;
  */
 class StudentReportAdminApiController extends AdminCrudApiController
 {
+    private function baseStudentQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        return RoleManager::applyRoleFilter(User::query(), 'student');
+    }
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -263,7 +269,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $courseCompletionCounts          = [];
 
         // Process all students in chunks to avoid memory issues with large datasets
-        User::role(config('constants.SYSTEM_ROLES.USER', 'User'))
+        $this->baseStudentQuery()
             ->select('id')
             ->chunk(200, function ($chunk) use (
                 &$brackets,
@@ -431,7 +437,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
 
     private function getSummaryReport(Request $request): array
     {
-        $query = User::role(config('constants.SYSTEM_ROLES.USER', 'User'));
+        $query = $this->baseStudentQuery();
 
         if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);

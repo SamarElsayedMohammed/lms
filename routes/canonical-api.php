@@ -12,12 +12,13 @@ Route::get('admin/instructor-wallet-history', [\App\Http\Controllers\API\Finance
 Route::get('certificate/verify', [\App\Http\Controllers\CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
 
 // Webinar Contract
-Route::get('webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);
-Route::get('webinars/{param}', [\App\Http\Controllers\API\WebinarApiController::class, 'show']);
+Route::get('webinars', [\App\Http\Controllers\API\PublicWebinarController::class, 'index']);
+Route::get('webinars/{webinar:slug}', [\App\Http\Controllers\API\PublicWebinarController::class, 'show']);
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::post('webinars/{param}/register', [\App\Http\Controllers\API\WebinarApiController::class, 'register']);
-    Route::get('webinars/{param}/join', [\App\Http\Controllers\API\WebinarApiController::class, 'join']);
+    Route::post('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'register']);
+    Route::delete('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'cancelRegistration']);
+    Route::get('webinars/{webinar:slug}/join', [\App\Http\Controllers\API\PublicWebinarController::class, 'join']);
 });
 
 Route::prefix('admin/webinars')->middleware('auth:sanctum')->group(function () {

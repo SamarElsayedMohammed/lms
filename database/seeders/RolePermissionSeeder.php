@@ -32,16 +32,7 @@ class RolePermissionSeeder extends Seeder
     // Create Roles
     public function createRoles()
     {
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.SUPER_ADMIN')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.INSTRUCTOR')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.SUPERVISOR')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.USER')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.TEAM')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.TEAM_INSTRUCTOR')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.ACCOUNTANT')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.SALES')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.MODERATOR')], ['custom_role' => false, 'guard_name' => 'web']);
-        Role::updateOrCreate(['name' => config('constants.SYSTEM_ROLES.STAFF')], ['custom_role' => false, 'guard_name' => 'web']);
+        \App\Support\RoleManager::ensureCanonicalRolesExist();
     }
 
     // Create Permissions

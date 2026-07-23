@@ -6,6 +6,7 @@ namespace App\Http\Controllers\API\Admin;
 
 use App\Models\User;
 use App\Services\AdminStudentStatisticsService;
+use App\Support\RoleManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -33,11 +34,7 @@ class UserAdminApiController extends AdminCrudApiController
 
         $query = User::with(['instructor_details', 'activeSubscription.plan', 'roles'])
             ->when($role, function ($q) use ($role) {
-                if ($role === 'admin') {
-                    $q->role(['admin', 'super_admin']);
-                } else {
-                    $q->role($role);
-                }
+                RoleManager::applyRoleFilter($q, $role);
             })
             ->when($withTrashed, fn ($q) => $q->withTrashed())
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {

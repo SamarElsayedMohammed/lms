@@ -87,8 +87,10 @@ return [
     ],
     'SYSTEM_ROLES' => [
         'SUPER_ADMIN' => 'Super Admin',
+        'ADMIN' => 'Admin',
         'SUPERVISOR' => 'Supervisor',
         'INSTRUCTOR' => 'Instructor',
+        'STUDENT' => 'student',
         'USER' => 'User',
         'TEAM' => 'Team',
         'TEAM_INSTRUCTOR' => 'Team Instructor',
