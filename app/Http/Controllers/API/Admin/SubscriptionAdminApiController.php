@@ -224,6 +224,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             // 4. If user used wallet balance, deduct it now
             if ($payment->wallet_amount > 0) {
                 if ($user->wallet_balance < $payment->wallet_amount) {
+                    DB::rollBack();
                     return ApiResponseService::errorResponse('رصيد محفظة المستخدم غير كافٍ لإتمام هذه المعاملة.');
                 }
                 $user->decrement('wallet_balance', $payment->wallet_amount);
@@ -332,6 +333,30 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             DB::rollBack();
             return ApiResponseService::errorResponse('فشل في إتمام عملية الموافقة: ' . $e->getMessage());
         }
+    }
+
+    /** Expose payment evidence only to authorized finance administrators. */
+    public function downloadReceipt(int $id): \Symfony\Component\HttpFoundation\BinaryFileResponse|JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('finance-list');
+
+        $payment = SubscriptionPayment::query()
+            ->where('subscription_id', $id)
+            ->whereNotNull('receipt')
+            ->latest('id')
+            ->first();
+
+        if (!$payment || !$payment->getRawOriginal('receipt')) {
+            return ApiResponseService::errorResponse('Receipt not found.', [], 404);
+        }
+
+        $receipt = $payment->getRawOriginal('receipt');
+        if (!\App\Services\FileService::checkPrivateFileExists($receipt)) {
+            return ApiResponseService::errorResponse('Receipt is unavailable.', [], 404);
+        }
+
+        return response()->file(\App\Services\FileService::getPrivateFilePath($receipt));
     }
 
     /**

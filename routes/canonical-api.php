@@ -9,7 +9,7 @@ Route::get('admin/staff/permissions', [\App\Http\Controllers\API\Admin\RoleAdmin
 Route::get('admin/instructor-wallet-history', [\App\Http\Controllers\API\FinanceApiController::class, 'getInstructorEarnings']);
 
 // Certificate Verify (Public)
-Route::get('certificate/verify', [\App\Http\Controllers\API\CertificateApiController::class, 'verifyPublic']);
+Route::get('certificate/verify', [\App\Http\Controllers\CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
 
 // Webinar Contract
 Route::get('webinars', [\App\Http\Controllers\API\WebinarApiController::class, 'index']);

@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Services\FileService;
 use Illuminate\Database\Eloquent\Model;
 
 class ManualDeposit extends Model
@@ -30,11 +29,4 @@ class ManualDeposit extends Model
         return $this->belongsTo(ManualDepositMethod::class, 'manual_deposit_method_id');
     }
 
-    public function getReceiptAttribute($value)
-    {
-        if ($value) {
-            return FileService::getFileUrl($value);
-        }
-        return null;
-    }
 }

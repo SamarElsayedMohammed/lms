@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Course\CourseCertificate;
-use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\User;
-use App\Models\UserCurriculumTracking;
 use App\Models\Wishlist;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -26,106 +25,38 @@ final class StudentDashboardStatisticsService
         private readonly CourseProgressService $progressService
     ) {}
 
-    /**
-     * Get the completely certified and deterministic dashboard stats.
-     */
     public function getDashboardStats(User $user): array
     {
-        // 1. Resolve mathematically correct accessible courses
-        $enrolled = $this->enrollmentService->resolveEnrolledCourseIds((int) $user->id);
-        
-        $explicitCourseIds = [];
-        $subscriptionCourseIds = [];
-        
-        foreach ($enrolled as $item) {
-            if ($item['source'] !== 'subscription') {
-                $explicitCourseIds[] = $item['course_id'];
-            } else {
-                $subscriptionCourseIds[] = $item['course_id'];
-            }
-        }
-        
-        $explicitCourseIds = array_unique($explicitCourseIds);
-        
-        // Find subscription courses the user has actually started
-        if (!empty($subscriptionCourseIds)) {
-            $startedViaTrackings = DB::table('user_curriculum_trackings')
-                ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
-                ->where('user_curriculum_trackings.user_id', $user->id)
-                ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
-                ->pluck('course_chapters.course_id')
-                ->toArray();
-                
-            $startedViaVideos = [];
-            try {
-                $startedViaVideos = DB::table('video_progress')
-                    ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
-                    ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
-                    ->where('video_progress.user_id', $user->id)
-                    ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
-                    ->where('video_progress.watched_seconds', '>', 0)
-                    ->pluck('course_chapters.course_id')
-                    ->toArray();
-            } catch (\Throwable $e) {
-                // video_progress table may not exist
-            }
-                
-            $startedCourseIds = array_unique(array_merge($startedViaTrackings, $startedViaVideos));
-            $explicitCourseIds = array_unique(array_merge($explicitCourseIds, $startedCourseIds));
-        }
-        
-        $enrolledCourseIds = $explicitCourseIds;
-        $totalCourses = count($enrolledCourseIds);
+        return $this->getDashboardStatsForCourseProgresses(
+            $user,
+            $this->getEnrolledCourseProgresses($user),
+        );
+    }
 
-        if ($totalCourses === 0) {
-            Log::warning('StudentDashboardStatisticsService: no enrolled courses found for user', [
-                'user_id' => $user->id,
-            ]);
-        }
-
-        // 2. Initialize progress counters
-        $completedCourses = 0;
-        $inProgressCourses = 0;
-        $notStartedCourses = 0;
-        $totalProgressPercentage = 0;
-        
-        // Get courses where user has a certificate to logically enforce 100% completion
-        $certifiedCourseIds = CourseCertificate::where('user_id', $user->id)
-            ->pluck('course_id')
-            ->toArray();
-
-        foreach ($enrolledCourseIds as $courseId) {
-            $progress = $this->calculateDeterministicProgress($user->id, $courseId);
-            $hasCertificate = in_array($courseId, $certifiedCourseIds);
-            
-            // Business rule: If a certificate was issued, treat it as 100% completed
-            // even if new lectures were later added causing raw progress to drop.
-            if ($hasCertificate) {
-                $progress = 100.0;
-            }
-
-            $totalProgressPercentage += $progress;
-
-            if ($progress === 100.0) {
-                $completedCourses++;
-            } elseif ($progress > 0) {
-                $inProgressCourses++;
-            } else {
-                $notStartedCourses++;
-            }
-        }
-
-        $averageProgress = $totalCourses > 0 
-            ? round($totalProgressPercentage / $totalCourses, 2) 
+    /**
+     * Calculate numeric dashboard statistics from one request-scoped progress snapshot.
+     *
+     * @param Collection<int, array{course_id: int, course: mixed, purchase_date: mixed, source: string, progress_percentage: float}> $courseProgresses
+     */
+    public function getDashboardStatsForCourseProgresses(User $user, Collection $courseProgresses): array
+    {
+        $totalCourses = $courseProgresses->count();
+        $completedCourses = $courseProgresses->where('progress_percentage', '>=', 100)->count();
+        $inProgressCourses = $courseProgresses
+            ->filter(static fn (array $course): bool => $course['progress_percentage'] > 0 && $course['progress_percentage'] < 100)
+            ->count();
+        $notStartedCourses = $totalCourses - $completedCourses - $inProgressCourses;
+        $averageProgress = $totalCourses > 0
+            ? round($courseProgresses->avg('progress_percentage'), 2)
             : 0;
-
-        // 3. Learning Hours (Only for accessible, enrolled courses)
-        $learningHours = $this->calculateLearningHoursForEnrolledCourses($user->id, $enrolledCourseIds);
-
-        // 4. Certificates (Only actual generated certificates)
-        $certificatesCount = count($certifiedCourseIds);
-
-        // 5. Wishlist
+        $learningHours = $this->calculateLearningHoursForEnrolledCourses(
+            (int) $user->id,
+            $courseProgresses->pluck('course_id')->all(),
+        );
+        $certificatesCount = CourseCertificate::query()
+            ->where('user_id', $user->id)
+            ->active()
+            ->count();
         $wishlistCount = Wishlist::where('user_id', $user->id)->count();
 
         return [
@@ -142,13 +73,57 @@ final class StudentDashboardStatisticsService
     }
 
     /**
-     * Ensures progress is retrieved securely and deterministic.
+     * Resolves the same started-enrollment set used for all dashboard metrics.
+     *
+     * @return Collection<int, array{course_id: int, course: mixed, purchase_date: mixed, source: string, progress_percentage: float}>
      */
-    private function calculateDeterministicProgress(int $userId, int $courseId): float
+    public function getEnrolledCourseProgresses(User $user): Collection
     {
-        return (float) $this->progressService
-            ->getProgressWithCache($userId, $courseId)
-            ->progress_percentage;
+        $enrolled = $this->enrollmentService->resolveEnrolledCourses((int) $user->id);
+        $subscriptionCourseIds = $enrolled
+            ->where('source', 'subscription')
+            ->pluck('course_id')
+            ->all();
+        $startedSubscriptionCourseIds = $this->getStartedSubscriptionCourseIds(
+            (int) $user->id,
+            $subscriptionCourseIds,
+        );
+
+        return $enrolled
+            ->filter(static fn (array $item): bool => $item['source'] !== 'subscription'
+                || in_array($item['course_id'], $startedSubscriptionCourseIds, true))
+            ->map(function (array $item) use ($user): array {
+                $item['progress_percentage'] = (float) $this->progressService
+                    ->getProgressWithCache((int) $user->id, (int) $item['course_id'])
+                    ->progress_percentage;
+
+                return $item;
+            })
+            ->values();
+    }
+
+    private function getStartedSubscriptionCourseIds(int $userId, array $subscriptionCourseIds): array
+    {
+        if ($subscriptionCourseIds === []) {
+            return [];
+        }
+
+        $startedViaTrackings = DB::table('user_curriculum_trackings')
+            ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+            ->where('user_curriculum_trackings.user_id', $userId)
+            ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
+            ->pluck('course_chapters.course_id')
+            ->all();
+        $startedViaVideos = DB::table('video_progress')
+            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+            ->where('video_progress.user_id', $userId)
+            ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
+            ->where('video_progress.watched_seconds', '>', 0)
+            ->pluck('course_chapters.course_id')
+            ->all();
+
+        return array_values(array_unique([...$startedViaTrackings, ...$startedViaVideos]));
     }
 
     /**
@@ -162,8 +137,6 @@ final class StudentDashboardStatisticsService
         }
 
         try {
-            // Sum cumulative watched seconds from video_progress for active lectures
-            // inside the active chapters of the valid enrolled courses.
             $totalSeconds = DB::table('video_progress')
                 ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
                 ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
@@ -176,14 +149,12 @@ final class StudentDashboardStatisticsService
 
             return round(($totalSeconds ?? 0) / 3600, 2);
         } catch (\Throwable $e) {
-            // The video_progress table may not exist yet (pending migration).
-            // Return 0 rather than crashing the entire dashboard stats response.
-            Log::warning('StudentDashboardStatisticsService: could not calculate learning hours', [
+            Log::error('StudentDashboardStatisticsService: could not calculate learning hours', [
                 'user_id' => $userId,
                 'error'   => $e->getMessage(),
             ]);
 
-            return 0.0;
+            throw $e;
         }
     }
 }

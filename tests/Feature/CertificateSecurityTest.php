@@ -34,4 +34,17 @@ class CertificateSecurityTest extends TestCase
         // The endpoint should block it because the attacker is not enrolled or hasn't completed it
         $response->assertStatus(403);
     }
+
+    /** @test */
+    public function a_revoked_certificate_is_not_publicly_downloadable(): void
+    {
+        $certificate = CourseCertificate::factory()->create([
+            'certificate_number' => 'CERT-REVOKED-1',
+            'revoked_at' => now(),
+        ]);
+
+        $response = $this->get("/api/certificate/public/{$certificate->certificate_number}/download");
+
+        $response->assertStatus(404);
+    }
 }

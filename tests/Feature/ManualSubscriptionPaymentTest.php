@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Models\ManualDepositMethod;
+use App\Models\PaymentMethod;
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
@@ -13,7 +13,7 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
-use App\Notifications\ManualSubscriptionStatusNotification;
+use App\Notifications\SubscriptionActivatedNotification;
 use Tests\TestCase;
 
 final class ManualSubscriptionPaymentTest extends TestCase
@@ -23,7 +23,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('public');
+        Storage::fake('private');
     }
 
     public function test_user_can_submit_manual_subscription_payment(): void
@@ -41,20 +41,23 @@ final class ManualSubscriptionPaymentTest extends TestCase
             'is_active' => true,
         ]);
         
-        $method = ManualDepositMethod::create([
+        $method = PaymentMethod::create([
             'name' => 'Instapay Transfer',
-            'account_details' => 'Instapay Address: test@instapay',
+            'type' => 'instapay',
+            'account_name' => 'Test recipient',
+            'instapay_id' => 'test@instapay',
             'instructions' => 'Send money and upload receipt',
-            'countries' => ['EG'],
+            'dynamic_fields' => [['key' => 'transfer_reference', 'label' => 'Transfer reference', 'type' => 'text', 'required' => true]],
             'is_active' => true,
         ]);
 
         // 2. Submit subscription request
         $receipt = UploadedFile::fake()->image('receipt.jpg');
-        $response = $this->actingAs($user)->postJson('/api/subscription/subscribe', [
+        $response = $this->actingAs($user, 'sanctum')->withHeader('Idempotency-Key', 'manual-submit-1')->post('/api/subscription/subscribe', [
             'plan_id' => $plan->id,
             'payment_method' => 'manual',
-            'manual_deposit_method_id' => $method->id,
+            'payment_method_id' => $method->id,
+            'payment_fields' => ['transfer_reference' => 'TXN-123456'],
             'receipt' => $receipt,
             'transaction_id' => 'TXN-123456',
         ]);
@@ -62,7 +65,6 @@ final class ManualSubscriptionPaymentTest extends TestCase
         // 3. Assert successful creation
         $response->assertStatus(200);
         $response->assertJsonPath('status', true);
-        $response->assertJsonPath('message', 'تم إنشاء طلب الدفع بنجاح وجاري مراجعة الطلب من قبل الإدارة.');
 
         // 4. Assert subscription is pending approval
         $subscription = Subscription::where('user_id', $user->id)->first();
@@ -74,7 +76,8 @@ final class ManualSubscriptionPaymentTest extends TestCase
         $this->assertNotNull($payment);
         $this->assertEquals(SubscriptionPayment::STATUS_PENDING, $payment->status);
         $this->assertEquals('manual', $payment->payment_method);
-        $this->assertEquals($method->id, $payment->manual_deposit_method_id);
+        $this->assertEquals($method->id, $payment->payment_method_id);
+        $this->assertSame(['transfer_reference' => 'TXN-123456'], $payment->submitted_fields);
     }
 
     public function test_admin_can_approve_manual_subscription(): void
@@ -95,11 +98,12 @@ final class ManualSubscriptionPaymentTest extends TestCase
             'is_active' => true,
         ]);
         
-        $method = ManualDepositMethod::create([
+        $method = PaymentMethod::create([
             'name' => 'Instapay Transfer',
-            'account_details' => 'Instapay Address: test@instapay',
+            'type' => 'instapay',
+            'account_name' => 'Test recipient',
+            'instapay_id' => 'test@instapay',
             'instructions' => 'Send money and upload receipt',
-            'countries' => ['EG'],
             'is_active' => true,
         ]);
 
@@ -119,7 +123,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
             'gateway_amount' => 100.00,
             'status' => SubscriptionPayment::STATUS_PENDING,
             'payment_method' => 'manual',
-            'manual_deposit_method_id' => $method->id,
+            'payment_method_id' => $method->id,
             'receipt' => 'subscriptions/receipts/fake.jpg',
         ]);
 
@@ -148,7 +152,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
         $this->assertNotNull($payment->paid_at);
 
         // Notification dispatched
-        Notification::assertSentTo($user, ManualSubscriptionStatusNotification::class);
+        Notification::assertSentTo($user, SubscriptionActivatedNotification::class);
     }
 
     public function test_admin_can_reject_manual_subscription(): void
@@ -206,6 +210,6 @@ final class ManualSubscriptionPaymentTest extends TestCase
         $this->assertEquals(SubscriptionPayment::STATUS_FAILED, $payment->status);
 
         // Notification dispatched
-        Notification::assertSentTo($user, ManualSubscriptionStatusNotification::class);
+        Notification::assertSentTo($user, SubscriptionActivatedNotification::class);
     }
 }

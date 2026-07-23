@@ -21,10 +21,14 @@ class PaymentMethod extends Model
         'instapay_id',
         'merchant_code',
         'instructions',
+        'dynamic_fields',
+        'sort_order',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'dynamic_fields' => 'array',
+        'sort_order' => 'integer',
     ];
 
     protected static function boot()

@@ -190,7 +190,12 @@ class ReportsApiController extends Controller
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
-            $query = Instructor::with(['user', 'user.courses']);
+            $query = Instructor::with([
+                'user',
+                'user.courses' => static fn ($courses) => $courses
+                    ->where('is_active', true)
+                    ->where('status', 'publish'),
+            ]);
 
             // Apply filters
             $this->applyInstructorReportFilters($query, $request);
@@ -237,7 +242,10 @@ class ReportsApiController extends Controller
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
-            $query = UserCourseProgress::with(['user', 'course.category', 'course.user']);
+            $query = UserCourseProgress::with(['user', 'course.category', 'course.user'])
+                ->whereHas('course', static fn ($courses) => $courses
+                    ->where('is_active', true)
+                    ->where('status', 'publish'));
 
             // Apply filters
             $this->applyEnrollmentFilters($query, $request);
@@ -267,6 +275,8 @@ class ReportsApiController extends Controller
             $data = [
                 'courses'             => \Illuminate\Support\Facades\DB::table('courses')
                                             ->whereNull('deleted_at')
+                                            ->where('is_active', true)
+                                            ->where('status', 'publish')
                                             ->select('id', 'title')
                                             ->orderBy('title')
                                             ->get(),
@@ -391,8 +401,17 @@ class ReportsApiController extends Controller
             $query->where('category_id', $request->category_id);
         }
         if ($request->filled('status')) {
-            $isActive = $request->status === 'active';
-            $query->where('is_active', $isActive);
+            if ($request->status === 'active') {
+                $query->where('is_active', true)->where('status', 'publish');
+            } else {
+                $query->where(static fn ($courses) => $courses
+                    ->where('is_active', false)
+                    ->orWhere('status', '!=', 'publish'));
+            }
+        } else {
+            // The default must agree with student-facing totals. Operators can
+            // explicitly request inactive rows through status=inactive.
+            $query->where('is_active', true)->where('status', 'publish');
         }
         if ($request->filled('approval_status')) {
             $query->where('approval_status', $request->approval_status);

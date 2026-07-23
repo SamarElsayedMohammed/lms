@@ -7,6 +7,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
+use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Notifications\AdminNewSubscriptionRequestNotification;
 use App\Notifications\AdminSubscriptionRenewedNotification;
@@ -226,7 +227,9 @@ final class SubscriptionApiController extends Controller
                     'next_payment_amount' => $nextPaymentAmount,
                     'currency'            => $nextPaymentCurrency,
                     'currency_symbol'     => $nextPaymentSymbol,
-                    'receipt_url'         => $subscription->payments()->latest()->first()?->receipt,
+                    'receipt_url'         => ($latestReceipt = $subscription->payments()->latest()->first())?->getRawOriginal('receipt')
+                        ? route('subscription.receipt', ['payment' => $latestReceipt->id])
+                        : null,
                 ];
             };
 
@@ -283,41 +286,33 @@ final class SubscriptionApiController extends Controller
             $user = \Illuminate\Support\Facades\Auth::user();
             $countryCode = $user?->country_code ?? $this->countryDetectionService->detect($request);
 
-            $query = \App\Models\ManualDepositMethod::where('is_active', true);
-
-            if ($countryCode) {
-                $query->where(function ($q) use ($countryCode) {
-                    $q->whereJsonContains('countries', $countryCode)
-                      ->orWhereNull('countries')
-                      ->orWhere('countries', '[]');
-                });
-            }
-
-            $manualMethods = $query->get()->map(function ($method) {
-                $details = is_string($method->account_details) ? json_decode($method->account_details, true) : $method->account_details;
+            // Subscription requests validate payment_methods IDs. Wallet top-up
+            // methods are a separate domain and must not be listed here.
+            $manualMethods = PaymentMethod::query()
+                ->where('is_active', true)
+                ->whereIn('type', ['instapay', 'mobile_wallet', 'fawry', 'bank_transfer'])
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get()
+                ->map(function (PaymentMethod $method) {
                 return [
                     'id' => $method->id,
                     'name' => $method->name,
-                    'type' => $details['type'] ?? 'bank_transfer',
+                    'type' => $method->type,
                     'description' => $method->instructions,
                     'instructions' => $method->instructions,
                     'details' => [
-                        'type' => $details['type'] ?? 'bank_transfer',
-                        'account_name' => $details['account_name'] ?? null,
-                        'account_number' => $details['account_number'] ?? null,
-                        'instapay_id' => $details['instapay_id'] ?? null,
-                        'merchant_code' => $details['merchant_code'] ?? null,
+                        'type' => $method->type,
+                        'account_name' => $method->account_name,
+                        'account_number' => $method->account_number,
+                        'instapay_id' => $method->instapay_id,
+                        'merchant_code' => $method->merchant_code,
                     ],
-                    'account_name' => $details['account_name'] ?? null,
-                    'account_number' => $details['account_number'] ?? null,
-                    'instapay_id' => $details['instapay_id'] ?? null,
-                    'merchant_code' => $details['merchant_code'] ?? null,
-                    'image' => $method->image,
-                    'currency' => $method->currency,
-                    'min_amount' => $method->min_amount,
-                    'max_amount' => $method->max_amount,
-                    'fixed_fee' => $method->fixed_fee,
-                    'percent_fee' => $method->percent_fee,
+                    'account_name' => $method->account_name,
+                    'account_number' => $method->account_number,
+                    'instapay_id' => $method->instapay_id,
+                    'merchant_code' => $method->merchant_code,
+                    'image' => $method->logo,
                     'dynamic_fields' => $method->dynamic_fields,
                 ];
             });
@@ -378,9 +373,14 @@ final class SubscriptionApiController extends Controller
         $plan = \App\Models\SubscriptionPlan::find($request->plan_id);
 
         $countryCode = $user?->country_code ?? $this->countryDetectionService->detect($request);
-        $countryPricing = collect($plan->country_pricing)->firstWhere('country', $countryCode);
-        $resolvedCurrency = $countryPricing['currency'] ?? 'EGP';
-        $originalAmount = (float) ($countryPricing['price'] ?? $plan->price);
+        $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
+
+        if (!$plan->is_active || !$countryPricing['can_subscribe']) {
+            return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
+        }
+
+        $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
+        $originalAmount = (float) $countryPricing['price'];
 
         if ($promo->discount_type === 'percentage') {
             $discountAmount = round($originalAmount * ($promo->discount / 100), 2);
@@ -423,7 +423,8 @@ final class SubscriptionApiController extends Controller
                 'use_wallet' => 'nullable|boolean',
                 'promo_code' => 'nullable|string|max:50',
                 'payment_method_id' => 'required_if:payment_method,manual|exists:payment_methods,id',
-                'receipt' => 'required_if:payment_method,manual|image|mimes:jpeg,png,jpg,webp|max:5120',
+                'payment_fields' => 'nullable|array',
+                'receipt' => 'required_if:payment_method,manual|file|mimes:jpeg,png,jpg,webp,pdf|max:5120',
                 'transaction_id' => 'nullable|string|max:255',
             ]);
 
@@ -571,9 +572,13 @@ final class SubscriptionApiController extends Controller
 
             // Manual payment flow
             if ($request->payment_method === 'manual') {
-                $method = \App\Models\PaymentMethod::find($request->payment_method_id);
-                if (!$method || !$method->is_active) {
+                $method = $this->findActiveManualPaymentMethod((int) $request->payment_method_id);
+                if (!$method) {
                     return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
+                }
+
+                if ($fieldValidation = $this->validateManualPaymentFields($request, $method)) {
+                    return $fieldValidation;
                 }
 
                 try {
@@ -585,10 +590,9 @@ final class SubscriptionApiController extends Controller
                         return ApiResponseService::errorResponse('لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.');
                     }
 
-                    $receiptPath = \App\Services\FileService::compressAndUpload(
+                    $receiptPath = \App\Services\FileService::uploadPrivate(
                         $request->file('receipt'),
-                        'subscriptions/receipts',
-                        'public'
+                        'subscriptions/receipts'
                     );
 
                     $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
@@ -621,6 +625,8 @@ final class SubscriptionApiController extends Controller
                         'currency_code' => $resolvedCurrency,
                         'price_source' => $countryPricing['price_source'] ?? 'default',
                         'payment_method_id' => $request->payment_method_id,
+                        'method_snapshot' => $this->manualPaymentMethodSnapshot($method),
+                        'submitted_fields' => $this->submittedManualFields($request, $method),
                         'receipt' => $receiptPath,
                         'transaction_id' => $request->transaction_id,
                         'promo_code' => $appliedPromoCode,
@@ -737,6 +743,9 @@ final class SubscriptionApiController extends Controller
             $validator = Validator::make($request->all(), [
                 'subscription_id' => 'nullable|exists:subscriptions,id',
                 'payment_method' => 'nullable|string',
+                'payment_method_id' => 'required_if:payment_method,manual|exists:payment_methods,id',
+                'payment_fields' => 'nullable|array',
+                'receipt' => 'required_if:payment_method,manual|file|mimes:jpeg,png,jpg,webp,pdf|max:5120',
                 'use_wallet' => 'nullable|boolean',
             ]);
 
@@ -848,9 +857,13 @@ final class SubscriptionApiController extends Controller
 
             // Manual payment flow
             if ($request->payment_method === 'manual') {
-                $method = \App\Models\PaymentMethod::find($request->payment_method_id);
-                if (!$method || !$method->is_active) {
+                $method = $this->findActiveManualPaymentMethod((int) $request->payment_method_id);
+                if (!$method) {
                     return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
+                }
+
+                if ($fieldValidation = $this->validateManualPaymentFields($request, $method)) {
+                    return $fieldValidation;
                 }
 
                 try {
@@ -862,10 +875,9 @@ final class SubscriptionApiController extends Controller
                         return ApiResponseService::errorResponse('لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.');
                     }
 
-                    $receiptPath = \App\Services\FileService::compressAndUpload(
+                    $receiptPath = \App\Services\FileService::uploadPrivate(
                         $request->file('receipt'),
-                        'subscriptions/receipts',
-                        'public'
+                        'subscriptions/receipts'
                     );
 
                     \Illuminate\Support\Facades\DB::beginTransaction();
@@ -895,6 +907,8 @@ final class SubscriptionApiController extends Controller
                         'currency_code' => $resolvedCurrency,
                         'price_source' => $countryPricing['price_source'] ?? 'default',
                         'payment_method_id' => $request->payment_method_id,
+                        'method_snapshot' => $this->manualPaymentMethodSnapshot($method),
+                        'submitted_fields' => $this->submittedManualFields($request, $method),
                         'receipt' => $receiptPath,
                         'transaction_id' => $request->transaction_id,
                         'paid_at' => null,
@@ -1161,5 +1175,112 @@ final class SubscriptionApiController extends Controller
         } catch (\Throwable $e) {
             ApiResponseService::fail($e, 'Failed to update settings');
         }
+    }
+
+    /** Return a private manual-payment receipt only to its owner. */
+    public function downloadReceipt(Request $request, int $payment): \Symfony\Component\HttpFoundation\BinaryFileResponse|JsonResponse
+    {
+        $user = Auth::user();
+        $record = \App\Models\SubscriptionPayment::query()
+            ->whereKey($payment)
+            ->where('user_id', $user?->id)
+            ->first();
+
+        if (!$record || !$record->getRawOriginal('receipt')) {
+            return ApiResponseService::errorResponse('Receipt not found.', [], 404);
+        }
+
+        $receipt = $record->getRawOriginal('receipt');
+        if (!\App\Services\FileService::checkPrivateFileExists($receipt)) {
+            return ApiResponseService::errorResponse('Receipt is unavailable.', [], 404);
+        }
+
+        return response()->file(\App\Services\FileService::getPrivateFilePath($receipt));
+    }
+
+    private function findActiveManualPaymentMethod(int $methodId): ?PaymentMethod
+    {
+        return PaymentMethod::query()
+            ->whereKey($methodId)
+            ->where('is_active', true)
+            ->whereIn('type', ['instapay', 'mobile_wallet', 'fawry', 'bank_transfer'])
+            ->first();
+    }
+
+    private function validateManualPaymentFields(Request $request, PaymentMethod $method): ?JsonResponse
+    {
+        $definitions = is_array($method->dynamic_fields) ? $method->dynamic_fields : [];
+        if ($definitions === []) {
+            return null;
+        }
+
+        $rules = ['payment_fields' => 'required|array'];
+        foreach ($definitions as $definition) {
+            if (!is_array($definition)) {
+                continue;
+            }
+
+            $key = $definition['key'] ?? null;
+            if (!is_string($key) || !preg_match('/^[A-Za-z][A-Za-z0-9_]*$/', $key)) {
+                continue;
+            }
+
+            $typeRule = match ($definition['type'] ?? 'text') {
+                'number' => 'numeric',
+                'email' => 'email',
+                default => 'string',
+            };
+            $rules["payment_fields.{$key}"] = [
+                !empty($definition['required']) ? 'required' : 'nullable',
+                $typeRule,
+                'max:1000',
+            ];
+
+            $validation = $definition['validation'] ?? null;
+            if ($validation === 'alphanumeric') {
+                $rules["payment_fields.{$key}"][] = 'regex:/^[A-Za-z0-9]+$/';
+            } elseif ($validation === 'phone') {
+                $rules["payment_fields.{$key}"][] = 'regex:/^[0-9+()\\-\\s]+$/';
+            } elseif ($validation === 'reference') {
+                $rules["payment_fields.{$key}"][] = 'regex:/^[A-Za-z0-9._\\-\\/]+$/';
+            }
+        }
+
+        $validator = Validator::make($request->all(), $rules);
+
+        return $validator->fails()
+            ? ApiResponseService::validationError($validator->errors()->first())
+            : null;
+    }
+
+    private function submittedManualFields(Request $request, PaymentMethod $method): array
+    {
+        $input = $request->input('payment_fields', []);
+        if (!is_array($input)) {
+            return [];
+        }
+
+        $allowedKeys = collect($method->dynamic_fields ?? [])
+            ->filter('is_array')
+            ->pluck('key')
+            ->filter(static fn ($key): bool => is_string($key) && preg_match('/^[A-Za-z][A-Za-z0-9_]*$/', $key))
+            ->all();
+
+        return array_intersect_key($input, array_flip($allowedKeys));
+    }
+
+    private function manualPaymentMethodSnapshot(PaymentMethod $method): array
+    {
+        return [
+            'id' => $method->id,
+            'name' => $method->name,
+            'type' => $method->type,
+            'instructions' => $method->instructions,
+            'account_name' => $method->account_name,
+            'account_number' => $method->account_number,
+            'instapay_id' => $method->instapay_id,
+            'merchant_code' => $method->merchant_code,
+            'dynamic_fields' => $method->dynamic_fields ?? [],
+        ];
     }
 }

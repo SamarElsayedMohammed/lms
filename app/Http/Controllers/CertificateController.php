@@ -311,33 +311,26 @@ class CertificateController extends Controller
     public function verifyApi(\Illuminate\Http\Request $request)
     {
         // Accept token from ?token= or legacy ?code= (for QR codes already distributed)
-        $token = trim((string) ($request->input('token') ?: $request->input('code') ?: ''));
+        $token = trim((string) $request->input('token', ''));
+        $certificateNumber = strtoupper(trim((string) ($request->input('code') ?: $request->input('certificate_number') ?: '')));
 
-        if (empty($token)) {
-            return ApiResponseService::errorResponse('Verification token is required.', null, 422);
+        if ($token === '' && $certificateNumber === '') {
+            return ApiResponseService::errorResponse('Verification code is required.', null, 422);
         }
 
         // Lookup ONLY by verification_token — never by certificate_number or id
-        $certificate = CourseCertificate::with(['user', 'course'])
-            ->where('verification_token', $token)
-            ->first();
+        $query = CourseCertificate::query()->with(['user', 'course'])->active();
+        $certificate = $token !== ''
+            ? $query->where('verification_token', $token)->first()
+            : $query->where('certificate_number', $certificateNumber)->first();
 
         if (!$certificate) {
             return response()->json([
                 'ok'       => false,
-                'message'  => 'No certificate found with this verification token.',
+                'message'  => 'Certificate not found or invalid.',
                 'is_valid' => false,
                 'data'     => null,
             ], 404);
-        }
-
-        if ($certificate->isRevoked()) {
-            return response()->json([
-                'ok'       => false,
-                'message'  => 'This certificate has been revoked.',
-                'is_valid' => false,
-                'data'     => null,
-            ], 200);
         }
 
         // Return only safe public fields — NEVER expose certificate_number or DB id
@@ -345,10 +338,12 @@ class CertificateController extends Controller
             'ok'           => true,
             'is_valid'     => true,
             'message'      => 'Certificate is valid.',
-            'student_name' => $certificate->student_name ?? ($certificate->user->name ?? 'N/A'),
-            'course_name'  => $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A'),
+            'valid'        => true,
+            'student'      => ['name' => $certificate->student_name ?? ($certificate->user->name ?? 'N/A')],
+            'course_title' => $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A'),
+            'certificate_number' => $certificate->certificate_number,
             'issued_at'    => optional($certificate->issued_date ?? $certificate->created_at)->toIso8601String(),
-            // Display code: short human-readable, NOT the token, NOT the DB id
+            'issued_date'  => optional($certificate->issued_date ?? $certificate->created_at)->toDateString(),
             'display_code' => $certificate->verification_code,
             'status'       => 'valid',
         ], 200);
@@ -360,16 +355,12 @@ class CertificateController extends Controller
      */
     public function downloadPublic(string $certificate_number)
     {
-        $certificate = CourseCertificate::with(['user', 'course'])
+        $certificate = CourseCertificate::active()->with(['user', 'course'])
             ->where('certificate_number', $certificate_number)
             ->first();
 
         if (!$certificate) {
             return ApiResponseService::errorResponse('Certificate not found.', null, 404);
-        }
-
-        if ($certificate->isRevoked()) {
-            return ApiResponseService::errorResponse('Certificate has been revoked.', null, 403);
         }
 
         $certificateTemplate = Certificate::where('type', 'course_completion')

@@ -84,7 +84,7 @@ final class VideoStreamController extends Controller
                 );
             }
 
-            return $this->buildUnavailableStreamResponse($courseChapterLecture);
+            return $this->buildUnavailableStreamResponse($courseChapterLecture, $user, $isFreePreview);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -202,7 +202,11 @@ final class VideoStreamController extends Controller
         return $this->ok(data: $data, message: 'Video access granted');
     }
 
-    private function buildUnavailableStreamResponse(CourseChapterLecture $lecture): JsonResponse
+    private function buildUnavailableStreamResponse(
+        CourseChapterLecture $lecture,
+        \App\Models\User $user,
+        bool $isFreePreview,
+    ): JsonResponse
     {
         $message = match ($lecture->hls_status) {
             'pending' => 'Video is queued for processing',
@@ -228,11 +232,7 @@ final class VideoStreamController extends Controller
             );
 
         if ($isHlsUnavailable && $this->isDirectVideoFile($lecture)) {
-            $responseData['use_direct_video'] = true;
-            $responseData['video_url'] = $lecture->file;
-            $responseData['file_url'] = $lecture->file;
-            $responseData['type'] = 'video';
-            $message = 'Please use the direct video URL from the lecture data';
+            return $this->grantDirectVideoStream($lecture, $user, $isFreePreview);
         }
 
         return $this->unprocessableEntity($message, $responseData);
@@ -365,7 +365,7 @@ final class VideoStreamController extends Controller
             
             // ... the rest of serve() is unchanged, assume it returns the file.
             // Wait, serve() implementation:
-            return $this->streamLocalFile($lecture, $path);
+            return $this->streamLocalFile($lecture, $path, $uuid);
         } catch (\Throwable $e) {
             Log::error('HLS streaming failed', ['error' => $e->getMessage()]);
             return response('Stream unavailable', 503);
@@ -421,17 +421,62 @@ final class VideoStreamController extends Controller
                 }
             }
 
-            // 5. Serve or redirect to the actual file URL
-            return redirect($fileUrl);
+            // 5. Proxy a local protected file. Redirecting would disclose a reusable raw URL.
+            return $this->streamProtectedDirectFile($fileUrl);
             
         } catch (\Throwable $e) {
             Log::error('Direct video streaming failed', ['error' => $e->getMessage()]);
             return response('Stream unavailable', 503);
         }
     }
-            }
 
-            // 6. Build file path (sanitize to prevent directory traversal)
+    /** Serve a direct local asset without exposing its storage/CDN URL. */
+    private function streamProtectedDirectFile(string $fileUrl): Response|StreamedResponse|JsonResponse
+    {
+        $urlPath = parse_url($fileUrl, PHP_URL_PATH) ?: $fileUrl;
+        $relativePath = ltrim($urlPath, '/');
+        if (str_starts_with($relativePath, 'storage/')) {
+            $relativePath = substr($relativePath, strlen('storage/'));
+        }
+
+        if ($relativePath === '' || str_contains($relativePath, '..') || preg_match('#^https?://#i', $fileUrl)) {
+            return $this->unprocessableEntity('Protected direct video file is unavailable');
+        }
+
+        $candidatePaths = [
+            storage_path("app/private/{$relativePath}"),
+            storage_path("app/public/{$relativePath}"),
+        ];
+        $filePath = collect($candidatePaths)->first(static fn (string $path): bool => is_file($path));
+        if (!is_string($filePath)) {
+            return $this->notFound('Protected direct video file not found');
+        }
+
+        $mimeType = mime_content_type($filePath) ?: 'video/mp4';
+
+        return response()->stream(
+            static function () use ($filePath): void {
+                $stream = fopen($filePath, 'rb');
+                fpassthru($stream);
+                fclose($stream);
+            },
+            200,
+            [
+                'Content-Type' => $mimeType,
+                'Content-Length' => (string) filesize($filePath),
+                'Cache-Control' => 'private, no-store',
+                'X-Content-Type-Options' => 'nosniff',
+            ],
+        );
+    }
+
+    private function streamLocalFile(
+        CourseChapterLecture $lecture,
+        string $path,
+        string $uuid,
+    ): Response|StreamedResponse|JsonResponse {
+        try {
+            // Build file path (sanitize to prevent directory traversal)
             $sanitizedPath = str_replace(['..', '\\'], '', $path);
             $filePath = storage_path("app/public/hls/lectures/{$lecture->id}/{$sanitizedPath}");
 

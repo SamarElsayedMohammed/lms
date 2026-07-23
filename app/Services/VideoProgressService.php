@@ -19,7 +19,7 @@ class VideoProgressService
      * Minimum watch percentage to consider a video lecture completed.
      * Used consistently across the service and certificate checks.
      */
-    public const COMPLETION_THRESHOLD = 90.0;
+    public const COMPLETION_THRESHOLD = 100.0;
 
     /**
      * Default segment size for segment-based progress tracking.
@@ -292,13 +292,63 @@ class VideoProgressService
         array $newlyWatchedSegments,
         array $metadata = []
     ): VideoProgress {
-        $progress = $this->getOrCreateSegmentProgress($user, $lecture, $totalDuration);
+        $canonicalDuration = $this->getCanonicalDuration($lecture);
+        if ($canonicalDuration <= 0 || $totalDuration !== $canonicalDuration) {
+            throw new \InvalidArgumentException('The reported video duration does not match the lecture duration.');
+        }
+
+        $progress = $this->getOrCreateSegmentProgress($user, $lecture, $canonicalDuration);
+
+        if ($progress->total_seconds !== $canonicalDuration) {
+            throw new \InvalidArgumentException('The stored video duration does not match the lecture duration.');
+        }
+
+        $segmentSize = (int) ($progress->segment_size ?: self::DEFAULT_SEGMENT_SIZE);
+        $uniqueSegments = array_values(array_unique(array_map('intval', $newlyWatchedSegments)));
+        sort($uniqueSegments);
+
+        $watchedSegments = $progress->watched_segments ??
+            VideoProgress::initializeSegments($canonicalDuration, $segmentSize);
+        $nextRequiredSegment = $this->firstUnwatchedSegment($watchedSegments);
+
+        // A client may replay already watched segments, but new progress must be
+        // contiguous from the first gap. This prevents jumping to the end.
+        $newSegments = array_values(array_filter(
+            $uniqueSegments,
+            fn (int $index): bool => empty($watchedSegments[$index])
+        ));
+        foreach ($newSegments as $offset => $segmentIndex) {
+            if ($segmentIndex !== $nextRequiredSegment + $offset) {
+                Log::warning('VideoProgressService rejected non-contiguous segments', [
+                    'user_id' => $user->id,
+                    'lecture_id' => $lecture->id,
+                    'segments' => $uniqueSegments,
+                    'next_required' => $nextRequiredSegment,
+                ]);
+                return $progress;
+            }
+        }
+
+        $lastNewSegment = $newSegments === [] ? null : $newSegments[array_key_last($newSegments)];
+        if ($currentPosition > $canonicalDuration
+            || ($lastNewSegment !== null
+                && $currentPosition < $this->segmentEndPosition($lastNewSegment, $segmentSize, $canonicalDuration))) {
+            Log::warning('VideoProgressService rejected an invalid playback position', [
+                'user_id' => $user->id,
+                'lecture_id' => $lecture->id,
+                'current_position' => $currentPosition,
+            ]);
+            return $progress;
+        }
 
         // Anti-Cheat: Validate realistic watch time
         $cacheKey = "progress_tracking_user_{$user->id}_lecture_{$lecture->id}";
         $lastUpdate = Cache::get($cacheKey);
         $now = now()->timestamp;
-        $reportedSeconds = count($newlyWatchedSegments) * self::DEFAULT_SEGMENT_SIZE;
+        $reportedSeconds = array_sum(array_map(
+            fn (int $index): int => $this->segmentDuration($index, $segmentSize, $canonicalDuration),
+            $newSegments,
+        ));
 
         if ($reportedSeconds > 0) {
             if ($lastUpdate) {
@@ -331,12 +381,8 @@ class VideoProgressService
 
         Cache::put($cacheKey, $now, 3600);
 
-        // Get existing watched segments or initialize
-        $watchedSegments = $progress->watched_segments ??
-            VideoProgress::initializeSegments($totalDuration, self::DEFAULT_SEGMENT_SIZE);
-
         // Mark newly watched segments
-        foreach ($newlyWatchedSegments as $segmentIndex) {
+        foreach ($newSegments as $segmentIndex) {
             if ($segmentIndex >= 0 && $segmentIndex < $progress->total_segments) {
                 $watchedSegments[$segmentIndex] = 1;
             }
@@ -344,17 +390,20 @@ class VideoProgressService
 
         // Calculate progress
         $completedSegments = array_sum($watchedSegments);
-        $watchPercentage = $progress->total_segments > 0
-            ? round(($completedSegments / $progress->total_segments) * 100, 2)
-            : 0;
+        $watchedSeconds = array_sum(array_map(
+            fn (int $index, mixed $watched): int => $watched
+                ? $this->segmentDuration($index, $segmentSize, $canonicalDuration)
+                : 0,
+            array_keys($watchedSegments),
+            $watchedSegments,
+        ));
+        $watchPercentage = round(($watchedSeconds / $canonicalDuration) * 100, 2);
 
         // Check completion
         $wasAlreadyCompleted = $progress->is_completed;
-        $isCompleted = $watchPercentage >= self::COMPLETION_THRESHOLD;
+        $isCompleted = $completedSegments === $progress->total_segments
+            && $watchPercentage >= self::COMPLETION_THRESHOLD;
         $completedAt = $isCompleted && !$wasAlreadyCompleted ? now() : $progress->completed_at;
-
-        // Also update legacy watched_seconds for backward compatibility
-        $watchedSeconds = $completedSegments * self::DEFAULT_SEGMENT_SIZE;
 
         // Build update array
         $updateData = [
@@ -362,7 +411,7 @@ class VideoProgressService
             'completed_segments' => $completedSegments,
             'watch_percentage' => $watchPercentage,
             'watched_seconds' => $watchedSeconds,
-            'last_position' => $currentPosition,
+            'last_position' => min($currentPosition, $canonicalDuration),
             'is_completed' => $isCompleted,
             'completed_at' => $completedAt,
         ];
@@ -456,6 +505,38 @@ class VideoProgressService
         // Only types that actually stream/play video require watch-time tracking.
         // Doc-type lectures (PDFs, text) are auto-counted as completed.
         return in_array(strtolower((string) ($lecture->file_type ?? '')), self::VIDEO_FILE_TYPES, true);
+    }
+
+    public function requiresVerifiedTracking(CourseChapterLecture $lecture): bool
+    {
+        return $this->lectureHasVideo($lecture);
+    }
+
+    public function getCanonicalDuration(CourseChapterLecture $lecture): int
+    {
+        return max(0, (int) ($lecture->duration_seconds ?: $lecture->total_duration ?: $lecture->duration ?: 0));
+    }
+
+    /** @param array<int, int|bool> $watchedSegments */
+    private function firstUnwatchedSegment(array $watchedSegments): int
+    {
+        foreach ($watchedSegments as $index => $watched) {
+            if (!$watched) {
+                return (int) $index;
+            }
+        }
+
+        return count($watchedSegments);
+    }
+
+    private function segmentDuration(int $segmentIndex, int $segmentSize, int $totalDuration): int
+    {
+        return max(0, min($segmentSize, $totalDuration - ($segmentIndex * $segmentSize)));
+    }
+
+    private function segmentEndPosition(int $segmentIndex, int $segmentSize, int $totalDuration): int
+    {
+        return min($totalDuration, max(0, ($segmentIndex + 1) * $segmentSize));
     }
 
     /**

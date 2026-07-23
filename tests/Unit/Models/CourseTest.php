@@ -45,4 +45,11 @@ class CourseTest extends TestCase
         $this->assertContains('title', $fillable);
         $this->assertContains('slug', $fillable);
     }
+
+    public function test_new_courses_enable_certificate_issuance_by_default(): void
+    {
+        $course = new Course();
+
+        $this->assertTrue($course->certificate_enabled);
+    }
 }

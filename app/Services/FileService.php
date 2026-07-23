@@ -334,6 +334,17 @@ class FileService
     }
 
     /**
+     * Store sensitive evidence outside the public disk. Access must be provided
+     * by an authorized controller rather than a storage URL.
+     *
+     * @param mixed $requestFile
+     */
+    public static function uploadPrivate($requestFile, string $folder): string
+    {
+        return self::uploadPrivateFile($requestFile, $folder);
+    }
+
+    /**
      * @param $path
      * @return bool
      */

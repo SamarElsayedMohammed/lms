@@ -26,7 +26,7 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('finance-list'); 
 
-        $methods = PaymentMethod::all();
+        $methods = PaymentMethod::query()->orderBy('sort_order')->orderBy('name')->get();
         
         return ApiResponseService::successResponse('Payment methods retrieved successfully', $methods);
     }
@@ -49,6 +49,13 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
             'merchant_code' => 'nullable|string',
             'instructions' => 'nullable|string',
             'logo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'dynamic_fields' => 'nullable|array',
+            'dynamic_fields.*.key' => 'required_with:dynamic_fields|string|max:64|regex:/^[A-Za-z][A-Za-z0-9_]*$/',
+            'dynamic_fields.*.label' => 'required_with:dynamic_fields|string|max:255',
+            'dynamic_fields.*.type' => 'required_with:dynamic_fields|in:text,number,email,textarea',
+            'dynamic_fields.*.required' => 'nullable|boolean',
+            'dynamic_fields.*.validation' => 'nullable|in:alphanumeric,phone,reference',
+            'sort_order' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -86,6 +93,13 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
             'merchant_code' => 'nullable|string',
             'instructions' => 'nullable|string',
             'logo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'dynamic_fields' => 'nullable|array',
+            'dynamic_fields.*.key' => 'required_with:dynamic_fields|string|max:64|regex:/^[A-Za-z][A-Za-z0-9_]*$/',
+            'dynamic_fields.*.label' => 'required_with:dynamic_fields|string|max:255',
+            'dynamic_fields.*.type' => 'required_with:dynamic_fields|in:text,number,email,textarea',
+            'dynamic_fields.*.required' => 'nullable|boolean',
+            'dynamic_fields.*.validation' => 'nullable|in:alphanumeric,phone,reference',
+            'sort_order' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {

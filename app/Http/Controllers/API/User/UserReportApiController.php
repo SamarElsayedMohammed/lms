@@ -54,7 +54,7 @@ class UserReportApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve learning stats: ' . $e->getMessage());
+            return ApiResponseService::errorResponse('Failed to retrieve learning stats');
         }
     }
 
@@ -246,10 +246,9 @@ class UserReportApiController extends Controller
                 return ApiResponseService::errorResponse('User not authenticated', null, 401);
             }
 
-            // 1. Get already generated (issued) active certificates only.
-            // Revoked certificates are excluded — they must not be shown to the student.
+            // Only active records are valid issued certificates.
             $generatedCertificates = CourseCertificate::where('user_id', $user->id)
-                ->where('status', '!=', 'revoked')
+                ->active()
                 ->with('course.category')
                 ->latest('issued_date')
                 ->get()
@@ -257,13 +256,22 @@ class UserReportApiController extends Controller
 
             $result = [];
 
-            // Add generated certificates first (these are fully issued)
+            $progressService = app(\App\Services\CourseProgressService::class);
+
             foreach ($generatedCertificates as $cert) {
-                $progressPercentage = app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $cert->course_id)->progress_percentage ?? 100.0;
+                $progressPercentage = round(
+                    (float) $progressService
+                        ->getProgressWithCache((int) $user->id, (int) $cert->course_id)
+                        ->progress_percentage,
+                    2,
+                );
+                $eligibleByProgress = $progressPercentage >= 100;
 
                 $result[] = [
                     'id'                 => $cert->id,
-                    'is_issued'          => true,   // Bug 1 fix: explicit flag so frontend never guesses
+                    'is_issued'          => true,
+                    'issuance_type'      => $eligibleByProgress ? 'automatic' : 'manual',
+                    'eligible_by_progress' => $eligibleByProgress,
                     'course_id'          => $cert->course_id,
                     'course_title'       => $cert->course->title    ?? 'N/A',
                     'issued_at'          => optional($cert->created_at)->toIso8601String(),
@@ -273,43 +281,39 @@ class UserReportApiController extends Controller
                     'englishCourseTitle' => $cert->english_title ?? ($cert->course->title ?? 'N/A'),
                     'date'               => optional($cert->issued_date)->format('Y-m-d'),
                     'instructorName'     => $cert->instructor_name ?? ($cert->course->user->name ?? 'N/A'),
-                    // Bug 7 fix: use consistent snake_case key so the frontend adapter
-                    // pickString(["certificate_number"]) finds the field correctly.
                     'certificate_number' => $cert->certificate_number,
-                    'progress_percentage'=> $progressPercentage, // Fix Issue 4: Send actual progress
+                    'progress_percentage'=> $progressPercentage,
                 ];
             }
 
-            // 2. Find enrolled courses completed but not yet issued a certificate.
-            //    These are shown as "Pending Issuance" — the student can trigger PDF
-            //    generation from the UI which will create the CourseCertificate record.
+            // Completed enrolled courses without an active issued certificate are pending.
             $enrollmentService = app(\App\Services\UserEnrollmentService::class);
             $enrolled = $enrollmentService->resolveEnrolledCourses(
                 (int) $user->id,
                 static fn ($query) => $query->with(['category', 'user'])
             );
 
-            $certService  = app(\App\Services\CertificateService::class);
-            $videoService = app(\App\Services\VideoProgressService::class);
-
             foreach ($enrolled as $item) {
                 $course = $item['course'];
                 if (!$course) continue;
 
-                // Skip if already issued
                 if ($generatedCertificates->has($course->id)) {
                     continue;
                 }
 
-                // Check completion (CertificateService is the correct authority)
-                $isCompleted  = $certService->checkCourseCompletionStatus($user->id, $course->id);
+                $progressPercentage = round(
+                    (float) $progressService
+                        ->getProgressWithCache((int) $user->id, (int) $course->id)
+                        ->progress_percentage,
+                    2,
+                );
 
-                if ($isCompleted) {
-                    $progressPercentage = 100.0;
-
+                if ($progressPercentage >= 100) {
                     $result[] = [
                         'id'                 => null,
-                        'is_issued'          => false,  // Bug 1 fix: clearly NOT issued yet
+                        'is_issued'          => false,
+                        'issuance_type'      => 'pending',
+                        'eligible_by_progress' => true,
                         'course_id'          => $course->id,
                         'course_title'       => $course->title ?? 'N/A',
                         'issued_at'          => null,
@@ -319,8 +323,8 @@ class UserReportApiController extends Controller
                         'englishCourseTitle' => $course->title ?? 'N/A',
                         'date'               => null,
                         'instructorName'     => $course->user->name ?? 'N/A',
-                        'certificate_number' => null,   // Bug 7 fix: always snake_case
-                        'progress_percentage'=> $progressPercentage, // Fix Issue 4: Send actual progress
+                        'certificate_number' => null,
+                        'progress_percentage'=> $progressPercentage,
                     ];
                 }
             }
@@ -332,7 +336,7 @@ class UserReportApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to fetch certificates: ' . $e->getMessage());
+            return ApiResponseService::errorResponse('Failed to fetch certificates');
         }
     }
 }

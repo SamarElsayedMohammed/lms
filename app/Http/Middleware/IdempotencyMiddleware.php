@@ -27,18 +27,25 @@ class IdempotencyMiddleware
             return response()->json(['message' => 'Idempotency-Key header is required'], 400);
         }
 
-        // Use cache to lock this idempotency key for 24 hours (1440 minutes)
-        $cacheKey = 'idempotency_' . $idempotencyKey;
+        if (strlen($idempotencyKey) > 255) {
+            return response()->json(['message' => 'Idempotency-Key is too long'], 422);
+        }
 
-        if (Cache::has($cacheKey)) {
+        // Scope keys to user and route. A raw, global cache key lets two users
+        // interfere with one another and the has()/put() pair is race-prone.
+        $cacheKey = 'idempotency:' . hash('sha256', implode('|', [
+            (string) optional($request->user())->getAuthIdentifier(),
+            $request->method(),
+            $request->path(),
+            $idempotencyKey,
+        ]));
+
+        if (!Cache::add($cacheKey, true, now()->addHours(24))) {
             return response()->json([
                 'success' => false,
                 'message' => 'Duplicate request detected.',
             ], 409); // Conflict
         }
-
-        // Lock the key
-        Cache::put($cacheKey, true, now()->addHours(24));
 
         $response = $next($request);
 

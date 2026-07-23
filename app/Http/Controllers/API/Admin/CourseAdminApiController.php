@@ -133,7 +133,12 @@ class CourseAdminApiController extends AdminCrudApiController
 
         $metaDescription = $request->input('meta_description') ?? $request->input('description');
         $languageId      = CourseLanguage::where('is_active', 1)->value('id');
-        $certificateFee  = $request->boolean('certificate_enabled')
+        // New courses issue a certificate by default. An omitted checkbox must not
+        // override the database/model default to false.
+        $certificateEnabled = $request->has('certificate_enabled')
+            ? $request->boolean('certificate_enabled')
+            : true;
+        $certificateFee  = $certificateEnabled
             ? round((float) ($request->input('certificate_fee', 0)), 2)
             : null;
 
@@ -159,7 +164,7 @@ class CourseAdminApiController extends AdminCrudApiController
                 'is_active'          => $isActive,
                 'is_free'            => $isFree,
                 'sequential_access'  => $request->boolean('sequential_learning'),
-                'certificate_enabled' => $request->boolean('certificate_enabled'),
+                'certificate_enabled' => $certificateEnabled,
                 'certificate_fee'    => $certificateFee,
                 'thumbnail'          => $thumbnail,
                 'intro_video'        => $introVideo,
@@ -706,7 +711,10 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         $metaDescription = $request->input('meta_description') ?? $request->input('description') ?? $course->meta_description;
-        $certificateFee  = $request->boolean('certificate_enabled')
+        $certificateEnabled = $request->has('certificate_enabled')
+            ? $request->boolean('certificate_enabled')
+            : (bool) $course->certificate_enabled;
+        $certificateFee  = $certificateEnabled
             ? round((float) ($request->input('certificate_fee', $course->certificate_fee ?? 0)), 2)
             : null;
 
@@ -732,7 +740,7 @@ class CourseAdminApiController extends AdminCrudApiController
                 'is_active'          => $isActive,
                 'is_free'            => $isFree,
                 'sequential_access'  => $request->has('sequential_learning') ? $request->boolean('sequential_learning') : $course->sequential_access,
-                'certificate_enabled' => $request->has('certificate_enabled') ? $request->boolean('certificate_enabled') : $course->certificate_enabled,
+                'certificate_enabled' => $certificateEnabled,
                 'certificate_fee'    => $certificateFee,
                 'thumbnail'          => $thumbnail,
                 'intro_video'        => $introVideo,

@@ -236,4 +236,23 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             return ApiResponseService::errorResponse('Failed to update deposit status: ' . $e->getMessage());
         }
     }
+
+    /** Return sensitive deposit evidence only to authorized finance staff. */
+    public function downloadReceipt(int $id): \Symfony\Component\HttpFoundation\BinaryFileResponse|\Illuminate\Http\JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('finance-list');
+
+        $deposit = ManualDeposit::find($id);
+        if (!$deposit || !$deposit->getRawOriginal('receipt')) {
+            return ApiResponseService::errorResponse('Receipt not found.', [], 404);
+        }
+
+        $receipt = $deposit->getRawOriginal('receipt');
+        if (!FileService::checkPrivateFileExists($receipt)) {
+            return ApiResponseService::errorResponse('Receipt is unavailable.', [], 404);
+        }
+
+        return response()->file(FileService::getPrivateFilePath($receipt));
+    }
 }

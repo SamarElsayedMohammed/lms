@@ -3,23 +3,17 @@
 namespace App\Http\Controllers\API\User;
 
 use App\Http\Controllers\Controller;
-use App\Models\Course\Course;
-use App\Models\Course\CourseCertificate;
-use App\Models\OrderCourse;
 use App\Models\Subscription;
 use App\Models\UserCourseProgress;
 use App\Models\UserCurriculumTracking;
 use App\Models\WebinarRegistration;
-use App\Models\Wishlist;
 use App\Services\ApiResponseService;
-use App\Services\HelperService;
 use App\Services\PricingService;
 use App\Services\StudentDashboardStatisticsService;
-use App\Services\UserEnrollmentService;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class UserDashboardApiController extends Controller
 {
@@ -40,8 +34,12 @@ class UserDashboardApiController extends Controller
                 return ApiResponseService::errorResponse('User not authenticated', null, 401);
             }
 
-            // 1. Stats Overview
-            $stats = $this->getStatsOverview($user);
+            // Resolve progress once so every dashboard metric uses the same snapshot.
+            $courseProgresses = $this->statisticsService->getEnrolledCourseProgresses($user);
+            $stats = $this->statisticsService->getDashboardStatsForCourseProgresses(
+                $user,
+                $courseProgresses,
+            );
 
             // 2. Subscription Info
             $subscription = $this->getSubscriptionInfo($user);
@@ -62,50 +60,47 @@ class UserDashboardApiController extends Controller
             ];
 
             // 4. Recent Courses (Last accessed)
-            $recentCourses = $this->getRecentCourses($user);
+            $recentCourses = $this->getRecentCourses($user, $courseProgresses);
 
-            // 5. Learning Activity
-            $learningActivity = $this->getLearningActivity($user);
+            // 5. Latest courses are ordered by enrollment, not recent activity.
+            $latestCourses = $this->getLatestCourses($courseProgresses);
 
-            // 6. Upcoming Webinars
+            // 6. Completed courses use the exact same progress source as stats.
+            $completedCourses = $this->getCompletedCourses($courseProgresses);
+
+            // 7. Learning Activity
+            $learningActivity = $this->getLearningActivity($user, $courseProgresses);
+
+            // 8. Upcoming Webinars
             $upcomingWebinars = $this->getUpcomingWebinars($user);
 
-            // 7. Completed Courses List
-            $completedCoursesList = $this->getCompletedCourses($user);
-
-            // 8. Notifications
+            // 9. Notifications
             $unreadNotificationsCount = $user->unreadNotifications()->count();
 
             $data = [
                 'stats' => $stats,
-                'overview_stats' => $stats,
-                'dashboard_stats' => $stats,
                 'subscription' => $subscription,
-                'current_subscription' => $subscription,
                 'wallet' => $wallet,
                 'recent_courses' => $recentCourses,
-                'latest_courses' => $recentCourses,
-                'completed_courses_list' => $completedCoursesList,
+                'latest_courses' => $latestCourses,
+                'completed_courses' => $completedCourses,
                 'learning_activity' => $learningActivity,
                 'upcoming_webinars' => $upcomingWebinars,
                 'unread_notifications_count' => $unreadNotificationsCount,
-                'generated_at' => Carbon::now()->toDateTimeString(),
+                'generated_at' => now('UTC')->toIso8601String(),
             ];
 
             return ApiResponseService::successResponse('User dashboard data retrieved successfully', $data);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to load dashboard: ' . $e->getMessage());
-        }
-    }
+            Log::error('Unable to load user dashboard', [
+                'user_id' => Auth::id(),
+                'exception' => $e,
+            ]);
 
-    /**
-     * Get overview stats for the user
-     */
-    private function getStatsOverview($user)
-    {
-        return $this->statisticsService->getDashboardStats($user);
+            return ApiResponseService::errorResponse('Failed to load dashboard');
+        }
     }
 
     /**
@@ -161,117 +156,146 @@ class UserDashboardApiController extends Controller
     /**
      * Get recently accessed courses
      */
-    private function getRecentCourses($user)
+    private function getRecentCourses($user, Collection $courseProgresses)
     {
-        $enrollmentService = app(UserEnrollmentService::class);
-        $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
-        $enrolledCourseIds = $enrolled->pluck('course_id')->values();
-
-        if ($enrolledCourseIds->isEmpty()) {
+        $courseIds = $courseProgresses->pluck('course_id')->all();
+        if ($courseIds === []) {
             return collect();
         }
 
-        $coursesById = $enrolled->pluck('course', 'course_id');
+        $coursesById = $courseProgresses->pluck('course', 'course_id');
+        $progressByCourseId = $courseProgresses->pluck('progress_percentage', 'course_id');
 
-        // === Source 1: UserCourseProgress rows (has an explicit last_accessed_at) ===
-        $recent = UserCourseProgress::where('user_id', $user->id)
-            ->whereIn('course_id', $enrolledCourseIds)
+        $progressActivities = UserCourseProgress::where('user_id', $user->id)
+            ->whereIn('course_id', $courseIds)
             ->whereNotNull('last_accessed_at')
+            ->select(['id', 'course_id', 'last_accessed_at'])
             ->latest('last_accessed_at')
             ->limit(5)
             ->get()
-            ->map(function ($progress) use ($coursesById) {
+            ->map(function ($progress) use ($coursesById, $progressByCourseId) {
                 $course = $coursesById->get($progress->course_id);
                 if (!$course) return null;
+
+                $snapshotProgress = round((float) $progressByCourseId->get($progress->course_id), 2);
 
                 return [
                     'id'                  => $course->id,
                     'title'               => $course->title,
                     'thumbnail'           => $course->thumbnail,
                     'image'               => $course->thumbnail,
-                    'progress'            => round((float) $progress->progress_percentage, 2),
-                    'progress_percentage' => round((float) $progress->progress_percentage, 2),
-                    // Real interaction timestamp — used for sorting priority
+                    'progress'            => $snapshotProgress,
+                    'progress_percentage' => $snapshotProgress,
                     'last_accessed'       => $progress->last_accessed_at?->toDateTimeString(),
                 ];
             })
             ->filter()
-            ->values()
-            ->toBase();
+            ->values();
 
-        // === Source 2: UserCurriculumTracking rows (interaction-based, no UserCourseProgress) ===
-        $recentTrackings = UserCurriculumTracking::where('user_id', $user->id)
-            ->with('chapter.course')
-            ->latest('updated_at')
+        $trackingActivities = UserCurriculumTracking::query()
+            ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+            ->where('user_curriculum_trackings.user_id', $user->id)
+            ->whereIn('course_chapters.course_id', $courseIds)
+            ->select([
+                'user_curriculum_trackings.id',
+                'user_curriculum_trackings.course_chapter_id',
+                'user_curriculum_trackings.updated_at',
+                'course_chapters.course_id as tracked_course_id',
+            ])
+            ->latest('user_curriculum_trackings.updated_at')
+            ->limit(5)
             ->get()
-            ->filter(fn($item) => $item->chapter !== null && $item->chapter->course !== null) // Bug 6 fix
-            ->unique(function ($item) {
-                return $item->chapter->course_id ?? null;
-            })
-            ->map(function ($track) use ($user, $enrolledCourseIds) {
-                $course = $track->chapter->course ?? null;
-                if (!$course || !$enrolledCourseIds->contains((int) $course->id)) return null;
+            ->unique('tracked_course_id')
+            ->map(function ($track) use ($coursesById, $progressByCourseId) {
+                $course = $coursesById->get($track->tracked_course_id);
+                if (!$course) return null;
 
-                $progress = round((float) app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id)->progress_percentage, 2);
+                $snapshotProgress = round((float) $progressByCourseId->get($track->tracked_course_id), 2);
 
                 return [
                     'id'                  => $course->id,
                     'title'               => $course->title,
                     'thumbnail'           => $course->thumbnail,
                     'image'               => $course->thumbnail,
-                    'progress'            => $progress,
-                    'progress_percentage' => $progress,
-                    // Real interaction timestamp from tracking
+                    'progress'            => $snapshotProgress,
+                    'progress_percentage' => $snapshotProgress,
                     'last_accessed'       => $track->updated_at->toDateTimeString(),
                 ];
             })
             ->filter()
-            ->values()
-            ->toBase();
+            ->values();
 
-        // === Source 3: Enrolled courses with no tracking/progress rows yet ===
-        // Bug 5 fix: for truly unstarted courses we set last_accessed = null.
-        // These are only shown to fill the 5-slot limit after real-activity courses.
-        // We also filter out 'subscription' source to avoid calculating progress for 5000+ catalog courses!
-        $fallbackEnrolled = $enrolled
+        $fallbackCourses = $courseProgresses
             ->filter(fn($item) => $item['source'] !== 'subscription')
             ->sortByDesc('purchase_date')
             ->take(5)
-            ->map(function (array $item) use ($user) {
+            ->map(function (array $item) {
                 $course = $item['course'];
-                $progress = round((float) app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id)->progress_percentage, 2);
+                $snapshotProgress = round($item['progress_percentage'], 2);
 
                 return [
                     'id'                  => $course->id,
                     'title'               => $course->title,
                     'thumbnail'           => $course->thumbnail,
                     'image'               => $course->thumbnail,
-                    'progress'            => $progress,
-                    'progress_percentage' => $progress,
-                    // Bug 5 fix: null — this is NOT a real access timestamp.
-                    // Never use purchase_date as last_accessed.
+                    'progress'            => $snapshotProgress,
+                    'progress_percentage' => $snapshotProgress,
                     'last_accessed'       => null,
                 ];
-            })
-            ->toBase();
+            });
 
-        // Merge all sources; deduplicate by course ID; real-activity entries win (they appear first).
-        // Then take the top 5. Courses with null last_accessed sink to the bottom naturally
-        // because sources 1 & 2 come first and dedup removes the fallback entries for those IDs.
-        return $recent
-            ->merge($recentTrackings)
-            ->merge($fallbackEnrolled)
+        return $progressActivities
+            ->merge($trackingActivities)
+            ->sortByDesc('last_accessed')
+            ->unique('id')
+            ->merge($fallbackCourses)
             ->unique('id')
             ->take(5)
             ->values();
     }
 
     /**
+     * Get valid enrolled courses ordered by the enrollment or purchase timestamp.
+     */
+    private function getLatestCourses(Collection $courseProgresses)
+    {
+        return $courseProgresses
+            ->sortByDesc('purchase_date')
+            ->take(5)
+            ->map(static function (array $item): array {
+                $course = $item['course'];
+                $progress = round($item['progress_percentage'], 2);
+
+                return [
+                    'id' => $course->id,
+                    'title' => $course->title,
+                    'thumbnail' => $course->thumbnail,
+                    'image' => $course->thumbnail,
+                    'progress' => $progress,
+                    'progress_percentage' => $progress,
+                    'enrolled_at' => $item['purchase_date']?->toIso8601String(),
+                ];
+            })
+            ->values();
+    }
+
+    /**
      * Get recent learning activities
      */
-    private function getLearningActivity($user)
+    private function getLearningActivity($user, Collection $courseProgresses)
     {
+        $courseIds = $courseProgresses->pluck('course_id')->all();
+
+        if ($courseIds === []) {
+            return collect();
+        }
+
         return UserCurriculumTracking::where('user_id', $user->id)
+            // Activity alone never grants dashboard visibility. Restrict it to
+            // the same valid-access course snapshot used by every course metric.
+            ->whereHas('chapter', static function ($query) use ($courseIds): void {
+                $query->whereIn('course_id', $courseIds);
+            })
             ->with('chapter.course')
             ->latest('updated_at')
             ->limit(10)
@@ -317,38 +341,24 @@ class UserDashboardApiController extends Controller
             });
     }
 
-    private function getCompletedCourses($user)
+    private function getCompletedCourses(Collection $courseProgresses)
     {
-        $enrollmentService = app(UserEnrollmentService::class);
-        $enrolled = $enrollmentService->resolveEnrolledCourses((int) $user->id);
-        $enrolledCourseIds = $enrolled->pluck('course_id')->toArray();
-        
-        $completed = collect();
+        return $courseProgresses
+            ->filter(static fn (array $item): bool => $item['progress_percentage'] >= 100)
+            ->map(static function (array $item): array {
+                $course = $item['course'];
+                $progress = round($item['progress_percentage'], 2);
 
-        // Instead of calculating progress for 5000+ subscription courses, 
-        // we strictly fetch those that are 100% complete from UserCourseProgress
-        $completedProgresses = UserCourseProgress::where('user_id', $user->id)
-            ->whereIn('course_id', $enrolledCourseIds)
-            ->where('progress_percentage', 100)
-            ->get();
-            
-        $coursesById = $enrolled->pluck('course', 'course_id');
-
-        foreach ($completedProgresses as $progress) {
-            $course = $coursesById->get($progress->course_id);
-            if (!$course) continue;
-
-            $completed->push([
-                'id'                  => $course->id,
-                'title'               => $course->title,
-                'thumbnail'           => $course->thumbnail,
-                'image'               => $course->thumbnail,
-                'progress'            => 100.0,
-                'progress_percentage' => 100.0,
-            ]);
-        }
-
-        return $completed->values();
+                return [
+                    'id' => $course->id,
+                    'title' => $course->title,
+                    'thumbnail' => $course->thumbnail,
+                    'image' => $course->thumbnail,
+                    'progress' => $progress,
+                    'progress_percentage' => $progress,
+                ];
+            })
+            ->values();
     }
 
 

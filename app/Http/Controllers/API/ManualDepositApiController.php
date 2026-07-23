@@ -35,8 +35,6 @@ class ManualDepositApiController extends Controller
 
         $query = ManualDepositMethod::where('is_active', true);
 
-        $query = ManualDepositMethod::where('is_active', true);
-
         $methods = $query->get();
         return ApiResponseService::successResponse('Manual deposit methods retrieved successfully', $methods);
     }
@@ -50,7 +48,7 @@ class ManualDepositApiController extends Controller
             'method_id' => 'required|exists:manual_deposit_methods,id',
             'amount' => 'required|numeric|min:1',
             'transaction_id' => 'nullable|string|max:255',
-            'receipt' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'receipt' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -85,7 +83,7 @@ class ManualDepositApiController extends Controller
 
             $receiptPath = null;
             if ($request->hasFile('receipt')) {
-                $receiptPath = FileService::compressAndUpload($request->file('receipt'), $this->receiptFolder, 'public');
+                $receiptPath = FileService::uploadPrivate($request->file('receipt'), $this->receiptFolder);
             }
 
             $deposit = ManualDeposit::create([
@@ -139,5 +137,25 @@ class ManualDepositApiController extends Controller
             ->paginate($perPage);
 
         return ApiResponseService::successResponse('Manual deposits history retrieved successfully', $deposits);
+    }
+
+    /** Return sensitive deposit evidence only to the submitting student. */
+    public function downloadReceipt(int $deposit): \Symfony\Component\HttpFoundation\BinaryFileResponse|\Illuminate\Http\JsonResponse
+    {
+        $record = ManualDeposit::query()
+            ->whereKey($deposit)
+            ->where('user_id', Auth::id())
+            ->first();
+
+        if (!$record || !$record->getRawOriginal('receipt')) {
+            return ApiResponseService::errorResponse('Receipt not found.', [], 404);
+        }
+
+        $receipt = $record->getRawOriginal('receipt');
+        if (!FileService::checkPrivateFileExists($receipt)) {
+            return ApiResponseService::errorResponse('Receipt is unavailable.', [], 404);
+        }
+
+        return response()->file(FileService::getPrivateFilePath($receipt));
     }
 }

@@ -250,8 +250,15 @@ class CoursesController extends Controller
             $data['slug'] = HelperService::generateUniqueSlug(Course::class, $request->title); // Generate Unique Slug
             // Handle sequential_access - if checkbox is unchecked, it won't be sent, so default to 0
             $data['sequential_access'] = $request->has('sequential_access') ? ($request->sequential_access ? 1 : 0) : 0;
-            $data['certificate_enabled'] = $request->certificate_enabled ?? 0; // Set Certificate Enabled (default: false)
-            $data['certificate_fee'] = $request->certificate_enabled ? $request->certificate_fee ?? 0 : null; // Set Certificate Fee
+            // The product default is certificate issuance enabled. Respect an
+            // explicit false, but do not turn it off when an unchecked control is
+            // simply absent from a create payload.
+            $data['certificate_enabled'] = $request->has('certificate_enabled')
+                ? $request->boolean('certificate_enabled')
+                : true;
+            $data['certificate_fee'] = $data['certificate_enabled']
+                ? $request->input('certificate_fee', 0)
+                : null;
 
             // Workflow: status and approval_status
             $isAdmin = Auth::user()->hasRole('Super Admin');
@@ -995,8 +1002,17 @@ class CoursesController extends Controller
             $data['sequential_access'] = $request->has('sequential_access')
                 ? ($request->sequential_access ? 1 : 0)
                 : $course->sequential_access ?? 0;
-            $data['certificate_enabled'] = $request->certificate_enabled ?? 0; // Set Certificate Enabled (default: false)
-            $data['certificate_fee'] = $request->certificate_enabled ? $request->certificate_fee ?? 0 : null; // Set Certificate Fee
+            // Preserve existing course settings unless the edit form explicitly
+            // sends a certificate field. This avoids mutating legacy courses on
+            // unrelated edits.
+            if ($request->has('certificate_enabled')) {
+                $data['certificate_enabled'] = $request->boolean('certificate_enabled');
+                $data['certificate_fee'] = $data['certificate_enabled']
+                    ? $request->input('certificate_fee', $course->certificate_fee ?? 0)
+                    : null;
+            } elseif ($request->has('certificate_fee') && $course->certificate_enabled) {
+                $data['certificate_fee'] = $request->input('certificate_fee');
+            }
 
             $authUser = Auth::user();
             $isAdmin = $authUser->hasRole('Super Admin');

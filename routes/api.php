@@ -160,9 +160,10 @@ Route::prefix('subscription')->group(function (): void {
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/payment-methods', [SubscriptionApiController::class, 'getPaymentMethods']);
         Route::get('/my-subscription', [SubscriptionApiController::class, 'getMySubscription']);
-        Route::post('/subscribe', [SubscriptionApiController::class, 'subscribe'])->middleware('throttle:10,1');
+        Route::get('/payments/{payment}/receipt', [SubscriptionApiController::class, 'downloadReceipt'])->name('subscription.receipt');
+        Route::post('/subscribe', [SubscriptionApiController::class, 'subscribe'])->middleware(['throttle:10,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
         Route::post('/validate-promo', [SubscriptionApiController::class, 'validatePromoCode'])->middleware('throttle:10,1');
-        Route::post('/renew', [SubscriptionApiController::class, 'renew'])->middleware('throttle:10,1');
+        Route::post('/renew', [SubscriptionApiController::class, 'renew'])->middleware(['throttle:10,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
         Route::post('/cancel', [SubscriptionApiController::class, 'cancel']);
         Route::get('/history', [SubscriptionApiController::class, 'getHistory']);
         Route::post('/settings', [SubscriptionApiController::class, 'updateSettings']);
@@ -430,6 +431,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/manual-deposits/methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
         Route::get('/deposit-methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
         Route::post('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit'])->middleware('throttle:10,1');
+        Route::get('/deposit-requests/{deposit}/receipt', [\App\Http\Controllers\API\ManualDepositApiController::class, 'downloadReceipt']);
     });
 
     // rating_reviews
@@ -947,12 +949,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::delete('methods/{id}', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'destroyMethod']);
             
             Route::get('/', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'indexDeposits']);
+            Route::get('{id}/receipt', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'downloadReceipt']);
             Route::post('{id}/status', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'updateDepositStatus']);
         });
 
         // Manual Subscription Management (Admin)
         Route::prefix('manual-subscriptions')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'index']);
+            Route::get('{id}/receipt', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'downloadReceipt']);
             Route::post('{id}/approve', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'approve']);
             Route::post('{id}/reject', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'reject']);
         });

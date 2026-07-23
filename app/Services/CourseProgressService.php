@@ -233,7 +233,11 @@ class CourseProgressService
                 $track = $tracking->get($key);
                 $video = $videoProgress->get($lecture->id);
                 
-                $isCompleted = $track?->status === 'completed' || ($video?->is_completed ?? false);
+                $requiresVerifiedTracking = app(VideoProgressService::class)
+                    ->requiresVerifiedTracking($lecture);
+                $isCompleted = $requiresVerifiedTracking
+                    ? (bool) ($video?->is_completed ?? false)
+                    : $track?->status === 'completed';
                 $watchPercentage = $video?->watch_percentage ?? 0;
 
                 if ($isCompleted) {

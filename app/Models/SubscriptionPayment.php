@@ -58,6 +58,8 @@ final class SubscriptionPayment extends Model
         'admin_notes',
         'amount_egp',
         'exchange_rate_snapshot',
+        'method_snapshot',
+        'submitted_fields',
     ];
 
     protected $casts = [
@@ -70,6 +72,8 @@ final class SubscriptionPayment extends Model
         'discount_amount' => 'decimal:2',
         'gateway_response' => 'array',
         'paid_at' => 'datetime',
+        'method_snapshot' => 'array',
+        'submitted_fields' => 'array',
     ];
 
     public const STATUS_PENDING = 'pending';
@@ -99,17 +103,6 @@ final class SubscriptionPayment extends Model
     public function manualDepositMethod(): BelongsTo
     {
         return $this->belongsTo(ManualDepositMethod::class, 'manual_deposit_method_id');
-    }
-
-    /**
-     * Accessor: Receipt full URL
-     */
-    public function getReceiptAttribute($value)
-    {
-        if ($value) {
-            return \App\Services\FileService::getFileUrl($value);
-        }
-        return null;
     }
 
     /**
