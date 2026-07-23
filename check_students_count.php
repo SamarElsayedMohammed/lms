@@ -5,12 +5,12 @@ $app = require_once __DIR__ . '/bootstrap/app.php';
 $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
 
-use App\Models\User;
+use App\Support\RoleManager;
 
 $totalUsers = User::count();
-$totalStudents = User::role('student')->count();
-$activeStudents = User::role('student')->where('is_active', true)->count();
-$inactiveStudents = User::role('student')->where('is_active', false)->count();
+$totalStudents = RoleManager::applyRoleFilter(User::query(), 'student')->count();
+$activeStudents = RoleManager::applyRoleFilter(User::query(), 'student')->where('is_active', true)->count();
+$inactiveStudents = RoleManager::applyRoleFilter(User::query(), 'student')->where('is_active', false)->count();
 
 echo json_encode([
     'total_users' => $totalUsers,

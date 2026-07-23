@@ -58,7 +58,7 @@ class ApiController extends Controller
             ]);
 
             // Check if user exists (including soft-deleted)
-            $userQuery = User::role(config('constants.SYSTEM_ROLES.USER'))
+            $userQuery = RoleManager::applyRoleFilter(User::query(), 'user')
                 ->withTrashed()
                 ->when($request->has('email'), static function ($query) use ($request): void {
                     $query->where('email', $request->email);
@@ -138,9 +138,7 @@ class ApiController extends Controller
             if ($isEmailType) {
                 // ── Email / Password path — NO Firebase involved ─────────────
                 // Check if a user with this email already exists (signup = upsert)
-                $existingEmailUser = User::where('email', $request->email)
-                    ->withTrashed()
-                    ->role(config('constants.SYSTEM_ROLES.USER'))
+                $existingEmailUser = RoleManager::applyRoleFilter(User::where('email', $request->email)->withTrashed(), 'user')
                     ->first();
 
                 if ($existingEmailUser && !$existingEmailUser->trashed()) {
@@ -194,7 +192,7 @@ class ApiController extends Controller
                         $q->withTrashed();
                     })
                     ->whereHas('user', static function ($q): void {
-                        $q->role(config('constants.SYSTEM_ROLES.USER'));
+                        RoleManager::applyRoleFilter($q, 'user');
                     })
                     ->first();
             }
@@ -277,7 +275,7 @@ class ApiController extends Controller
                         'firebase_id' => $firebaseId,
                     ]);
                 }
-                $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+                RoleManager::assignStudentRole($user);
                 Auth::login($user);
                 $auth = User::find($user->id);
 
@@ -415,9 +413,7 @@ class ApiController extends Controller
 
             // \u2500\u2500 Email / Password path \u2014 no Firebase \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
             if ($isEmailType) {
-                $user = User::withTrashed()
-                    ->role(config('constants.SYSTEM_ROLES.USER'))
-                    ->where('email', $request->email)
+                $user = RoleManager::applyRoleFilter(User::withTrashed()->where('email', $request->email), 'user')
                     ->first();
 
                 if (!$user) {
@@ -466,7 +462,7 @@ class ApiController extends Controller
                         $q->withTrashed();
                     })
                     ->whereHas('user', static function ($q): void {
-                        $q->role(config('constants.SYSTEM_ROLES.USER'));
+                        RoleManager::applyRoleFilter($q, 'user');
                     })
                     ->first();
 
@@ -526,11 +522,12 @@ class ApiController extends Controller
                 'device_name' => 'nullable|string|max:255',
             ]);
 
-            $user = User::withTrashed()
-                ->role(config('constants.SYSTEM_ROLES.USER'))
-                ->where('mobile', $request->mobile)
-                ->where('country_calling_code', $request->country_calling_code)
-                ->first();
+            $user = RoleManager::applyRoleFilter(
+                User::withTrashed()
+                    ->where('mobile', $request->mobile)
+                    ->where('country_calling_code', $request->country_calling_code),
+                'user'
+            )->first();
 
             if (!$user) {
                 ApiResponseService::validationError('User Not Found');
@@ -729,8 +726,8 @@ class ApiController extends Controller
                 ['user_id' => $user->id, 'type' => 'phone'],
                 ['firebase_id' => $firebaseId],
             );
-            // Assign General User role
-            $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+            // Assign Canonical Student role
+            RoleManager::assignStudentRole($user);
 
             // Update FCM token if provided
             if (!empty($request->fcm_id)) {

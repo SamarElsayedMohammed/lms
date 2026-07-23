@@ -4,12 +4,13 @@ namespace App\Http\Controllers\API\User;
 
 use App\Http\Controllers\Controller;
 use App\Models\Webinar;
+use App\Models\WebinarRegistration;
 use App\Services\ApiResponseService;
 use App\Services\Payment\WalletPaymentIntegrationService;
 use App\Services\WebinarRegistrationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class WalletRegistrationController extends Controller
 {
@@ -40,15 +41,30 @@ class WalletRegistrationController extends Controller
                 return ApiResponseService::errorResponse('use_wallet parameter must be true for this endpoint.', [], 400);
             }
 
-            // Pay for webinar via wallet integration service (deducts funds)
-            $this->walletIntegrationService->payForWebinar($user, $webinar);
+            $existing = WebinarRegistration::where('user_id', $user->id)
+                ->where('webinar_id', $webinar->id)->first();
+            if ($existing) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'You are already registered for this webinar.',
+                    'transaction_id' => null,
+                ]);
+            }
 
-            // Complete registration
-            $this->registrationService->register($webinar, $user, 'paid', $webinar->price);
+            $transaction = DB::transaction(function () use ($user, $webinar) {
+                $transaction = $this->walletIntegrationService->payForWebinar($user, $webinar);
+                $this->registrationService->register(
+                    $webinar,
+                    $user,
+                    $webinar->is_free || $webinar->price <= 0 ? 'free' : 'paid',
+                    $webinar->is_free ? 0.00 : $webinar->price,
+                );
+                return $transaction;
+            });
 
             return response()->json([
                 'success' => true,
-                'transaction_id' => 'tx_' . Str::random(10), // Since we don't return an exact TX id easily, simulate or retrieve it
+                'transaction_id' => is_object($transaction) ? $transaction->id : null,
                 'message' => 'Successfully registered for the webinar using wallet.'
             ], 200);
             

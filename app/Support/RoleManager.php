@@ -163,4 +163,19 @@ class RoleManager
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
+
+    /**
+     * Safely assign the canonical student role to a user.
+     */
+    public static function assignStudentRole(User $user): void
+    {
+        self::ensureCanonicalRolesExist();
+        $studentRole = Role::where('name', self::ROLE_STUDENT)
+            ->where('guard_name', self::DEFAULT_GUARD)
+            ->first();
+
+        if ($studentRole && !$user->hasRole(self::ROLE_STUDENT)) {
+            $user->assignRole($studentRole);
+        }
+    }
 }

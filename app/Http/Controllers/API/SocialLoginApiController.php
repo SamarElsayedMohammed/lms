@@ -140,7 +140,7 @@ class SocialLoginApiController extends ApiController
                 $user->email_verified_at = now();
                 $user->save();
 
-                $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+                RoleManager::assignStudentRole($user);
                 $user->notify(new \App\Notifications\WelcomeNotification($user));
             }
 
@@ -226,7 +226,7 @@ class SocialLoginApiController extends ApiController
                 $user->email_verified_at = now();
                 $user->save();
 
-                $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
+                RoleManager::assignStudentRole($user);
                 $user->notify(new \App\Notifications\WelcomeNotification($user));
             }
 

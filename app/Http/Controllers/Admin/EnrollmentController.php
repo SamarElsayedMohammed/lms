@@ -85,7 +85,7 @@ class EnrollmentController extends Controller
 
         // Get courses and instructors for filters
         $courses = Course::select('id', 'title')->get();
-        $instructors = User::role('instructor')->select('id', 'name')->get();
+        $instructors = \App\Support\RoleManager::applyRoleFilter(User::query(), 'instructor')->select('id', 'name')->get();
 
         return view('pages.admin.enrollments.index', compact('enrollments', 'stats', 'courses', 'instructors'), [
             'type_menu' => 'enrollments',

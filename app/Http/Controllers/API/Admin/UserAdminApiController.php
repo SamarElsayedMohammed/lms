@@ -166,6 +166,7 @@ class UserAdminApiController extends AdminCrudApiController
             return $this->jsonError($validator->errors()->first(), 422);
         }
 
+        RoleManager::ensureCanonicalRolesExist();
         $user->syncRoles([$request->role_name]);
 
         return $this->jsonSuccess(__('User role updated successfully'), [
