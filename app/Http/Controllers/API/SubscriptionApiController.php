@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\PaymentMethod;
+use App\Models\ManualDepositMethod;
 use App\Models\User;
 use App\Notifications\AdminNewSubscriptionRequestNotification;
 use App\Notifications\AdminSubscriptionRenewedNotification;
@@ -313,9 +314,34 @@ final class SubscriptionApiController extends Controller
                     'instapay_id' => $method->instapay_id,
                     'merchant_code' => $method->merchant_code,
                     'image' => $method->logo,
+                    'logo' => $method->logo,
                     'dynamic_fields' => $method->dynamic_fields,
                 ];
-            });
+                });
+
+            // Deposit-method administration uses ManualDepositMethod. Expose
+            // those active methods in the subscription contract as well, using
+            // a namespaced id so it cannot collide with payment_methods ids.
+            $manualDepositMethods = ManualDepositMethod::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->map(function (ManualDepositMethod $method) {
+                    return [
+                        'id' => 'manual-deposit-' . $method->id,
+                        'name' => $method->name,
+                        'type' => 'bank_transfer',
+                        'description' => $method->account_details,
+                        'instructions' => $method->instructions ?: $method->account_details,
+                        'details' => ['account_details' => $method->account_details],
+                        'account_details' => $method->account_details,
+                        'image' => $method->image,
+                        'logo' => $method->image,
+                        'dynamic_fields' => [],
+                    ];
+                });
+
+            $manualMethods = $manualMethods->concat($manualDepositMethods)->values();
 
             $isAffiliateEnabled = $this->affiliateService->isEnabled();
 
@@ -422,7 +448,7 @@ final class SubscriptionApiController extends Controller
                 'payment_method' => 'nullable|string',
                 'use_wallet' => 'nullable|boolean',
                 'promo_code' => 'nullable|string|max:50',
-                'payment_method_id' => 'required_if:payment_method,manual|exists:payment_methods,id',
+                'payment_method_id' => 'required_if:payment_method,manual|string|max:64',
                 'payment_fields' => 'nullable|array',
                 'receipt' => 'required_if:payment_method,manual|file|mimes:jpeg,png,jpg,webp,pdf|max:5120',
                 'transaction_id' => 'nullable|string|max:255',
@@ -572,7 +598,7 @@ final class SubscriptionApiController extends Controller
 
             // Manual payment flow
             if ($request->payment_method === 'manual') {
-                $method = $this->findActiveManualPaymentMethod((int) $request->payment_method_id);
+                $method = $this->findActiveManualPaymentMethod((string) $request->payment_method_id);
                 if (!$method) {
                     return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
                 }
@@ -624,7 +650,9 @@ final class SubscriptionApiController extends Controller
                         'resolved_country' => $countryCode,
                         'currency_code' => $resolvedCurrency,
                         'price_source' => $countryPricing['price_source'] ?? 'default',
-                        'payment_method_id' => $request->payment_method_id,
+                        'payment_method_id' => $this->isManualDepositMethodId((string) $request->payment_method_id)
+                            ? null : (int) $request->payment_method_id,
+                        'manual_deposit_method_id' => $this->manualDepositMethodId((string) $request->payment_method_id),
                         'method_snapshot' => $this->manualPaymentMethodSnapshot($method),
                         'submitted_fields' => $this->submittedManualFields($request, $method),
                         'receipt' => $receiptPath,
@@ -743,7 +771,7 @@ final class SubscriptionApiController extends Controller
             $validator = Validator::make($request->all(), [
                 'subscription_id' => 'nullable|exists:subscriptions,id',
                 'payment_method' => 'nullable|string',
-                'payment_method_id' => 'required_if:payment_method,manual|exists:payment_methods,id',
+                'payment_method_id' => 'required_if:payment_method,manual|string|max:64',
                 'payment_fields' => 'nullable|array',
                 'receipt' => 'required_if:payment_method,manual|file|mimes:jpeg,png,jpg,webp,pdf|max:5120',
                 'use_wallet' => 'nullable|boolean',
@@ -857,7 +885,7 @@ final class SubscriptionApiController extends Controller
 
             // Manual payment flow
             if ($request->payment_method === 'manual') {
-                $method = $this->findActiveManualPaymentMethod((int) $request->payment_method_id);
+                $method = $this->findActiveManualPaymentMethod((string) $request->payment_method_id);
                 if (!$method) {
                     return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
                 }
@@ -906,7 +934,9 @@ final class SubscriptionApiController extends Controller
                         'resolved_country' => $countryCode,
                         'currency_code' => $resolvedCurrency,
                         'price_source' => $countryPricing['price_source'] ?? 'default',
-                        'payment_method_id' => $request->payment_method_id,
+                        'payment_method_id' => $this->isManualDepositMethodId((string) $request->payment_method_id)
+                            ? null : (int) $request->payment_method_id,
+                        'manual_deposit_method_id' => $this->manualDepositMethodId((string) $request->payment_method_id),
                         'method_snapshot' => $this->manualPaymentMethodSnapshot($method),
                         'submitted_fields' => $this->submittedManualFields($request, $method),
                         'receipt' => $receiptPath,
@@ -1198,13 +1228,43 @@ final class SubscriptionApiController extends Controller
         return response()->file(\App\Services\FileService::getPrivateFilePath($receipt));
     }
 
-    private function findActiveManualPaymentMethod(int $methodId): ?PaymentMethod
+    private function findActiveManualPaymentMethod(string $methodId): ?PaymentMethod
     {
+        if ($this->isManualDepositMethodId($methodId)) {
+            $depositId = $this->manualDepositMethodId($methodId);
+            $deposit = ManualDepositMethod::query()->whereKey($depositId)->where('is_active', true)->first();
+            if (!$deposit) return null;
+
+            $method = new PaymentMethod([
+                'name' => $deposit->name,
+                'type' => 'bank_transfer',
+                'instructions' => $deposit->instructions ?: $deposit->account_details,
+                'account_number' => $deposit->account_details,
+                'logo' => $deposit->getRawOriginal('image'),
+                'dynamic_fields' => [],
+            ]);
+            $method->setAttribute('id', $methodId);
+            return $method;
+        }
+
+        if (!ctype_digit($methodId)) return null;
         return PaymentMethod::query()
-            ->whereKey($methodId)
+            ->whereKey((int) $methodId)
             ->where('is_active', true)
             ->whereIn('type', ['instapay', 'mobile_wallet', 'fawry', 'bank_transfer'])
             ->first();
+    }
+
+    private function isManualDepositMethodId(string $methodId): bool
+    {
+        return preg_match('/^manual-deposit-[1-9][0-9]*$/', $methodId) === 1;
+    }
+
+    private function manualDepositMethodId(string $methodId): ?int
+    {
+        return $this->isManualDepositMethodId($methodId)
+            ? (int) substr($methodId, strlen('manual-deposit-'))
+            : null;
     }
 
     private function validateManualPaymentFields(Request $request, PaymentMethod $method): ?JsonResponse

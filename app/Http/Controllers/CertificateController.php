@@ -423,8 +423,9 @@ class CertificateController extends Controller
             ? json_decode($template->template_settings, true)
             : $template->template_settings;
 
-        $canvasWidth = $settings['width'] ?? 800;
-        $canvasHeight = $settings['height'] ?? 600;
+        $settings = is_array($settings) ? $settings : [];
+        $canvasWidth = $settings['width'] ?? 1200;
+        $canvasHeight = $settings['height'] ?? 800;
 
         $replacements = [
             '[Student Name]' => $certificate->user->name ?? '',

@@ -45,7 +45,9 @@ class UserAdminApiController extends AdminCrudApiController
             }))
             ->when($subscriptionType, fn ($q) => $q->whereHas('subscriptions', fn ($sq) => $sq->where('status', 'active')->whereHas('plan', fn ($pq) => $pq->where('billing_cycle', $subscriptionType))));
 
-        $users = $query->orderBy('id', 'desc')->paginate($perPage);
+        // Preserve role/search parameters in paginator links so a subsequent page
+        // cannot silently fall back to the unfiltered user list.
+        $users = $query->orderBy('id', 'desc')->paginate($perPage)->withQueryString();
 
         $users->getCollection()->transform(function ($user) {
             $user->is_instructor = !empty($user->instructor_details);

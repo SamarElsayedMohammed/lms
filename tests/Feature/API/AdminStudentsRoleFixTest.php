@@ -76,6 +76,27 @@ class AdminStudentsRoleFixTest extends TestCase
             ]);
     }
 
+    public function test_admin_list_filters_before_pagination_and_keeps_the_role_query(): void
+    {
+        $superAdmin = User::factory()->create();
+        $superAdmin->assignRole(RoleManager::ROLE_SUPER_ADMIN);
+        $token = $superAdmin->createToken('admin')->plainTextToken;
+
+        $admin = User::factory()->create();
+        $admin->assignRole(RoleManager::ROLE_ADMIN);
+        $student = User::factory()->create();
+        $student->assignRole(RoleManager::ROLE_STUDENT);
+
+        $response = $this->withToken($token)->getJson('/api/admin/users?role=admin&per_page=10');
+
+        $response->assertOk()
+            ->assertJsonPath('data.total', 2);
+
+        $this->assertCount(2, $response->json('data.data'));
+        $this->assertNotContains($student->id, collect($response->json('data.data'))->pluck('id')->all());
+        $this->assertStringContainsString('role=admin', (string) $response->json('data.first_page_url'));
+    }
+
     public function test_zero_students_returns_valid_zero_totals(): void
     {
         $admin = User::factory()->create();

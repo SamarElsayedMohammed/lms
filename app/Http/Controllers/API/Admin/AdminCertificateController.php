@@ -101,8 +101,9 @@ class AdminCertificateController extends AdminCrudApiController
             ? json_decode($template->template_settings, true)
             : $template->template_settings;
 
-        $widthPx  = $settings['width']  ?? 800;
-        $heightPx = $settings['height'] ?? 600;
+        $settings = is_array($settings) ? $settings : [];
+        $widthPx  = $settings['width']  ?? 1200;
+        $heightPx = $settings['height'] ?? 800;
         $filename = "{$certificate->course->title}_{$certificate->user->name}.pdf";
         $encodedFilename = rawurlencode($filename);
 

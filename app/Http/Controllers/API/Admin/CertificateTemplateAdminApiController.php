@@ -30,7 +30,10 @@ class CertificateTemplateAdminApiController extends AdminCrudApiController
             return $this->jsonSuccess(__('Certificate template not found, please create one.'), null);
         }
 
-        return $this->jsonSuccess(__('Certificate template retrieved successfully'), $template);
+        return $this->jsonSuccess(
+            __('Certificate template retrieved successfully'),
+            $template->append(['background_image_url', 'signature_image_url'])
+        );
     }
 
     /**
@@ -162,11 +165,13 @@ class CertificateTemplateAdminApiController extends AdminCrudApiController
         }
 
         // Apply any incoming settings over the existing ones
+        $currentSettings = is_string($template->template_settings)
+            ? json_decode($template->template_settings, true)
+            : ($template->template_settings ?? []);
+        $currentSettings = is_array($currentSettings) ? $currentSettings : [];
         $layoutConfig = $request->input('layoutConfig');
         if ($layoutConfig && is_array($layoutConfig)) {
-            $currentSettings = is_string($template->template_settings) ? json_decode($template->template_settings, true) : ($template->template_settings ?? []);
             $currentSettings['layoutConfig'] = $layoutConfig;
-            $template->template_settings = $currentSettings;
         }
 
         // Create dummy certificate

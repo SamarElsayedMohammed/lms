@@ -11199,6 +11199,7 @@ class CourseApiController extends Controller
                     "subtitle" => $certificate->subtitle,
                     "background_image_url" =>
                         $certificate->background_image_url,
+                    "template_settings" => $certificate->template_settings,
                     "signature_image_url" => $certificate->signature_image_url,
                     "signature_text" => $certificate->signature_text,
                     "is_active" => $certificate->is_active,

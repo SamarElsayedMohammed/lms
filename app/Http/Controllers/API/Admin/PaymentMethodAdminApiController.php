@@ -49,6 +49,7 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
             'merchant_code' => 'nullable|string',
             'instructions' => 'nullable|string',
             'logo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'logo_url' => 'nullable|string|max:2048',
             'dynamic_fields' => 'nullable|array',
             'dynamic_fields.*.key' => 'required_with:dynamic_fields|string|max:64|regex:/^[A-Za-z][A-Za-z0-9_]*$/',
             'dynamic_fields.*.label' => 'required_with:dynamic_fields|string|max:255',
@@ -66,7 +67,10 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
 
         if ($request->hasFile('logo')) {
             $data['logo'] = FileService::compressAndUpload($request->file('logo'), $this->methodFolder);
+        } elseif ($request->filled('logo_url')) {
+            $data['logo'] = trim((string) $request->input('logo_url'));
         }
+        unset($data['logo_url']);
 
         $method = PaymentMethod::create($data);
 
@@ -93,6 +97,7 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
             'merchant_code' => 'nullable|string',
             'instructions' => 'nullable|string',
             'logo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'logo_url' => 'nullable|string|max:2048',
             'dynamic_fields' => 'nullable|array',
             'dynamic_fields.*.key' => 'required_with:dynamic_fields|string|max:64|regex:/^[A-Za-z][A-Za-z0-9_]*$/',
             'dynamic_fields.*.label' => 'required_with:dynamic_fields|string|max:255',
@@ -110,7 +115,10 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
 
         if ($request->hasFile('logo')) {
             $data['logo'] = FileService::compressAndReplace($request->file('logo'), $this->methodFolder, $method->getRawOriginal('logo'));
+        } elseif ($request->filled('logo_url')) {
+            $data['logo'] = trim((string) $request->input('logo_url'));
         }
+        unset($data['logo_url']);
 
         $method->update($data);
 

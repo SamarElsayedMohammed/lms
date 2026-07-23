@@ -37,7 +37,7 @@ class CourseProgressService
         }
     }
 
-    public function calculateAndUpdateProgress(int $userId, int $courseId): UserCourseProgress
+    public function calculateAndUpdateProgress(int $userId, int $courseId, bool $touchLastAccessed = true): UserCourseProgress
     {
         $progress = $this->getProgress($userId, $courseId);
         $user = \App\Models\User::find($userId);
@@ -64,15 +64,25 @@ class CourseProgressService
                 default => 'in_progress',
             };
 
-            $progress->update([
+            $attributes = [
                 'completed_items' => $completedItems,
                 'total_items' => $totalItems,
                 'progress_percentage' => $percentage,
                 'status' => $status,
-                'last_accessed_at' => now(),
-            ]);
-            
-            $this->clearCache($userId, $courseId);
+            ];
+            // Recalculation is also performed by read paths such as the dashboard.
+            // A read must not fabricate a course access timestamp.
+            if ($touchLastAccessed) {
+                $attributes['last_accessed_at'] = now();
+            }
+
+            $progress->update($attributes);
+            $progress = $progress->fresh();
+
+            // Store the fresh value before certificate issuance. CertificateService
+            // verifies completion through this service; clearing the cache first
+            // caused a 100% course to recursively calculate itself.
+            Cache::put("user:{$userId}:course:{$courseId}:progress", $progress, self::CACHE_TTL);
 
             if ($percentage == 100) {
                 app(\App\Services\CertificateService::class)->autoGenerateCertificate($userId, $courseId);
@@ -81,7 +91,7 @@ class CourseProgressService
             Log::error('Error calculating progress: ' . $e->getMessage());
         }
 
-        return $progress->exists ? $progress->fresh() : $progress;
+        return $progress;
     }
 
     /**
@@ -93,17 +103,12 @@ class CourseProgressService
 
         return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($userId, $courseId) {
             try {
-                $progress = UserCourseProgress::where('user_id', $userId)
-                    ->where('course_id', $courseId)
-                    ->first();
-
-                if (!$progress) {
-                    return $this->calculateAndUpdateProgress($userId, $courseId);
-                }
-
-                return $progress;
+                // `video_progress` and curriculum tracking are authoritative. A
+                // persisted aggregate can be stale after a player update, so every
+                // cache miss reconciles it instead of returning the old row.
+                return $this->calculateAndUpdateProgress($userId, $courseId, false);
             } catch (\Throwable $e) {
-                return $this->calculateAndUpdateProgress($userId, $courseId);
+                return $this->calculateAndUpdateProgress($userId, $courseId, false);
             }
         });
     }
@@ -186,7 +191,14 @@ class CourseProgressService
     public function getDetailedProgress(int $userId, int $courseId): array
     {
         try {
-            $course = Course::with(['chapters.lectures', 'chapters.quizzes', 'chapters.assignments', 'chapters.resources'])
+            $course = Course::with([
+                'chapters' => static fn ($query) => $query->where('is_active', true)->with([
+                    'lectures' => static fn ($query) => $query->where('is_active', true),
+                    'quizzes' => static fn ($query) => $query->where('is_active', true),
+                    'assignments' => static fn ($query) => $query->where('is_active', true),
+                    'resources' => static fn ($query) => $query->where('is_active', true),
+                ]),
+            ])
                 ->findOrFail($courseId);
         } catch (\Throwable $e) {
             Log::error('Error loading course with relationships: ' . $e->getMessage(), [

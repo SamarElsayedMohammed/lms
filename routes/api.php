@@ -740,6 +740,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'getSettings']);
         Route::put('settings/notifications', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'updateSettings']);
         Route::post('settings/notifications/preview', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'previewEmail']);
+        // Compatibility for deployed admin clients that used the older preview URL.
+        Route::post('notifications/email-preview', [\App\Http\Controllers\API\Admin\NotificationSettingsAdminApiController::class, 'previewEmail']);
         Route::get('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'show']);
         Route::put('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'update']);
         Route::post('settings/firebase', [\App\Http\Controllers\API\Admin\FirebaseSettingsAdminApiController::class, 'update']);

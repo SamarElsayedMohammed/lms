@@ -54,6 +54,7 @@ final class SubscriptionPayment extends Model
         'gateway_response',
         'paid_at',
         'manual_deposit_method_id',
+        'payment_method_id',
         'receipt',
         'admin_notes',
         'amount_egp',

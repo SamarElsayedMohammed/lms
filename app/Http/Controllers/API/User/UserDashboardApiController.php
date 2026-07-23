@@ -225,6 +225,42 @@ class UserDashboardApiController extends Controller
             ->filter()
             ->values();
 
+        $videoActivities = \App\Models\VideoProgress::query()
+            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+            ->where('video_progress.user_id', $user->id)
+            ->whereIn('course_chapters.course_id', $courseIds)
+            ->where('video_progress.watched_seconds', '>', 0)
+            ->select([
+                'video_progress.id',
+                'video_progress.updated_at',
+                'course_chapters.course_id as tracked_course_id',
+            ])
+            ->latest('video_progress.updated_at')
+            ->limit(5)
+            ->get()
+            ->unique('tracked_course_id')
+            ->map(function ($progress) use ($coursesById, $progressByCourseId) {
+                $course = $coursesById->get($progress->tracked_course_id);
+                if (!$course) return null;
+
+                $snapshotProgress = round((float) $progressByCourseId->get($progress->tracked_course_id), 2);
+
+                return [
+                    'id'                  => $course->id,
+                    'title'               => $course->title,
+                    'thumbnail'           => $course->thumbnail,
+                    'image'               => $course->thumbnail,
+                    'progress'            => $snapshotProgress,
+                    'progress_percentage' => $snapshotProgress,
+                    // Query-builder rows expose timestamps as strings, unlike
+                    // Eloquent models used by the other activity sources.
+                    'last_accessed'       => $progress->updated_at,
+                ];
+            })
+            ->filter()
+            ->values();
+
         $fallbackCourses = $courseProgresses
             ->filter(fn($item) => $item['source'] !== 'subscription')
             ->sortByDesc('purchase_date')
@@ -246,6 +282,7 @@ class UserDashboardApiController extends Controller
 
         return $progressActivities
             ->merge($trackingActivities)
+            ->merge($videoActivities)
             ->sortByDesc('last_accessed')
             ->unique('id')
             ->merge($fallbackCourses)

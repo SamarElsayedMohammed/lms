@@ -8,6 +8,8 @@ use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\CourseChapter;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\UserCurriculumTracking;
+use App\Models\UserCourseProgress;
+use App\Models\VideoProgress;
 use App\Services\CourseProgressService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -64,7 +66,7 @@ class CourseProgressServiceTest extends TestCase
         $this->assertEquals(2, $totalItems);
     }
 
-    public function test_calculate_and_update_progress_syncs_with_certificate_service()
+    public function test_calculate_and_update_progress_marks_a_completed_curriculum_as_completed()
     {
         $user = User::factory()->create();
         $course = Course::factory()->create();
@@ -79,9 +81,9 @@ class CourseProgressServiceTest extends TestCase
             'is_active' => 1
         ]);
 
-        // Mock CertificateService to return false (e.g. pending assignment)
+        // Certificate issuance is a side-effect of an authoritative 100% result.
         $this->mock(\App\Services\CertificateService::class, function ($mock) {
-            $mock->shouldReceive('checkCourseCompletionStatus')->andReturn(false);
+            $mock->shouldReceive('autoGenerateCertificate')->once()->andReturn(null);
         });
 
         // Add 100% curriculum tracking
@@ -97,8 +99,48 @@ class CourseProgressServiceTest extends TestCase
 
         $progress = $this->service->calculateAndUpdateProgress($user->id, $course->id);
 
-        // Even though 1/1 items are completed, CertificateService returned false, so cap at 99.99
-        $this->assertEquals(99.99, $progress->progress_percentage);
+        $this->assertEquals(100.0, $progress->progress_percentage);
+        $this->assertEquals('completed', $progress->status);
+    }
+
+    public function test_cached_dashboard_progress_reconciles_stale_aggregate_from_video_progress(): void
+    {
+        $user = User::factory()->create();
+        $course = Course::factory()->create();
+        $chapter = CourseChapter::factory()->create(['course_id' => $course->id, 'is_active' => true]);
+        $lecture = CourseChapterLecture::factory()->create([
+            'course_chapter_id' => $chapter->id,
+            'is_active' => true,
+            'file_type' => 'video',
+            'duration_seconds' => 100,
+        ]);
+
+        $actualAccessAt = now()->subDay()->startOfMinute();
+        UserCourseProgress::create([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'total_items' => 1,
+            'completed_items' => 0,
+            'progress_percentage' => 0,
+            'status' => 'not_started',
+            'last_accessed_at' => $actualAccessAt,
+        ]);
+        VideoProgress::create([
+            'user_id' => $user->id,
+            'lecture_id' => $lecture->id,
+            'watched_seconds' => 25,
+            'total_seconds' => 100,
+            'watch_percentage' => 25,
+            'is_completed' => false,
+        ]);
+
+        Cache::flush();
+        $progress = $this->service->getProgressWithCache($user->id, $course->id);
+
+        $this->assertEquals(25.0, $progress->progress_percentage);
         $this->assertEquals('in_progress', $progress->status);
+        $this->assertEquals(1, $progress->total_items);
+        $this->assertEquals(0, $progress->completed_items);
+        $this->assertTrue($progress->last_accessed_at->equalTo($actualAccessAt));
     }
 }

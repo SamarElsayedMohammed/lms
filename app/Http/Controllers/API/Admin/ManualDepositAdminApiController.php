@@ -52,7 +52,9 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'image_url' => 'nullable|url|max:2048',
+            // Accept absolute, relative, CDN, storage and deep links. Uploaded
+            // images are handled separately by the `image` file rule below.
+            'image_url' => 'nullable|string|max:2048',
             'account_details' => 'nullable|string',
             'is_active' => 'nullable|boolean',
         ]);
@@ -62,7 +64,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         }
 
         $data = $request->only([
-            'name', 'account_details', 'is_active'
+            'name', 'account_details', 'instructions', 'is_active'
         ]);
         
         if ($request->hasFile('image')) {
@@ -89,7 +91,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'image_url' => 'nullable|url|max:2048',
+            'image_url' => 'nullable|string|max:2048',
             'account_details' => 'nullable|string',
             'is_active' => 'nullable|boolean',
         ]);
@@ -99,7 +101,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         }
 
         $data = $request->only([
-            'name', 'account_details', 'is_active'
+            'name', 'account_details', 'instructions', 'is_active'
         ]);
 
         if ($request->hasFile('image')) {
