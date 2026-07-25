@@ -33,6 +33,15 @@ Route::group(['prefix' => 'common'], static function (): void {
 });
 /***************************************************************************************************** */
 
+// Fallback API routes without the /api prefix
+Route::middleware('api')->group(function () {
+    Route::post('user-exists', [\App\Http\Controllers\ApiController::class, 'userExists'])->middleware('throttle:5,1');
+    Route::post('user-signup', [\App\Http\Controllers\ApiController::class, 'userSignup'])->middleware('throttle:5,1');
+    Route::post('user-login', [\App\Http\Controllers\ApiController::class, 'userLogin'])->middleware('throttle:5,1');
+    Route::post('refresh-token', [\App\Http\Controllers\ApiController::class, 'refreshToken'])->middleware('auth:sanctum');
+});
+/***************************************************************************************************** */
+
 // Developer maintenance helpers must never be registered in production.
 if (app()->isLocal()) {
     Route::get('/migrate', static function (): void {
