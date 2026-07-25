@@ -26,6 +26,7 @@ use App\Services\ApiService;
 use App\Services\FileService;
 use App\Services\HelperService;
 use App\Services\Payment\PaymentService;
+use App\Support\RoleManager;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
