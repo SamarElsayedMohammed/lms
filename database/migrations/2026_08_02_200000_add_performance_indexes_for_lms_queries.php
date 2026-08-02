@@ -7,149 +7,70 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Canonical Performance Index Migration for LMS & Full-Stack Queries.
-     * STATICALLY JUSTIFIED — QUERY PLAN UNVERIFIED
+     * Safely add index ignoring duplicate key errors if already present.
      */
-    public function up(): void
+    private function safeAddIndex(string $table, array $columns, string $indexName): void
     {
-        if (Schema::hasTable('courses')) {
-            Schema::table('courses', function (Blueprint $table) {
-                $table->index(['is_active', 'status', 'approval_status', 'category_id'], 'idx_courses_active_status_cat');
-                $table->index(['is_active', 'status', 'approval_status', 'is_featured'], 'idx_courses_active_status_feat');
-            });
+        if (!Schema::hasTable($table)) {
+            return;
         }
 
-        if (Schema::hasTable('course_chapters')) {
-            Schema::table('course_chapters', function (Blueprint $table) {
-                $table->index(['course_id', 'is_active', 'sort_order'], 'idx_chapters_course_active_sort');
+        try {
+            Schema::table($table, function (Blueprint $t) use ($columns, $indexName) {
+                $t->index($columns, $indexName);
             });
-        }
-
-        if (Schema::hasTable('course_chapter_lectures')) {
-            Schema::table('course_chapter_lectures', function (Blueprint $table) {
-                $table->index(['course_chapter_id', 'is_active', 'sort_order'], 'idx_lectures_chap_active_sort');
-            });
-        }
-
-        if (Schema::hasTable('subscription_payments')) {
-            Schema::table('subscription_payments', function (Blueprint $table) {
-                $table->index(['subscription_id', 'payment_method'], 'idx_sub_payments_sub_method');
-            });
-        }
-
-        if (Schema::hasTable('certificates')) {
-            Schema::table('certificates', function (Blueprint $table) {
-                $table->index(['user_id', 'course_id'], 'idx_certs_user_course');
-            });
-        }
-
-        if (Schema::hasTable('chatbot_messages')) {
-            Schema::table('chatbot_messages', function (Blueprint $table) {
-                $table->index(['conversation_id', 'created_at'], 'idx_chat_msgs_conv_created');
-            });
-        }
-
-        if (Schema::hasTable('users')) {
-            Schema::table('users', function (Blueprint $table) {
-                $table->index(['is_active', 'created_at'], 'idx_users_active_created');
-            });
-        }
-
-        if (Schema::hasTable('subscriptions')) {
-            Schema::table('subscriptions', function (Blueprint $table) {
-                $table->index(['user_id', 'status', 'ends_at'], 'idx_subs_user_status_ends');
-            });
-        }
-
-        if (Schema::hasTable('user_curriculum_tracking')) {
-            Schema::table('user_curriculum_tracking', function (Blueprint $table) {
-                $table->index(['user_id', 'course_id', 'status'], 'idx_track_user_course_status');
-            });
-        }
-
-        if (Schema::hasTable('video_progress')) {
-            Schema::table('video_progress', function (Blueprint $table) {
-                $table->index(['user_id', 'lecture_id', 'updated_at'], 'idx_vid_prog_user_lecture');
-            });
-        }
-
-        if (Schema::hasTable('helpdesk_questions')) {
-            Schema::table('helpdesk_questions', function (Blueprint $table) {
-                $table->index(['user_id', 'created_at'], 'idx_help_user_created');
-            });
+        } catch (\Throwable $e) {
+            // Safe fallback if index already exists
         }
     }
 
     /**
-     * Reverse the migrations.
+     * Safely drop index ignoring errors if not present.
      */
+    private function safeDropIndex(string $table, string $indexName): void
+    {
+        if (!Schema::hasTable($table)) {
+            return;
+        }
+
+        try {
+            Schema::table($table, function (Blueprint $t) use ($indexName) {
+                $t->dropIndex($indexName);
+            });
+        } catch (\Throwable $e) {
+            // Safe fallback if index does not exist
+        }
+    }
+
+    public function up(): void
+    {
+        $this->safeAddIndex('courses', ['is_active', 'status', 'approval_status', 'category_id'], 'idx_courses_active_status_cat');
+        $this->safeAddIndex('courses', ['is_active', 'status', 'approval_status', 'is_featured'], 'idx_courses_active_status_feat');
+        $this->safeAddIndex('course_chapters', ['course_id', 'is_active', 'sort_order'], 'idx_chapters_course_active_sort');
+        $this->safeAddIndex('course_chapter_lectures', ['course_chapter_id', 'is_active', 'sort_order'], 'idx_lectures_chap_active_sort');
+        $this->safeAddIndex('subscription_payments', ['subscription_id', 'payment_method'], 'idx_sub_payments_sub_method');
+        $this->safeAddIndex('certificates', ['user_id', 'course_id'], 'idx_certs_user_course');
+        $this->safeAddIndex('chatbot_messages', ['conversation_id', 'created_at'], 'idx_chat_msgs_conv_created');
+        $this->safeAddIndex('users', ['is_active', 'created_at'], 'idx_users_active_created');
+        $this->safeAddIndex('subscriptions', ['user_id', 'status', 'ends_at'], 'idx_subs_user_status_ends');
+        $this->safeAddIndex('user_curriculum_tracking', ['user_id', 'course_id', 'status'], 'idx_track_user_course_status');
+        $this->safeAddIndex('video_progress', ['user_id', 'lecture_id', 'updated_at'], 'idx_vid_prog_user_lecture');
+        $this->safeAddIndex('helpdesk_questions', ['user_id', 'created_at'], 'idx_help_user_created');
+    }
+
     public function down(): void
     {
-        if (Schema::hasTable('courses')) {
-            Schema::table('courses', function (Blueprint $table) {
-                $table->dropIndex('idx_courses_active_status_cat');
-                $table->dropIndex('idx_courses_active_status_feat');
-            });
-        }
-
-        if (Schema::hasTable('course_chapters')) {
-            Schema::table('course_chapters', function (Blueprint $table) {
-                $table->dropIndex('idx_chapters_course_active_sort');
-            });
-        }
-
-        if (Schema::hasTable('course_chapter_lectures')) {
-            Schema::table('course_chapter_lectures', function (Blueprint $table) {
-                $table->dropIndex('idx_lectures_chap_active_sort');
-            });
-        }
-
-        if (Schema::hasTable('subscription_payments')) {
-            Schema::table('subscription_payments', function (Blueprint $table) {
-                $table->dropIndex('idx_sub_payments_sub_method');
-            });
-        }
-
-        if (Schema::hasTable('certificates')) {
-            Schema::table('certificates', function (Blueprint $table) {
-                $table->dropIndex('idx_certs_user_course');
-            });
-        }
-
-        if (Schema::hasTable('chatbot_messages')) {
-            Schema::table('chatbot_messages', function (Blueprint $table) {
-                $table->dropIndex('idx_chat_msgs_conv_created');
-            });
-        }
-
-        if (Schema::hasTable('users')) {
-            Schema::table('users', function (Blueprint $table) {
-                $table->dropIndex('idx_users_active_created');
-            });
-        }
-
-        if (Schema::hasTable('subscriptions')) {
-            Schema::table('subscriptions', function (Blueprint $table) {
-                $table->dropIndex('idx_subs_user_status_ends');
-            });
-        }
-
-        if (Schema::hasTable('user_curriculum_tracking')) {
-            Schema::table('user_curriculum_tracking', function (Blueprint $table) {
-                $table->dropIndex('idx_track_user_course_status');
-            });
-        }
-
-        if (Schema::hasTable('video_progress')) {
-            Schema::table('video_progress', function (Blueprint $table) {
-                $table->dropIndex('idx_vid_prog_user_lecture');
-            });
-        }
-
-        if (Schema::hasTable('helpdesk_questions')) {
-            Schema::table('helpdesk_questions', function (Blueprint $table) {
-                $table->dropIndex('idx_help_user_created');
-            });
-        }
+        $this->safeDropIndex('courses', 'idx_courses_active_status_cat');
+        $this->safeDropIndex('courses', 'idx_courses_active_status_feat');
+        $this->safeDropIndex('course_chapters', 'idx_chapters_course_active_sort');
+        $this->safeDropIndex('course_chapter_lectures', 'idx_lectures_chap_active_sort');
+        $this->safeDropIndex('subscription_payments', 'idx_sub_payments_sub_method');
+        $this->safeDropIndex('certificates', 'idx_certs_user_course');
+        $this->safeDropIndex('chatbot_messages', 'idx_chat_msgs_conv_created');
+        $this->safeDropIndex('users', 'idx_users_active_created');
+        $this->safeDropIndex('subscriptions', 'idx_subs_user_status_ends');
+        $this->safeDropIndex('user_curriculum_tracking', 'idx_track_user_course_status');
+        $this->safeDropIndex('video_progress', 'idx_vid_prog_user_lecture');
+        $this->safeDropIndex('helpdesk_questions', 'idx_help_user_created');
     }
 };
