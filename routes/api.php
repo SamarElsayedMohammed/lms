@@ -50,15 +50,7 @@ use Illuminate\Support\Facades\Route;
  * User Authentication APIs
  */
 
-Route::get('version', function () {
-    return response()->json([
-        'success' => true,
-        'app' => 'Skillso Backend',
-        'version' => '2.0.0-auth-v2',
-        'backend_commit' => trim(@file_get_contents(base_path('COMMIT_SHA')) ?: 'v2-repair'),
-        'timestamp' => date('c'),
-    ])->header('X-Backend-Commit', 'v2-repair');
-});
+Route::get('version', [ApiController::class, 'version']);
 
 Route::post('user-exists', [ApiController::class, 'userExists'])->middleware('throttle:5,1');
 Route::post('user-signup', [ApiController::class, 'userSignup'])->middleware('throttle:5,1');

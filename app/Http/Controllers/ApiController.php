@@ -47,6 +47,15 @@ class ApiController extends Controller
         if (array_key_exists('HTTP_AUTHORIZATION', $_SERVER) && !empty($_SERVER['HTTP_AUTHORIZATION'])) {
             $this->middleware('auth:sanctum');
         }
+    public function version()
+    {
+        return response()->json([
+            'success' => true,
+            'app' => 'Skillso Backend',
+            'version' => '2.0.0-auth-v2',
+            'backend_commit' => trim(@file_get_contents(base_path('COMMIT_SHA')) ?: 'v2-repair'),
+            'timestamp' => date('c'),
+        ])->header('X-Backend-Commit', 'v2-repair');
     }
 
     public function userExists(Request $request)
