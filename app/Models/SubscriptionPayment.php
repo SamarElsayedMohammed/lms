@@ -99,11 +99,19 @@ final class SubscriptionPayment extends Model
     }
 
     /**
-     * Get the manual deposit method used
+     * Get the manual deposit method used (legacy)
      */
     public function manualDepositMethod(): BelongsTo
     {
         return $this->belongsTo(ManualDepositMethod::class, 'manual_deposit_method_id');
+    }
+
+    /**
+     * Get the payment method used
+     */
+    public function paymentMethod(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class, 'payment_method_id');
     }
 
     /**

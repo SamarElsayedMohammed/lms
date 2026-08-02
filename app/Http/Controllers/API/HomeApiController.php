@@ -30,36 +30,34 @@ class HomeApiController extends Controller
     public function getCounts(Request $request)
     {
         try {
-            // Count active courses that have at least one active chapter
-            $courseCount = Course::where('is_active', 1)
-                ->whereHas('chapters', static function ($query): void {
-                    $query->where('is_active', 1);
+            $data = \App\Services\CachingService::cacheRemember('home_public_counts', static function () {
+                $courseCount = Course::where('is_active', 1)
+                    ->whereHas('chapters', static function ($query): void {
+                        $query->where('is_active', 1);
+                    })
+                    ->count();
+
+                $instructorCount = Instructor::where('status', 'approved')
+                    ->whereIn('user_id', static function ($query): void {
+                        $query->select('user_id')->from('courses')->whereNotNull('user_id');
+                    })
+                    ->count();
+
+                $studentEnrollCount = User::whereHas('orders', static function ($query): void {
+                    $query->where('status', 'completed')->whereHas('orderCourses');
                 })
-                ->count();
+                    ->distinct()
+                    ->count();
 
-            // Count active instructors who have at least one course with a user_id
-            $instructorCount = Instructor::where('status', 'approved')
-                ->whereIn('user_id', static function ($query): void {
-                    $query->select('user_id')->from('courses')->whereNotNull('user_id');
-                })
-                ->count();
+                $positiveFeedbackCount = Rating::whereIn('rating', [4, 5])->count();
 
-            // Count enrolled students (distinct users who have completed orders)
-            $studentEnrollCount = User::whereHas('orders', static function ($query): void {
-                $query->where('status', 'completed')->whereHas('orderCourses');
-            })
-                ->distinct()
-                ->count();
-
-            // Count positive feedback (ratings with 4 or 5 stars)
-            $positiveFeedbackCount = Rating::whereIn('rating', [4, 5])->count();
-
-            $data = [
-                'course_count' => $courseCount,
-                'instructor_count' => $instructorCount,
-                'student_enroll_count' => $studentEnrollCount,
-                'positive_feedback_count' => $positiveFeedbackCount,
-            ];
+                return [
+                    'course_count' => $courseCount,
+                    'instructor_count' => $instructorCount,
+                    'student_enroll_count' => $studentEnrollCount,
+                    'positive_feedback_count' => $positiveFeedbackCount,
+                ];
+            }, 600);
 
             return ApiResponseService::successResponse('Counts retrieved successfully.', $data);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

@@ -250,7 +250,14 @@ class CourseProgressService
                 $isCompleted = $requiresVerifiedTracking
                     ? (bool) ($video?->is_completed ?? false)
                     : $track?->status === 'completed';
-                $watchPercentage = $video?->watch_percentage ?? 0;
+                $watchPercentage = min(100.0, max(0.0, (float) ($video?->watch_percentage ?? 0)));
+                $durationSeconds = max(0, (int) ($lecture->duration_seconds ?? 0));
+                $storedVideoDuration = max(0, (int) ($video?->total_seconds ?? 0));
+                $durationLimit = $durationSeconds > 0 ? $durationSeconds : $storedVideoDuration;
+                $watchedSeconds = max(0, (int) ($video?->watched_seconds ?? 0));
+                if ($durationLimit > 0) {
+                    $watchedSeconds = min($watchedSeconds, $durationLimit);
+                }
 
                 if ($isCompleted) {
                     $completedItems++;
@@ -274,9 +281,9 @@ class CourseProgressService
                     'title' => $lecture->title,
                     'status' => $isCompleted ? 'completed' : ($video?->watched_seconds > 0 ? 'in_progress' : 'not_started'),
                     'completed_at' => $track?->completed_at?->format('Y-m-d H:i:s'),
-                    'watch_percentage' => $video?->watch_percentage ?? 0,
-                    'duration_seconds' => $lecture->duration_seconds ?? 0,
-                    'watched_seconds' => $video?->watched_seconds ?? 0,
+                    'watch_percentage' => $watchPercentage,
+                    'duration_seconds' => $durationSeconds,
+                    'watched_seconds' => $watchedSeconds,
                 ];
             }
 
@@ -387,7 +394,9 @@ class CourseProgressService
                 'id' => $course->id,
                 'name' => $course->name,
                 'thumbnail' => $course->thumbnail,
-                'progress_percentage' => $totalItems > 0 ? round(($rawProgressScore / $totalItems) * 100, 2) : 0,
+                'progress_percentage' => $totalItems > 0
+                    ? min(100.0, max(0.0, round(($rawProgressScore / $totalItems) * 100, 2)))
+                    : 0,
                 'status' => $completedItems === 0 ? 'not_started' : ($completedItems === $totalItems ? 'completed' : 'in_progress'),
             ],
             'chapters' => $chaptersData,

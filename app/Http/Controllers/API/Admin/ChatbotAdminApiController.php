@@ -541,6 +541,32 @@ class ChatbotAdminApiController extends AdminCrudApiController
         return $this->jsonSuccess(__('Knowledge base entry activated successfully'), $entry->fresh());
     }
 
+    /**
+     * Reindex a knowledge base entry
+     */
+    public function reindexKnowledge(int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        $entry = ChatbotKnowledgeBase::find($id);
+        if (!$entry) {
+            return $this->jsonError(__('Knowledge base entry not found'), 404);
+        }
+
+        $entry->update([
+            'processing_status' => 'queued',
+            'failure_reason' => null,
+        ]);
+
+        \App\Jobs\ProcessKnowledgeIngestionJob::dispatch(
+            $entry->id,
+            $entry->course_id,
+            $entry->target_audience === 'visitor' ? 'visitor' : 'course'
+        );
+
+        return $this->jsonSuccess(__('Knowledge base reindexing queued successfully'), $entry->fresh());
+    }
+
     // ==========================================
     // Course Knowledge Management
     // ==========================================
@@ -554,7 +580,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'course_id' => 'required|integer|exists:courses,id',
-            'file' => 'required|file|mimes:txt,csv,json|max:10240',
+            'file' => 'required|file|mimes:txt,csv,json,pdf,docx,md|max:10240',
         ]);
 
         if ($validator->fails()) {
@@ -567,8 +593,6 @@ class ChatbotAdminApiController extends AdminCrudApiController
             $file = $request->file('file');
             $courseId = (int) $request->input('course_id');
 
-            // Read text content
-            $content = file_get_contents($file->getRealPath());
             $filePath = FileService::upload($file, 'chatbot/course-knowledge');
             $fileType = $file->getClientOriginalExtension();
 
@@ -577,20 +601,22 @@ class ChatbotAdminApiController extends AdminCrudApiController
                 ['course_id' => $courseId, 'target_audience' => 'course'],
                 [
                     'title' => $file->getClientOriginalName(),
-                    'content' => $content,
                     'file_path' => $filePath,
                     'file_type' => $fileType,
                     'is_active' => true,
+                    'processing_status' => 'queued',
                 ]
             );
 
-            // Also update the course's ai_knowledge_content field so processCourseMessage works
             \App\Models\Course\Course::where('id', $courseId)->update([
-                'ai_knowledge_content' => $content,
                 'chatbot_enabled' => true,
+                'ai_processing_status' => 'queued',
             ]);
 
             DB::commit();
+
+            // Dispatch async ingestion job
+            \App\Jobs\ProcessKnowledgeIngestionJob::dispatch($entry->id, $courseId, 'course');
 
             return $this->jsonSuccess(__('Course knowledge file uploaded successfully'), $entry, 201);
         } catch (\Throwable $e) {

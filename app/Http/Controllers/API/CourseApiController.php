@@ -7281,6 +7281,21 @@ class CourseApiController extends Controller
                 );
             }
 
+            $user = Auth::user();
+            if ($user === null) {
+                return ApiResponseService::errorResponse('User not authenticated.', null, 401);
+            }
+
+            $courseOwnerId = $attempt->quiz?->chapter?->course?->user_id;
+            $isAttemptOwner = (int) $attempt->user_id === (int) $user->id;
+            $isCourseInstructor = $courseOwnerId !== null && (int) $courseOwnerId === (int) $user->id;
+            $isStaff = method_exists($user, 'hasAnyRole')
+                && $user->hasAnyRole(['Super Admin', 'Supervisor', 'Staff']);
+
+            if (!$isAttemptOwner && !$isCourseInstructor && !$isStaff) {
+                return ApiResponseService::errorResponse('You are not allowed to view this quiz attempt.', null, 403);
+            }
+
             // Get detailed question data
             $questions = [];
 
@@ -7359,6 +7374,15 @@ class CourseApiController extends Controller
 
             // If no real data, provide sample data like in the image
             if (empty($questions)) {
+                // Never substitute fabricated answers for an incomplete or
+                // malformed persisted attempt. The caller must see the real
+                // failure state instead of a false successful quiz result.
+                return ApiResponseService::errorResponse(
+                    'Quiz attempt does not contain answer data.',
+                    null,
+                    422,
+                );
+
                 $questions = [
                     [
                         "question_number" => 1,

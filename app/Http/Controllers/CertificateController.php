@@ -106,6 +106,90 @@ class CertificateController extends Controller
     }
 
     /**
+     * Check certificate eligibility and return detailed completion DTO.
+     * GET /api/certificate/course/eligibility?course_id=123
+     */
+    public function checkEligibility(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'course_id' => 'required|exists:courses,id',
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors());
+        }
+
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse(__('User not authenticated.'), null, 401);
+        }
+
+        $courseId = (int) $request->input('course_id');
+        $course = Course::find($courseId);
+
+        if (!$course) {
+            return ApiResponseService::errorResponse(__('Course not found.'), null, 404);
+        }
+
+        $isEnrolled = CourseCertificate::userIsEnrolled($user->id, $courseId);
+        if (!$isEnrolled) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'eligible' => false,
+                    'reason_code' => 'enrollment_required',
+                    'course_progress' => 0,
+                    'completed_lessons' => 0,
+                    'total_lessons' => 0,
+                    'remaining_lessons' => 0,
+                    'certificate_issued' => false,
+                    'message_ar' => 'يجب التسجيل أو الاشتراك في الكورس أولاً لفتح الشهادة.',
+                ],
+            ]);
+        }
+
+        $progressData = app(\App\Services\CourseProgressService::class)->getDetailedProgress($user->id, $courseId);
+        $totalItems = $progressData['summary']['total_items'] ?? 0;
+        $completedItems = $progressData['summary']['completed_items'] ?? 0;
+        $progressPct = $progressData['course']['progress_percentage'] ?? 0;
+        $remainingItems = max(0, $totalItems - $completedItems);
+
+        $isCompleted = $this->isCourseCompleted($user->id, $courseId);
+        $existingCert = Certificate::where('user_id', $user->id)
+            ->where('course_id', $courseId)
+            ->where('status', 'active')
+            ->first();
+
+        $eligible = $isCompleted && ($progressPct >= 90 || $completedItems >= $totalItems);
+        $reasonCode = $eligible
+            ? 'eligible'
+            : ($progressPct > 0 ? 'course_incomplete' : 'not_started');
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'eligible' => $eligible,
+                'reason_code' => $reasonCode,
+                'course_progress' => round($progressPct, 1),
+                'completed_lessons' => $completedItems,
+                'total_lessons' => $totalItems,
+                'remaining_lessons' => $remainingItems,
+                'certificate_issued' => (bool) $existingCert,
+                'certificate_number' => $existingCert?->certificate_number,
+                'issued_at' => $existingCert?->issued_date?->format('Y-m-d'),
+                'all_curriculum_completed' => $eligible,
+                'all_assignments_submitted' => true,
+                'certificate' => 'free',
+                'certificate_fee_paid' => true,
+                'student_name' => $user->name,
+                'instructor_name' => $course->user->name ?? 'Instructor',
+                'course_name_ar' => $course->title,
+                'course_name_en' => $course->title,
+            ],
+        ]);
+    }
+
+    /**
      * View certificate HTML for a course.
      */
     public function view(Request $request)
@@ -419,240 +503,13 @@ class CertificateController extends Controller
      */
     private function generateCertificateHtml($template, $certificate)
     {
-        $settings = is_string($template->template_settings)
+        $settings = is_string($template?->template_settings)
             ? json_decode($template->template_settings, true)
-            : $template->template_settings;
+            : ($template?->template_settings ?? []);
 
         $settings = is_array($settings) ? $settings : [];
         $canvasWidth = $settings['width'] ?? 1200;
         $canvasHeight = $settings['height'] ?? 800;
-
-        $replacements = [
-            '[Student Name]' => $certificate->user->name ?? '',
-            '[Course Name]' => $certificate->course->title ?? '',
-            '[Completion Date]' => \Carbon\Carbon::parse($certificate->issued_date)->format('F d, Y'),
-            '[Certificate Number]' => $certificate->certificate_number,
-            '{{certificate_number}}' => $certificate->certificate_number,
-            '{{student_name}}' => $certificate->user->name ?? '',
-            '{{course_name}}' => $certificate->course->title ?? '',
-            '{{completion_date}}' => \Carbon\Carbon::parse($certificate->issued_date)->format('F d, Y'),
-            '{{signature_text}}' => $template->signature_text ?? '',
-            '{{certificate_title}}' => $template->title ?? '',
-            '{{certificate_subtitle}}' => $template->subtitle ?? '',
-        ];
-
-        $html =
-            '
-    <!DOCTYPE html>
-    <html dir="rtl" lang="ar">
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            *{margin:0;padding:0;box-sizing:border-box;}
-            body{
-                width:'
-            . $canvasWidth
-            . 'px;
-                height:'
-            . $canvasHeight
-            . 'px;
-                background-image:url("'
-            . asset('storage/' . $template->background_image)
-            . '");
-                background-size:cover;
-                background-repeat:no-repeat;
-                position:relative;
-                overflow:hidden;
-                font-family:Arial, sans-serif;
-            }
-            .element{position:absolute;word-wrap:break-word;}
-        </style>
-    </head>
-    <body>
-    ';
-
-        if (isset($settings['layoutConfig']) && is_array($settings['layoutConfig'])) {
-            // NEW REACT FORMAT (CertificateLayoutConfig)
-            $qrConfig = null;
-            
-            foreach ($settings['layoutConfig'] as $fieldKey => $element) {
-                // Ignore hidden fields
-                if (isset($element['visible']) && !$element['visible']) {
-                    continue;
-                }
-
-                $content = '';
-                switch ($fieldKey) {
-                    case 'studentName':
-                        $content = $certificate->user->name ?? $certificate->student_name ?? '';
-                        break;
-                    case 'courseTitle':
-                        $content = $certificate->course->title ?? $certificate->arabic_title ?? '';
-                        break;
-                    case 'date':
-                        $content = \Carbon\Carbon::parse($certificate->issued_date ?? now())->format('Y-m-d');
-                        break;
-                    case 'instructorName':
-                        $content = $certificate->course->user->name ?? $certificate->instructor_name ?? '';
-                        break;
-                    case 'certificateId':
-                        $content = $certificate->certificate_number;
-                        break;
-                    case 'qrCode':
-                        // Save QR config to process later
-                        $qrConfig = $element;
-                        continue 2;
-                }
-
-                $styleString = "left:{$element['x']}px;top:{$element['y']}px;width:{$element['width']}px;height:{$element['height']}px;";
-                if (isset($element['fontSize'])) {
-                    // Responsive sizing roughly equivalent to React layout
-                    $styleString .= "font-size:{$element['fontSize']}px;";
-                }
-                if (!empty($element['color'])) {
-                    $styleString .= "color:{$element['color']};";
-                }
-                if (!empty($element['textAlign'])) {
-                    $styleString .= "text-align:{$element['textAlign']};";
-                }
-
-                // Make sure text wraps and fits the container
-                $styleString .= "display:flex;align-items:center;justify-content:{$element['textAlign']};";
-
-                $html .= "<div class='element' style='position:absolute;{$styleString}'>{$content}</div>";
-            }
-
-            // Render QR Code based on new config
-            if ($qrConfig && (!isset($qrConfig['visible']) || $qrConfig['visible'])) {
-                // QR URL always uses the unguessable verification_token
-                $verifyUrl = $certificate->verification_url
-                    ?: url('/certificates/verify/' . ($certificate->verification_token ?: $certificate->verification_code));
-                try {
-                    $result = (new \Endroid\QrCode\Builder\Builder(data: $verifyUrl, size: 150))->build();
-                    $qrPng = $result->getString();
-                    $qrDataUri = 'data:' . $result->getMimeType() . ';base64,' . base64_encode($qrPng);
-                    $qrX = $qrConfig['x'] ?? ($canvasWidth - 180);
-                    $qrY = $qrConfig['y'] ?? ($canvasHeight - 180);
-                    $qrWidth = $qrConfig['width'] ?? 80;
-                    $qrHeight = $qrConfig['height'] ?? 80;
-                    $html .= "<div style='position:absolute;left:{$qrX}px;top:{$qrY}px;width:{$qrWidth}px;height:{$qrHeight}px;'><img src='{$qrDataUri}' style='width:100%;height:100%;'></div>";
-                } catch (\Throwable $e) {
-                    // QR generation optional
-                }
-            }
-        } elseif (isset($settings['elements']) && is_array($settings['elements'])) {
-            // OLD FORMAT (Legacy elements array)
-            foreach ($settings['elements'] as $element) {
-                $content = $element['content'] ?? '';
-                $content = str_replace(array_keys($replacements), array_values($replacements), $content);
-
-                $styles = $element['styles'] ?? [];
-                $styleString = "left:{$element['x']}px;top:{$element['y']}px;";
-                if (isset($styles['fontSize'])) {
-                    $styleString .= "font-size:{$styles['fontSize']};";
-                }
-                if (isset($styles['color'])) {
-                    $styleString .= "color:{$styles['color']};";
-                }
-                if (isset($styles['fontWeight'])) {
-                    $styleString .= "font-weight:{$styles['fontWeight']};";
-                }
-                if (isset($styles['fontFamily'])) {
-                    $styleString .= "font-family:{$styles['fontFamily']};";
-                }
-                if (isset($styles['textAlign'])) {
-                    $styleString .= "text-align:{$styles['textAlign']};";
-                }
-
-                if (($element['type'] ?? '') === 'image') {
-                    $x = $element['x'] ?? 0;
-                    $y = $element['y'] ?? 0;
-                    $width = $element['width'] ?? 150;
-                    $height = $element['height'] ?? 60;
-
-                    $x = is_numeric($x) ? (float) $x : 0;
-                    $y = is_numeric($y) ? (float) $y : 0;
-                    $width = is_numeric($width) ? (float) $width : 150;
-                    $height = is_numeric($height) ? (float) $height : 60;
-
-                    $imgSrc = str_starts_with((string) $element['content'], 'http')
-                        ? $element['content']
-                        : asset('storage/' . $element['content']);
-
-                    $html .= "<div class='element' style='position:absolute; left:{$x}px; top:{$y}px; 
-                            width:{$width}px; height:{$height}px;'>
-                            <img src='{$imgSrc}' style='width:100%; height:100%; object-fit:contain;'>
-                          </div>";
-                } else {
-                    $html .= "<div class='element' style='position:absolute;{$styleString}width:{$element['width']}px;height:{$element['height']}px;'>{$content}</div>";
-                }
-            }
-
-            // Legacy QR Add — uses verification_token for security
-            $verifyUrl = $certificate->verification_url
-                ?: url('/certificates/verify/' . ($certificate->verification_token ?: $certificate->verification_code));
-            try {
-                $result = (new \Endroid\QrCode\Builder\Builder(data: $verifyUrl, size: 150))->build();
-                $qrPng = $result->getString();
-                $qrDataUri = 'data:' . $result->getMimeType() . ';base64,' . base64_encode($qrPng);
-                $qrX = $canvasWidth - 180;
-                $qrY = $canvasHeight - 180;
-                $html .= "<div style='position:absolute;left:{$qrX}px;top:{$qrY}px;width:150px;height:150px;'><img src='{$qrDataUri}' style='width:100%;height:100%;'></div>";
-            } catch (\Throwable $e) {}
-        }
-
-        // Add signature image manually if not already in template
-        if ($template->signature_image) {
-            $sigX = $canvasWidth - 210; // default fallback right offset
-            $sigY = $canvasHeight - 140; // default fallback bottom offset
-            $sigWidth = 150;
-            $sigHeight = 60;
-
-            if (isset($settings['elements']) && is_array($settings['elements'])) {
-                foreach ($settings['elements'] as $el) {
-                    if (!(isset($el['type']) && strtolower((string) $el['type']) === 'signature')) {
-                        continue;
-                    }
-                    $sigX = $el['x'] ?? $sigX;
-                    $sigY = $el['y'] ?? $sigY;
-                    $sigWidth = $el['width'] ?? $sigWidth;
-                    $sigHeight = $el['height'] ?? $sigHeight;
-                    break;
-                }
-            }
-
-            $html .=
-                '
-            <div style="position:absolute;
-                        left:'
-                . $sigX
-                . 'px;
-                        top:'
-                . $sigY
-                . 'px;
-                        width:'
-                . $sigWidth
-                . 'px;
-                        height:'
-                . $sigHeight
-                . 'px;">
-                <img src="'
-                . asset('storage/' . $template->signature_image)
-                . '" 
-                     style="width:100%;
-                            height:100%;
-                            object-fit:contain;">
-            </div>';
-        }
-
-        $html .= '</body></html>';
-
-        return $html;
-    }
-
-    /**
-     * Clean HTML content while preserving HTML structure
-     */
     private function cleanHtmlContent($html)
     {
         if (empty($html) || !is_string($html)) {

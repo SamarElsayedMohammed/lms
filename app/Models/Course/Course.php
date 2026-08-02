@@ -54,6 +54,11 @@ class Course extends Model
         'chatbot_welcome_message',
         'chatbot_system_prompt',
         'chatbot_max_tokens',
+        'ai_processing_status',
+        'ai_chunk_count',
+        'ai_indexed_at',
+        'ai_failed_at',
+        'ai_failure_reason',
         'initial_views',
         'initial_students',
         'initial_rating',
@@ -431,5 +436,38 @@ class Course extends Model
             'duration_seconds' => $totalDuration,
             'lectures_count' => $totalLectures,
         ]);
+    }
+
+    /**
+     * Authoritative course entitlement check for subscriber course assistant and course access.
+     */
+    public function isUserEntitled(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        // Admin / Super-admin bypass
+        if ($user->getIsAdminAttribute() || $user->hasRole(['admin', 'super-admin', 'Super Admin', 'Admin'])) {
+            return true;
+        }
+
+        // Instructor ownership
+        if ($this->instructor_id && $user->id === (int) $this->instructor_id) {
+            return true;
+        }
+
+        // Free course
+        if ($this->isFreeNow()) {
+            return true;
+        }
+
+        // Active subscription
+        if ($user->activeSubscription()->exists()) {
+            return true;
+        }
+
+        // Direct purchase or manual/admin enrollment
+        return $this->getActiveStudentsQuery()->where('users.id', $user->id)->exists();
     }
 }

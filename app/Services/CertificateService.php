@@ -53,6 +53,13 @@ class CertificateService
                 return null;
             }
 
+            // Keep every issuance entry point aligned with the controller
+            // contract. Course completion by itself is not an entitlement to
+            // a certificate; the user must have a completed course enrollment.
+            if (!CourseCertificate::userIsEnrolled($userId, $courseId)) {
+                return null;
+            }
+
             if (!$this->checkCourseCompletionStatus($userId, $courseId)) {
                 return null;
             }

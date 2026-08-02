@@ -12,6 +12,7 @@ use App\Models\RefundRequest;
 use App\Models\UserCurriculumTracking;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Services\ApiResponseService;
+use App\Services\ContentAccessService;
 use App\Services\FeatureFlagService;
 use App\Services\FileService;
 use Illuminate\Http\Request;
@@ -22,7 +23,8 @@ use Throwable;
 class CourseChapterApiController extends Controller
 {
     public function __construct(
-        private readonly FeatureFlagService $featureFlagService
+        private readonly FeatureFlagService $featureFlagService,
+        private readonly ContentAccessService $contentAccessService,
     ) {}
 
     /**
@@ -409,16 +411,14 @@ class CourseChapterApiController extends Controller
                 return ApiResponseService::validationError('Course not found or not available');
             }
 
-            // Get user's curriculum completion tracking data
+            // Resolve access through the same server-side service used for
+            // playback. A completed course order is a valid entitlement even
+            // when the learner has no active subscription.
+            $isPurchased = $user !== null
+                && app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $course);
             $userCurriculumTracking = [];
-            $isPurchased = false;
-            
-            if ($user) {
-                // Check active subscription
-                if ($user->activeSubscription()->exists()) {
-                    $isPurchased = true;
-                }
 
+            if ($user && $isPurchased) {
                 $chapterIds = $course->chapters->pluck('id')->toArray();
                 $userCurriculumTracking = UserCurriculumTracking::where('user_id', $user->id)
                     ->whereIn('course_chapter_id', $chapterIds)
@@ -426,11 +426,6 @@ class CourseChapterApiController extends Controller
                     ->groupBy(
                         static fn($item) => $item->course_chapter_id . '_' . $item->model_type . '_' . $item->model_id,
                     );
-            }
-
-            // Automatically grant access if course is free or user is the instructor
-            if ($course->course_type === 'free' || ($user && $course->user_id == $user->id)) {
-                $isPurchased = true;
             }
 
             // Helper function to check if curriculum item is completed
@@ -1040,6 +1035,26 @@ class CourseChapterApiController extends Controller
                 'message' => 'Lecture not found',
                 'code' => 404,
             ], 404);
+        }
+
+        $user = Auth::user();
+        if ($user === null) {
+            return response()->json([
+                'error' => true,
+                'message' => 'User not authenticated',
+                'code' => 401,
+            ], 401);
+        }
+
+        // Attachments are course content, not merely metadata. Do not expose
+        // their filenames or storage URLs to an authenticated but unentitled
+        // user.
+        if (!$this->contentAccessService->canAccessLecture($user, $lecture)) {
+            return response()->json([
+                'error' => true,
+                'message' => 'Course access required',
+                'code' => 403,
+            ], 403);
         }
 
         $attachments = $lecture->attachments->map(fn ($a) => [

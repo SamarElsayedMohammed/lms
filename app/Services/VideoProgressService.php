@@ -51,6 +51,12 @@ class VideoProgressService
         int $totalSeconds,
         array $metadata = []
     ): VideoProgress {
+        // Normalize client supplied playback values before applying any
+        // anti-cheat or completion logic. The server must never persist a
+        // watched time or position beyond the canonical video duration.
+        $totalSeconds = max(0, $totalSeconds);
+        $watchedSeconds = min(max(0, $watchedSeconds), $totalSeconds);
+        $lastPosition = min(max(0, $lastPosition), $totalSeconds);
         $existing = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
 
         // Anti-Cheat: Validate realistic watch time
@@ -93,12 +99,15 @@ class VideoProgressService
 
         Cache::put($cacheKey, $now, 3600);
 
-        $effectiveWatched = $existing !== null
-            ? max($existing->watched_seconds, $watchedSeconds)
-            : $watchedSeconds;
+        $effectiveWatched = min(
+            $totalSeconds,
+            $existing !== null
+                ? max(0, max($existing->watched_seconds, $watchedSeconds))
+                : $watchedSeconds,
+        );
 
         $watchPercentage = $totalSeconds > 0
-            ? round(($effectiveWatched / $totalSeconds) * 100, 2)
+            ? min(100.0, max(0.0, round(($effectiveWatched / $totalSeconds) * 100, 2)))
             : 0;
 
         $wasAlreadyCompleted = $existing !== null && $existing->is_completed;

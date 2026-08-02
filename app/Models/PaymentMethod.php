@@ -18,17 +18,29 @@ class PaymentMethod extends Model
         'logo',
         'account_name',
         'account_number',
+        'bank_name',
+        'iban',
         'instapay_id',
         'merchant_code',
         'instructions',
         'dynamic_fields',
         'sort_order',
+        'countries',
+        'currencies',
+        'require_receipt',
+        'min_amount',
+        'max_amount',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'require_receipt' => 'boolean',
         'dynamic_fields' => 'array',
+        'countries' => 'array',
+        'currencies' => 'array',
         'sort_order' => 'integer',
+        'min_amount' => 'float',
+        'max_amount' => 'float',
     ];
 
     protected static function boot()
@@ -49,4 +61,19 @@ class PaymentMethod extends Model
         }
         return null;
     }
+
+    public function toStructuredAccountDetails(): array
+    {
+        return [
+            'type' => $this->type,
+            'account_name' => $this->account_name,
+            'account_number' => $this->account_number,
+            'bank_name' => $this->bank_name,
+            'iban' => $this->iban,
+            'instapay_id' => $this->instapay_id,
+            'merchant_code' => $this->merchant_code,
+            'additional_details' => [],
+        ];
+    }
 }
+

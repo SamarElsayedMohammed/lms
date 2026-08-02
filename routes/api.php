@@ -50,6 +50,16 @@ use Illuminate\Support\Facades\Route;
  * User Authentication APIs
  */
 
+Route::get('version', function () {
+    return response()->json([
+        'success' => true,
+        'app' => 'Skillso Backend',
+        'version' => '2.0.0-auth-v2',
+        'backend_commit' => trim(@file_get_contents(base_path('COMMIT_SHA')) ?: 'v2-repair'),
+        'timestamp' => date('c'),
+    ])->header('X-Backend-Commit', 'v2-repair');
+});
+
 Route::post('user-exists', [ApiController::class, 'userExists'])->middleware('throttle:5,1');
 Route::post('user-signup', [ApiController::class, 'userSignup'])->middleware('throttle:5,1');
 Route::post('user-login', [ApiController::class, 'userLogin'])->middleware('throttle:5,1');
@@ -90,6 +100,7 @@ Route::prefix('chatbot')->group(function (): void {
  */
 
 Route::get('categories', [ApiController::class, 'getCategories']); // Get Categories
+Route::get('get-categories-with-course-count', [ApiController::class, 'getCategories']); // Get Categories Alias
 Route::get('get-custom-form-fields', [ApiController::class, 'getCustomFormFields']); // Get Custom Form Fields
 Route::get('active-popup', [\App\Http\Controllers\API\PopupCampaignApiController::class, 'getActiveCampaign']); // Get active popup campaign
 
@@ -499,6 +510,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     //Certificate
     Route::group(['prefix' => 'certificate'], function (): void {
         Route::get('/course/generate', [CertificateController::class, 'getCertificate']); // Get/Check certificate for course
+        Route::get('/course/eligibility', [CertificateController::class, 'checkEligibility']); // Get detailed eligibility DTO
         Route::get('/course/view', [CertificateController::class, 'view']); // View certificate HTML
         Route::match(['get', 'post'], '/course/download', [CertificateController::class, 'download'])->middleware('throttle:10,1'); // Generate and download certificate PDF
         Route::post('/quiz/generate', [CertificateController::class, 'generateQuizCertificate']);
@@ -956,11 +968,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         });
 
         // Manual Subscription Management (Admin)
-        Route::prefix('manual-subscriptions')->group(function (): void {
-            Route::get('/', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'index']);
-            Route::get('{id}/receipt', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'downloadReceipt']);
-            Route::post('{id}/approve', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'approve']);
-            Route::post('{id}/reject', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'reject']);
+        Route::prefix('manual-subscriptions')->name('admin.manual-subscriptions.')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'index'])->name('index');
+            Route::get('{id}', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'show'])->name('show');
+            Route::get('{id}/receipt', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'downloadReceipt'])->name('receipt');
+            Route::post('{id}/approve', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'approve'])->name('approve');
+            Route::post('{id}/reject', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'reject'])->name('reject');
         });
 
         // Comprehensive Subscriptions (Admin)

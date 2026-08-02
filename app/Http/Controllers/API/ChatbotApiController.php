@@ -19,8 +19,7 @@ use Illuminate\Support\Facades\Validator;
 class ChatbotApiController extends Controller
 {
     /**
-     * Get chatbot configuration for the frontend
-     * Returns: bot name, welcome message, position, icon, FAQ buttons
+     * Get chatbot configuration for the visitor widget
      */
     public function getConfig(): JsonResponse
     {
@@ -32,23 +31,24 @@ class ChatbotApiController extends Controller
             'chatbot_icon',
         ]);
 
-        // Check if chatbot is enabled
-        if (empty($settings['chatbot_enabled']) || $settings['chatbot_enabled'] === '0') {
+        $enabled = !empty($settings['chatbot_enabled']) && $settings['chatbot_enabled'] !== '0' && $settings['chatbot_enabled'] !== 'false';
+
+        if (!$enabled) {
             return response()->json([
                 'status' => true,
                 'data' => [
                     'enabled' => false,
+                    'available' => false,
+                    'reason_code' => 'global_bot_disabled',
                 ],
             ], 200, [], JSON_UNESCAPED_UNICODE);
         }
 
-        // Get active FAQ buttons
         $faqs = ChatbotFaq::active()
             ->ordered()
             ->select('id', 'question', 'category')
             ->get();
 
-        // Build icon URL
         $iconUrl = null;
         if (!empty($settings['chatbot_icon'])) {
             $iconUrl = FileService::getFileUrl($settings['chatbot_icon']);
@@ -58,6 +58,8 @@ class ChatbotApiController extends Controller
             'status' => true,
             'data' => [
                 'enabled' => true,
+                'available' => true,
+                'reason_code' => null,
                 'name' => $settings['chatbot_name'] ?? 'سكيلزوا',
                 'welcome_message' => $settings['chatbot_welcome_message'] ?? '',
                 'position' => $settings['chatbot_position'] ?? 'bottom-right',
@@ -68,20 +70,88 @@ class ChatbotApiController extends Controller
     }
 
     /**
-     * Get chatbot configuration for a specific course
-     * Uses course-specific settings if available, falls back to global settings
+     * Authoritative runtime availability decision for subscriber course assistant
      */
     public function getCourseConfig(int $courseId): JsonResponse
     {
         $course = Course::find($courseId);
         
-        if (!$course || empty($course->ai_knowledge_content) || !$course->chatbot_enabled) {
+        if (!$course) {
             return response()->json([
                 'status' => true,
                 'data' => [
                     'enabled' => false,
+                    'available' => false,
+                    'reason_code' => 'course_not_found',
+                    'course_id' => $courseId,
+                    'can_send_message' => false,
                 ],
             ], 200, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        // Global subscriber bot setting check
+        $globalEnabled = CachingService::getSystemSettings('chatbot_enabled');
+        $isGlobalEnabled = !empty($globalEnabled) && $globalEnabled !== '0' && $globalEnabled !== 'false';
+
+        if (!$isGlobalEnabled) {
+            return response()->json([
+                'status' => true,
+                'data' => [
+                    'enabled' => false,
+                    'available' => false,
+                    'reason_code' => 'subscriber_bot_disabled',
+                    'course_id' => $courseId,
+                    'course_enabled' => (bool) $course->chatbot_enabled,
+                    'subscriber_bot_enabled' => false,
+                    'can_send_message' => false,
+                ],
+            ], 200, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        // Course assistant enabled toggle check
+        if (!$course->chatbot_enabled) {
+            return response()->json([
+                'status' => true,
+                'data' => [
+                    'enabled' => false,
+                    'available' => false,
+                    'reason_code' => 'course_bot_disabled',
+                    'course_id' => $courseId,
+                    'course_enabled' => false,
+                    'subscriber_bot_enabled' => true,
+                    'can_send_message' => false,
+                ],
+            ], 200, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        // Student authorization & canonical entitlement check
+        $user = Auth::guard('sanctum')->user() ?: Auth::user();
+        $studentAuthorized = $course->isUserEntitled($user);
+
+        // Knowledge status decision
+        $knowledgeStatus = 'ready';
+        if (!empty($course->ai_processing_status)) {
+            $knowledgeStatus = $course->ai_processing_status;
+        } elseif (empty($course->ai_knowledge_content) && empty($course->ai_knowledge_file)) {
+            $knowledgeStatus = 'not_configured';
+        }
+
+        // Reason code evaluation
+        $reasonCode = null;
+        $available = true;
+
+        if (!$studentAuthorized) {
+            $reasonCode = $user ? 'enrollment_required' : 'access_required';
+            $available = false;
+        } elseif ($knowledgeStatus === 'processing' || $knowledgeStatus === 'queued') {
+            $reasonCode = 'knowledge_processing';
+            $available = false;
+        } elseif ($knowledgeStatus === 'failed') {
+            $reasonCode = 'knowledge_failed';
+            $available = false;
+        } elseif ($knowledgeStatus === 'not_configured' && empty($course->ai_knowledge_content)) {
+            $reasonCode = 'knowledge_empty';
+            $available = false;
         }
 
         $settings = CachingService::getSystemSettings([
@@ -91,28 +161,36 @@ class ChatbotApiController extends Controller
             'chatbot_icon',
         ]);
 
-        // Build icon URL
         $iconUrl = null;
         if (!empty($settings['chatbot_icon'])) {
             $iconUrl = FileService::getFileUrl($settings['chatbot_icon']);
         }
 
+        $canSendMessage = $available && $studentAuthorized;
+
         return response()->json([
             'status' => true,
             'data' => [
-                'enabled' => true,
+                'enabled' => $available,
+                'available' => $available,
+                'reason_code' => $reasonCode,
+                'course_id' => $course->id,
+                'course_enabled' => true,
+                'subscriber_bot_enabled' => true,
+                'student_authorized' => $studentAuthorized,
+                'knowledge_status' => $knowledgeStatus,
+                'can_send_message' => $canSendMessage,
                 'name' => $course->chatbot_name ?: ($settings['chatbot_name'] ?? 'سكيلزوا'),
                 'welcome_message' => $course->chatbot_welcome_message ?: ($settings['chatbot_welcome_message'] ?? ''),
                 'position' => $settings['chatbot_position'] ?? 'bottom-right',
                 'icon' => $iconUrl,
-                'faqs' => [], // Courses typically don't have general FAQs
+                'faqs' => [],
             ],
         ], 200, [], JSON_UNESCAPED_UNICODE);
     }
 
     /**
-     * Get a direct FAQ answer — no AI involved
-     * User clicked a FAQ button
+     * Get direct FAQ answer
      */
     public function getFaqAnswer(Request $request): JsonResponse
     {
@@ -144,13 +222,12 @@ class ChatbotApiController extends Controller
     }
 
     /**
-     * Send a free-text message — AI responds using knowledge base
+     * Send visitor message
      */
     public function sendMessage(Request $request): JsonResponse
     {
-        // Check if chatbot is enabled
         $enabled = CachingService::getSystemSettings('chatbot_enabled');
-        if (empty($enabled) || $enabled === '0') {
+        if (empty($enabled) || $enabled === '0' || $enabled === 'false') {
             return response()->json([
                 'status' => false,
                 'message' => __('Chatbot is currently disabled'),
@@ -158,7 +235,7 @@ class ChatbotApiController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'message' => 'required|string|min:1|max:1000',
+            'message' => 'required|string|min:1|max:1500',
             'conversation_id' => 'nullable|integer',
         ]);
 
@@ -182,14 +259,13 @@ class ChatbotApiController extends Controller
     }
 
     /**
-     * Send a message to a course-specific chatbot
-     * Requires authentication — subscriber only
+     * Send course message for subscriber
      */
     public function sendCourseMessage(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'course_id' => 'required|integer|exists:courses,id',
-            'message' => 'required|string|min:1|max:1000',
+            'message' => 'required|string|min:1|max:1500',
             'conversation_id' => 'nullable|integer',
         ]);
 
@@ -209,17 +285,25 @@ class ChatbotApiController extends Controller
             ], 404, [], JSON_UNESCAPED_UNICODE);
         }
 
-        // Check if course has AI knowledge content and is enabled
-        if (empty($course->getRawOriginal('ai_knowledge_content')) || !$course->chatbot_enabled) {
+        if (!$course->chatbot_enabled) {
             return response()->json([
                 'status' => false,
                 'message' => __('AI assistant is not available for this course'),
-            ], 404, [], JSON_UNESCAPED_UNICODE);
+            ], 403, [], JSON_UNESCAPED_UNICODE);
         }
 
-        // Verify that the user is enrolled in this course
-        $isEnrolled = $course->getActiveStudentsQuery()->where('users.id', Auth::id())->exists();
-        if (!$isEnrolled) {
+        $user = Auth::guard('sanctum')->user() ?: Auth::user();
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Unauthenticated'),
+            ], 401, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        // Verify active course entitlement
+        $isAuthorized = $course->isUserEntitled($user);
+
+        if (!$isAuthorized) {
             return response()->json([
                 'status' => false,
                 'message' => __('You must be enrolled in this course to use the assistant'),
@@ -249,7 +333,7 @@ class ChatbotApiController extends Controller
             return response()->json(['status' => false, 'message' => 'Unauthorized'], 401);
         }
 
-        $type = $request->input('type'); // general or course
+        $type = $request->input('type');
         $courseId = $request->input('course_id');
 
         $conversations = ChatbotConversation::where('user_id', $userId)
@@ -284,7 +368,6 @@ class ChatbotApiController extends Controller
 
         $messages = [];
         foreach ($conversation->messages as $msg) {
-            // User turn
             $messages[] = [
                 'id' => $msg->id . '_user',
                 'conversation_id' => $id,
@@ -292,7 +375,6 @@ class ChatbotApiController extends Controller
                 'message' => $msg->message,
                 'created_at' => $msg->created_at,
             ];
-            // Bot turn
             $messages[] = [
                 'id' => $msg->id . '_bot',
                 'conversation_id' => $id,
@@ -309,16 +391,15 @@ class ChatbotApiController extends Controller
     }
 
     /**
-     * Diagnostic debug endpoint for testing AI settings on the staging server
+     * Diagnostic debug endpoint
      */
     public function debug(): JsonResponse
     {
-        $provider = env('AI_PROVIDER', 'not_set');
+        $provider = env('AI_PROVIDER', 'gemini');
         $openRouterKey = env('OPENROUTER_API_KEY');
         $openRouterModel = env('OPENROUTER_MODEL');
         $geminiKey = config('services.gemini.api_key');
 
-        // Mask keys for safety
         $maskedOpenRouterKey = $openRouterKey ? substr($openRouterKey, 0, 10) . '...' : 'null';
         $maskedGeminiKey = $geminiKey ? substr($geminiKey, 0, 10) . '...' : 'null';
 
@@ -348,7 +429,6 @@ class ChatbotApiController extends Controller
             $debugData['test_connection'] = [
                 'status' => 'failed',
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ];
         }
 

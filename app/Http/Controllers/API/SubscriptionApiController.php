@@ -285,70 +285,62 @@ final class SubscriptionApiController extends Controller
     {
         try {
             $user = \Illuminate\Support\Facades\Auth::user();
-            $countryCode = $user?->country_code ?? $this->countryDetectionService->detect($request);
+            $countryCode = strtoupper((string) ($user?->country_code ?? $this->countryDetectionService->detect($request)));
 
-            // Subscription requests validate payment_methods IDs. Wallet top-up
-            // methods are a separate domain and must not be listed here.
-            $manualMethods = PaymentMethod::query()
+            $manualMethodsQuery = PaymentMethod::query()
                 ->where('is_active', true)
                 ->whereIn('type', ['instapay', 'mobile_wallet', 'fawry', 'bank_transfer'])
                 ->orderBy('sort_order')
-                ->orderBy('name')
-                ->get()
+                ->orderBy('name');
+
+            $manualMethods = $manualMethodsQuery->get()
+                ->filter(function (PaymentMethod $method) use ($countryCode) {
+                    if (!empty($method->countries) && is_array($method->countries)) {
+                        return in_array($countryCode, array_map('strtoupper', $method->countries), true);
+                    }
+                    return true;
+                })
                 ->map(function (PaymentMethod $method) {
-                return [
-                    'id' => $method->id,
-                    'name' => $method->name,
-                    'type' => $method->type,
-                    'description' => $method->instructions,
-                    'instructions' => $method->instructions,
-                    'details' => [
+                    return [
+                        'id' => $method->id,
+                        'name' => $method->name,
                         'type' => $method->type,
+                        'description' => $method->instructions,
+                        'instructions' => $method->instructions,
+                        'account_details' => $method->toStructuredAccountDetails(),
                         'account_name' => $method->account_name,
                         'account_number' => $method->account_number,
+                        'bank_name' => $method->bank_name,
+                        'iban' => $method->iban,
                         'instapay_id' => $method->instapay_id,
                         'merchant_code' => $method->merchant_code,
-                    ],
-                    'account_name' => $method->account_name,
-                    'account_number' => $method->account_number,
-                    'instapay_id' => $method->instapay_id,
-                    'merchant_code' => $method->merchant_code,
-                    'image' => $method->logo,
-                    'logo' => $method->logo,
-                    'dynamic_fields' => $method->dynamic_fields,
-                ];
-                });
-
-            // Deposit-method administration uses ManualDepositMethod. Expose
-            // those active methods in the subscription contract as well, using
-            // a namespaced id so it cannot collide with payment_methods ids.
-            $manualDepositMethods = ManualDepositMethod::query()
-                ->where('is_active', true)
-                ->orderBy('name')
-                ->get()
-                ->map(function (ManualDepositMethod $method) {
-                    return [
-                        'id' => 'manual-deposit-' . $method->id,
-                        'name' => $method->name,
-                        'type' => 'bank_transfer',
-                        'description' => $method->account_details,
-                        'instructions' => $method->instructions ?: $method->account_details,
-                        'details' => ['account_details' => $method->account_details],
-                        'account_details' => $method->account_details,
-                        'image' => $method->image,
-                        'logo' => $method->image,
-                        'dynamic_fields' => [],
+                        'image' => $method->logo,
+                        'logo' => $method->logo,
+                        'dynamic_fields' => $method->dynamic_fields ?? [],
+                        'require_receipt' => (bool) $method->require_receipt,
                     ];
                 });
 
-            $manualMethods = $manualMethods->concat($manualDepositMethods)->values();
-
-            $isAffiliateEnabled = $this->affiliateService->isEnabled();
+            $electronicGateways = PaymentMethod::query()
+                ->where('is_active', true)
+                ->where('type', 'online')
+                ->get()
+                ->map(function (PaymentMethod $method) {
+                    return [
+                        'id' => $method->id,
+                        'name' => $method->name,
+                        'type' => 'online',
+                        'code' => 'kashier',
+                        'logo_url' => $method->logo,
+                        'is_active' => true,
+                    ];
+                })->values();
 
             return ApiResponseService::successResponse('Payment methods retrieved successfully', [
-                'online' => true, // Kashier
-                'wallet' => $isAffiliateEnabled,
-                'manual_methods' => $manualMethods,
+                'electronic_gateways' => $electronicGateways,
+                'manual_methods' => $manualMethods->values(),
+                'online' => true,
+                'wallet' => false,
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;

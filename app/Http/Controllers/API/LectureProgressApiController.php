@@ -7,6 +7,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
+use App\Services\ContentAccessService;
 use App\Services\CourseProgressService;
 use App\Services\VideoProgressService;
 use App\Traits\HasApiResponse;
@@ -21,6 +22,7 @@ final class LectureProgressApiController extends Controller
     public function __construct(
         private readonly VideoProgressService $videoProgressService,
         private readonly CourseProgressService $courseProgressService,
+        private readonly ContentAccessService $contentAccessService,
     ) {}
 
     /**
@@ -70,6 +72,13 @@ final class LectureProgressApiController extends Controller
             return $this->unauthorized();
         }
 
+        // Authentication alone is not an entitlement. Without this guard, an
+        // authenticated user could manufacture completion data for a course
+        // they cannot access and potentially satisfy downstream eligibility.
+        if (!$this->contentAccessService->canAccessLecture($user, $lecture)) {
+            return $this->forbidden('Course access required');
+        }
+
         $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
         if ($canonicalDuration <= 0 || (int) $validated['total_duration'] !== $canonicalDuration) {
             return response()->json([
@@ -115,6 +124,10 @@ final class LectureProgressApiController extends Controller
             return $this->unauthorized();
         }
 
+        if (!$this->contentAccessService->canAccessLecture($user, $lecture)) {
+            return $this->forbidden('Course access required');
+        }
+
         $progress = $this->videoProgressService->getProgressWithSeekInfo($user, $lecture);
 
         if ($progress === null) {
@@ -152,6 +165,10 @@ final class LectureProgressApiController extends Controller
         $user = Auth::user();
         if ($user === null) {
             return $this->unauthorized();
+        }
+
+        if (!$this->contentAccessService->canAccessCourse($user, $course)) {
+            return $this->forbidden('Course access required');
         }
 
         try {

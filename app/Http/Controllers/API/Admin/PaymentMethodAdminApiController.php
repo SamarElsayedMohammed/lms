@@ -43,11 +43,20 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
             'name' => 'required|string|max:255',
             'type' => 'required|string|in:online,instapay,mobile_wallet,fawry,bank_transfer',
             'is_active' => 'nullable|boolean',
-            'account_name' => 'nullable|string',
-            'account_number' => 'nullable|string',
-            'instapay_id' => 'nullable|string',
-            'merchant_code' => 'nullable|string',
-            'instructions' => 'nullable|string',
+            'account_name' => 'nullable|string|max:255',
+            'account_number' => 'nullable|string|max:255',
+            'bank_name' => 'nullable|string|max:255',
+            'iban' => 'nullable|string|max:255',
+            'instapay_id' => 'nullable|string|max:255',
+            'merchant_code' => 'nullable|string|max:255',
+            'instructions' => 'nullable|string|max:2000',
+            'countries' => 'nullable|array',
+            'countries.*' => 'string|size:2',
+            'currencies' => 'nullable|array',
+            'currencies.*' => 'string|max:10',
+            'require_receipt' => 'nullable|boolean',
+            'min_amount' => 'nullable|numeric|min:0',
+            'max_amount' => 'nullable|numeric|min:0',
             'logo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'logo_url' => 'nullable|string|max:2048',
             'dynamic_fields' => 'nullable|array',
@@ -61,6 +70,17 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
 
         if ($validator->fails()) {
             return ApiResponseService::validationError($validator->errors()->first());
+        }
+
+        // Validate that method provides at least some account information or instructions
+        if (
+            empty($request->account_number) &&
+            empty($request->instapay_id) &&
+            empty($request->merchant_code) &&
+            empty($request->iban) &&
+            empty($request->instructions)
+        ) {
+            return ApiResponseService::validationError('طريقة الدفع يجب أن تتضمن على الأقل رقم حساب أو معرف انستاباي أو IBAN أو تعليمات دفع.');
         }
 
         $data = $request->except('logo');
@@ -91,11 +111,20 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
             'name' => 'sometimes|required|string|max:255',
             'type' => 'sometimes|required|string|in:online,instapay,mobile_wallet,fawry,bank_transfer',
             'is_active' => 'nullable|boolean',
-            'account_name' => 'nullable|string',
-            'account_number' => 'nullable|string',
-            'instapay_id' => 'nullable|string',
-            'merchant_code' => 'nullable|string',
-            'instructions' => 'nullable|string',
+            'account_name' => 'nullable|string|max:255',
+            'account_number' => 'nullable|string|max:255',
+            'bank_name' => 'nullable|string|max:255',
+            'iban' => 'nullable|string|max:255',
+            'instapay_id' => 'nullable|string|max:255',
+            'merchant_code' => 'nullable|string|max:255',
+            'instructions' => 'nullable|string|max:2000',
+            'countries' => 'nullable|array',
+            'countries.*' => 'string|size:2',
+            'currencies' => 'nullable|array',
+            'currencies.*' => 'string|max:10',
+            'require_receipt' => 'nullable|boolean',
+            'min_amount' => 'nullable|numeric|min:0',
+            'max_amount' => 'nullable|numeric|min:0',
             'logo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'logo_url' => 'nullable|string|max:2048',
             'dynamic_fields' => 'nullable|array',

@@ -3,10 +3,12 @@
 use Illuminate\Support\Facades\Route;
 
 // Staff Permissions Canonical Path
-Route::get('admin/staff/permissions', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'permissions']);
+Route::get('admin/staff/permissions', [\App\Http\Controllers\API\Admin\RoleAdminApiController::class, 'permissions'])
+    ->middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff']);
 
 // Instructor Wallet History
-Route::get('admin/instructor-wallet-history', [\App\Http\Controllers\API\FinanceApiController::class, 'getInstructorEarnings']);
+Route::get('admin/instructor-wallet-history', [\App\Http\Controllers\API\FinanceApiController::class, 'getInstructorEarnings'])
+    ->middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff']);
 
 // Certificate Verify (Public)
 Route::get('certificate/verify', [\App\Http\Controllers\CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
@@ -21,7 +23,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('webinars/{webinar:slug}/join', [\App\Http\Controllers\API\PublicWebinarController::class, 'join']);
 });
 
-Route::prefix('admin/webinars')->middleware('auth:sanctum')->group(function () {
+Route::prefix('admin/webinars')
+    ->middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff'])
+    ->group(function () {
     Route::get('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'store']);
     Route::get('{id}', [\App\Http\Controllers\API\Admin\WebinarAdminApiController::class, 'show']);
@@ -37,12 +41,13 @@ Route::prefix('admin/webinars')->middleware('auth:sanctum')->group(function () {
 });
 
 // Affiliate Contract
-Route::post('affiliate/withdraw', [\App\Http\Controllers\API\AffiliateApiController::class, 'requestWithdrawal']);
-Route::get('admin/subscription-plans', [\App\Http\Controllers\API\SubscriptionApiController::class, 'getPlans']);
-Route::post('admin/subscription-plans', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'store']);
-Route::put('admin/subscription-plans/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
-Route::get('debug-subscriptions', function() {
-    return \App\Models\Subscription::with('user')->get();
+Route::post('affiliate/withdraw', [\App\Http\Controllers\API\AffiliateApiController::class, 'requestWithdrawal'])
+    ->middleware('auth:sanctum');
+
+Route::middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff'])->group(function () {
+    Route::get('admin/subscription-plans', [\App\Http\Controllers\API\SubscriptionApiController::class, 'getPlans']);
+    Route::post('admin/subscription-plans', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'store']);
+    Route::put('admin/subscription-plans/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
 });
 Route::get('ref/{code}', [\App\Http\Controllers\API\AffiliateApiController::class, 'trackReferral'])->where('code', '[A-Za-z0-9]+');
 Route::post('refresh-token', [\App\Http\Controllers\ApiController::class, 'refreshToken'])->middleware('auth:sanctum');

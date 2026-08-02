@@ -143,4 +143,38 @@ class CourseProgressServiceTest extends TestCase
         $this->assertEquals(0, $progress->completed_items);
         $this->assertTrue($progress->last_accessed_at->equalTo($actualAccessAt));
     }
+
+    public function test_progress_normalizes_corrupt_video_percentage_to_100(): void
+    {
+        $user = User::factory()->create();
+        $course = Course::factory()->create();
+        $chapter = CourseChapter::factory()->create([
+            'course_id' => $course->id,
+            'is_active' => true,
+        ]);
+        $lecture = CourseChapterLecture::factory()->create([
+            'course_chapter_id' => $chapter->id,
+            'is_active' => true,
+            'file_type' => 'video',
+            'duration_seconds' => 100,
+        ]);
+
+        VideoProgress::create([
+            'user_id' => $user->id,
+            'lecture_id' => $lecture->id,
+            'watched_seconds' => 150,
+            'total_seconds' => 100,
+            'watch_percentage' => 150,
+            'is_completed' => true,
+        ]);
+
+        $this->mock(\App\Services\CertificateService::class, function ($mock) {
+            $mock->shouldReceive('autoGenerateCertificate')->once()->andReturn(null);
+        });
+
+        Cache::flush();
+        $progress = $this->service->getProgressWithCache($user->id, $course->id);
+
+        $this->assertSame(100.0, (float) $progress->progress_percentage);
+    }
 }

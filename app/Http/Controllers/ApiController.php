@@ -58,11 +58,13 @@ class ApiController extends Controller
                 'email' => 'required_without:mobile|email',
             ]);
 
+            $email = $request->has('email') ? strtolower(trim((string) $request->email)) : null;
+
             // Check if user exists (including soft-deleted)
             $userQuery = RoleManager::applyRoleFilter(User::query(), 'user')
                 ->withTrashed()
-                ->when($request->has('email'), static function ($query) use ($request): void {
-                    $query->where('email', $request->email);
+                ->when($email !== null && $email !== '', static function ($query) use ($email): void {
+                    $query->where('email', $email);
                 })
                 ->when($request->has('mobile'), static function ($query) use ($request): void {
                     $query->where([
@@ -133,6 +135,10 @@ class ApiController extends Controller
 
             ApiService::validateRequest($request, $validationRules);
 
+            if ($request->has('email') && !empty($request->email)) {
+                $request->merge(['email' => strtolower(trim((string) $request->email))]);
+            }
+
             // ── Resolve Firebase/OAuth/Email identity ────────────────────────
             $firebaseId = null;
 
@@ -168,7 +174,7 @@ class ApiController extends Controller
 
                     // Ensure email is set in request for downstream code
                     if (empty($request->email) && $socialUser->getEmail()) {
-                        $request->merge(['email' => $socialUser->getEmail()]);
+                        $request->merge(['email' => strtolower(trim((string) $socialUser->getEmail()))]);
                     }
                     if (empty($request->name) && $socialUser->getName()) {
                         $request->merge(['name' => $socialUser->getName()]);
@@ -202,104 +208,135 @@ class ApiController extends Controller
                 ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
             }
 
+            $wasRecentlyCreated = false;
+
             if ($isEmailType || empty($socialLogin)) {
                 DB::beginTransaction();
-                $unique['email'] = $request->email;
+                try {
+                    $unique['email'] = $request->email;
 
-                // Prepare user data
-                $userData = $request->except(['password', 'firebase_token', 'platform_type', 'fcm_id', 'wallet_balance', 'is_active', 'allowed_devices_count', 'role_id']); // Exclude sensitive/pass-through fields
+                    // Prepare user data
+                    $userData = $request->except(['password', 'firebase_token', 'platform_type', 'fcm_id', 'wallet_balance', 'is_active', 'allowed_devices_count', 'role_id']); // Exclude sensitive/pass-through fields
+                    $userData['email'] = $request->email;
 
-                // Ensure name is always set - this is required field in database
-                if (empty($userData['name'])) {
-                    // Generate name from email if not provided
-                    $userData['name'] = explode('@', $request->email)[0] ?? 'User';
-                }
+                    // Ensure name is always set - this is required field in database
+                    if (empty($userData['name'])) {
+                        // Generate name from email if not provided
+                        $userData['name'] = explode('@', $request->email)[0] ?? 'User';
+                    }
 
-                // Generate slug before creating user - use name if available, otherwise use email or default
-                $slugSource = $userData['name'] ?? $request->email ?? 'user';
-                $slug = HelperService::generateUniqueSlug(User::class, $slugSource);
-                $userData['slug'] = $slug;
+                    // Generate slug before creating user - use name if available, otherwise use email or default
+                    $slugSource = $userData['name'] ?? $request->email ?? 'user';
+                    $slug = HelperService::generateUniqueSlug(User::class, $slugSource);
+                    $userData['slug'] = $slug;
 
-                $userData['profile'] = $request->hasFile('profile')
-                    ? $request->file('profile')->store('user_profile', 'public')
-                    : $request->profile;
-                $userData['is_active'] = 1;
-                $userData['type'] = $request->type;
-                if (!empty($request->mobile)) {
-                    $userData['mobile'] = $request->mobile;
-                }
+                    $userData['profile'] = $request->hasFile('profile')
+                        ? $request->file('profile')->store('user_profile', 'public')
+                        : $request->profile;
+                    $userData['is_active'] = 1;
+                    $userData['type'] = $request->type;
+                    if (!empty($request->mobile)) {
+                        $userData['mobile'] = $request->mobile;
+                    }
 
-                // Hash password if type is email
-                if ($request->type === 'email' && !empty($request->password)) {
-                    $userData['password'] = Hash::make($request->password);
-                }
+                    // Hash password if type is email
+                    if ($request->type === 'email' && !empty($request->password)) {
+                        $userData['password'] = Hash::make($request->password);
+                    }
 
-                $hasReferredBy = \Illuminate\Support\Facades\Cache::remember('schema_users_has_referred_by', 3600, function () {
-                    return \Illuminate\Support\Facades\Schema::hasColumn('users', 'referred_by');
-                });
-                if ($hasReferredBy) {
-                    $affiliateCode = $request->cookie('affiliate_code')
-                        ?? ($request->hasSession() ? $request->session()->get('affiliate_code') : null)
-                        ?? $request->input('referral')
-                        ?? $request->input('affiliate_code');
-                        
-                    if (!empty($affiliateCode)) {
-                        $affiliateLink = \App\Models\AffiliateLink::where('code', $affiliateCode)->where('is_active', true)->first();
-                        if ($affiliateLink) {
-                            $userData['referred_by'] = $affiliateLink->user_id;
-                        } else {
-                            if ($request->has('referral') || $request->has('affiliate_code')) {
-                                DB::rollBack();
-                                return response()->json([
-                                    'success' => false,
-                                    'message' => 'Invalid referral code',
-                                    'errors' => [
-                                        'referral' => ['Invalid referral code']
-                                    ]
-                                ], 422);
+                    $hasReferredBy = \Illuminate\Support\Facades\Cache::remember('schema_users_has_referred_by', 3600, function () {
+                        return \Illuminate\Support\Facades\Schema::hasColumn('users', 'referred_by');
+                    });
+                    if ($hasReferredBy) {
+                        $affiliateCode = $request->cookie('affiliate_code')
+                            ?? ($request->hasSession() ? $request->session()->get('affiliate_code') : null)
+                            ?? $request->input('referral')
+                            ?? $request->input('affiliate_code');
+                            
+                        if (!empty($affiliateCode)) {
+                            $affiliateLink = \App\Models\AffiliateLink::where('code', $affiliateCode)->where('is_active', true)->first();
+                            if ($affiliateLink) {
+                                $userData['referred_by'] = $affiliateLink->user_id;
+                            } else {
+                                if ($request->has('referral') || $request->has('affiliate_code')) {
+                                    DB::rollBack();
+                                    return response()->json([
+                                        'success' => false,
+                                        'message' => 'Invalid referral code',
+                                        'errors' => [
+                                            'referral' => ['Invalid referral code']
+                                        ]
+                                    ], 422);
+                                }
                             }
                         }
                     }
-                }
 
-                $user = User::updateOrCreate($unique, $userData);
-                if ($user->wasRecentlyCreated) {
-                    $user->notify(new \App\Notifications\WelcomeNotification($user));
-                }
+                    if ($isEmailType) {
+                        $user = User::create($userData);
+                        $wasRecentlyCreated = true;
+                    } else {
+                        $user = User::updateOrCreate($unique, $userData);
+                        $wasRecentlyCreated = $user->wasRecentlyCreated;
+                    }
 
-                // Only link Firebase SocialLogin for non-email types
-                if (!$isEmailType && $firebaseId) {
-                    SocialLogin::updateOrCreate([
-                        'type'    => $request->type,
-                        'user_id' => $user->id,
-                    ], [
-                        'firebase_id' => $firebaseId,
+                    // Only link Firebase SocialLogin for non-email types
+                    if (!$isEmailType && $firebaseId) {
+                        SocialLogin::updateOrCreate([
+                            'type'    => $request->type,
+                            'user_id' => $user->id,
+                        ], [
+                            'firebase_id' => $firebaseId,
+                        ]);
+                    }
+                    RoleManager::assignStudentRole($user);
+                    Auth::login($user);
+                    $auth = User::find($user->id);
+
+                    $deviceError = $this->verifyDeviceLimits($auth, $request);
+                    if ($deviceError) {
+                        DB::rollBack();
+                        ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
+                    }
+
+                    DB::commit();
+
+                    if ($wasRecentlyCreated) {
+                        try {
+                            $user->notify(new \App\Notifications\WelcomeNotification($user));
+                        } catch (\Throwable $e) {
+                            \Illuminate\Support\Facades\Log::warning('Failed to send welcome notification: ' . $e->getMessage());
+                        }
+                    }
+
+                    // Server-side tracking
+                    \App\Services\TrackingService::sendFacebookEvent('CompleteRegistration', [
+                        'em' => hash('sha256', $user->email),
+                        'ph' => $user->mobile ? hash('sha256', $user->mobile) : null,
                     ]);
+                    \App\Services\TrackingService::sendGA4Event('sign_up', ['method' => $request->type]);
+                } catch (\Illuminate\Database\QueryException $e) {
+                    if (DB::transactionLevel() > 0) {
+                        DB::rollBack();
+                    }
+                    if ($e->getCode() == 23000 || str_contains($e->getMessage(), '1062') || str_contains($e->getMessage(), 'users_email_unique')) {
+                        ApiResponseService::validationError(
+                            'An account with this email already exists. Please log in instead.',
+                        );
+                    }
+                    throw $e;
+                } catch (\Throwable $th) {
+                    if (DB::transactionLevel() > 0) {
+                        DB::rollBack();
+                    }
+                    throw $th;
                 }
-                RoleManager::assignStudentRole($user);
-                Auth::login($user);
-                $auth = User::find($user->id);
-
-                $deviceError = $this->verifyDeviceLimits($auth, $request);
-                if ($deviceError) {
-                    DB::rollBack();
-                    ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
-                }
-
-                DB::commit();
-
-                // Server-side tracking
-                \App\Services\TrackingService::sendFacebookEvent('CompleteRegistration', [
-                    'em' => hash('sha256', $user->email),
-                    'ph' => $user->mobile ? hash('sha256', $user->mobile) : null,
-                ]);
-                \App\Services\TrackingService::sendGA4Event('sign_up', ['method' => $request->type]);
             } else {
                 Auth::login($socialLogin->user);
                 $auth = Auth::user();
             }
 
-            if (!$auth->hasRole(config('constants.SYSTEM_ROLES.USER'))) {
+            if (!$auth->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
                 ApiResponseService::validationError('Invalid Login Credentials');
             }
 
@@ -324,7 +361,9 @@ class ApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             ApiResponseService::errorResponse(exception: $th);
         }
     }
@@ -412,7 +451,11 @@ class ApiController extends Controller
 
             ApiService::validateRequest($request, $validationRules);
 
-            // \u2500\u2500 Email / Password path \u2014 no Firebase \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            if ($request->has('email') && !empty($request->email)) {
+                $request->merge(['email' => strtolower(trim((string) $request->email))]);
+            }
+
+            // ── Email / Password path — NO Firebase ──────────────────────────
             if ($isEmailType) {
                 $user = RoleManager::applyRoleFilter(User::withTrashed()->where('email', $request->email), 'user')
                     ->first();
@@ -479,8 +522,8 @@ class ApiController extends Controller
                 $auth = Auth::user();
             }
 
-            // \u2500\u2500 Shared post-auth logic \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-            if (!$auth->hasRole(config('constants.SYSTEM_ROLES.USER'))) {
+            // ── Shared post-auth logic ───────────────────────────────────────
+            if (!$auth->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
                 ApiResponseService::validationError('Invalid Login Credentials');
             }
 

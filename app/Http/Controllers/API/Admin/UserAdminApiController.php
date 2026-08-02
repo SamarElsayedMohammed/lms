@@ -32,7 +32,8 @@ class UserAdminApiController extends AdminCrudApiController
         $withTrashed = $request->boolean('with_trashed');
         $role = $request->input('role');
 
-        $query = User::with(['instructor_details', 'activeSubscription.plan', 'roles'])
+        $query = User::select(['id', 'name', 'email', 'mobile', 'country_calling_code', 'country_code', 'slug', 'is_active', 'created_at', 'deleted_at'])
+            ->with(['instructor_details:id,user_id,status', 'activeSubscription.plan:id,billing_cycle,name', 'roles:id,name'])
             ->when($role, function ($q) use ($role) {
                 RoleManager::applyRoleFilter($q, $role);
             })
@@ -85,8 +86,6 @@ class UserAdminApiController extends AdminCrudApiController
         $user->is_instructor = !empty($user->instructor_details);
         $user->instructor_status = $user->instructor_details->status ?? null;
         $user->device_count = \App\Models\UserDevice::where('user_id', $id)->count();
-        // allowed_devices_count is already on the model, but let's ensure it's exposed clearly
-        // (It's in $fillable and not in $hidden, so it will be returned naturally)
 
         if ($user->activeSubscription) {
             $user->active_subscription_type = ucfirst($user->activeSubscription->plan->billing_cycle ?? 'unknown');
@@ -148,31 +147,5 @@ class UserAdminApiController extends AdminCrudApiController
         $user->save();
 
         return $this->jsonSuccess(__('User status updated'), ['is_active' => (bool) $user->is_active]);
-    }
-
-    public function assignRole(Request $request, int $id): JsonResponse
-    {
-        $this->ensureAdmin();
-        $this->checkPermission('users-edit');
-
-        $user = User::find($id);
-        if (!$user) {
-            return $this->jsonError(__('User not found'), 404);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'role_name' => 'required|string|exists:roles,name',
-        ]);
-
-        if ($validator->fails()) {
-            return $this->jsonError($validator->errors()->first(), 422);
-        }
-
-        RoleManager::ensureCanonicalRolesExist();
-        $user->syncRoles([$request->role_name]);
-
-        return $this->jsonSuccess(__('User role updated successfully'), [
-            'roles' => $user->getRoleNames()
-        ]);
     }
 }

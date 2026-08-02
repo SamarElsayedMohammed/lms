@@ -90,6 +90,10 @@
         ]
     },
     "extra": {
+        "google/apiclient-services": [
+            "Drive",
+            "Oauth2"
+        ],
         "laravel": {
             "dont-discover": []
         }

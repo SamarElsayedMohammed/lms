@@ -19,6 +19,13 @@ class ChatbotKnowledgeBase extends Model
         'is_active',
         'target_audience',
         'course_id',
+        'processing_status',
+        'chunk_count',
+        'indexed_at',
+        'failed_at',
+        'failure_reason',
+        'content_hash',
+        'language',
     ];
 
     protected $casts = [

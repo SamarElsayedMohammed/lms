@@ -118,48 +118,109 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     }
 
     /**
-     * List subscriptions with optional status and search filters
+     * List ONLY manual subscription requests with filter-aware statistics
      */
     public function index(Request $request): JsonResponse
     {
         $this->ensureAdmin();
 
-        $query = Subscription::with(['user', 'plan', 'payments' => function($q) {
+        // 1. Base Query restricted strictly to manual payments
+        $baseQuery = Subscription::query()
+            ->whereHas('payments', function ($q) {
+                $q->where('payment_method', 'manual');
+            });
+
+        // Calculate filter-aware summary stats
+        $statistics = [
+            'total' => (clone $baseQuery)->count(),
+            'pending_approval' => (clone $baseQuery)->where('status', Subscription::STATUS_PENDING_APPROVAL)->count(),
+            'approved' => (clone $baseQuery)->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING])->count(),
+            'rejected' => (clone $baseQuery)->where('status', Subscription::STATUS_CANCELLED)->count(),
+        ];
+
+        $query = (clone $baseQuery)->with(['user', 'plan', 'payments' => function ($q) {
             $q->latest()->with('manualDepositMethod');
         }]);
 
+        // Filter by Status
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $statusInput = strtolower(trim((string) $request->status));
+            if (in_array($statusInput, ['approved', 'active'], true)) {
+                $query->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING]);
+            } elseif (in_array($statusInput, ['rejected', 'cancelled'], true)) {
+                $query->where('status', Subscription::STATUS_CANCELLED);
+            } elseif (in_array($statusInput, ['pending', 'pending_approval'], true)) {
+                $query->where('status', Subscription::STATUS_PENDING_APPROVAL);
+            } else {
+                $query->where('status', $statusInput);
+            }
         }
 
+        // Filter by Search (User name, email, or request ID)
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
+            $search = trim((string) $request->search);
+            $query->where(function ($q) use ($search) {
+                if (ctype_digit($search)) {
+                    $q->where('id', (int) $search);
+                }
+                $q->orWhereHas('user', function ($uq) use ($search) {
+                    $uq->where('name', 'like', "%{$search}%")
+                       ->orWhere('email', 'like', "%{$search}%");
+                });
             });
         }
 
+        // Filter by Date Range
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        // Filter by Plan
+        if ($request->filled('plan_id')) {
+            $query->where('plan_id', $request->plan_id);
+        }
+
         $perPage = min((int) $request->input('per_page', 15), 100);
-        $subscriptions = $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
-        $subscriptions->getCollection()->transform(function ($sub) {
-            $latestPayment = $sub->payments->first();
-            $data = $sub->toArray();
-            $data['payment_info'] = $latestPayment ? [
-                'original_currency' => $latestPayment->currency_code ?? 'EGP',
-                'original_amount' => (float) $latestPayment->final_amount,
-                'converted_amount' => (float) ($latestPayment->amount_egp ?? ($latestPayment->final_amount * ($latestPayment->exchange_rate_snapshot ?? 1))),
-                'exchange_rate' => (float) ($latestPayment->exchange_rate_snapshot ?? 1),
-                'payment_date' => $latestPayment->paid_at ?? $latestPayment->created_at,
-                'payment_method' => $latestPayment->payment_method ?? 'Unknown',
-                'country' => $latestPayment->resolved_country ?? 'Unknown',
-                'status' => $latestPayment->status,
-            ] : null;
-            return $data;
-        });
+        $resources = \App\Http\Resources\ManualSubscriptionAdminResource::collection($paginator->getCollection());
 
-        return ApiResponseService::successResponse('Subscriptions retrieved successfully', $subscriptions);
+        return ApiResponseService::successResponse('Manual subscriptions retrieved successfully', [
+            'summary' => $statistics,
+            'data' => $resources,
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+        ]);
+    }
+
+    /**
+     * Display single manual subscription request
+     */
+    public function show(int|string $id): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        $subscription = Subscription::with(['user', 'plan', 'payments' => function ($q) {
+            $q->latest()->with('manualDepositMethod');
+        }])->find($id);
+
+        if (!$subscription) {
+            return ApiResponseService::errorResponse('طلب الاشتراك غير موجود.', [], 404);
+        }
+
+        return ApiResponseService::successResponse(
+            'تفاصيل طلب الاشتراك اليدوي',
+            new \App\Http\Resources\ManualSubscriptionAdminResource($subscription)
+        );
     }
 
     /**
@@ -176,7 +237,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             if (!$subscriptionData) {
                 DB::rollBack();
-                return ApiResponseService::errorResponse('الاشتراك غير موجود.');
+                return ApiResponseService::errorResponse('الاشتراك غير موجود.', [], 404);
             }
 
             // 1. Lock User first to prevent deadlocks
@@ -199,6 +260,12 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             if (!$subscription) {
                 DB::rollBack();
                 return ApiResponseService::errorResponse('الاشتراك غير موجود.');
+            }
+
+            // Idempotency: if already approved, return success
+            if (in_array($subscription->status, [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING], true)) {
+                DB::rollBack();
+                return ApiResponseService::successResponse('تم تفعيل هذا الاشتراك مسبقاً.', new \App\Http\Resources\ManualSubscriptionAdminResource($subscription));
             }
 
             if (!$subscription->plan) {
@@ -234,13 +301,11 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $payment->status = SubscriptionPayment::STATUS_COMPLETED;
             $payment->paid_at = now();
             if ($request->filled('admin_notes')) {
-                $payment->admin_notes = $request->admin_notes;
+                $payment->admin_notes = trim((string) $request->admin_notes);
             }
             $payment->save();
 
             // 6. Determine starts_at and ends_at (Handles stacking)
-
-
             $startsAt = now();
             $status = Subscription::STATUS_ACTIVE;
             $parentSubscriptionId = null;
@@ -254,14 +319,14 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $durationDays = $subscription->plan->getDurationDays();
             $endsAt = $durationDays !== null ? $startsAt->copy()->addDays($durationDays) : null;
 
-            // 4. Activate subscription
+            // 7. Activate subscription
             $subscription->starts_at = $startsAt;
             $subscription->ends_at = $endsAt;
             $subscription->status = $status;
             $subscription->parent_subscription_id = $parentSubscriptionId;
             $subscription->save();
 
-            // 5. Process affiliate referral
+            // 8. Process affiliate referral
             try {
                 $affiliateService = app(AffiliateService::class);
                 $affiliateService->processReferral($user, $subscription);
@@ -275,7 +340,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 ]);
             }
 
-            // 6. Facebook / GA4 purchase tracking events
+            // 9. Facebook / GA4 purchase tracking events
             try {
                 if (class_exists(\App\Services\TrackingService::class)) {
                     $trackingValue = (float) ($payment->amount_egp ?? ($payment->final_amount * ($payment->exchange_rate_snapshot ?? 1)));
@@ -308,7 +373,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
-            // 7. Notify User (Safely)
+            // 10. Notify User (Safely)
             try {
                 if ($subscription->parent_subscription_id && $existingSubscription && $existingSubscription->plan_id === $subscription->plan_id) {
                     if (class_exists(\App\Notifications\SubscriptionRenewedNotification::class)) {
@@ -326,7 +391,10 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 ]);
             }
 
-            return ApiResponseService::successResponse('تمت الموافقة على طلب الاشتراك بنجاح وتفعيله.', $subscription);
+            return ApiResponseService::successResponse(
+                'تمت الموافقة على طلب الاشتراك بنجاح وتفعيله.',
+                new \App\Http\Resources\ManualSubscriptionAdminResource($subscription->fresh(['user', 'plan', 'payments']))
+            );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
@@ -335,11 +403,10 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         }
     }
 
-    /** Expose payment evidence only to authorized finance administrators. */
+    /** Expose payment evidence only to authorized administrators. */
     public function downloadReceipt(int $id): \Symfony\Component\HttpFoundation\BinaryFileResponse|JsonResponse
     {
         $this->ensureAdmin();
-        $this->checkPermission('finance-list');
 
         $payment = SubscriptionPayment::query()
             ->where('subscription_id', $id)
@@ -348,26 +415,29 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             ->first();
 
         if (!$payment || !$payment->getRawOriginal('receipt')) {
-            return ApiResponseService::errorResponse('Receipt not found.', [], 404);
+            return ApiResponseService::errorResponse('الإيصال غير موجود.', [], 404);
         }
 
         $receipt = $payment->getRawOriginal('receipt');
         if (!\App\Services\FileService::checkPrivateFileExists($receipt)) {
-            return ApiResponseService::errorResponse('Receipt is unavailable.', [], 404);
+            return ApiResponseService::errorResponse('ملف الإيصال غير متاح في التخزين.', [], 404);
         }
 
         return response()->file(\App\Services\FileService::getPrivateFilePath($receipt));
     }
 
     /**
-     * Reject manual subscription payment and cancel request
+     * Reject manual subscription payment and cancel request. Mandatory reason required.
      */
     public function reject(Request $request, $id): JsonResponse
     {
         $this->ensureAdmin();
 
         $validator = Validator::make($request->all(), [
-            'admin_notes' => 'nullable|string|max:500',
+            'admin_notes' => 'required|string|min:3|max:500',
+        ], [
+            'admin_notes.required' => 'يرجى كتابة سبب الرفض.',
+            'admin_notes.min' => 'سبب الرفض يجب أن يكون 3 أحرف على الأقل.',
         ]);
 
         if ($validator->fails()) {
@@ -381,7 +451,13 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             if (!$subscription) {
                 DB::rollBack();
-                return ApiResponseService::errorResponse('الاشتراك غير موجود.');
+                return ApiResponseService::errorResponse('الاشتراك غير موجود.', [], 404);
+            }
+
+            // Idempotency: if already cancelled/rejected, return success
+            if ($subscription->status === Subscription::STATUS_CANCELLED) {
+                DB::rollBack();
+                return ApiResponseService::successResponse('تم رفض هذا الاشتراك مسبقاً.');
             }
 
             if ($subscription->status !== Subscription::STATUS_PENDING_APPROVAL) {
@@ -399,14 +475,16 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 return ApiResponseService::errorResponse('لا يوجد عملية دفع معلقة لهذا الاشتراك.');
             }
 
+            $reason = trim((string) $request->admin_notes);
+
             // 1. Mark payment as failed
             $payment->status = SubscriptionPayment::STATUS_FAILED;
-            $payment->admin_notes = $request->admin_notes ?? 'تم رفض طلب الدفع من قبل الإدارة.';
+            $payment->admin_notes = $reason;
             $payment->save();
 
             // 2. Cancel subscription
             $subscription->status = Subscription::STATUS_CANCELLED;
-            $subscription->cancellation_reason = $request->admin_notes ?? 'Payment rejected by administrator';
+            $subscription->cancellation_reason = $reason;
             $subscription->cancelled_at = now();
             $subscription->auto_renew = false;
             $subscription->save();
@@ -423,7 +501,10 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 ]);
             }
 
-            return ApiResponseService::successResponse('تم رفض طلب الاشتراك وإلغاؤه بنجاح.');
+            return ApiResponseService::successResponse(
+                'تم رفض طلب الاشتراك وإلغاؤه بنجاح.',
+                new \App\Http\Resources\ManualSubscriptionAdminResource($subscription->fresh(['user', 'plan', 'payments']))
+            );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
