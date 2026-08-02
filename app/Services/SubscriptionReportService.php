@@ -79,6 +79,7 @@ final class SubscriptionReportService
 
         return [
             'summary' => [
+                'total_plans' => count($plans),
                 'total_revenue_egp' => round($currentRevenueEgp, 2),
                 'total_orders' => $currentOrdersCount,
                 'total_subscribers' => $currentSubscribersCount,
@@ -197,7 +198,7 @@ final class SubscriptionReportService
         foreach ($plans as $p) {
             $code = $p['plan_code'] ?? 'plan';
             $name = str_replace(',', ' ', $p['plan_name']);
-            $total = $p['subscribers_count'];
+            $total = $p['subscribers_count'] ?? $p['total_subscribers'] ?? 0;
             $active = $p['active_subscribers'];
             $expired = $p['expired_subscribers'] ?? 0;
             $revenue = number_format($p['total_revenue_egp'], 2, '.', '');
@@ -406,10 +407,13 @@ final class SubscriptionReportService
                 'badge_variant' => $variant,
                 'badge_color' => $color,
                 'subscribers_count' => $subsCount,
+                'total_subscribers' => $subsCount,
                 'active_subscribers' => $activeCount,
                 'expired_subscribers' => $expiredCount,
                 'total_revenue_egp' => round($revEgp, 2),
+                'price' => (float) $plan->price,
                 'is_active' => (bool) $plan->is_active,
+                'is_deleted' => $plan->deleted_at !== null,
             ];
         }
 
