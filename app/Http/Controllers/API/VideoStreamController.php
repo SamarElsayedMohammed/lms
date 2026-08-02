@@ -32,6 +32,16 @@ final class VideoStreamController extends Controller
         private readonly FeatureFlagService $featureFlagService,
     ) {}
 
+    public function corsPreflight()
+    {
+        return response('', 200, [
+            'Access-Control-Allow-Origin' => config('cors.allowed_origins')[0] ?? '*',
+            'Access-Control-Allow-Methods' => 'GET, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
+            'Access-Control-Max-Age' => '86400',
+        ]);
+    }
+
     /**
      * Resolve playable video for an authenticated user (HLS, direct file, or YouTube).
      */

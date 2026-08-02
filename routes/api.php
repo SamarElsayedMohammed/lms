@@ -178,34 +178,8 @@ Route::prefix('subscription')->group(function (): void {
 
 
 if (app()->environment('local', 'staging', 'development')) {
-    Route::get('/debug/geo-headers', function (\Illuminate\Http\Request $request) {
-        $countryService = app(\App\Services\CountryDetectionService::class);
-        return response()->json($countryService->debug($request));
-    });
-
-    Route::get('/debug/raw-request', function (\Illuminate\Http\Request $request) {
-        $geoHeaders = [
-            'CF-IPCountry' => $request->header('CF-IPCountry'),
-            'X-User-Country' => $request->header('X-User-Country'),
-            'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
-            'X-Country' => $request->header('X-Country'),
-            'CF-Connecting-IP' => $request->header('CF-Connecting-IP'),
-            'X-Forwarded-For' => $request->header('X-Forwarded-For'),
-            'X-Real-IP' => $request->header('X-Real-IP'),
-        ];
-
-        $allHeaders = [];
-        foreach ($request->headers->all() as $key => $values) {
-            $allHeaders[$key] = is_array($values) && count($values) === 1 ? $values[0] : $values;
-        }
-
-        return response()->json([
-            'timestamp' => now()->toIso8601String(),
-            'laravel_ip' => $request->ip(),
-            'geo_headers' => $geoHeaders,
-            'all_headers' => $allHeaders,
-        ]);
-    });
+    Route::get('/debug/geo-headers', [ApiController::class, 'debugGeoHeaders']);
+    Route::get('/debug/raw-request', [ApiController::class, 'debugRawRequest']);
 }
 
 /**
@@ -250,14 +224,7 @@ Route::middleware(OptionalAuth::class)->group(function (): void {
  * No auth required - UUID token provides access control
  * Rate limited to prevent abuse (300 requests per minute per IP)
  */
-Route::options('/hls/{uuid}/{path?}', function () {
-    return response('', 200, [
-        'Access-Control-Allow-Origin' => config('cors.allowed_origins')[0] ?? '*',
-        'Access-Control-Allow-Methods' => 'GET, OPTIONS',
-        'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
-        'Access-Control-Max-Age' => '86400',
-    ]);
-})->where('path', '.*');
+Route::options('/hls/{uuid}/{path?}', [VideoStreamController::class, 'corsPreflight'])->where('path', '.*');
 
 Route::get('/hls/{uuid}/{path?}', [VideoStreamController::class, 'serve'])
     ->name('api.hls.serve')
@@ -291,15 +258,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Lecture attachments (user-facing, gated by feature flag)
     Route::get('/lecture/{lectureId}/attachments', [CourseChapterApiController::class, 'getLectureAttachments']);
 
-    // Handle CORS preflight for video streaming
-    Route::options('/video/{lectureId}/stream', function () {
-        return response('', 200, [
-            'Access-Control-Allow-Origin' => config('cors.allowed_origins')[0] ?? '*',
-            'Access-Control-Allow-Methods' => 'GET, OPTIONS',
-            'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
-            'Access-Control-Max-Age' => '86400',
-        ]);
-    });
+    Route::options('/video/{lectureId}/stream', [VideoStreamController::class, 'corsPreflight']);
 
     /**
      * User APIs

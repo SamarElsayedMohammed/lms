@@ -138,4 +138,15 @@ class Controller extends BaseController
             ResponseService::errorResponse($th);
         }
     }
+
+    public function serveStorage(string $path)
+    {
+        $path = str_replace(['../', '..\\'], '', $path);
+        if ($path === '' || !\Illuminate\Support\Facades\Storage::disk('public')->exists($path)) {
+            abort(404);
+        }
+        $fullPath = \Illuminate\Support\Facades\Storage::disk('public')->path($path);
+        $mimeType = \Illuminate\Support\Facades\File::mimeType($fullPath);
+        return response()->file($fullPath, ['Content-Type' => $mimeType]);
+    }
 }

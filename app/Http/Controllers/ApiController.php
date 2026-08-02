@@ -58,6 +58,37 @@ class ApiController extends Controller
         ])->header('X-Backend-Commit', 'v2-repair');
     }
 
+    public function debugGeoHeaders(Request $request)
+    {
+        $countryService = app(\App\Services\CountryDetectionService::class);
+        return response()->json($countryService->debug($request));
+    }
+
+    public function debugRawRequest(Request $request)
+    {
+        $geoHeaders = [
+            'CF-IPCountry' => $request->header('CF-IPCountry'),
+            'X-User-Country' => $request->header('X-User-Country'),
+            'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
+            'X-Country' => $request->header('X-Country'),
+            'CF-Connecting-IP' => $request->header('CF-Connecting-IP'),
+            'X-Forwarded-For' => $request->header('X-Forwarded-For'),
+            'X-Real-IP' => $request->header('X-Real-IP'),
+        ];
+
+        $allHeaders = [];
+        foreach ($request->headers->all() as $key => $values) {
+            $allHeaders[$key] = is_array($values) && count($values) === 1 ? $values[0] : $values;
+        }
+
+        return response()->json([
+            'timestamp' => now()->toIso8601String(),
+            'laravel_ip' => $request->ip(),
+            'geo_headers' => $geoHeaders,
+            'all_headers' => $allHeaders,
+        ]);
+    }
+
     public function userExists(Request $request)
     {
         try {

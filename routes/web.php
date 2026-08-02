@@ -16,16 +16,7 @@ use App\Http\Controllers\Controller;
  |
  */
 
-/** Serve public storage files (fixes 403 when symlink not followed, e.g. php artisan serve) */
-Route::get('storage/{path}', function (string $path) {
-    $path = str_replace(['../', '..\\'], '', $path);
-    if ($path === '' || !\Illuminate\Support\Facades\Storage::disk('public')->exists($path)) {
-        abort(404);
-    }
-    $fullPath = \Illuminate\Support\Facades\Storage::disk('public')->path($path);
-    $mimeType = \Illuminate\Support\Facades\File::mimeType($fullPath);
-    return response()->file($fullPath, ['Content-Type' => $mimeType]);
-})->where('path', '.*')->name('storage.serve');
+Route::get('storage/{path}', [Controller::class, 'serveStorage'])->where('path', '.*')->name('storage.serve');
 // Other Common Routes
 Route::group(['prefix' => 'common'], static function (): void {
     Route::get('/js/lang', [Controller::class , 'readLanguageFile'])->name('common.language.read');
