@@ -34,11 +34,12 @@ class UserDeviceAdminApiController extends Controller
             ->get()
             ->map(fn($d) => [
                 'id'          => $d->id,
-                'device_type' => $d->device_type,
-                'device_id'   => $d->device_id,
-                'device_name' => $d->device_name,
-                'last_seen'   => $d->updated_at?->diffForHumans(),
-                'registered'  => $d->created_at?->format('Y-m-d H:i'),
+                'device_type' => $d->device_type ?? 'web',
+                'device_id'   => $d->device_id ?? '',
+                'device_name' => $d->device_name ?: (ucfirst($d->device_type ?? 'web') . ' Device'),
+                'last_seen'   => $d->updated_at?->diffForHumans() ?? $d->created_at?->diffForHumans() ?? 'Recently',
+                'registered'  => $d->created_at?->format('Y-m-d H:i') ?? now()->format('Y-m-d H:i'),
+                'created_at'  => $d->created_at?->format('Y-m-d H:i') ?? now()->format('Y-m-d H:i'),
             ]);
 
         ApiResponseService::successResponse('Devices retrieved successfully', [

@@ -35,31 +35,37 @@ class UserDevice extends Model
         ?string $deviceName = null,
         int    $maxDevices = 3,
     ): array {
+        if (empty($deviceName)) {
+            $deviceName = ucfirst($deviceType) . ' Device';
+        }
+
         // Check if this exact device is already registered for the user
         $existing = self::where('user_id', $userId)
             ->where('device_id', $deviceId)
             ->first();
 
         if ($existing) {
-            // Known device — always allowed (refresh device_name if changed)
-            if ($deviceName && $existing->device_name !== $deviceName) {
-                $existing->update(['device_name' => $deviceName, 'device_type' => $deviceType]);
-            } else {
-                // Touch updated_at so it appears as "last seen"
-                $existing->touch();
-            }
+            // Known device — update name/type and touch last seen
+            $existing->update([
+                'device_name' => $deviceName,
+                'device_type' => $deviceType,
+            ]);
             return ['allowed' => true];
         }
 
         try {
             \Illuminate\Support\Facades\DB::beginTransaction();
 
-            // Explicit Block: 1 device per type limit
+            // Check if user already has a device registered for this device_type
             $existingType = self::where('user_id', $userId)->where('device_type', $deviceType)->first();
             if ($existingType) {
-                // B2 Grace: If the device_id changed but device_name and device_type match exactly,
-                // we assume it's the same physical device getting a new ID. Overwrite the old one.
-                if ($existingType->device_name === $deviceName) {
+                $isWeb = ($deviceType === 'web');
+                $nameMatches = (!empty($deviceName) && !empty($existingType->device_name) && strtolower($existingType->device_name) === strtolower($deviceName));
+                $currentCount = self::where('user_id', $userId)->count();
+
+                // Web browsers easily reset storage/fingerprints; overwrite old slot so user is never locked out on web.
+                // For other types, allow overwrite if device_name matches or if total count is within limits.
+                if ($isWeb || $nameMatches || $currentCount <= $maxDevices) {
                     // Revoke old tokens associated with the old device_id
                     \Illuminate\Support\Facades\DB::table('personal_access_tokens')
                         ->where('tokenable_id', $userId)
@@ -67,7 +73,11 @@ class UserDevice extends Model
                         ->where('name', 'like', $existingType->device_id . '%')
                         ->delete();
 
-                    $existingType->update(['device_id' => $deviceId]);
+                    $existingType->update([
+                        'device_id'   => $deviceId,
+                        'device_name' => $deviceName ?: $existingType->device_name ?: (ucfirst($deviceType) . ' Device'),
+                    ]);
+
                     \Illuminate\Support\Facades\DB::commit();
                     return ['allowed' => true];
                 }
