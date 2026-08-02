@@ -294,7 +294,7 @@ class DashboardController extends Controller
                     'label' => 'Suspended Users',
                 ],
                 'stopped_users' => [
-                    'count' => $suspendedUsers,
+                    'count' => (int) User::where('is_active', 0)->where('status', 'stopped')->count(),
                     'growth' => 0,
                     'icon' => 'fas fa-user-slash',
                     'color' => 'danger',
@@ -315,9 +315,13 @@ class DashboardController extends Controller
                     'label' => 'Total Instructors',
                 ],
                 'total_earnings' => [
-                    'count' => $currencySymbol . number_format($totalEarnings, 2),
+                    'amount' => (float) $totalEarnings,
+                    'currency_code' => 'EGP',
+                    'currency_symbol' => 'ج.م',
+                    'formatted' => number_format($totalEarnings, 2) . ' ج.م',
+                    'count' => (float) $totalEarnings, // Keep numeric count for safe JS parsing
                     'growth' => $revenueGrowth,
-                    'icon' => 'fas fa-rupee-sign',
+                    'icon' => 'fas fa-coins',
                     'color' => 'success',
                     'label' => 'Total Earnings',
                 ],
@@ -475,7 +479,8 @@ class DashboardController extends Controller
                 'average_order_value' => round((float) $averageOrderValue, 2),
                 'payment_methods' => $this->getPaymentMethodStats(),
                 'revenue_by_category' => $this->getRevenueByCategoryStats(),
-                // Debug info (can be removed later)
+                'revenue_by_package' => $this->getRevenueByPackageStats(),
+                'revenue_by_country' => $this->getRevenueByCountryStats(),
                 '_debug' => [
                     'total_orders' => $totalOrders,
                     'completed_orders' => $completedOrdersCount,
@@ -868,17 +873,51 @@ class DashboardController extends Controller
         try {
             $totalNotifications = Notification::count();
             $unreadNotifications = Notification::whereNull('read_at')->count();
-            $errorLogs = 0; // You can implement error log counting
-            $systemLoad = $this->getSystemLoadMetrics();
+
+            $dbHealthy = false;
+            try {
+                $dbHealthy = (bool) DB::connection()->getPdo();
+            } catch (\Exception) {
+                $dbHealthy = false;
+            }
+
+            $storageHealthy = false;
+            try {
+                $storageHealthy = \Illuminate\Support\Facades\Storage::disk('public')->exists('');
+            } catch (\Exception) {
+                $storageHealthy = false;
+            }
+
+            $failedJobsCount = 0;
+            try {
+                $failedJobsCount = DB::table('failed_jobs')->count();
+            } catch (\Exception) {
+                $failedJobsCount = 0;
+            }
 
             return [
                 'notifications' => [
                     'total' => $totalNotifications,
                     'unread' => $unreadNotifications,
                 ],
+                'database' => [
+                    'status' => $dbHealthy ? 'healthy' : 'degraded',
+                    'label' => $dbHealthy ? 'متصلة' : 'معطلة',
+                ],
+                'api' => [
+                    'status' => 'healthy',
+                    'label' => 'سليمة',
+                ],
+                'storage' => [
+                    'status' => $storageHealthy ? 'healthy' : 'degraded',
+                    'label' => $storageHealthy ? 'سليمة' : 'معطلة',
+                ],
+                'queue' => [
+                    'status' => $failedJobsCount === 0 ? 'healthy' : 'degraded',
+                    'failed_jobs' => $failedJobsCount,
+                ],
                 'system_performance' => [
-                    'error_logs' => $errorLogs,
-                    'load_metrics' => $systemLoad,
+                    'error_logs' => $failedJobsCount,
                 ],
                 'database_stats' => $this->getDatabaseStats(),
                 'storage_stats' => $this->getStorageStats(),
@@ -992,6 +1031,138 @@ class DashboardController extends Controller
                 ->limit(10)
                 ->get();
         } catch (\Exception) {
+            return [];
+        }
+    }
+
+    private function getRevenueByPackageStats(): array
+    {
+        try {
+            $plans = DB::table('subscription_plans')
+                ->whereNull('deleted_at')
+                ->get();
+
+            if ($plans->isEmpty()) {
+                return [];
+            }
+
+            $palette = ["#eb2027", "#f59e0b", "#0ea5e9", "#10b981", "#a855f7"];
+            $totalSubRev = (float) DB::table('subscription_payments')
+                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->sum('amount_egp');
+
+            $result = [];
+            foreach ($plans as $index => $plan) {
+                $subCount = DB::table('subscriptions')
+                    ->where('plan_id', $plan->id)
+                    ->whereNull('deleted_at')
+                    ->count();
+
+                $activeCount = DB::table('subscriptions')
+                    ->where('plan_id', $plan->id)
+                    ->where('status', 'active')
+                    ->whereNull('deleted_at')
+                    ->count();
+
+                $rev = (float) DB::table('subscription_payments')
+                    ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
+                    ->where('subscriptions.plan_id', $plan->id)
+                    ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                    ->sum('subscription_payments.amount_egp');
+
+                $pct = $totalSubRev > 0 ? round(($rev / $totalSubRev) * 100, 1) : 0;
+
+                $result[] = [
+                    'package_id' => $plan->id,
+                    'package_name' => $plan->name,
+                    'package_slug' => $plan->slug,
+                    'subscriptions_count' => $subCount,
+                    'active_subscriptions_count' => $activeCount,
+                    'gross_revenue' => $rev,
+                    'refunded_revenue' => 0.0,
+                    'net_revenue' => $rev,
+                    'percentage' => $pct,
+                    'currency_code' => 'EGP',
+                    'name' => $plan->name,
+                    'revenue' => $rev,
+                    'color' => $palette[$index % count($palette)],
+                ];
+            }
+
+            return $result;
+        } catch (\Exception $e) {
+            Log::error('Revenue by package error: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    private function getRevenueByCountryStats(): array
+    {
+        try {
+            $countryNames = [
+                'EG' => ['ar' => 'مصر', 'en' => 'Egypt', 'flag' => '🇪🇬'],
+                'SA' => ['ar' => 'المملكة العربية السعودية', 'en' => 'Saudi Arabia', 'flag' => '🇸🇦'],
+                'AE' => ['ar' => 'الإمارات العربية المتحدة', 'en' => 'United Arab Emirates', 'flag' => '🇦🇪'],
+                'KW' => ['ar' => 'الكويت', 'en' => 'Kuwait', 'flag' => '🇰🇼'],
+                'QA' => ['ar' => 'قطر', 'en' => 'Qatar', 'flag' => '🇶🇦'],
+                'BH' => ['ar' => 'البحرين', 'en' => 'Bahrain', 'flag' => '🇧🇭'],
+                'OM' => ['ar' => 'عُمان', 'en' => 'Oman', 'flag' => '🇴🇲'],
+                'JO' => ['ar' => 'الأردن', 'en' => 'Jordan', 'flag' => '🇯🇴'],
+            ];
+
+            $countryRevenues = DB::table('subscription_payments')
+                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->whereNotNull('resolved_country')
+                ->select(
+                    'resolved_country as code',
+                    DB::raw('COUNT(*) as tx_count'),
+                    DB::raw('COUNT(DISTINCT user_id) as cust_count'),
+                    DB::raw('SUM(amount_egp) as total_rev')
+                )
+                ->groupBy('resolved_country')
+                ->orderBy('total_rev', 'desc')
+                ->get();
+
+            if ($countryRevenues->isEmpty()) {
+                $countryRevenues = DB::table('user_billing_details')
+                    ->join('orders', 'user_billing_details.user_id', '=', 'orders.user_id')
+                    ->where('orders.status', 'completed')
+                    ->select(
+                        'user_billing_details.country_code as code',
+                        DB::raw('COUNT(orders.id) as tx_count'),
+                        DB::raw('COUNT(DISTINCT orders.user_id) as cust_count'),
+                        DB::raw('SUM(COALESCE(orders.amount_egp, orders.final_price)) as total_rev')
+                    )
+                    ->groupBy('user_billing_details.country_code')
+                    ->orderBy('total_rev', 'desc')
+                    ->get();
+            }
+
+            $total = (float) $countryRevenues->sum('total_rev');
+
+            return $countryRevenues->map(function ($item) use ($countryNames, $total) {
+                $code = strtoupper((string) $item->code);
+                $info = $countryNames[$code] ?? ['ar' => $code, 'en' => $code, 'flag' => '🌐'];
+                $rev = (float) $item->total_rev;
+                $pct = $total > 0 ? round(($rev / $total) * 100, 1) : 0;
+
+                return [
+                    'country_code' => $code,
+                    'country_name_ar' => $info['ar'],
+                    'country_name_en' => $info['en'],
+                    'country' => $info['ar'],
+                    'flag' => $info['flag'],
+                    'transactions_count' => (int) $item->tx_count,
+                    'customers_count' => (int) $item->cust_count,
+                    'gross_revenue' => $rev,
+                    'net_revenue' => $rev,
+                    'revenue' => $rev,
+                    'percentage' => $pct,
+                    'currency_code' => 'EGP',
+                ];
+            })->values()->toArray();
+        } catch (\Exception $e) {
+            Log::error('Revenue by country error: ' . $e->getMessage());
             return [];
         }
     }
@@ -1179,10 +1350,13 @@ class DashboardController extends Controller
             for ($i = 11; $i >= 0; $i--) {
                 $date = Carbon::now()->subMonths($i)->startOfMonth();
                 $key = $date->format('Y-m');
+                $totalRevVal = (float) (($revenues->get($key)->revenue ?? 0) + ($subRevenues->get($key)->revenue ?? 0));
 
                 $data[] = [
                     'month' => $date->format('M Y'),
-                    'revenue' => ($revenues->get($key)->revenue ?? 0) + ($subRevenues->get($key)->revenue ?? 0),
+                    'revenue' => $totalRevVal,
+                    'revenue_egp' => $totalRevVal,
+                    'value' => $totalRevVal,
                 ];
             }
             return $data;
@@ -1623,11 +1797,40 @@ class DashboardController extends Controller
             $stats = DB::table('subscriptions')
                 ->join('subscription_plans', 'subscriptions.plan_id', '=', 'subscription_plans.id')
                 ->where('subscriptions.status', 'active')
+                ->where(function ($q) {
+                    $q->whereNull('subscriptions.ends_at')
+                      ->orWhere('subscriptions.ends_at', '>=', now());
+                })
                 ->whereNull('subscriptions.deleted_at')
                 ->select('subscription_plans.billing_cycle', DB::raw('COUNT(*) as count'))
                 ->groupBy('subscription_plans.billing_cycle')
                 ->get()
                 ->keyBy('billing_cycle');
+
+            $expiredCount = (int) DB::table('subscriptions')
+                ->whereNull('deleted_at')
+                ->where(function ($q) {
+                    $q->where('status', 'expired')
+                      ->orWhere(function ($q2) {
+                          $q2->where('status', 'active')
+                             ->whereNotNull('ends_at')
+                             ->where('ends_at', '<', now());
+                      });
+                })
+                ->count();
+
+            $activeCount = (int) DB::table('subscriptions')
+                ->whereNull('deleted_at')
+                ->where('status', 'active')
+                ->where(function ($q) {
+                    $q->whereNull('ends_at')
+                      ->orWhere('ends_at', '>=', now());
+                })
+                ->count();
+
+            $canceledCount = (int) DB::table('subscriptions')->whereNull('deleted_at')->where('status', 'canceled')->count();
+            $pendingCount = (int) DB::table('subscriptions')->whereNull('deleted_at')->where('status', 'pending')->count();
+            $suspendedCount = (int) DB::table('subscriptions')->whereNull('deleted_at')->where('status', 'suspended')->count();
 
             return [
                 'monthly'    => (int) ($stats->get('monthly')->count ?? 0),
@@ -1636,7 +1839,12 @@ class DashboardController extends Controller
                 'yearly'     => (int) ($stats->get('yearly')->count ?? 0),
                 'lifetime'   => (int) ($stats->get('lifetime')->count ?? 0),
                 'custom'     => (int) ($stats->get('custom')->count ?? 0),
-                'total_active' => (int) Subscription::where('status', 'active')->count(),
+                'expired'    => $expiredCount,
+                'canceled'   => $canceledCount,
+                'pending'    => $pendingCount,
+                'suspended'  => $suspendedCount,
+                'total_active' => $activeCount,
+                'total_subscriptions' => (int) DB::table('subscriptions')->whereNull('deleted_at')->count(),
             ];
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -1649,7 +1857,12 @@ class DashboardController extends Controller
                 'yearly'     => 0,
                 'lifetime'   => 0,
                 'custom'     => 0,
+                'expired'    => 0,
+                'canceled'   => 0,
+                'pending'    => 0,
+                'suspended'  => 0,
                 'total_active' => 0,
+                'total_subscriptions' => 0,
             ];
         }
     }

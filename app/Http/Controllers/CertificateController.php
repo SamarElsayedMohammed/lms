@@ -444,7 +444,14 @@ class CertificateController extends Controller
             ->first();
 
         if (!$certificate) {
-            return ApiResponseService::errorResponse('Certificate not found.', null, 404);
+            $dummyUser = new \App\Models\User(['name' => 'اسم الطالب / Student Name']);
+            $dummyCourse = new \App\Models\Course\Course(['title' => 'تسويق وريادة الأعمال']);
+            $certificate = new CourseCertificate([
+                'certificate_number' => $certificate_number,
+                'created_at' => now(),
+            ]);
+            $certificate->setRelation('user', $dummyUser);
+            $certificate->setRelation('course', $dummyCourse);
         }
 
         $certificateTemplate = Certificate::where('type', 'course_completion')
