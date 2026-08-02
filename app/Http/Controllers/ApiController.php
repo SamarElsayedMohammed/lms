@@ -47,6 +47,8 @@ class ApiController extends Controller
         if (array_key_exists('HTTP_AUTHORIZATION', $_SERVER) && !empty($_SERVER['HTTP_AUTHORIZATION'])) {
             $this->middleware('auth:sanctum');
         }
+    }
+
     public function version()
     {
         return response()->json([
