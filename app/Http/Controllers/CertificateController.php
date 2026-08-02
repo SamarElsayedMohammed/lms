@@ -452,22 +452,9 @@ class CertificateController extends Controller
             ->orderBy('created_at', 'desc')
             ->first();
 
-        if ($certificateTemplate) {
-            $html             = $this->generateCertificateHtml($certificateTemplate, $certificate);
-            $templateSettings = is_string($certificateTemplate->template_settings)
-                ? json_decode($certificateTemplate->template_settings, true)
-                : $certificateTemplate->template_settings;
-            $widthPx  = $templateSettings['width']  ?? 800;
-            $heightPx = $templateSettings['height'] ?? 600;
-        } else {
-            $html     = view('certificates.course_certificate_template', [
-                'certificate' => $certificate,
-                'user'        => $certificate->user,
-                'course'      => $certificate->course,
-            ])->render();
-            $widthPx  = 800;
-            $heightPx = 566;
-        }
+        $html = $this->generateCertificateHtml($certificateTemplate, $certificate);
+        $widthPx = 1200;
+        $heightPx = 800;
 
         try {
             $pdfContent      = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);

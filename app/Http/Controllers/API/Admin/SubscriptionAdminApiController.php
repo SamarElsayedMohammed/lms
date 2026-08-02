@@ -9,6 +9,7 @@ use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
 use App\Services\ApiResponseService;
 use App\Services\AffiliateService;
+use App\Services\SubscriptionReportService;
 use App\Notifications\ManualSubscriptionStatusNotification;
 use App\Notifications\SubscriptionActivatedNotification;
 use App\Models\User;
@@ -17,12 +18,16 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpFoundation\Response;
 
 final class SubscriptionAdminApiController extends AdminCrudApiController
 {
-    public function __construct()
+    private SubscriptionReportService $reportService;
+
+    public function __construct(SubscriptionReportService $reportService)
     {
         $this->middleware('auth:sanctum');
+        $this->reportService = $reportService;
     }
 
     /**
@@ -44,7 +49,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             ->sum(DB::raw('subscription_payments.final_amount * ' . $this->getEgpExchangeRateSql()));
         
         // Split by payment method (manual vs others/auto)
-        // Assuming 'manual' is the specific string used for manual payments, and others like 'kashier', 'wallet', 'stripe' are automatic.
         $manualPaymentsCount = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
                                 ->where('payment_method', 'manual')
                                 ->count();
@@ -124,13 +128,11 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     {
         $this->ensureAdmin();
 
-        // 1. Base Query restricted strictly to manual payments
         $baseQuery = Subscription::query()
             ->whereHas('payments', function ($q) {
                 $q->where('payment_method', 'manual');
             });
 
-        // Calculate filter-aware summary stats
         $statistics = [
             'total' => (clone $baseQuery)->count(),
             'pending_approval' => (clone $baseQuery)->where('status', Subscription::STATUS_PENDING_APPROVAL)->count(),
@@ -142,7 +144,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $q->latest()->with('manualDepositMethod');
         }]);
 
-        // Filter by Status
         if ($request->filled('status')) {
             $statusInput = strtolower(trim((string) $request->status));
             if (in_array($statusInput, ['approved', 'active'], true)) {
@@ -156,7 +157,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
         }
 
-        // Filter by Search (User name, email, or request ID)
         if ($request->filled('search')) {
             $search = trim((string) $request->search);
             $query->where(function ($q) use ($search) {
@@ -170,7 +170,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             });
         }
 
-        // Filter by Date Range
         if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);
         }
@@ -178,7 +177,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
-        // Filter by Plan
         if ($request->filled('plan_id')) {
             $query->where('plan_id', $request->plan_id);
         }
@@ -240,10 +238,8 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 return ApiResponseService::errorResponse('الاشتراك غير موجود.', [], 404);
             }
 
-            // 1. Lock User first to prevent deadlocks
             $user = User::where('id', $subscriptionData->user_id)->lockForUpdate()->first();
 
-            // 2. Lock Last Subscription in Queue
             $existingSubscription = Subscription::forUser($user->id)
                 ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING])
                 ->where('id', '!=', $id)
@@ -252,7 +248,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 ->lockForUpdate()
                 ->first();
 
-            // 3. Lock Pending Subscription
             $subscription = Subscription::with(['plan' => function ($query) {
                 $query->withTrashed();
             }])->lockForUpdate()->find($id);
@@ -262,7 +257,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 return ApiResponseService::errorResponse('الاشتراك غير موجود.');
             }
 
-            // Idempotency: if already approved, return success
             if (in_array($subscription->status, [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING], true)) {
                 DB::rollBack();
                 return ApiResponseService::successResponse('تم تفعيل هذا الاشتراك مسبقاً.', new \App\Http\Resources\ManualSubscriptionAdminResource($subscription));
@@ -288,7 +282,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 return ApiResponseService::errorResponse('لا يوجد عملية دفع معلقة لهذا الاشتراك.');
             }
 
-            // 4. If user used wallet balance, deduct it now
             if ($payment->wallet_amount > 0) {
                 if ($user->wallet_balance < $payment->wallet_amount) {
                     DB::rollBack();
@@ -297,7 +290,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 $user->decrement('wallet_balance', $payment->wallet_amount);
             }
 
-            // 5. Mark payment completed
             $payment->status = SubscriptionPayment::STATUS_COMPLETED;
             $payment->paid_at = now();
             if ($request->filled('admin_notes')) {
@@ -305,28 +297,25 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
             $payment->save();
 
-            // 6. Determine starts_at and ends_at (Handles stacking)
             $startsAt = now();
             $status = Subscription::STATUS_ACTIVE;
             $parentSubscriptionId = null;
 
             if ($existingSubscription) {
                 $startsAt = $existingSubscription->ends_at ?? now();
-                $status = Subscription::STATUS_PENDING; // Stacking / Queued
+                $status = Subscription::STATUS_PENDING;
                 $parentSubscriptionId = $existingSubscription->id;
             }
 
             $durationDays = $subscription->plan->getDurationDays();
             $endsAt = $durationDays !== null ? $startsAt->copy()->addDays($durationDays) : null;
 
-            // 7. Activate subscription
             $subscription->starts_at = $startsAt;
             $subscription->ends_at = $endsAt;
             $subscription->status = $status;
             $subscription->parent_subscription_id = $parentSubscriptionId;
             $subscription->save();
 
-            // 8. Process affiliate referral
             try {
                 $affiliateService = app(AffiliateService::class);
                 $affiliateService->processReferral($user, $subscription);
@@ -340,7 +329,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 ]);
             }
 
-            // 9. Facebook / GA4 purchase tracking events
             try {
                 if (class_exists(\App\Services\TrackingService::class)) {
                     $trackingValue = (float) ($payment->amount_egp ?? ($payment->final_amount * ($payment->exchange_rate_snapshot ?? 1)));
@@ -373,7 +361,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
-            // 10. Notify User (Safely)
             try {
                 if ($subscription->parent_subscription_id && $existingSubscription && $existingSubscription->plan_id === $subscription->plan_id) {
                     if (class_exists(\App\Notifications\SubscriptionRenewedNotification::class)) {
@@ -454,7 +441,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 return ApiResponseService::errorResponse('الاشتراك غير موجود.', [], 404);
             }
 
-            // Idempotency: if already cancelled/rejected, return success
             if ($subscription->status === Subscription::STATUS_CANCELLED) {
                 DB::rollBack();
                 return ApiResponseService::successResponse('تم رفض هذا الاشتراك مسبقاً.');
@@ -477,12 +463,10 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             $reason = trim((string) $request->admin_notes);
 
-            // 1. Mark payment as failed
             $payment->status = SubscriptionPayment::STATUS_FAILED;
             $payment->admin_notes = $reason;
             $payment->save();
 
-            // 2. Cancel subscription
             $subscription->status = Subscription::STATUS_CANCELLED;
             $subscription->cancellation_reason = $reason;
             $subscription->cancelled_at = now();
@@ -491,7 +475,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
-            // 3. Notify user (Safely)
             try {
                 $subscription->user->notify(new ManualSubscriptionStatusNotification($subscription));
             } catch (\Exception $e) {
@@ -514,165 +497,55 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     }
 
     /**
-     * Subscription Plan Report — عدد المشتركين لكل باقة
+     * Subscription Plan Report — Global Dashboard
      * Super Admin only.
-     *
-     * Query Params:
-     *  - date_from    (Y-m-d)   تصفية من تاريخ
-     *  - date_to      (Y-m-d)   تصفية إلى تاريخ
-     *  - status       active|expired|cancelled|pending|all   (default: all)
      */
     public function planReport(Request $request): JsonResponse
     {
         $this->ensureAdmin();
         $this->checkPermission('subscription-plans-list');
 
-        $status        = $request->input('status', 'all');
-        $dateFrom      = $request->input('date_from');
-        $dateTo        = $request->input('date_to');
-        $paymentMethod = $request->input('payment_method');
-        $country       = $request->input('country');
+        $filters = $request->only(['preset', 'date_from', 'date_to', 'status', 'payment_method', 'country']);
+        $reportData = $this->reportService->getGlobalOverviewReport($filters);
 
-        // ── جلب الإيرادات بالجنيه المصري لكل باقة ──
-        $revenuePerPlanQuery = DB::table('subscription_payments')
-            ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
-            ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
-            ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED);
+        return ApiResponseService::successResponse('تم جلب تقرير الاشتراكات بنجاح', $reportData);
+    }
 
-        if ($status !== 'all') {
-            $revenuePerPlanQuery->where('subscriptions.status', $status);
+    /**
+     * Subscription Plan Report — Individual Plan Details Dashboard
+     * Super Admin only.
+     */
+    public function planDetailReport(Request $request, int $planId): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('subscription-plans-list');
+
+        $filters = $request->only(['preset', 'date_from', 'date_to', 'payment_method', 'country']);
+
+        try {
+            $reportData = $this->reportService->getPlanDetailReport($planId, $filters);
+            return ApiResponseService::successResponse('تم جلب تقاصيل تقرير الباقة بنجاح', $reportData);
+        } catch (\InvalidArgumentException $e) {
+            return ApiResponseService::errorResponse($e->getMessage(), [], 404);
         }
-        if ($dateFrom) {
-            $revenuePerPlanQuery->whereDate('subscriptions.created_at', '>=', $dateFrom);
-        }
-        if ($dateTo) {
-            $revenuePerPlanQuery->whereDate('subscriptions.created_at', '<=', $dateTo);
-        }
-        if ($paymentMethod) {
-            $revenuePerPlanQuery->where('subscription_payments.payment_method', $paymentMethod);
-        }
-        if ($country) {
-            $revenuePerPlanQuery->where('subscription_payments.resolved_country', strtoupper($country));
-        }
+    }
 
-        $revenuePerPlan = $revenuePerPlanQuery
-            ->select('subscriptions.plan_id', DB::raw('SUM(subscription_payments.final_amount * ' . $this->getEgpExchangeRateSql() . ') as total_revenue_egp'))
-            ->groupBy('subscriptions.plan_id')
-            ->pluck('total_revenue_egp', 'plan_id');
+    /**
+     * Export Subscription Plan Report CSV
+     * Super Admin only.
+     */
+    public function exportReport(Request $request): Response
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('subscription-plans-list');
 
-        // ── شامل: كل الباقات حتى اللي عندها صفر مشتركين ──
-        $plans = SubscriptionPlan::withTrashed()
-            ->select('id', 'name', 'billing_cycle', 'duration_days', 'price', 'is_active', 'deleted_at')
-            ->addSelect([
-                // كل الاشتراكات
-                'total_subscribers' => \App\Models\Subscription::selectRaw('COUNT(DISTINCT user_id)')
-                    ->whereColumn('plan_id', 'subscription_plans.id')
-                    ->where(function ($q) use ($status, $dateFrom, $dateTo, $paymentMethod, $country) {
-                        $this->applySubscriptionFilters($q, $status, $dateFrom, $dateTo, $paymentMethod, $country);
-                    }),
-                // مشتركين فاعلين فقط
-                'active_subscribers' => \App\Models\Subscription::selectRaw('COUNT(DISTINCT user_id)')
-                    ->whereColumn('plan_id', 'subscription_plans.id')
-                    ->where('status', \App\Models\Subscription::STATUS_ACTIVE)
-                    ->where(function ($q) {
-                        $q->whereNull('ends_at')->orWhere('ends_at', '>', now());
-                    })
-                    ->where(function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
-                        $this->applyDateFilters($q, $dateFrom, $dateTo);
-                        $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
-                    }),
-                // مشتركين منتهين
-                'expired_subscribers' => \App\Models\Subscription::selectRaw('COUNT(DISTINCT user_id)')
-                    ->whereColumn('plan_id', 'subscription_plans.id')
-                    ->where('status', \App\Models\Subscription::STATUS_EXPIRED)
-                    ->where(function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
-                        $this->applyDateFilters($q, $dateFrom, $dateTo);
-                        $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
-                    }),
-                // مشتركين ملغيين
-                'cancelled_subscribers' => \App\Models\Subscription::selectRaw('COUNT(DISTINCT user_id)')
-                    ->whereColumn('plan_id', 'subscription_plans.id')
-                    ->where('status', \App\Models\Subscription::STATUS_CANCELLED)
-                    ->where(function ($q) use ($dateFrom, $dateTo, $paymentMethod, $country) {
-                        $this->applyDateFilters($q, $dateFrom, $dateTo);
-                        $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
-                    }),
-            ])
-            ->orderByDesc('total_subscribers')
-            ->get()
-            ->map(function (SubscriptionPlan $plan) use ($revenuePerPlan) {
-                return [
-                    'plan_id'              => $plan->id,
-                    'plan_name'            => $plan->name,
-                    'billing_cycle'        => $plan->billing_cycle,
-                    'duration_days'        => $plan->duration_days,
-                    'price'                => (float) $plan->price, // السعر الافتراضي كمعلومة
-                    'is_active'            => (bool) $plan->is_active,
-                    'is_deleted'           => $plan->deleted_at !== null,
-                    'total_revenue_egp'    => (float) ($revenuePerPlan[$plan->id] ?? 0),
-                    'total_subscribers'    => (int) $plan->total_subscribers,
-                    'active_subscribers'   => (int) $plan->active_subscribers,
-                    'expired_subscribers'  => (int) $plan->expired_subscribers,
-                    'cancelled_subscribers' => (int) $plan->cancelled_subscribers,
-                ];
-            });
+        $filters = $request->only(['preset', 'date_from', 'date_to', 'status', 'payment_method', 'country']);
+        $csvContent = $this->reportService->generateCsvContent($filters);
 
-        // ── ملخص إجمالي ──
-        $summary = [
-            'total_plans'               => $plans->count(),
-            'total_revenue_egp'         => $plans->sum('total_revenue_egp'),
-            'total_subscribers'         => $plans->sum('total_subscribers'),
-            'total_active_subscribers'  => $plans->sum('active_subscribers'),
-            'total_expired_subscribers' => $plans->sum('expired_subscribers'),
-            'total_cancelled_subscribers' => $plans->sum('cancelled_subscribers'),
-            'filters_applied' => array_filter([
-                'status'         => $status !== 'all' ? $status : null,
-                'date_from'      => $dateFrom,
-                'date_to'        => $dateTo,
-                'payment_method' => $paymentMethod,
-                'country'        => $country ? strtoupper($country) : null,
-            ]),
-        ];
-
-        return $this->jsonSuccess(__('Subscription plan report retrieved'), [
-            'summary' => $summary,
-            'plans'   => $plans,
+        return response($csvContent, 200, [
+            'Content-Type' => 'text/csv; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="subscription-report.csv"',
         ]);
-    }
-
-    // ── Helpers ────────────────────────────────────────────────────────────
-
-    private function applySubscriptionFilters(\Illuminate\Database\Eloquent\Builder $q, string $status, ?string $dateFrom, ?string $dateTo, ?string $paymentMethod = null, ?string $country = null): void
-    {
-        if ($status !== 'all') {
-            $q->where('status', $status);
-        }
-        $this->applyDateFilters($q, $dateFrom, $dateTo);
-        $this->applyPaymentFiltersToSubscriptions($q, $paymentMethod, $country);
-    }
-
-    private function applyDateFilters(\Illuminate\Database\Eloquent\Builder $q, ?string $dateFrom, ?string $dateTo): void
-    {
-        if ($dateFrom) {
-            $q->whereDate('created_at', '>=', $dateFrom);
-        }
-        if ($dateTo) {
-            $q->whereDate('created_at', '<=', $dateTo);
-        }
-    }
-
-    private function applyPaymentFiltersToSubscriptions(\Illuminate\Database\Eloquent\Builder $q, ?string $paymentMethod, ?string $country): void
-    {
-        if ($paymentMethod || $country) {
-            $q->whereHas('payments', function ($paymentQuery) use ($paymentMethod, $country) {
-                if ($paymentMethod) {
-                    $paymentQuery->where('payment_method', $paymentMethod);
-                }
-                if ($country) {
-                    $paymentQuery->where('resolved_country', strtoupper($country));
-                }
-            });
-        }
     }
 
     private function getEgpExchangeRateSql(): string

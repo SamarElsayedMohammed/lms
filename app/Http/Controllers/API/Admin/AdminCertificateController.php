@@ -84,26 +84,17 @@ class AdminCertificateController extends AdminCrudApiController
             );
         }
 
-        // Generate PDF using the active template
+        // Generate PDF using the active template (or default template if none in DB)
         $template = Certificate::where('type', 'course_completion')
             ->where('is_active', true)
             ->orderByDesc('created_at')
             ->first();
 
-        if (!$template) {
-            return ApiResponseService::errorResponse('No active certificate template found.');
-        }
-
         $html = app(\App\Http\Controllers\CertificateController::class)
             ->generateCertificateHtmlPublic($template, $certificate);
 
-        $settings  = is_string($template->template_settings)
-            ? json_decode($template->template_settings, true)
-            : $template->template_settings;
-
-        $settings = is_array($settings) ? $settings : [];
-        $widthPx  = $settings['width']  ?? 1200;
-        $heightPx = $settings['height'] ?? 800;
+        $widthPx  = 1200;
+        $heightPx = 800;
         $filename = "{$certificate->course->title}_{$certificate->user->name}.pdf";
         $encodedFilename = rawurlencode($filename);
 

@@ -932,6 +932,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'comprehensiveIndex']);
             // تقرير المشتركين لكل باقة — للسوبر أدمن فقط
             Route::get('/plan-report', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planReport']);
+            Route::get('/plan-report/export', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'exportReport']);
+            Route::get('/plan-report/plans/{planId}', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planDetailReport']);
         });
 
         // Webinars (Admin/Instructor)
