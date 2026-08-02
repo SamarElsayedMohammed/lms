@@ -111,6 +111,7 @@ class WithdrawalMethodAdminApiController extends AdminCrudApiController
         $method->update($data);
 
         return ApiResponseService::successResponse('Withdrawal method updated successfully', $method);
+    }
     /**
      * Archive/Delete a withdrawal method
      */

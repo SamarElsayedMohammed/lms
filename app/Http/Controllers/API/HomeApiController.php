@@ -268,8 +268,7 @@ class HomeApiController extends Controller
                         $activeCoursesCount = Course::where('user_id', $instructor->user_id)
                             ->where('is_active', 1)
                             ->where('status', 'publish')
-                            ->where('approval_status', 'approved');
-                            })
+                            ->where('approval_status', 'approved')
                             ->count();
                         $publishedCoursesCount = Course::where('user_id', $instructor->user_id)
                             ->where('is_active', 1)
@@ -334,7 +333,6 @@ class HomeApiController extends Controller
                             ->with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
                             ->where('is_active', 1)
                             ->where('approval_status', 'approved');
-                            });
 
                         if ($request->filled('course_type')) {
                             $query->whereIn('course_type', explode(',', $request->course_type));
@@ -545,10 +543,7 @@ class HomeApiController extends Controller
                                 ->where('status', 'publish')
                                 ->where('approval_status', 'approved')
                                 ->whereHas('user', static function ($userQuery): void {
-                $userQuery
-                    ->where('is_active', 1)
-                    ;
-            });
+                                    $userQuery->where('is_active', 1);
                                 })
                                 ->whereIn('id', $recommendedCourseIds)
                                 ->withAvg('ratings', 'rating')
@@ -570,10 +565,7 @@ class HomeApiController extends Controller
                                 ->where('status', 'publish')
                                 ->where('approval_status', 'approved')
                                 ->whereHas('user', static function ($userQuery): void {
-                $userQuery
-                    ->where('is_active', 1)
-                    ;
-            });
+                                    $userQuery->where('is_active', 1);
                                 })
                                 ->withAvg('ratings', 'rating')
                                 ->withCount('ratings')
@@ -596,10 +588,7 @@ class HomeApiController extends Controller
                             ->where('status', 'publish')
                             ->where('approval_status', 'approved')
                             ->whereHas('user', static function ($userQuery): void {
-                $userQuery
-                    ->where('is_active', 1)
-                    ;
-            });
+                                $userQuery->where('is_active', 1);
                             })
                             ->withAvg('ratings', 'rating')
                             ->withCount('ratings')
@@ -648,10 +637,7 @@ class HomeApiController extends Controller
                                 ->where('status', 'publish')
                                 ->where('approval_status', 'approved')
                                 ->whereHas('user', static function ($userQuery): void {
-                $userQuery
-                    ->where('is_active', 1)
-                    ;
-            });
+                                    $userQuery->where('is_active', 1);
                                 })
                                 ->where(static function ($q) use ($searchHistories): void {
                                     foreach ($searchHistories as $searchQuery) {

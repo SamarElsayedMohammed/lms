@@ -503,13 +503,8 @@ class CertificateController extends Controller
      */
     private function generateCertificateHtml($template, $certificate)
     {
-        $settings = is_string($template?->template_settings)
-            ? json_decode($template->template_settings, true)
-            : ($template?->template_settings ?? []);
-
-        $settings = is_array($settings) ? $settings : [];
-        $canvasWidth = $settings['width'] ?? 1200;
-        $canvasHeight = $settings['height'] ?? 800;
+        return \App\Services\CertificateService::generateCertificateHtml($template, $certificate);
+    }
     private function cleanHtmlContent($html)
     {
         if (empty($html) || !is_string($html)) {

@@ -1299,8 +1299,8 @@ class InstructorApiController extends Controller
             'slug' => 'nullable|string|exists:users,slug',
             'type' => 'nullable|in:individual,team',
             'search' => 'nullable|string|max:255',
-            'sort_by' => 'nullable|in:id,created_at,updated_at,average_rating',
-            'sort_order' => 'nullable|in:asc,desc',
+            'sort_by' => 'nullable|string',
+            'sort_order' => 'nullable|in:asc,desc,ASC,DESC',
             'per_page' => 'nullable|integer|min:1|max:100',
             'page' => 'nullable|integer|min:1',
             'status' => 'nullable|in:pending,approved,rejected,suspended',
@@ -1440,12 +1440,43 @@ class InstructorApiController extends Controller
             $limit = $featureSection->limit ?? null;
         }
 
-        // ✅ Sorting
+        // ✅ Flexible Sorting Handling
         $sortBy = $request->sort_by ?? 'id';
-        if ($sortBy === 'average_rating') {
-            $sortBy = 'ratings_avg_rating';
+        $sortOrder = strtolower($request->sort_order ?? 'desc');
+        if (!in_array($sortOrder, ['asc', 'desc'], true)) {
+            $sortOrder = 'desc';
         }
-        $query->orderBy($sortBy, $request->sort_order ?? 'desc');
+
+        switch ($sortBy) {
+            case 'average_rating':
+            case 'rating':
+                $query->orderBy('ratings_avg_rating', $sortOrder);
+                break;
+            case 'total_ratings':
+            case 'popular':
+            case 'most_popular':
+                $query->orderBy('ratings_count', $sortOrder);
+                break;
+            case 'newest':
+            case 'latest':
+                $query->orderBy('instructors.created_at', 'desc');
+                break;
+            case 'oldest':
+                $query->orderBy('instructors.created_at', 'asc');
+                break;
+            case 'name':
+                $query->join('users', 'instructors.user_id', '=', 'users.id')
+                    ->select('instructors.*')
+                    ->orderBy('users.name', $sortOrder);
+                break;
+            default:
+                if (in_array($sortBy, ['id', 'created_at', 'updated_at'], true)) {
+                    $query->orderBy('instructors.' . $sortBy, $sortOrder);
+                } else {
+                    $query->orderBy('instructors.id', $sortOrder);
+                }
+                break;
+        }
 
         // ✅ Pagination
         $instructors = $query->paginate($request->per_page ?? 15);
