@@ -17,7 +17,7 @@ class IdempotencyMiddleware
      */
     public function handle(Request $request, Closure $next)
     {
-        $idempotencyKey = $request->header('Idempotency-Key');
+        $idempotencyKey = $request->header('Idempotency-Key') ?? $request->header('X-Idempotency-Key');
 
         if (!$idempotencyKey) {
             // Depending on strictness, we might abort or just continue
