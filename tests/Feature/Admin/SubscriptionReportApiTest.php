@@ -7,6 +7,8 @@ use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class SubscriptionReportApiTest extends TestCase
@@ -20,10 +22,12 @@ class SubscriptionReportApiTest extends TestCase
     {
         parent::setUp();
 
-        $this->admin = User::factory()->create([
-            'role' => 'admin',
-            'email' => 'admin@skillso.test',
-        ]);
+        $role = Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => 'web']);
+        Permission::firstOrCreate(['name' => 'subscription-plans-list', 'guard_name' => 'web']);
+        $role->givePermissionTo('subscription-plans-list');
+
+        $this->admin = User::factory()->create(['email' => 'admin@skillso.test']);
+        $this->admin->assignRole($role);
 
         $this->user = User::factory()->create([
             'role' => 'user',
@@ -41,6 +45,7 @@ class SubscriptionReportApiTest extends TestCase
     {
         $plan = SubscriptionPlan::create([
             'name' => 'Gold Subscription',
+            'slug' => 'gold-subscription-global',
             'price' => 500.0,
             'billing_cycle' => 'yearly',
             'duration_days' => 365,
@@ -95,10 +100,21 @@ class SubscriptionReportApiTest extends TestCase
         $this->assertEquals(1, $response->json('data.summary.total_subscribers'));
     }
 
+    public function test_canonical_admin_reports_path_is_available(): void
+    {
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=30d');
+
+        $response->assertOk()->assertJsonStructure([
+            'data' => ['summary', 'revenue_series', 'status_distribution', 'plans', 'meta'],
+        ]);
+    }
+
     public function test_admin_can_fetch_plan_detail_report(): void
     {
         $plan = SubscriptionPlan::create([
             'name' => 'Gold Subscription',
+            'slug' => 'gold-subscription-detail',
             'price' => 500.0,
             'billing_cycle' => 'yearly',
             'duration_days' => 365,
@@ -153,6 +169,25 @@ class SubscriptionReportApiTest extends TestCase
         $this->assertEquals(500.0, $response->json('data.summary.total_revenue_egp'));
     }
 
+    public function test_canonical_admin_reports_plan_detail_path_is_available(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Canonical Detail Plan',
+            'slug' => 'canonical-detail-plan',
+            'price' => 250,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson("/api/admin/reports/subscriptions/{$plan->id}?preset=30d");
+
+        $response->assertOk()
+            ->assertJsonPath('data.plan_id', $plan->id)
+            ->assertJsonStructure(['data' => ['summary', 'country_breakdown', 'monthly_growth', 'meta']]);
+    }
+
     public function test_admin_can_export_csv_report(): void
     {
         $response = $this->actingAs($this->admin, 'sanctum')
@@ -161,5 +196,103 @@ class SubscriptionReportApiTest extends TestCase
         $response->assertStatus(200);
         $response->assertHeader('Content-Type', 'text/csv; charset=utf-8');
         $this->assertStringContainsString('إجمالي المشتركين', $response->getContent());
+    }
+
+    public function test_custom_period_requires_valid_ordered_dates(): void
+    {
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/subscriptions/plan-report?preset=custom&date_from=2026-08-10&date_to=2026-08-01');
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['date_to']);
+    }
+
+    public function test_revenue_uses_paid_at_and_counts_unique_subscribers(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Accurate Plan',
+            'slug' => 'accurate-plan',
+            'price' => 100,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        $subscription = Subscription::create([
+            'user_id' => $this->user->id,
+            'plan_id' => $plan->id,
+            'status' => Subscription::STATUS_ACTIVE,
+            'starts_at' => now(),
+            'ends_at' => now()->addMonth(),
+        ]);
+
+        foreach ([100, 50] as $index => $amount) {
+            $payment = SubscriptionPayment::create([
+                'subscription_id' => $subscription->id,
+                'user_id' => $this->user->id,
+                'amount' => $amount,
+                'final_amount' => $amount,
+                'currency_code' => 'EGP',
+                'amount_egp' => $amount,
+                'exchange_rate_snapshot' => 1,
+                'status' => SubscriptionPayment::STATUS_COMPLETED,
+                'payment_method' => 'card',
+                'resolved_country' => 'EG',
+                'paid_at' => now(),
+            ]);
+            $payment->forceFill(['created_at' => now()->subMonths($index + 2)])->save();
+        }
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/subscriptions/plan-report?preset=30d');
+
+        $response->assertOk();
+        $this->assertSame(150.0, (float) $response->json('data.summary.total_revenue_egp'));
+        $this->assertSame(2, $response->json('data.summary.total_orders'));
+        $this->assertSame(1, $response->json('data.summary.total_subscribers'));
+        $this->assertSame(150.0, (float) collect($response->json('data.revenue_series'))->sum('revenue_egp'));
+    }
+
+    public function test_filters_are_applied_to_summary_and_plan_totals(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Filtered Plan',
+            'slug' => 'filtered-plan',
+            'price' => 100,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        foreach (['EG' => 100, 'SA' => 200] as $country => $amount) {
+            $user = User::factory()->create();
+            $subscription = Subscription::create([
+                'user_id' => $user->id,
+                'plan_id' => $plan->id,
+                'status' => Subscription::STATUS_ACTIVE,
+                'starts_at' => now(),
+                'ends_at' => now()->addMonth(),
+            ]);
+            SubscriptionPayment::create([
+                'subscription_id' => $subscription->id,
+                'user_id' => $user->id,
+                'amount' => $amount,
+                'final_amount' => $amount,
+                'amount_egp' => $amount,
+                'currency_code' => 'EGP',
+                'exchange_rate_snapshot' => 1,
+                'status' => SubscriptionPayment::STATUS_COMPLETED,
+                'payment_method' => 'card',
+                'resolved_country' => $country,
+                'paid_at' => now(),
+            ]);
+        }
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/subscriptions/plan-report?preset=30d&country=eg');
+
+        $response->assertOk();
+        $this->assertSame(100.0, (float) $response->json('data.summary.total_revenue_egp'));
+        $this->assertSame(1, $response->json('data.summary.total_subscribers'));
+        $this->assertSame(100.0, (float) collect($response->json('data.plans'))->sum('total_revenue_egp'));
     }
 }

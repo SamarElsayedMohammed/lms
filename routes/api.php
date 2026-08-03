@@ -936,6 +936,17 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::get('/plan-report/plans/{planId}', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planDetailReport']);
         });
 
+        // Subscription reports (canonical admin reporting paths).
+        // The legacy /admin/subscriptions/plan-report paths above remain available
+        // for backwards compatibility with existing dashboard clients.
+        Route::prefix('reports/subscriptions')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planReport']);
+            Route::get('/export', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'exportReport']);
+            Route::get('/plans/{planId}', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planDetailReport']);
+            Route::get('/{planId}', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planDetailReport'])
+                ->whereNumber('planId');
+        });
+
         // Webinars (Admin/Instructor)
         Route::prefix('webinars')->group(function (): void {
             Route::post('upload-image', [\App\Http\Controllers\API\Admin\WebinarMediaController::class, 'upload']);
