@@ -61,6 +61,49 @@ class DashboardController extends Controller
     private null|array $userGrowthChartCache = null;
 
     /**
+     * Resolve date boundaries for given period filter
+     */
+    private function resolvePeriodDates(string $period): array
+    {
+        $now = Carbon::now();
+        switch ($period) {
+            case '7_days':
+                $startDate = $now->copy()->subDays(7);
+                $endDate = $now->copy();
+                $prevStartDate = $now->copy()->subDays(14);
+                $prevEndDate = $now->copy()->subDays(7);
+                break;
+            case 'this_month':
+                $startDate = $now->copy()->startOfMonth();
+                $endDate = $now->copy();
+                $prevStartDate = $now->copy()->subMonth()->startOfMonth();
+                $prevEndDate = $now->copy()->subMonth()->endOfMonth();
+                break;
+            case 'this_year':
+                $startDate = $now->copy()->startOfYear();
+                $endDate = $now->copy();
+                $prevStartDate = $now->copy()->subYear()->startOfYear();
+                $prevEndDate = $now->copy()->subYear()->endOfYear();
+                break;
+            case '30_days':
+            default:
+                $startDate = $now->copy()->subDays(30);
+                $endDate = $now->copy();
+                $prevStartDate = $now->copy()->subDays(60);
+                $prevEndDate = $now->copy()->subDays(30);
+                break;
+        }
+
+        return [
+            'period' => $period,
+            'start' => $startDate,
+            'end' => $endDate,
+            'prev_start' => $prevStartDate,
+            'prev_end' => $prevEndDate,
+        ];
+    }
+
+    /**
      * Get comprehensive dashboard data for admin panel
      */
     public function getDashboardData(Request $request)
@@ -69,17 +112,20 @@ class DashboardController extends Controller
             // Get currency symbol from settings
             $currencySymbol = HelperService::systemSettings('currency_symbol') ?? '$';
 
+            $period = (string) ($request->input('period') ?? $request->input('date_range') ?? '30_days');
+            $dates = $this->resolvePeriodDates($period);
+
             $data = [
-                'overview_stats' => $this->getOverviewStats(),
-                'financial_stats' => $this->getFinancialStats(),
-                'course_stats' => $this->getCourseStats(),
-                'user_stats' => $this->getUserStats($request),
-                'engagement_stats' => $this->getEngagementStats(),
+                'overview_stats' => $this->getOverviewStats($dates),
+                'financial_stats' => $this->getFinancialStats($dates),
+                'course_stats' => $this->getCourseStats($dates),
+                'user_stats' => $this->getUserStats($request, $dates),
+                'engagement_stats' => $this->getEngagementStats($dates),
                 'monthly_charts' => $this->getMonthlyCharts(),
                 'recent_activities' => $this->getRecentActivities(),
                 'top_performers' => $this->getTopPerformers(),
                 'system_health' => $this->getSystemHealth(),
-                'subscription_stats' => $this->getSubscriptionStats(),
+                'subscription_stats' => $this->getSubscriptionStats($dates),
                 'monthly_financial_summary' => $this->getMonthlyFinancialSummary(),
                 'currency_symbol' => $currencySymbol,
             ];
@@ -120,20 +166,10 @@ class DashboardController extends Controller
      * GET /api/dashboard-charts
      *
      * Lightweight endpoint that returns only the three chart datasets needed
-     * for the performance analytics chart (تحليل الأداء):
-     *   - revenue    → الإيرادات  (last 12 months revenue)
-     *   - enrollment → التسجيل    (last 12 months user registrations)
-     *   - courses    → الدورات    (last 12 months course enrollments)
-     *
-     * Response shape:
-     * {
-     *   "status": true,
-     *   "data": {
-     *     "revenue":    [ { "month": "Jun 2025", "value": 1200.0 }, ... ],
-     *     "enrollment": [ { "month": "Jun 2025", "value": 15 }, ... ],
-     *     "courses":    [ { "month": "Jun 2025", "value": 3 }, ... ]
-     *   }
-     * }
+     * for performance analytics chart:
+     *   - revenue    -> الإيرادات
+     *   - enrollment -> التسجيل
+     *   - courses    -> الدورات
      */
     public function getChartsData(Request $request)
     {
@@ -145,6 +181,15 @@ class DashboardController extends Controller
             $revenueRows = Order::where('status', 'completed')
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->selectRaw('YEAR(created_at) as year, MONTH(created_at) as month, SUM(COALESCE(amount_egp, final_price)) as total')
+                ->groupBy('year', 'month')
+                ->get()
+                ->keyBy(fn($r) => sprintf('%04d-%02d', $r->year, $r->month));
+
+            $subRevenueRows = DB::table('subscription_payments')
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->whereBetween('subscription_payments.created_at', [$startDate, $endDate])
+                ->selectRaw('YEAR(subscription_payments.created_at) as year, MONTH(subscription_payments.created_at) as month, SUM(COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))) as total')
                 ->groupBy('year', 'month')
                 ->get()
                 ->keyBy(fn($r) => sprintf('%04d-%02d', $r->year, $r->month));
@@ -171,25 +216,21 @@ class DashboardController extends Controller
             for ($i = 11; $i >= 0; $i--) {
                 $date  = Carbon::now()->subMonths($i)->startOfMonth();
                 $key   = $date->format('Y-m');
-                $label = $date->format('M Y'); // e.g. "Jun 2025"
+                $label = $date->format('M Y');
 
-                $revenue[]    = ['month' => $label, 'value' => (float) ($revenueRows->get($key)->total    ?? 0)];
-                $enrollment[] = ['month' => $label, 'value' => (int)   ($enrollmentRows->get($key)->total ?? 0)];
-                $courses[]    = ['month' => $label, 'value' => (int)   ($coursesRows->get($key)->total    ?? 0)];
+                $revVal = (float) (($revenueRows->get($key)->total ?? 0) + ($subRevenueRows->get($key)->total ?? 0));
+                $revenue[]    = ['month' => $label, 'value' => $revVal];
+                $enrollment[] = ['month' => $label, 'value' => (int) ($enrollmentRows->get($key)->total ?? 0)];
+                $courses[]    = ['month' => $label, 'value' => (int) ($coursesRows->get($key)->total ?? 0)];
             }
 
             return response()->json([
                 'status'  => true,
                 'message' => 'Chart data retrieved successfully',
                 'data'    => [
-                    // Tab 1: الإيرادات — revenue from completed orders
                     'revenue'    => $revenue,
-                    // Tab 2: التسجيل — new user registrations
                     'enrollment' => $enrollment,
-                    // Tab 3: الدورات — course enrollments (order_courses)
                     'courses'    => $courses,
-
-                    // Meta
                     'period'     => 'last_12_months',
                     'from'       => $startDate->format('Y-m-d'),
                     'to'         => $endDate->format('Y-m-d'),
@@ -210,44 +251,42 @@ class DashboardController extends Controller
     /**
      * Get comprehensive overview statistics
      */
-    private function getOverviewStats()
+    private function getOverviewStats(array $dates)
     {
         try {
-            // Get currency symbol from settings
             $currencySymbol = HelperService::systemSettings('currency_symbol') ?? '$';
-
-            // Combine total earnings with revenue growth calculation
-            $now = Carbon::now();
-            $thirtyDaysAgo = $now->copy()->subDays(30);
-            $sixtyDaysAgo = $now->copy()->subDays(60);
 
             $revenueStats = Order::where('status', 'completed')
                 ->selectRaw('
                     SUM(COALESCE(amount_egp, final_price)) as total_earnings,
-                    SUM(CASE WHEN created_at >= ? THEN COALESCE(amount_egp, final_price) ELSE 0 END) as current_revenue,
+                    SUM(CASE WHEN created_at BETWEEN ? AND ? THEN COALESCE(amount_egp, final_price) ELSE 0 END) as current_revenue,
                     SUM(CASE WHEN created_at BETWEEN ? AND ? THEN COALESCE(amount_egp, final_price) ELSE 0 END) as previous_revenue
-                ', [$thirtyDaysAgo, $sixtyDaysAgo, $thirtyDaysAgo])
+                ', [$dates['start'], $dates['end'], $dates['prev_start'], $dates['prev_end']])
                 ->first();
 
             $subStats = DB::table('subscription_payments')
                 ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
                 ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
                 ->selectRaw('
-                    SUM(subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)) as total_earnings,
-                    SUM(CASE WHEN subscription_payments.created_at >= ? THEN subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1) ELSE 0 END) as current_revenue,
-                    SUM(CASE WHEN subscription_payments.created_at BETWEEN ? AND ? THEN subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1) ELSE 0 END) as previous_revenue
-                ', [$thirtyDaysAgo, $sixtyDaysAgo, $thirtyDaysAgo])
+                    SUM(COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))) as total_earnings,
+                    SUM(CASE WHEN subscription_payments.created_at BETWEEN ? AND ? THEN COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1))) ELSE 0 END) as current_revenue,
+                    SUM(CASE WHEN subscription_payments.created_at BETWEEN ? AND ? THEN COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1))) ELSE 0 END) as previous_revenue
+                ', [$dates['start'], $dates['end'], $dates['prev_start'], $dates['prev_end']])
                 ->first();
 
-            $totalEarnings = ($revenueStats->total_earnings ?? 0) + ($subStats->total_earnings ?? 0);
-            
-            $previousRevenue = ($revenueStats->previous_revenue ?? 0) + ($subStats->previous_revenue ?? 0);
-            $currentRevenue = ($revenueStats->current_revenue ?? 0) + ($subStats->current_revenue ?? 0);
-            
-            $revenueGrowth = $this->calculatePercentageChange(
-                $previousRevenue,
-                $currentRevenue,
-            );
+            $refundStats = \App\Models\RefundRequest::where('status', 'approved')
+                ->selectRaw('
+                    SUM(refund_amount) as total_refunds,
+                    SUM(CASE WHEN processed_at BETWEEN ? AND ? THEN refund_amount ELSE 0 END) as current_refunds,
+                    SUM(CASE WHEN processed_at BETWEEN ? AND ? THEN refund_amount ELSE 0 END) as previous_refunds
+                ', [$dates['start'], $dates['end'], $dates['prev_start'], $dates['prev_end']])
+                ->first();
+
+            $totalEarnings = max(0, (($revenueStats->total_earnings ?? 0) + ($subStats->total_earnings ?? 0)) - ($refundStats->total_refunds ?? 0));
+            $currentRevenue = max(0, (($revenueStats->current_revenue ?? 0) + ($subStats->current_revenue ?? 0)) - ($refundStats->current_refunds ?? 0));
+            $previousRevenue = max(0, (($revenueStats->previous_revenue ?? 0) + ($subStats->previous_revenue ?? 0)) - ($refundStats->previous_refunds ?? 0));
+
+            $revenueGrowth = $this->calculatePercentageChange($previousRevenue, $currentRevenue);
 
             $userStatusStats = User::selectRaw('COUNT(CASE WHEN is_active = 1 THEN 1 END) as active, COUNT(CASE WHEN is_active = 0 THEN 1 END) as suspended')->first();
             $totalUsers = $this->getTotalUsersCount();
@@ -257,19 +296,19 @@ class DashboardController extends Controller
             $totalEnrollments = OrderCourse::count() + \App\Models\Course\UserCourseTrack::count();
             $totalCategories = Category::count();
 
+            // courses.status: ['draft','pending','publish'] | courses.approval_status: ['approved','rejected'] (nullable = not reviewed)
             $coursesStats = Course::without('taxes')->selectRaw('
                     COUNT(*) as total,
-                    COUNT(CASE WHEN is_active = 1 THEN 1 END) as active,
-                    COUNT(CASE WHEN approval_status = ? THEN 1 END) as pending_approval
-                ', ['pending'])->first();
+                    COUNT(CASE WHEN status = "publish" AND is_active = 1 THEN 1 END) as active,
+                    COUNT(CASE WHEN status = "pending" THEN 1 END) as pending_approval
+                ')->first();
             $totalCourses = $coursesStats->total;
             $activeCourses = $coursesStats->active;
             $pendingApprovals = $coursesStats->pending_approval;
 
-            // Calculate growth percentages (last 30 days vs previous 30 days)
-            $userGrowth = $this->calculateGrowthPercentage('users', 'created_at');
-            $courseGrowth = $this->calculateGrowthPercentage('courses', 'created_at');
-            $enrollmentGrowth = $this->calculateGrowthPercentage('order_courses', 'created_at');
+            $userGrowth = $this->calculateGrowthBetweenDates('users', 'created_at', $dates);
+            $courseGrowth = $this->calculateGrowthBetweenDates('courses', 'created_at', $dates);
+            $enrollmentGrowth = $this->calculateGrowthBetweenDates('order_courses', 'created_at', $dates);
 
             return [
                 'total_users' => [
@@ -294,7 +333,8 @@ class DashboardController extends Controller
                     'label' => 'Suspended Users',
                 ],
                 'stopped_users' => [
-                    'count' => (int) User::where('is_active', 0)->where('status', 'stopped')->count(),
+                    // User model has no 'status' column; is_active=0 is the only suspension indicator
+                    'count' => $suspendedUsers,
                     'growth' => 0,
                     'icon' => 'fas fa-user-slash',
                     'color' => 'danger',
@@ -315,11 +355,11 @@ class DashboardController extends Controller
                     'label' => 'Total Instructors',
                 ],
                 'total_earnings' => [
-                    'amount' => (float) $totalEarnings,
+                    'amount' => round((float) $totalEarnings, 2),
                     'currency_code' => 'EGP',
                     'currency_symbol' => 'ج.م',
                     'formatted' => number_format($totalEarnings, 2) . ' ج.م',
-                    'count' => (float) $totalEarnings, // Keep numeric count for safe JS parsing
+                    'count' => round((float) $totalEarnings, 2),
                     'growth' => $revenueGrowth,
                     'icon' => 'fas fa-coins',
                     'color' => 'success',
@@ -362,85 +402,41 @@ class DashboardController extends Controller
     /**
      * Get financial statistics
      */
-    private function getFinancialStats()
+    private function getFinancialStats(array $dates)
     {
         try {
-            $currentMonth = Carbon::now()->startOfMonth();
-            $lastMonth = Carbon::now()->subMonth()->startOfMonth();
+            $thisPeriodRevenueFromOrders = Order::where('status', 'completed')
+                ->whereBetween('created_at', [$dates['start'], $dates['end']])
+                ->sum(DB::raw('COALESCE(amount_egp, final_price)')) ?? 0;
 
-            // Get this month revenue - check multiple sources
-            // 1. Completed orders
-            $thisMonthRevenueFromOrders =
-                Order::where('status', 'completed')->where('created_at', '>=', $currentMonth)->sum('amount_egp') ?? 0;
-
-            // Add Subscription Payments for this month
-            $thisMonthRevenueFromSubscriptions = DB::table('subscription_payments')
+            $thisPeriodRevenueFromSubscriptions = DB::table('subscription_payments')
                 ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
                 ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
-                ->where('subscription_payments.created_at', '>=', $currentMonth)
-                ->sum('subscription_payments.amount_egp') ?? 0;
+                ->whereBetween('subscription_payments.created_at', [$dates['start'], $dates['end']])
+                ->sum(DB::raw('COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))')) ?? 0;
 
-            // 2. Payment transactions with successful status
-            $thisMonthRevenueFromTransactions =
-                PaymentTransaction::where('payment_status', 'success')->where('created_at', '>=', $currentMonth)->sum(
-                    'amount',
-                ) ?? 0;
-
-            // 3. Transaction table (from payment gateways)
-            $thisMonthRevenueFromGatewayTransactions = DB::table('transactions')
-                ->where('status', 'completed')
-                ->where('created_at', '>=', $currentMonth)
-                ->sum('amount') ?? 0;
-
-            // Use the highest value or sum them (depending on your business logic)
-            // For now, prioritize orders, then transactions
-            $thisMonthRevenue = $thisMonthRevenueFromOrders > 0
-                ? $thisMonthRevenueFromOrders
-                : max($thisMonthRevenueFromTransactions, $thisMonthRevenueFromGatewayTransactions);
-                
-            $thisMonthRevenue += $thisMonthRevenueFromSubscriptions;
-
-            $thisMonthRefunds = \App\Models\RefundRequest::where('status', 'approved')
-                ->where('processed_at', '>=', $currentMonth)
+            $thisPeriodRefunds = \App\Models\RefundRequest::where('status', 'approved')
+                ->whereBetween('processed_at', [$dates['start'], $dates['end']])
                 ->sum('refund_amount') ?? 0;
-            $thisMonthRevenue = max(0, $thisMonthRevenue - $thisMonthRefunds);
 
-            // Get last month revenue - same logic
-            $lastMonthRevenueFromOrders =
-                Order::where('status', 'completed')->whereBetween('created_at', [
-                    $lastMonth,
-                    $lastMonth->copy()->endOfMonth(),
-                ])->sum('amount_egp') ?? 0;
+            $thisPeriodRevenue = max(0, ($thisPeriodRevenueFromOrders + $thisPeriodRevenueFromSubscriptions) - $thisPeriodRefunds);
 
-            $lastMonthRevenueFromSubscriptions = DB::table('subscription_payments')
+            $lastPeriodRevenueFromOrders = Order::where('status', 'completed')
+                ->whereBetween('created_at', [$dates['prev_start'], $dates['prev_end']])
+                ->sum(DB::raw('COALESCE(amount_egp, final_price)')) ?? 0;
+
+            $lastPeriodRevenueFromSubscriptions = DB::table('subscription_payments')
                 ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
                 ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
-                ->whereBetween('subscription_payments.created_at', [$lastMonth, $lastMonth->copy()->endOfMonth()])
-                ->sum('subscription_payments.amount_egp') ?? 0;
+                ->whereBetween('subscription_payments.created_at', [$dates['prev_start'], $dates['prev_end']])
+                ->sum(DB::raw('COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))')) ?? 0;
 
-            $lastMonthRevenueFromTransactions =
-                PaymentTransaction::where('payment_status', 'success')->whereBetween('created_at', [
-                    $lastMonth,
-                    $lastMonth->copy()->endOfMonth(),
-                ])->sum('amount') ?? 0;
-
-            $lastMonthRevenueFromGatewayTransactions = DB::table('transactions')
-                ->where('status', 'completed')
-                ->whereBetween('created_at', [$lastMonth, $lastMonth->copy()->endOfMonth()])
-                ->sum('amount') ?? 0;
-
-            $lastMonthRevenue = $lastMonthRevenueFromOrders > 0
-                ? $lastMonthRevenueFromOrders
-                : max($lastMonthRevenueFromTransactions, $lastMonthRevenueFromGatewayTransactions);
-                
-            $lastMonthRevenue += $lastMonthRevenueFromSubscriptions;
-
-            $lastMonthRefunds = \App\Models\RefundRequest::where('status', 'approved')
-                ->whereBetween('processed_at', [$lastMonth, $lastMonth->copy()->endOfMonth()])
+            $lastPeriodRefunds = \App\Models\RefundRequest::where('status', 'approved')
+                ->whereBetween('processed_at', [$dates['prev_start'], $dates['prev_end']])
                 ->sum('refund_amount') ?? 0;
-            $lastMonthRevenue = max(0, $lastMonthRevenue - $lastMonthRefunds);
 
-            // Get all order statistics in a single query
+            $lastPeriodRevenue = max(0, ($lastPeriodRevenueFromOrders + $lastPeriodRevenueFromSubscriptions) - $lastPeriodRefunds);
+
             $orderStats = Order::selectRaw('
                 COUNT(*) as total,
                 COUNT(CASE WHEN status = "completed" THEN 1 END) as completed,
@@ -450,55 +446,30 @@ class DashboardController extends Controller
                 AVG(CASE WHEN status = "completed" THEN amount_egp END) as avg_completed_order
             ')->first();
 
-            $totalOrders = $orderStats->total;
             $completedOrdersCount = $orderStats->completed;
-            $pendingOrdersCount = $orderStats->pending;
-            $processingOrdersCount = $orderStats->processing;
             $totalPendingPayments = $orderStats->total_pending_payments;
-
             $totalRefunds = WalletHistory::where('transaction_type', 'refund')->sum('amount') ?? 0;
 
-            // Calculate average order value with fallback to other sources
             $averageOrderValue = 0;
             if ($completedOrdersCount > 0) {
                 $averageOrderValue = $orderStats->avg_completed_order ?? 0;
             } elseif (PaymentTransaction::where('payment_status', 'success')->count() > 0) {
                 $averageOrderValue = PaymentTransaction::where('payment_status', 'success')->avg('amount') ?? 0;
-            } elseif (DB::table('transactions')->where('status', 'completed')->count() > 0) {
-                $averageOrderValue = DB::table('transactions')->where('status', 'completed')->avg('amount') ?? 0;
             }
 
             return [
                 'monthly_revenue' => [
-                    'current' => (float) $thisMonthRevenue,
-                    'previous' => (float) $lastMonthRevenue,
-                    'growth' => $this->calculatePercentageChange($lastMonthRevenue, $thisMonthRevenue),
+                    'current' => round((float) $thisPeriodRevenue, 2),
+                    'previous' => round((float) $lastPeriodRevenue, 2),
+                    'growth' => $this->calculatePercentageChange($lastPeriodRevenue, $thisPeriodRevenue),
                 ],
-                'total_pending' => (float) $totalPendingPayments,
-                'total_refunds' => (float) $totalRefunds,
+                'total_pending' => round((float) $totalPendingPayments, 2),
+                'total_refunds' => round((float) $totalRefunds, 2),
                 'average_order_value' => round((float) $averageOrderValue, 2),
                 'payment_methods' => $this->getPaymentMethodStats(),
                 'revenue_by_category' => $this->getRevenueByCategoryStats(),
                 'revenue_by_package' => $this->getRevenueByPackageStats(),
                 'revenue_by_country' => $this->getRevenueByCountryStats(),
-                '_debug' => [
-                    'total_orders' => $totalOrders,
-                    'completed_orders' => $completedOrdersCount,
-                    'pending_orders' => $pendingOrdersCount,
-                    'processing_orders' => $processingOrdersCount,
-                    'this_month_revenue_sources' => [
-                        'from_orders' => $thisMonthRevenueFromOrders,
-                        'from_payment_transactions' => $thisMonthRevenueFromTransactions,
-                        'from_gateway_transactions' => $thisMonthRevenueFromGatewayTransactions,
-                        'final' => $thisMonthRevenue,
-                    ],
-                    'last_month_revenue_sources' => [
-                        'from_orders' => $lastMonthRevenueFromOrders,
-                        'from_payment_transactions' => $lastMonthRevenueFromTransactions,
-                        'from_gateway_transactions' => $lastMonthRevenueFromGatewayTransactions,
-                        'final' => $lastMonthRevenue,
-                    ],
-                ],
             ];
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -511,24 +482,28 @@ class DashboardController extends Controller
     /**
      * Get course statistics
      */
-    private function getCourseStats()
+    private function getCourseStats(array $dates)
     {
         try {
+            // courses.status enum: ['draft','pending','publish'] | approval_status enum: ['approved','rejected'], nullable
             $courseStats = Course::without('taxes')
                 ->selectRaw('
                     COUNT(*) as total,
-                    COUNT(CASE WHEN is_active = 1 THEN 1 END) as active,
-                    COUNT(CASE WHEN approval_status = ? THEN 1 END) as pending_approval,
-                    COUNT(CASE WHEN approval_status = ? THEN 1 END) as approved,
-                    COUNT(CASE WHEN approval_status = ? THEN 1 END) as rejected
-                ', ['pending', 'approved', 'rejected'])
+                    COUNT(CASE WHEN status = "publish" AND is_active = 1 THEN 1 END) as published,
+                    COUNT(CASE WHEN status = "draft" THEN 1 END) as draft,
+                    COUNT(CASE WHEN status = "pending" THEN 1 END) as pending_approval,
+                    COUNT(CASE WHEN approval_status = "approved" THEN 1 END) as approved,
+                    COUNT(CASE WHEN approval_status = "rejected" THEN 1 END) as rejected
+                ')
                 ->first();
 
-            $publishedCourses = $courseStats->active;
-            $draftCourses = $courseStats->total - $courseStats->active;
-            $pendingApproval = $courseStats->pending_approval;
-            $approvedCourses = $courseStats->approved;
-            $rejectedCourses = $courseStats->rejected;
+            $publishedCourses = (int) ($courseStats->published ?? 0);
+            $draftCourses     = (int) ($courseStats->draft ?? 0);
+            $pendingApproval  = (int) ($courseStats->pending_approval ?? 0);
+            $approvedCourses  = (int) ($courseStats->approved ?? 0);
+            $rejectedCourses  = (int) ($courseStats->rejected ?? 0);
+            // Soft-deleted courses are treated as archived
+            $archivedCourses  = Course::without('taxes')->withTrashed()->whereNotNull('deleted_at')->count();
 
             $totalLectures = CourseChapterLecture::count();
             $totalQuizzes = CourseChapterQuiz::count();
@@ -549,7 +524,6 @@ class DashboardController extends Controller
                 COUNT(CASE WHEN rating = 1 THEN 1 END) as 1_star
             ')->first()->toArray();
 
-            // Recent ratings
             $recentRatings = Rating::with(['user', 'rateable'])
                 ->orderBy('created_at', 'desc')
                 ->limit(5)
@@ -562,6 +536,7 @@ class DashboardController extends Controller
                     'pending_approval' => $pendingApproval,
                     'approved' => $approvedCourses,
                     'rejected' => $rejectedCourses,
+                    'archived' => $archivedCourses,
                 ],
                 'content_stats' => [
                     'total_lectures' => $totalLectures,
@@ -594,21 +569,25 @@ class DashboardController extends Controller
     /**
      * Get user statistics
      */
-    private function getUserStats(Request $request)
+    private function getUserStats(Request $request, array $dates)
     {
         try {
             $userStats = User::selectRaw('
                 COUNT(*) as total,
                 COUNT(CASE WHEN is_active = 1 THEN 1 END) as active,
                 COUNT(CASE WHEN is_active = 0 THEN 1 END) as suspended,
-                COUNT(CASE WHEN created_at >= ? THEN 1 END) as new_this_month
-            ', [Carbon::now()->startOfMonth()])->first();
+                COUNT(CASE WHEN created_at BETWEEN ? AND ? THEN 1 END) as new_current_period,
+                COUNT(CASE WHEN created_at BETWEEN ? AND ? THEN 1 END) as new_prev_period
+            ', [$dates['start'], $dates['end'], $dates['prev_start'], $dates['prev_end']])->first();
 
             $totalUsers = (int) ($userStats->total ?? 0);
             $activeUsers = (int) ($userStats->active ?? 0);
             $suspendedUsers = (int) ($userStats->suspended ?? 0);
             $inactiveUsers = $suspendedUsers;
-            $newUsersThisMonth = (int) ($userStats->new_this_month ?? 0);
+            $newUsersThisPeriod = (int) ($userStats->new_current_period ?? 0);
+            $newUsersPrevPeriod = (int) ($userStats->new_prev_period ?? 0);
+            $newUsersGrowth = $this->calculatePercentageChange($newUsersPrevPeriod, $newUsersThisPeriod);
+
             $usersWithOrders = User::has('orders')->count();
             $usersLimit = min(max((int) $request->input('users_limit', 10), 1), 50);
 
@@ -651,9 +630,6 @@ class DashboardController extends Controller
                 COUNT(CASE WHEN status = ? THEN 1 END) as approved,
                 COUNT(CASE WHEN status = ? THEN 1 END) as rejected
             ', ['pending', 'approved', 'rejected'])->first();
-            $instructorRequests = $instructorStats->pending;
-            $approvedInstructors = $instructorStats->approved;
-            $rejectedInstructors = $instructorStats->rejected;
 
             return [
                 'total_users' => $totalUsers,
@@ -661,7 +637,7 @@ class DashboardController extends Controller
                 'suspended_users' => $suspendedUsers,
                 'stopped_users' => $suspendedUsers,
                 'inactive_users' => $inactiveUsers,
-                'new_users_this_month' => $newUsersThisMonth,
+                'new_users_this_month' => $newUsersThisPeriod,
                 'users_with_purchases' => $usersWithOrders,
                 'users_limit' => $usersLimit,
                 'users' => $users,
@@ -677,15 +653,16 @@ class DashboardController extends Controller
                     'suspended_users' => $suspendedUsers,
                     'stopped' => $suspendedUsers,
                     'stopped_users' => $suspendedUsers,
-                    'new_this_month' => $newUsersThisMonth,
-                    'new_users_this_month' => $newUsersThisMonth,
+                    'new_this_month' => $newUsersThisPeriod,
+                    'new_users_this_month' => $newUsersThisPeriod,
+                    'growth' => $newUsersGrowth,
                     'with_purchases' => $usersWithOrders,
                     'users_with_purchases' => $usersWithOrders,
                 ],
                 'instructor_stats' => [
-                    'pending_requests' => $instructorRequests,
-                    'approved' => $approvedInstructors,
-                    'rejected' => $rejectedInstructors,
+                    'pending_requests' => (int) ($instructorStats->pending ?? 0),
+                    'approved' => (int) ($instructorStats->approved ?? 0),
+                    'rejected' => (int) ($instructorStats->rejected ?? 0),
                 ],
                 'user_growth_chart' => $this->getUserGrowthChartData(),
                 'user_registration_sources' => $this->getUserRegistrationSources(),
@@ -699,22 +676,18 @@ class DashboardController extends Controller
     /**
      * Get engagement statistics
      */
-    private function getEngagementStats()
+    private function getEngagementStats(array $dates)
     {
         try {
             $discussionStats = CourseDiscussion::selectRaw('
                 COUNT(*) as total,
                 COUNT(CASE WHEN created_at >= ? THEN 1 END) as active
             ', [Carbon::now()->subDays(7)])->first();
-            $totalDiscussions = (int) ($discussionStats->total ?? 0);
-            $activeDiscussions = (int) ($discussionStats->active ?? 0);
 
             $quizStats = UserQuizAttempt::selectRaw('
                 COUNT(*) as total,
                 COUNT(CASE WHEN created_at >= ? THEN 1 END) as recent
             ', [Carbon::now()->subDays(7)])->first();
-            $totalQuizAttempts = (int) ($quizStats->total ?? 0);
-            $recentQuizAttempts = (int) ($quizStats->recent ?? 0);
 
             $totalAssignmentSubmissions = UserAssignmentSubmission::count();
             $totalWishlists = Wishlist::count();
@@ -722,24 +695,22 @@ class DashboardController extends Controller
             $totalHelpdeskQuestions = HelpdeskQuestion::count();
             $totalHelpdeskReplies = HelpdeskReply::count();
 
-            // Contact messages stats
+            // ContactMessage statuses: new | read | waiting_admin | replied | closed
+            // pending = new + waiting_admin (not yet actioned by admin)
             $contactStats = ContactMessage::selectRaw('
                 COUNT(*) as total,
-                COUNT(CASE WHEN status = "new" THEN 1 END) as pending,
+                COUNT(CASE WHEN status IN ("new", "waiting_admin") THEN 1 END) as pending,
                 COUNT(CASE WHEN status = "replied" THEN 1 END) as replied
             ')->first();
-            $totalContactMessages = (int) ($contactStats->total ?? 0);
-            $pendingContactMessages = (int) ($contactStats->pending ?? 0);
-            $repliedContactMessages = (int) ($contactStats->replied ?? 0);
 
             return [
                 'discussion_stats' => [
-                    'total_discussions' => $totalDiscussions,
-                    'active_this_week' => $activeDiscussions,
+                    'total_discussions' => (int) ($discussionStats->total ?? 0),
+                    'active_this_week' => (int) ($discussionStats->active ?? 0),
                 ],
                 'assessment_stats' => [
-                    'total_quiz_attempts' => $totalQuizAttempts,
-                    'recent_attempts' => $recentQuizAttempts,
+                    'total_quiz_attempts' => (int) ($quizStats->total ?? 0),
+                    'recent_attempts' => (int) ($quizStats->recent ?? 0),
                     'total_assignments' => $totalAssignmentSubmissions,
                 ],
                 'shopping_stats' => [
@@ -749,10 +720,9 @@ class DashboardController extends Controller
                 'support_stats' => [
                     'helpdesk_questions' => $totalHelpdeskQuestions,
                     'helpdesk_replies' => $totalHelpdeskReplies,
-                    // Contact & support messages
-                    'contact_messages' => $totalContactMessages,
-                    'pending_contact_messages' => $pendingContactMessages,
-                    'replied_contact_messages' => $repliedContactMessages,
+                    'contact_messages' => (int) ($contactStats->total ?? 0),
+                    'pending_contact_messages' => (int) ($contactStats->pending ?? 0),
+                    'replied_contact_messages' => (int) ($contactStats->replied ?? 0),
                 ],
                 'engagement_trends' => $this->getEngagementTrends(),
             ];
@@ -786,37 +756,39 @@ class DashboardController extends Controller
         try {
             $activities = [];
 
-            // Recent user registrations (fetch 4 as candidates)
+            // Recent user registrations
             $recentUsers = User::latest()->limit(4)->get();
             foreach ($recentUsers as $user) {
                 $activities[] = [
                     'type' => 'user_registration',
                     'icon' => 'fas fa-user-plus',
                     'color' => 'success',
-                    'title' => __('New User Registration'),
-                    'description' => $user->name . ' ' . __('joined the platform'),
+                    'title' => 'تسجيل طالب جديد',
+                    'subtitle' => $user->name . ' انضم للمنصة حديثاً',
+                    'description' => $user->name . ' انضم للمنصة حديثاً',
                     'time' => $this->getTimeAgo($user->created_at),
                     'raw_time' => $user->created_at,
-                    'link' => '/users/' . $user->id,
+                    'link' => '/admin/students',
                 ];
             }
 
-            // Recent course creations (fetch 4 as candidates)
+            // Recent course creations
             $recentCourses = Course::without('taxes')->latest()->limit(4)->get();
             foreach ($recentCourses as $course) {
                 $activities[] = [
                     'type' => 'course_creation',
                     'icon' => 'fas fa-graduation-cap',
                     'color' => 'primary',
-                    'title' => __('New Course Created'),
-                    'description' => '"' . $course->title . '" ' . __('was created'),
+                    'title' => 'إضافة دورة جديدة',
+                    'subtitle' => '"' . $course->title . '" تم إنشاؤها',
+                    'description' => '"' . $course->title . '" تم إنشاؤها',
                     'time' => $this->getTimeAgo($course->created_at),
                     'raw_time' => $course->created_at,
-                    'link' => '/courses/' . $course->id,
+                    'link' => '/admin/courses',
                 ];
             }
 
-            // Recent orders (fetch 4 as candidates)
+            // Recent orders
             $recentOrders = Order::with('user')->latest()->limit(4)->get();
             foreach ($recentOrders as $order) {
                 if (!$order->user) continue;
@@ -824,15 +796,15 @@ class DashboardController extends Controller
                     'type' => 'new_order',
                     'icon' => 'fas fa-shopping-cart',
                     'color' => 'warning',
-                    'title' => __('New Order Placed'),
-                    'description' => $order->user->name . ' ' . __('placed order #') . $order->order_number,
+                    'title' => 'طلب شراء جديد',
+                    'subtitle' => $order->user->name . ' قام بشراء طلب #' . $order->order_number,
+                    'description' => $order->user->name . ' قام بشراء طلب #' . $order->order_number,
                     'time' => $this->getTimeAgo($order->created_at),
                     'raw_time' => $order->created_at,
-                    'link' => '/orders/' . $order->id,
+                    'link' => '/admin/orders',
                 ];
             }
 
-            // Sort by actual timestamp descending, take exactly 6, then remove raw_time
             $activities = collect($activities)
                 ->sortByDesc('raw_time')
                 ->take(6)
@@ -927,23 +899,14 @@ class DashboardController extends Controller
         }
     }
 
-    // Helper calculation methods
-    private function calculateGrowthPercentage($table, $dateColumn)
+    private function calculateGrowthBetweenDates($table, $dateColumn, array $dates)
     {
         try {
-            $now = Carbon::now();
-            $thirtyDaysAgo = $now->copy()->subDays(30);
-            $sixtyDaysAgo = $now->copy()->subDays(60);
-
             $stats = DB::table($table)
                 ->selectRaw('
-                    COUNT(CASE WHEN '
-                . $dateColumn
-                . ' >= ? THEN 1 END) as current_period,
-                    COUNT(CASE WHEN '
-                . $dateColumn
-                . ' BETWEEN ? AND ? THEN 1 END) as previous_period
-                ', [$thirtyDaysAgo, $sixtyDaysAgo, $thirtyDaysAgo])
+                    COUNT(CASE WHEN ' . $dateColumn . ' BETWEEN ? AND ? THEN 1 END) as current_period,
+                    COUNT(CASE WHEN ' . $dateColumn . ' BETWEEN ? AND ? THEN 1 END) as previous_period
+                ', [$dates['start'], $dates['end'], $dates['prev_start'], $dates['prev_end']])
                 ->first();
 
             return $this->calculatePercentageChange($stats?->previous_period, $stats?->current_period);
@@ -954,24 +917,23 @@ class DashboardController extends Controller
 
     private function calculatePercentageChange($oldValue, $newValue)
     {
-        if ($oldValue == 0) {
-            return $newValue > 0 ? 100 : 0;
+        $old = (float) $oldValue;
+        $new = (float) $newValue;
+        if ($old <= 0) {
+            return $new > 0 ? 100 : 0;
         }
 
-        return round((($newValue - $oldValue) / $oldValue) * 100, 2);
+        return round((($new - $old) / $old) * 100, 1);
     }
 
-    // Statistics helper methods
     private function getPaymentMethodStats()
     {
         try {
-            // First try completed orders
             $orderStats = Order::where('status', 'completed')
                 ->select('payment_method', DB::raw('COUNT(*) as count'), DB::raw('SUM(COALESCE(amount_egp, final_price)) as total'))
                 ->groupBy('payment_method')
                 ->get();
 
-            // If no completed orders, try payment transactions
             if ($orderStats->isEmpty()) {
                 $transactionStats = PaymentTransaction::where('payment_status', 'success')
                     ->select(
@@ -982,35 +944,18 @@ class DashboardController extends Controller
                     ->groupBy('payment_gateway')
                     ->get();
 
-                if ($transactionStats->isEmpty()) {
-                    // Try gateway transactions table
-                    $gatewayStats = DB::table('transactions')
-                        ->where('status', 'completed')
-                        ->select('payment_method', DB::raw('COUNT(*) as count'), DB::raw('SUM(amount) as total'))
-                        ->groupBy('payment_method')
-                        ->get();
-
-                    return $gatewayStats->map(static fn($item) => [
-                        'method' => $item->payment_method ?? 'unknown',
-                        'count' => $item->count,
-                        'total' => $item->total,
-                    ]);
-                }
-
                 return $transactionStats->map(static fn($item) => [
                     'method' => $item->payment_method ?? 'unknown',
                     'count' => $item->count,
-                    'total' => $item->total,
+                    'total' => round((float) $item->total, 2),
                 ]);
             }
 
             return $orderStats->map(static fn($item) => [
                 'method' => $item->payment_method ?? 'unknown',
                 'count' => $item->count,
-                'total' => $item->total,
+                'total' => round((float) $item->total, 2),
             ]);
-        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
-            throw $e;
         } catch (\Exception $e) {
             Log::error('Payment Method Stats Error: ' . $e->getMessage());
             return [];
@@ -1048,8 +993,9 @@ class DashboardController extends Controller
 
             $palette = ["#eb2027", "#f59e0b", "#0ea5e9", "#10b981", "#a855f7"];
             $totalSubRev = (float) DB::table('subscription_payments')
-                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
-                ->sum('amount_egp');
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->sum(DB::raw('COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))'));
 
             $result = [];
             foreach ($plans as $index => $plan) {
@@ -1066,9 +1012,10 @@ class DashboardController extends Controller
 
                 $rev = (float) DB::table('subscription_payments')
                     ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
+                    ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
                     ->where('subscriptions.plan_id', $plan->id)
                     ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
-                    ->sum('subscription_payments.amount_egp');
+                    ->sum(DB::raw('COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))'));
 
                 $pct = $totalSubRev > 0 ? round(($rev / $totalSubRev) * 100, 1) : 0;
 
@@ -1078,13 +1025,13 @@ class DashboardController extends Controller
                     'package_slug' => $plan->slug,
                     'subscriptions_count' => $subCount,
                     'active_subscriptions_count' => $activeCount,
-                    'gross_revenue' => $rev,
+                    'gross_revenue' => round($rev, 2),
                     'refunded_revenue' => 0.0,
-                    'net_revenue' => $rev,
+                    'net_revenue' => round($rev, 2),
                     'percentage' => $pct,
                     'currency_code' => 'EGP',
                     'name' => $plan->name,
-                    'revenue' => $rev,
+                    'revenue' => round($rev, 2),
                     'color' => $palette[$index % count($palette)],
                 ];
             }
@@ -1111,13 +1058,14 @@ class DashboardController extends Controller
             ];
 
             $countryRevenues = DB::table('subscription_payments')
-                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
+                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
+                ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
                 ->whereNotNull('resolved_country')
                 ->select(
                     'resolved_country as code',
                     DB::raw('COUNT(*) as tx_count'),
                     DB::raw('COUNT(DISTINCT user_id) as cust_count'),
-                    DB::raw('SUM(amount_egp) as total_rev')
+                    DB::raw('SUM(COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))) as total_rev')
                 )
                 ->groupBy('resolved_country')
                 ->orderBy('total_rev', 'desc')
@@ -1154,9 +1102,9 @@ class DashboardController extends Controller
                     'flag' => $info['flag'],
                     'transactions_count' => (int) $item->tx_count,
                     'customers_count' => (int) $item->cust_count,
-                    'gross_revenue' => $rev,
-                    'net_revenue' => $rev,
-                    'revenue' => $rev,
+                    'gross_revenue' => round($rev, 2),
+                    'net_revenue' => round($rev, 2),
+                    'revenue' => round($rev, 2),
                     'percentage' => $pct,
                     'currency_code' => 'EGP',
                 ];
@@ -1167,25 +1115,17 @@ class DashboardController extends Controller
         }
     }
 
-    /**
-     * Get course statistics grouped by category with caching
-     * @return Collection
-     */
     private function getCourseByCategoryStats(): Collection
     {
-        // Return cached result if available
         if ($this->courseByCategoryCache !== null) {
             return $this->courseByCategoryCache;
         }
 
         try {
             $result = Category::withCount(['courses' => static function ($q): void {
-                // Only count courses that are active, published, approved, and have at least one active chapter with curriculum
-
-                $q
-                    ->where('is_active', true)
-                    ->where('status', 'publish')
-                    ->where('approval_status', 'approved');
+                $q->where('is_active', true)
+                  ->where('status', 'publish')
+                  ->where('approval_status', 'approved');
             }])
                 ->orderBy('courses_count', 'desc')
                 ->limit(10)
@@ -1195,7 +1135,6 @@ class DashboardController extends Controller
                     'count' => $category->courses_count,
                 ]);
 
-            // Cache the result
             $this->courseByCategoryCache = $result;
             return $result;
         } catch (\Exception) {
@@ -1203,13 +1142,8 @@ class DashboardController extends Controller
         }
     }
 
-    /**
-     * Get most popular courses with caching
-     * @return Collection
-     */
     private function getMostPopularCourses(): Collection
     {
-        // Return cached result if available
         if ($this->mostPopularCoursesCache !== null) {
             return $this->mostPopularCoursesCache;
         }
@@ -1232,11 +1166,12 @@ class DashboardController extends Controller
                 ->get()
                 ->map(static fn($course) => [
                     'title' => $course->title,
-                    'enrollments' => $course->enrollments_count,
-                    'instructor' => $course->user->name ?? 'Unknown',
+                    'courseName' => $course->title,
+                    'enrollments' => (int) $course->enrollments_count,
+                    'instructor' => $course->user->name ?? 'مدرس',
+                    'status' => $course->is_active ? 'نشطة' : 'مسودة',
                 ]);
 
-            // Cache the result
             $this->mostPopularCoursesCache = $result;
             return $result;
         } catch (\Exception) {
@@ -1246,7 +1181,6 @@ class DashboardController extends Controller
 
     private function getUserGrowthChartData(): array
     {
-        // Return cached result if available
         if ($this->userGrowthChartCache !== null) {
             return $this->userGrowthChartCache;
         }
@@ -1272,11 +1206,11 @@ class DashboardController extends Controller
 
                 $data[] = [
                     'month' => $date->format('M Y'),
-                    'count' => $users->get($key)->count ?? 0,
+                    'count' => (int) ($users->get($key)->count ?? 0),
+                    'value' => (int) ($users->get($key)->count ?? 0),
                 ];
             }
 
-            // Cache the result
             $this->userGrowthChartCache = $data;
             return $data;
         } catch (\Exception) {
@@ -1288,9 +1222,9 @@ class DashboardController extends Controller
     {
         $totalUsers = $this->getTotalUsersCount();
         return [
-            ['source' => 'Direct', 'count' => round($totalUsers * 0.6)],
-            ['source' => 'Social Media', 'count' => round($totalUsers * 0.25)],
-            ['source' => 'Referral', 'count' => round($totalUsers * 0.15)],
+            ['source' => 'مباشر (Direct)', 'count' => (int) round($totalUsers * 0.6)],
+            ['source' => 'وسائل التواصل', 'count' => (int) round($totalUsers * 0.25)],
+            ['source' => 'إحالات', 'count' => (int) round($totalUsers * 0.15)],
         ];
     }
 
@@ -1315,7 +1249,6 @@ class DashboardController extends Controller
         }
     }
 
-    // Chart data methods
     private function getRevenueChartData()
     {
         try {
@@ -1340,7 +1273,7 @@ class DashboardController extends Controller
                 ->selectRaw('
                     YEAR(subscription_payments.created_at) as year,
                     MONTH(subscription_payments.created_at) as month,
-                    SUM(subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)) as revenue
+                    SUM(COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))) as revenue
                 ')
                 ->groupBy('year', 'month')
                 ->get()
@@ -1354,9 +1287,9 @@ class DashboardController extends Controller
 
                 $data[] = [
                     'month' => $date->format('M Y'),
-                    'revenue' => $totalRevVal,
-                    'revenue_egp' => $totalRevVal,
-                    'value' => $totalRevVal,
+                    'revenue' => round($totalRevVal, 2),
+                    'revenue_egp' => round($totalRevVal, 2),
+                    'value' => round($totalRevVal, 2),
                 ];
             }
             return $data;
@@ -1403,7 +1336,8 @@ class DashboardController extends Controller
 
                 $data[] = [
                     'month' => $date->format('M Y'),
-                    'enrollments' => ($enrollments->get($key)->enrollments ?? 0) + ($trackEnrollments->get($key)->enrollments ?? 0),
+                    'enrollments' => (int) (($enrollments->get($key)->enrollments ?? 0) + ($trackEnrollments->get($key)->enrollments ?? 0)),
+                    'value' => (int) (($enrollments->get($key)->enrollments ?? 0) + ($trackEnrollments->get($key)->enrollments ?? 0)),
                 ];
             }
             return $data;
@@ -1435,7 +1369,8 @@ class DashboardController extends Controller
 
                 $data[] = [
                     'month' => $date->format('M Y'),
-                    'courses' => $courses->get($key)->count ?? 0,
+                    'courses' => (int) ($courses->get($key)->count ?? 0),
+                    'value' => (int) ($courses->get($key)->count ?? 0),
                 ];
             }
             return $data;
@@ -1444,7 +1379,6 @@ class DashboardController extends Controller
         }
     }
 
-    // Top performers methods
     private function getTopInstructors()
     {
         try {
@@ -1453,15 +1387,28 @@ class DashboardController extends Controller
             })
                 ->withCount(['courses as total_courses'])
                 ->with(['instructor_details'])
-                ->orderBy('total_courses', 'desc')
-                ->limit(5)
                 ->get()
-                ->map(static fn($instructor) => [
-                    'name' => $instructor->name,
-                    'email' => $instructor->email,
-                    'total_courses' => $instructor->total_courses,
-                    'status' => $instructor->instructor_details->status ?? 'pending',
-                ]);
+                ->map(function ($instructor) {
+                    $instructorCourseIds = Course::where('user_id', $instructor->id)->pluck('id');
+                    $studentsCount = OrderCourse::whereIn('course_id', $instructorCourseIds)
+                        ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+                        ->where('orders.status', 'completed')
+                        ->distinct('orders.user_id')
+                        ->count('orders.user_id');
+
+                    return [
+                        'name' => $instructor->name,
+                        'email' => $instructor->email,
+                        'total_courses' => (int) $instructor->total_courses,
+                        'courses' => (int) $instructor->total_courses,
+                        'students' => $studentsCount,
+                        'status' => $instructor->instructor_details->status ?? 'approved',
+                    ];
+                })
+                ->sortByDesc('students')
+                ->take(5)
+                ->values()
+                ->toArray();
         } catch (\Exception) {
             return [];
         }
@@ -1492,22 +1439,13 @@ class DashboardController extends Controller
                 ->get()
                 ->map(static fn($course) => [
                     'title' => $course->title,
-                    'total_earnings' => $course->total_earnings,
-                    'instructor' => $course->user->name ?? 'Unknown',
+                    'courseName' => $course->title,
+                    'total_earnings' => round((float) $course->total_earnings, 2),
+                    'instructor' => $course->user->name ?? 'مدرس',
                 ]);
         } catch (\Exception) {
             return [];
         }
-    }
-
-    // System methods
-    private function getSystemLoadMetrics()
-    {
-        return [
-            'database_queries' => 0,
-            'response_time' => 'Normal',
-            'uptime' => '99.9%',
-        ];
     }
 
     private function getDatabaseStats()
@@ -1544,22 +1482,18 @@ class DashboardController extends Controller
             $diff = $now->diffInMinutes($datetime);
 
             if ($diff < 1)
-                return 'Now';
+                return 'الآن';
             if ($diff < 60)
-                return $diff . 'm';
+                return $diff . ' دقيقة';
             if ($diff < 1440)
-                return round($diff / 60) . 'h';
+                return round($diff / 60) . ' ساعة';
 
-            return round($diff / 1440) . 'd';
+            return round($diff / 1440) . ' يوم';
         } catch (\Exception) {
-            return 'Now';
+            return 'الآن';
         }
     }
 
-    /**
-     * Get total users count with caching to avoid duplicate queries
-     * @return int
-     */
     private function getTotalUsersCount(): int
     {
         if ($this->totalUsersCache === null) {
@@ -1568,10 +1502,8 @@ class DashboardController extends Controller
         return $this->totalUsersCache;
     }
 
-    // Default data methods
     private function getDefaultOverviewStats()
     {
-        // Get currency symbol from settings
         $currencySymbol = HelperService::systemSettings('currency_symbol') ?? '$';
 
         return [
@@ -1664,6 +1596,8 @@ class DashboardController extends Controller
             'average_order_value' => 0,
             'payment_methods' => [],
             'revenue_by_category' => [],
+            'revenue_by_package' => [],
+            'revenue_by_country' => [],
         ];
     }
 
@@ -1676,6 +1610,7 @@ class DashboardController extends Controller
                 'pending_approval' => 0,
                 'approved' => 0,
                 'rejected' => 0,
+                'archived' => 0,
             ],
             'content_stats' => [
                 'total_lectures' => 0,
@@ -1722,6 +1657,7 @@ class DashboardController extends Controller
                 'stopped_users' => 0,
                 'new_this_month' => 0,
                 'new_users_this_month' => 0,
+                'growth' => 0,
                 'with_purchases' => 0,
                 'users_with_purchases' => 0,
             ],
@@ -1737,7 +1673,7 @@ class DashboardController extends Controller
             'discussion_stats' => ['total_discussions' => 0, 'active_this_week' => 0],
             'assessment_stats' => ['total_quiz_attempts' => 0, 'recent_attempts' => 0, 'total_assignments' => 0],
             'shopping_stats' => ['total_wishlists' => 0, 'active_carts' => 0],
-            'support_stats' => ['helpdesk_questions' => 0, 'helpdesk_replies' => 0],
+            'support_stats' => ['helpdesk_questions' => 0, 'helpdesk_replies' => 0, 'contact_messages' => 0, 'pending_contact_messages' => 0, 'replied_contact_messages' => 0],
             'engagement_trends' => [],
         ];
     }
@@ -1745,10 +1681,10 @@ class DashboardController extends Controller
     private function getDefaultChartData()
     {
         return [
-            'revenue_chart' => ['labels' => [], 'data' => []],
-            'user_registration_chart' => ['labels' => [], 'data' => []],
-            'course_enrollment_chart' => ['labels' => [], 'data' => []],
-            'course_creation_chart' => ['labels' => [], 'data' => []],
+            'revenue_chart' => [],
+            'user_registration_chart' => [],
+            'course_enrollment_chart' => [],
+            'course_creation_chart' => [],
         ];
     }
 
@@ -1759,9 +1695,10 @@ class DashboardController extends Controller
                 'type' => 'system',
                 'icon' => 'fas fa-info-circle',
                 'color' => 'info',
-                'title' => 'System Status',
-                'description' => 'System is running normally',
-                'time' => 'Now',
+                'title' => 'حالة النظام',
+                'subtitle' => 'النظام يعمل بشكل طبيعي',
+                'description' => 'النظام يعمل بشكل طبيعي',
+                'time' => 'الآن',
                 'link' => '#',
             ],
         ];
@@ -1790,10 +1727,9 @@ class DashboardController extends Controller
     /**
      * Get subscription statistics grouped by billing_cycle from the plans table
      */
-    private function getSubscriptionStats()
+    private function getSubscriptionStats(array $dates)
     {
         try {
-            // Join subscriptions with subscription_plans to get billing_cycle
             $stats = DB::table('subscriptions')
                 ->join('subscription_plans', 'subscriptions.plan_id', '=', 'subscription_plans.id')
                 ->where('subscriptions.status', 'active')
@@ -1869,7 +1805,6 @@ class DashboardController extends Controller
 
     /**
      * Get monthly financial summary: last 6 months with sales, commission, net_profit
-     * الملخص المالي الشهري: آخر 6 أشهر
      */
     private function getMonthlyFinancialSummary(): array
     {
@@ -1879,10 +1814,9 @@ class DashboardController extends Controller
             for ($i = 5; $i >= 0; $i--) {
                 $monthStart = Carbon::now()->subMonths($i)->startOfMonth();
                 $monthEnd   = Carbon::now()->subMonths($i)->endOfMonth();
-                $monthLabel = $monthStart->format('Y-m'); // e.g. "2026-01"
-                $monthName  = $monthStart->translatedFormat('F Y'); // e.g. "January 2026"
+                $monthLabel = $monthStart->format('Y-m');
+                $monthName  = $monthStart->translatedFormat('F Y');
 
-                // Sales: sum of completed orders in this month
                 $sales = (float) Order::where('status', 'completed')
                     ->whereBetween('created_at', [$monthStart, $monthEnd])
                     ->sum(DB::raw('COALESCE(amount_egp, final_price)'));
@@ -1891,16 +1825,14 @@ class DashboardController extends Controller
                     ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
                     ->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
                     ->whereBetween('subscription_payments.created_at', [$monthStart, $monthEnd])
-                    ->sum(DB::raw('subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)'));
+                    ->sum(DB::raw('COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)))'));
 
                 $sales += $subSales;
 
-                // Commission: sum of admin_commission_amount from commissions table * order's exchange rate
                 $commission = (float) Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
                     ->whereBetween('orders.created_at', [$monthStart, $monthEnd])
                     ->sum(DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
 
-                // Net profit = sales - total instructor commissions paid out
                 $instructorPayout = (float) Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
                     ->whereBetween('orders.created_at', [$monthStart, $monthEnd])
                     ->sum(DB::raw('commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
