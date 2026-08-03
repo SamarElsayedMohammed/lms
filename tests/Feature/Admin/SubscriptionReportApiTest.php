@@ -206,6 +206,20 @@ class SubscriptionReportApiTest extends TestCase
         $response->assertStatus(422)->assertJsonValidationErrors(['date_to']);
     }
 
+    public function test_this_year_preset_is_supported(): void
+    {
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=this_year');
+
+        $response->assertOk()
+            ->assertJsonPath('data.meta.applied_filters.preset', 'this_year');
+
+        $this->assertStringStartsWith(
+            now()->startOfYear()->format('Y-m-d'),
+            (string) $response->json('data.meta.current_period.from')
+        );
+    }
+
     public function test_revenue_uses_paid_at_and_counts_unique_subscribers(): void
     {
         $plan = SubscriptionPlan::create([
@@ -252,6 +266,46 @@ class SubscriptionReportApiTest extends TestCase
         $this->assertSame(150.0, (float) collect($response->json('data.revenue_series'))->sum('revenue_egp'));
     }
 
+    public function test_completed_legacy_payment_without_paid_at_uses_created_at(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Legacy Revenue Plan',
+            'slug' => 'legacy-revenue-plan',
+            'price' => 300,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+        $subscription = Subscription::create([
+            'user_id' => $this->user->id,
+            'plan_id' => $plan->id,
+            'status' => Subscription::STATUS_ACTIVE,
+            'starts_at' => now(),
+            'ends_at' => now()->addMonth(),
+        ]);
+        SubscriptionPayment::create([
+            'subscription_id' => $subscription->id,
+            'user_id' => $this->user->id,
+            'amount' => 300,
+            'final_amount' => 300,
+            'amount_egp' => null,
+            'currency_code' => 'EGP',
+            'exchange_rate_snapshot' => null,
+            'status' => SubscriptionPayment::STATUS_COMPLETED,
+            'payment_method' => 'manual',
+            'resolved_country' => 'EG',
+            'paid_at' => null,
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=30d');
+
+        $response->assertOk();
+        $this->assertSame(300.0, (float) $response->json('data.summary.total_revenue_egp'));
+        $this->assertSame(300.0, (float) collect($response->json('data.plans'))->sum('total_revenue_egp'));
+        $this->assertSame(300.0, (float) collect($response->json('data.revenue_series'))->sum('revenue_egp'));
+    }
+
     public function test_filters_are_applied_to_summary_and_plan_totals(): void
     {
         $plan = SubscriptionPlan::create([
@@ -294,5 +348,42 @@ class SubscriptionReportApiTest extends TestCase
         $this->assertSame(100.0, (float) $response->json('data.summary.total_revenue_egp'));
         $this->assertSame(1, $response->json('data.summary.total_subscribers'));
         $this->assertSame(100.0, (float) collect($response->json('data.plans'))->sum('total_revenue_egp'));
+    }
+
+    public function test_summary_status_cards_use_the_same_subscription_cohort(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Cohort Plan',
+            'slug' => 'cohort-plan',
+            'price' => 100,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        Subscription::create([
+            'user_id' => $this->user->id,
+            'plan_id' => $plan->id,
+            'status' => Subscription::STATUS_ACTIVE,
+            'starts_at' => now()->subDays(5),
+            'ends_at' => now()->addDays(25),
+        ]);
+
+        $oldUser = User::factory()->create();
+        Subscription::create([
+            'user_id' => $oldUser->id,
+            'plan_id' => $plan->id,
+            'status' => Subscription::STATUS_EXPIRED,
+            'starts_at' => now()->subYear(),
+            'ends_at' => now()->subDays(5),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=30d');
+
+        $response->assertOk();
+        $this->assertSame(1, $response->json('data.summary.total_subscribers'));
+        $this->assertSame(1, $response->json('data.summary.total_active_subscribers'));
+        $this->assertSame(0, $response->json('data.summary.total_expired_subscribers'));
     }
 }

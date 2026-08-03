@@ -32,7 +32,7 @@ final class SubscriptionReportRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'preset' => ['required', Rule::in(['today', '7d', '30d', '90d', '12m', 'custom'])],
+            'preset' => ['required', Rule::in(['today', '7d', '30d', '90d', '12m', 'this_year', 'custom'])],
             'date_from' => ['nullable', 'required_if:preset,custom', 'date_format:Y-m-d'],
             'date_to' => ['nullable', 'required_if:preset,custom', 'date_format:Y-m-d', 'after_or_equal:date_from'],
             'status' => ['required', Rule::in(['all', 'active', 'expired', 'cancelled', 'pending', 'pending_approval'])],
