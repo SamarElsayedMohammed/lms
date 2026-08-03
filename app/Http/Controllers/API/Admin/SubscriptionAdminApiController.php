@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Http\Requests\Admin\SubscriptionReportRequest;
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
@@ -500,12 +501,12 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
      * Subscription Plan Report — Global Dashboard
      * Super Admin only.
      */
-    public function planReport(Request $request): JsonResponse
+    public function planReport(SubscriptionReportRequest $request): JsonResponse
     {
         $this->ensureAdmin();
         $this->checkPermission('subscription-plans-list');
 
-        $filters = $request->only(['preset', 'date_from', 'date_to', 'status', 'payment_method', 'country']);
+        $filters = $request->filters();
         $reportData = $this->reportService->getGlobalOverviewReport($filters);
 
         return ApiResponseService::successResponse('تم جلب تقرير الاشتراكات بنجاح', $reportData);
@@ -515,12 +516,12 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
      * Subscription Plan Report — Individual Plan Details Dashboard
      * Super Admin only.
      */
-    public function planDetailReport(Request $request, int $planId): JsonResponse
+    public function planDetailReport(SubscriptionReportRequest $request, int $planId): JsonResponse
     {
         $this->ensureAdmin();
         $this->checkPermission('subscription-plans-list');
 
-        $filters = $request->only(['preset', 'date_from', 'date_to', 'payment_method', 'country']);
+        $filters = $request->filters();
 
         try {
             $reportData = $this->reportService->getPlanDetailReport($planId, $filters);
@@ -534,12 +535,12 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
      * Export Subscription Plan Report CSV
      * Super Admin only.
      */
-    public function exportReport(Request $request): Response
+    public function exportReport(SubscriptionReportRequest $request): Response
     {
         $this->ensureAdmin();
         $this->checkPermission('subscription-plans-list');
 
-        $filters = $request->only(['preset', 'date_from', 'date_to', 'status', 'payment_method', 'country']);
+        $filters = $request->filters();
         $csvContent = $this->reportService->generateCsvContent($filters);
 
         return response($csvContent, 200, [

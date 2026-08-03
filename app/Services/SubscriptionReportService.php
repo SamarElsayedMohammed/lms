@@ -42,23 +42,28 @@ final class SubscriptionReportService
         $statusFilter = $filters['status'] ?? 'all';
 
         // 1. Current Period Metrics
-        $currentPaymentsQuery = $this->getBasePaymentsQuery($currentStart, $currentEnd, $paymentMethod, $country);
+        $currentPaymentsQuery = $this->getBasePaymentsQuery($currentStart, $currentEnd, $paymentMethod, $country, $statusFilter);
         $currentRevenueEgp = (float) (clone $currentPaymentsQuery)->sum(DB::raw($this->getEgpAmountSql()));
         $currentOrdersCount = (int) (clone $currentPaymentsQuery)->count();
 
         $currentSubsQuery = $this->getBaseSubscriptionsQuery($currentStart, $currentEnd, $statusFilter, $paymentMethod, $country);
         $currentSubscribersCount = (int) (clone $currentSubsQuery)->distinct('user_id')->count('user_id');
-        $currentActiveCount = (int) (clone $currentSubsQuery)->where('status', Subscription::STATUS_ACTIVE)->distinct('user_id')->count('user_id');
-        $currentExpiredCount = (int) (clone $currentSubsQuery)->where('status', Subscription::STATUS_EXPIRED)->distinct('user_id')->count('user_id');
+        $currentActiveCount = (int) $this->getActiveSubscribersAtQuery($currentEnd, $statusFilter, $paymentMethod, $country)
+            ->distinct('user_id')->count('user_id');
+        $currentExpiredCount = (int) $this->getSubscriptionEventQuery('ends_at', $currentStart, $currentEnd, $statusFilter, $paymentMethod, $country)
+            ->distinct('user_id')->count('user_id');
+        $currentCancelledCount = (int) $this->getSubscriptionEventQuery('cancelled_at', $currentStart, $currentEnd, $statusFilter, $paymentMethod, $country)
+            ->distinct('user_id')->count('user_id');
 
         // 2. Previous Period Metrics (for comparisons)
-        $prevPaymentsQuery = $this->getBasePaymentsQuery($prevStart, $prevEnd, $paymentMethod, $country);
+        $prevPaymentsQuery = $this->getBasePaymentsQuery($prevStart, $prevEnd, $paymentMethod, $country, $statusFilter);
         $prevRevenueEgp = (float) (clone $prevPaymentsQuery)->sum(DB::raw($this->getEgpAmountSql()));
         $prevOrdersCount = (int) (clone $prevPaymentsQuery)->count();
 
         $prevSubsQuery = $this->getBaseSubscriptionsQuery($prevStart, $prevEnd, $statusFilter, $paymentMethod, $country);
         $prevSubscribersCount = (int) (clone $prevSubsQuery)->distinct('user_id')->count('user_id');
-        $prevExpiredCount = (int) (clone $prevSubsQuery)->where('status', Subscription::STATUS_EXPIRED)->distinct('user_id')->count('user_id');
+        $prevExpiredCount = (int) $this->getSubscriptionEventQuery('ends_at', $prevStart, $prevEnd, $statusFilter, $paymentMethod, $country)
+            ->distinct('user_id')->count('user_id');
 
         // 3. Comparisons Calculation
         $comparisons = [
@@ -69,13 +74,13 @@ final class SubscriptionReportService
         ];
 
         // 4. Time Series Data (Revenue Overview Chart)
-        $revenueSeries = $this->buildRevenueTimeSeries($currentStart, $currentEnd, $paymentMethod, $country);
+        $revenueSeries = $this->buildRevenueTimeSeries($currentStart, $currentEnd, $paymentMethod, $country, $statusFilter, $filters['preset'] ?? '30d');
 
         // 5. Status Distribution (Donut Chart)
-        $statusDistribution = $this->buildStatusDistribution($currentStart, $currentEnd, $paymentMethod, $country);
+        $statusDistribution = $this->buildStatusDistribution($currentStart, $currentEnd, $paymentMethod, $country, $statusFilter);
 
         // 6. Plan Summaries Grid
-        $plans = $this->buildPlanSummaries($currentStart, $currentEnd, $paymentMethod, $country);
+        $plans = $this->buildPlanSummaries($currentStart, $currentEnd, $paymentMethod, $country, $statusFilter);
 
         return [
             'summary' => [
@@ -85,13 +90,21 @@ final class SubscriptionReportService
                 'total_subscribers' => $currentSubscribersCount,
                 'total_active_subscribers' => $currentActiveCount,
                 'total_expired_subscribers' => $currentExpiredCount,
-                'total_cancelled_subscribers' => (int) (clone $currentSubsQuery)->where('status', Subscription::STATUS_CANCELLED)->count(),
-                'total_suspended_subscribers' => 0,
+                'total_cancelled_subscribers' => $currentCancelledCount,
+                // No suspended state exists in the subscription lifecycle yet.
+                'total_suspended_subscribers' => null,
                 'comparisons' => $comparisons,
             ],
             'revenue_series' => $revenueSeries,
             'status_distribution' => $statusDistribution,
             'plans' => $plans,
+            'meta' => [
+                'currency' => 'EGP',
+                'timezone' => config('app.timezone'),
+                'current_period' => ['from' => $currentStart->toIso8601String(), 'to' => $currentEnd->toIso8601String()],
+                'previous_period' => ['from' => $prevStart->toIso8601String(), 'to' => $prevEnd->toIso8601String()],
+                'applied_filters' => array_filter($filters, static fn ($value) => $value !== null && $value !== ''),
+            ],
         ];
     }
 
@@ -115,14 +128,15 @@ final class SubscriptionReportService
         $country = isset($filters['country']) ? strtoupper((string) $filters['country']) : null;
 
         // Base plan queries
-        $currentPlanSubs = Subscription::where('plan_id', $planId)
-            ->whereBetween('created_at', [$currentStart, $currentEnd]);
+        $statusFilter = $filters['status'] ?? 'all';
+        $currentPlanSubs = $this->getBaseSubscriptionsQuery($currentStart, $currentEnd, $statusFilter, $paymentMethod, $country)
+            ->where('plan_id', $planId);
 
         $currentPlanPayments = SubscriptionPayment::whereHas('subscription', function ($q) use ($planId) {
-            $q->where('plan_id', $planId);
+            $q->withTrashed()->where('plan_id', $planId);
         })
         ->where('status', SubscriptionPayment::STATUS_COMPLETED)
-        ->whereBetween('created_at', [$currentStart, $currentEnd]);
+        ->whereBetween('paid_at', [$currentStart, $currentEnd]);
 
         if ($paymentMethod) {
             $currentPlanPayments->where('payment_method', $paymentMethod);
@@ -130,24 +144,41 @@ final class SubscriptionReportService
         if ($country) {
             $currentPlanPayments->where('resolved_country', $country);
         }
+        if ($statusFilter !== 'all') {
+            $currentPlanPayments->whereHas('subscription', fn ($q) => $q->withTrashed()->where('status', $statusFilter));
+        }
 
         $totalStudents = (int) (clone $currentPlanSubs)->distinct('user_id')->count('user_id');
-        $activeSubs = (int) (clone $currentPlanSubs)->where('status', Subscription::STATUS_ACTIVE)->count();
-        $expiredSubs = (int) (clone $currentPlanSubs)->where('status', Subscription::STATUS_EXPIRED)->count();
+        $activeSubs = (int) $this->getActiveSubscribersAtQuery($currentEnd, $statusFilter, $paymentMethod, $country)
+            ->where('plan_id', $planId)->distinct('user_id')->count('user_id');
+        $expiredSubs = (int) $this->getSubscriptionEventQuery('ends_at', $currentStart, $currentEnd, $statusFilter, $paymentMethod, $country)
+            ->where('plan_id', $planId)->distinct('user_id')->count('user_id');
         $totalRevenueEgp = (float) (clone $currentPlanPayments)->sum(DB::raw($this->getEgpAmountSql()));
 
         // Previous plan metrics
-        $prevPlanSubs = Subscription::where('plan_id', $planId)
-            ->whereBetween('created_at', [$prevStart, $prevEnd]);
+        $prevPlanSubs = $this->getBaseSubscriptionsQuery($prevStart, $prevEnd, $statusFilter, $paymentMethod, $country)
+            ->where('plan_id', $planId);
         $prevPlanPayments = SubscriptionPayment::whereHas('subscription', function ($q) use ($planId) {
-            $q->where('plan_id', $planId);
+            $q->withTrashed()->where('plan_id', $planId);
         })
         ->where('status', SubscriptionPayment::STATUS_COMPLETED)
-        ->whereBetween('created_at', [$prevStart, $prevEnd]);
+        ->whereBetween('paid_at', [$prevStart, $prevEnd]);
+
+        if ($paymentMethod) {
+            $prevPlanPayments->where('payment_method', $paymentMethod);
+        }
+        if ($country) {
+            $prevPlanPayments->where('resolved_country', $country);
+        }
+        if ($statusFilter !== 'all') {
+            $prevPlanPayments->whereHas('subscription', fn ($q) => $q->withTrashed()->where('status', $statusFilter));
+        }
 
         $prevStudents = (int) (clone $prevPlanSubs)->distinct('user_id')->count('user_id');
-        $prevActive = (int) (clone $prevPlanSubs)->where('status', Subscription::STATUS_ACTIVE)->count();
-        $prevExpired = (int) (clone $prevPlanSubs)->where('status', Subscription::STATUS_EXPIRED)->count();
+        $prevActive = (int) $this->getActiveSubscribersAtQuery($prevEnd, $statusFilter, $paymentMethod, $country)
+            ->where('plan_id', $planId)->distinct('user_id')->count('user_id');
+        $prevExpired = (int) $this->getSubscriptionEventQuery('ends_at', $prevStart, $prevEnd, $statusFilter, $paymentMethod, $country)
+            ->where('plan_id', $planId)->distinct('user_id')->count('user_id');
         $prevRevenue = (float) (clone $prevPlanPayments)->sum(DB::raw($this->getEgpAmountSql()));
 
         $comparisons = [
@@ -158,15 +189,15 @@ final class SubscriptionReportService
         ];
 
         // Country breakdown table & distribution chart
-        $countryBreakdown = $this->buildCountryBreakdown($planId, $currentStart, $currentEnd, $paymentMethod);
+        $countryBreakdown = $this->buildCountryBreakdown($planId, $currentStart, $currentEnd, $paymentMethod, $country, $statusFilter);
 
         // Monthly growth (12-month series)
-        $monthlyGrowth = $this->buildMonthlyGrowth($planId);
+        $monthlyGrowth = $this->buildMonthlyGrowth($planId, $paymentMethod, $country);
 
         return [
             'plan_id' => $plan->id,
             'plan_name' => $plan->name,
-            'plan_code' => strtolower($plan->name),
+            'plan_code' => $plan->slug ?: (string) $plan->id,
             'badge_variant' => $this->resolveBadgeVariant($plan->name),
             'billing_cycle' => $plan->billing_cycle ?? 'سنوي',
             'status' => $plan->is_active ? 'active' : 'inactive',
@@ -181,6 +212,13 @@ final class SubscriptionReportService
             'country_totals' => $countryBreakdown['totals'],
             'country_distribution' => $countryBreakdown['distribution'],
             'monthly_growth' => $monthlyGrowth,
+            'meta' => [
+                'currency' => 'EGP',
+                'timezone' => config('app.timezone'),
+                'current_period' => ['from' => $currentStart->toIso8601String(), 'to' => $currentEnd->toIso8601String()],
+                'previous_period' => ['from' => $prevStart->toIso8601String(), 'to' => $prevEnd->toIso8601String()],
+                'applied_filters' => array_filter($filters, static fn ($value) => $value !== null && $value !== ''),
+            ],
         ];
     }
 
@@ -192,21 +230,35 @@ final class SubscriptionReportService
         $overview = $this->getGlobalOverviewReport($filters);
         $plans = $overview['plans'];
 
-        $csv = "\xEF\xBB\xBF"; // UTF-8 BOM
-        $csv .= "الرمز,الباقة,إجمالي المشتركين,النشطين,المنتهيين,إجمالي الإيرادات (ج.م)\n";
+        $stream = fopen('php://temp', 'r+');
+        if ($stream === false) {
+            throw new \RuntimeException('Unable to create the CSV export stream.');
+        }
+
+        fwrite($stream, "\xEF\xBB\xBF");
+        fputcsv($stream, ['الرمز', 'الباقة', 'إجمالي المشتركين', 'النشطين', 'المنتهيين', 'إجمالي الإيرادات (ج.م)']);
 
         foreach ($plans as $p) {
-            $code = $p['plan_code'] ?? 'plan';
-            $name = str_replace(',', ' ', $p['plan_name']);
+            $code = $this->escapeCsvFormula((string) ($p['plan_code'] ?? 'plan'));
+            $name = $this->escapeCsvFormula((string) $p['plan_name']);
             $total = $p['subscribers_count'] ?? $p['total_subscribers'] ?? 0;
             $active = $p['active_subscribers'];
             $expired = $p['expired_subscribers'] ?? 0;
             $revenue = number_format($p['total_revenue_egp'], 2, '.', '');
 
-            $csv .= "{$code},{$name},{$total},{$active},{$expired},{$revenue}\n";
+            fputcsv($stream, [$code, $name, $total, $active, $expired, $revenue]);
         }
 
-        return $csv;
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+
+        return $csv === false ? '' : $csv;
+    }
+
+    private function escapeCsvFormula(string $value): string
+    {
+        return preg_match('/^[=+\-@]/', $value) === 1 ? "'" . $value : $value;
     }
 
     // ── Internal Helpers ───────────────────────────────────────────────────
@@ -222,32 +274,32 @@ final class SubscriptionReportService
             $prevStart = $now->copy()->subDay()->startOfDay();
             $prevEnd = $now->copy()->subDay()->endOfDay();
         } elseif ($preset === '7d') {
-            $currentStart = $now->copy()->subDays(7)->startOfDay();
+            $currentStart = $now->copy()->subDays(6)->startOfDay();
             $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $now->copy()->subDays(14)->startOfDay();
-            $prevEnd = $now->copy()->subDays(7)->subSecond();
+            $prevStart = $currentStart->copy()->subDays(7);
+            $prevEnd = $currentStart->copy()->subSecond();
         } elseif ($preset === '90d') {
-            $currentStart = $now->copy()->subDays(90)->startOfDay();
+            $currentStart = $now->copy()->subDays(89)->startOfDay();
             $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $now->copy()->subDays(180)->startOfDay();
-            $prevEnd = $now->copy()->subDays(90)->subSecond();
+            $prevStart = $currentStart->copy()->subDays(90);
+            $prevEnd = $currentStart->copy()->subSecond();
         } elseif ($preset === '12m') {
-            $currentStart = $now->copy()->subMonths(12)->startOfDay();
+            $currentStart = $now->copy()->subMonths(11)->startOfMonth();
             $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $now->copy()->subMonths(24)->startOfDay();
-            $prevEnd = $now->copy()->subMonths(12)->subSecond();
+            $prevStart = $currentStart->copy()->subMonths(12);
+            $prevEnd = $currentStart->copy()->subSecond();
         } elseif ($preset === 'custom' && !empty($filters['date_from']) && !empty($filters['date_to'])) {
             $currentStart = Carbon::parse($filters['date_from'])->startOfDay();
             $currentEnd = Carbon::parse($filters['date_to'])->endOfDay();
-            $diffDays = $currentStart->diffInDays($currentEnd) ?: 1;
-            $prevStart = $currentStart->copy()->subDays($diffDays + 1)->startOfDay();
+            $days = $currentStart->copy()->startOfDay()->diffInDays($currentEnd->copy()->startOfDay()) + 1;
+            $prevStart = $currentStart->copy()->subDays($days)->startOfDay();
             $prevEnd = $currentStart->copy()->subSecond();
         } else {
             // Default 30d
-            $currentStart = $now->copy()->subDays(30)->startOfDay();
+            $currentStart = $now->copy()->subDays(29)->startOfDay();
             $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $now->copy()->subDays(60)->startOfDay();
-            $prevEnd = $now->copy()->subDays(30)->subSecond();
+            $prevStart = $currentStart->copy()->subDays(30);
+            $prevEnd = $currentStart->copy()->subSecond();
         }
 
         return [
@@ -258,10 +310,10 @@ final class SubscriptionReportService
         ];
     }
 
-    private function getBasePaymentsQuery(Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country)
+    private function getBasePaymentsQuery(Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country, string $status = 'all')
     {
         $q = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
-            ->whereBetween('created_at', [$start, $end]);
+            ->whereBetween('paid_at', [$start, $end]);
 
         if ($paymentMethod) {
             $q->where('payment_method', $paymentMethod);
@@ -269,19 +321,23 @@ final class SubscriptionReportService
         if ($country) {
             $q->where('resolved_country', $country);
         }
+        if ($status !== 'all') {
+            $q->whereHas('subscription', fn ($sq) => $sq->withTrashed()->where('status', $status));
+        }
 
         return $q;
     }
 
     private function getBaseSubscriptionsQuery(Carbon $start, Carbon $end, string $status, ?string $paymentMethod, ?string $country)
     {
-        $q = Subscription::whereBetween('created_at', [$start, $end]);
+        $q = Subscription::whereBetween('starts_at', [$start, $end]);
 
         if ($status !== 'all') {
             $q->where('status', $status);
         }
         if ($paymentMethod || $country) {
             $q->whereHas('payments', function ($pq) use ($paymentMethod, $country) {
+                $pq->where('status', SubscriptionPayment::STATUS_COMPLETED);
                 if ($paymentMethod) {
                     $pq->where('payment_method', $paymentMethod);
                 }
@@ -294,6 +350,51 @@ final class SubscriptionReportService
         return $q;
     }
 
+    private function getActiveSubscribersAtQuery(Carbon $at, string $status, ?string $paymentMethod, ?string $country)
+    {
+        $q = Subscription::where('starts_at', '<=', $at)
+            ->where(function ($query) use ($at): void {
+                $query->whereNull('ends_at')->orWhere('ends_at', '>', $at);
+            })
+            ->where(function ($query) use ($at): void {
+                $query->whereNull('cancelled_at')->orWhere('cancelled_at', '>', $at);
+            })
+            ->whereNotIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL]);
+
+        if ($status !== 'all') {
+            $q->where('status', $status);
+        }
+
+        return $this->applySubscriptionPaymentFilters($q, $paymentMethod, $country);
+    }
+
+    private function getSubscriptionEventQuery(string $column, Carbon $start, Carbon $end, string $status, ?string $paymentMethod, ?string $country)
+    {
+        $q = Subscription::whereBetween($column, [$start, $end]);
+        if ($status !== 'all') {
+            $q->where('status', $status);
+        }
+
+        return $this->applySubscriptionPaymentFilters($q, $paymentMethod, $country);
+    }
+
+    private function applySubscriptionPaymentFilters($query, ?string $paymentMethod, ?string $country)
+    {
+        if (!$paymentMethod && !$country) {
+            return $query;
+        }
+
+        return $query->whereHas('payments', function ($paymentQuery) use ($paymentMethod, $country): void {
+            $paymentQuery->where('status', SubscriptionPayment::STATUS_COMPLETED);
+            if ($paymentMethod) {
+                $paymentQuery->where('payment_method', $paymentMethod);
+            }
+            if ($country) {
+                $paymentQuery->where('resolved_country', $country);
+            }
+        });
+    }
+
     private function getEgpAmountSql(): string
     {
         return 'COALESCE(subscription_payments.amount_egp, subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, 1))';
@@ -302,53 +403,76 @@ final class SubscriptionReportService
     private function buildComparisonMetric(float|int $current, float|int $previous): array
     {
         $diff = $current - $previous;
-        $pct = $previous > 0 ? round(($diff / $previous) * 100, 1) : 0.0;
-        $direction = $pct > 0 ? 'up' : ($pct < 0 ? 'down' : 'neutral');
+        $pct = $previous > 0 ? round(($diff / $previous) * 100, 1) : null;
+        $direction = $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'neutral');
 
         return [
             'current' => $current,
             'previous' => $previous,
-            'percentage' => abs($pct),
+            'percentage' => $pct === null ? null : abs($pct),
             'direction' => $direction,
+            'is_new' => $previous == 0 && $current > 0,
             'label' => 'عن الفترة السابقة',
         ];
     }
 
-    private function buildRevenueTimeSeries(Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country): array
+    private function buildRevenueTimeSeries(Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country, string $status, string $preset): array
     {
+        $monthly = $preset === '12m' || $start->diffInDays($end) > 90;
+        $driver = DB::connection()->getDriverName();
+        $bucketSql = match (true) {
+            !$monthly => 'DATE(paid_at)',
+            $driver === 'sqlite' => "strftime('%Y-%m-01', paid_at)",
+            $driver === 'pgsql' => "TO_CHAR(paid_at, 'YYYY-MM-01')",
+            default => "DATE_FORMAT(paid_at, '%Y-%m-01')",
+        };
         $raw = DB::table('subscription_payments')
             ->select(
-                DB::raw('DATE(created_at) as date_val'),
+                DB::raw($bucketSql . ' as date_val'),
                 DB::raw('SUM(' . $this->getEgpAmountSql() . ') as total_rev'),
                 DB::raw('COUNT(id) as orders_cnt')
             )
             ->where('status', SubscriptionPayment::STATUS_COMPLETED)
-            ->whereBetween('created_at', [$start, $end])
+            ->whereBetween('paid_at', [$start, $end])
             ->when($paymentMethod, fn($q) => $q->where('payment_method', $paymentMethod))
             ->when($country, fn($q) => $q->where('resolved_country', $country))
-            ->groupBy(DB::raw('DATE(created_at)'))
+            ->when($status !== 'all', fn ($q) => $q->whereExists(function ($sq) use ($status) {
+                $sq->selectRaw('1')->from('subscriptions')
+                    ->whereColumn('subscriptions.id', 'subscription_payments.subscription_id')
+                    ->where('subscriptions.status', $status);
+            }))
+            ->groupBy(DB::raw($bucketSql))
             ->orderBy('date_val', 'asc')
             ->get();
 
+        $indexed = $raw->keyBy('date_val');
         $series = [];
-        foreach ($raw as $row) {
-            $dt = Carbon::parse($row->date_val);
+        $cursor = $monthly ? $start->copy()->startOfMonth() : $start->copy()->startOfDay();
+        $last = $monthly ? $end->copy()->startOfMonth() : $end->copy()->startOfDay();
+        while ($cursor->lte($last)) {
+            $key = $cursor->format('Y-m-d');
+            $row = $indexed->get($key);
             $series[] = [
-                'date' => $row->date_val,
-                'label' => $dt->translatedFormat('j M'),
-                'revenue_egp' => round((float) $row->total_rev, 2),
-                'orders_count' => (int) $row->orders_cnt,
+                'date' => $key,
+                'label' => $monthly ? $cursor->translatedFormat('M Y') : $cursor->translatedFormat('j M'),
+                'revenue_egp' => round((float) ($row->total_rev ?? 0), 2),
+                'orders_count' => (int) ($row->orders_cnt ?? 0),
             ];
+            $cursor = $monthly ? $cursor->addMonth() : $cursor->addDay();
         }
 
         return $series;
     }
 
-    private function buildStatusDistribution(Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country): array
+    private function buildStatusDistribution(Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country, string $status): array
     {
-        $q = Subscription::whereBetween('created_at', [$start, $end]);
+        $q = Subscription::whereBetween('starts_at', [$start, $end]);
+        if ($status !== 'all') {
+            $q->where('status', $status);
+        }
         if ($paymentMethod || $country) {
             $q->whereHas('payments', function ($pq) use ($paymentMethod, $country) {
+                $pq->where('status', SubscriptionPayment::STATUS_COMPLETED);
                 if ($paymentMethod) $pq->where('payment_method', $paymentMethod);
                 if ($country) $pq->where('resolved_country', $country);
             });
@@ -373,28 +497,43 @@ final class SubscriptionReportService
         ];
     }
 
-    private function buildPlanSummaries(Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country): array
+    private function buildPlanSummaries(Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country, string $status): array
     {
         $plans = SubscriptionPlan::withTrashed()->get();
         $result = [];
 
+        $subscriberRows = $this->getBaseSubscriptionsQuery($start, $end, $status, $paymentMethod, $country)
+            ->selectRaw('plan_id, COUNT(*) as subscriptions_count, COUNT(DISTINCT user_id) as subscribers_count')
+            ->groupBy('plan_id')
+            ->get()
+            ->keyBy('plan_id');
+        $activeRows = $this->getActiveSubscribersAtQuery($end, $status, $paymentMethod, $country)
+            ->selectRaw('plan_id, COUNT(DISTINCT user_id) as aggregate_count')
+            ->groupBy('plan_id')
+            ->pluck('aggregate_count', 'plan_id');
+        $expiredRows = $this->getSubscriptionEventQuery('ends_at', $start, $end, $status, $paymentMethod, $country)
+            ->selectRaw('plan_id, COUNT(DISTINCT user_id) as aggregate_count')
+            ->groupBy('plan_id')
+            ->pluck('aggregate_count', 'plan_id');
+        $revenueRows = DB::table('subscription_payments')
+            ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
+            ->select('subscriptions.plan_id')
+            ->selectRaw('SUM(' . $this->getEgpAmountSql() . ') as total_revenue')
+            ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
+            ->whereBetween('subscription_payments.paid_at', [$start, $end])
+            ->when($paymentMethod, fn ($q) => $q->where('subscription_payments.payment_method', $paymentMethod))
+            ->when($country, fn ($q) => $q->where('subscription_payments.resolved_country', $country))
+            ->when($status !== 'all', fn ($q) => $q->where('subscriptions.status', $status))
+            ->groupBy('subscriptions.plan_id')
+            ->pluck('total_revenue', 'subscriptions.plan_id');
+
         foreach ($plans as $plan) {
-            $subsQuery = Subscription::where('plan_id', $plan->id)
-                ->whereBetween('created_at', [$start, $end]);
-
-            $paymentsQuery = SubscriptionPayment::whereHas('subscription', function ($q) use ($plan) {
-                $q->where('plan_id', $plan->id);
-            })
-            ->where('status', SubscriptionPayment::STATUS_COMPLETED)
-            ->whereBetween('created_at', [$start, $end]);
-
-            if ($paymentMethod) $paymentsQuery->where('payment_method', $paymentMethod);
-            if ($country) $paymentsQuery->where('resolved_country', $country);
-
-            $subsCount = (int) (clone $subsQuery)->count();
-            $activeCount = (int) (clone $subsQuery)->where('status', Subscription::STATUS_ACTIVE)->count();
-            $expiredCount = (int) (clone $subsQuery)->where('status', Subscription::STATUS_EXPIRED)->count();
-            $revEgp = (float) (clone $paymentsQuery)->sum(DB::raw($this->getEgpAmountSql()));
+            $subscriberRow = $subscriberRows->get($plan->id);
+            $subscriptionsCount = (int) ($subscriberRow->subscriptions_count ?? 0);
+            $subsCount = (int) ($subscriberRow->subscribers_count ?? 0);
+            $activeCount = (int) ($activeRows->get($plan->id) ?? 0);
+            $expiredCount = (int) ($expiredRows->get($plan->id) ?? 0);
+            $revEgp = (float) ($revenueRows->get($plan->id) ?? 0);
 
             $variant = $this->resolveBadgeVariant($plan->name);
             $color = $this->resolveBadgeColor($variant);
@@ -402,12 +541,13 @@ final class SubscriptionReportService
             $result[] = [
                 'plan_id' => $plan->id,
                 'plan_name' => $plan->name,
-                'plan_code' => strtolower($plan->name),
+                'plan_code' => $plan->slug ?: (string) $plan->id,
                 'billing_cycle' => $plan->billing_cycle ?? 'سنوي',
                 'badge_variant' => $variant,
                 'badge_color' => $color,
                 'subscribers_count' => $subsCount,
                 'total_subscribers' => $subsCount,
+                'subscriptions_count' => $subscriptionsCount,
                 'active_subscribers' => $activeCount,
                 'expired_subscribers' => $expiredCount,
                 'total_revenue_egp' => round($revEgp, 2),
@@ -420,23 +560,25 @@ final class SubscriptionReportService
         return $result;
     }
 
-    private function buildCountryBreakdown(int $planId, Carbon $start, Carbon $end, ?string $paymentMethod): array
+    private function buildCountryBreakdown(int $planId, Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country, string $status): array
     {
         $raw = DB::table('subscription_payments')
             ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
             ->select(
                 'subscription_payments.resolved_country as country_code',
                 DB::raw('COUNT(DISTINCT subscriptions.user_id) as subs_cnt'),
-                DB::raw('SUM(CASE WHEN subscriptions.status = "active" THEN 1 ELSE 0 END) as active_cnt'),
-                DB::raw('SUM(CASE WHEN subscriptions.status = "expired" THEN 1 ELSE 0 END) as expired_cnt'),
-                DB::raw('SUM(CASE WHEN subscriptions.status = "cancelled" THEN 1 ELSE 0 END) as cancelled_cnt'),
+                DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'active' THEN subscriptions.user_id END) as active_cnt"),
+                DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'expired' THEN subscriptions.user_id END) as expired_cnt"),
+                DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'cancelled' THEN subscriptions.user_id END) as cancelled_cnt"),
                 DB::raw('SUM(' . $this->getEgpAmountSql() . ') as rev_egp'),
-                DB::raw('AVG(subscription_payments.final_amount * COALESCE(subscription_payments.exchange_rate_snapshot, 1)) as avg_price_egp')
+                DB::raw('AVG(' . $this->getEgpAmountSql() . ') as avg_price_egp')
             )
             ->where('subscriptions.plan_id', $planId)
             ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
-            ->whereBetween('subscriptions.created_at', [$start, $end])
+            ->whereBetween('subscription_payments.paid_at', [$start, $end])
             ->when($paymentMethod, fn($q) => $q->where('subscription_payments.payment_method', $paymentMethod))
+            ->when($country, fn($q) => $q->where('subscription_payments.resolved_country', $country))
+            ->when($status !== 'all', fn($q) => $q->where('subscriptions.status', $status))
             ->groupBy('subscription_payments.resolved_country')
             ->get();
 
@@ -446,10 +588,10 @@ final class SubscriptionReportService
         $totalRevenue = 0.0;
 
         foreach ($raw as $row) {
-            $cc = strtoupper($row->country_code ?: 'EG');
+            $cc = strtoupper($row->country_code ?: 'UNKNOWN');
             $meta = self::COUNTRY_META[$cc] ?? [
-                'name_ar' => $cc,
-                'name_en' => $cc,
+                'name_ar' => $cc === 'UNKNOWN' ? 'غير محدد' : $cc,
+                'name_en' => $cc === 'UNKNOWN' ? 'Unknown' : $cc,
                 'flag' => '🌐',
                 'color' => '#6b7280',
             ];
@@ -503,7 +645,7 @@ final class SubscriptionReportService
         ];
     }
 
-    private function buildMonthlyGrowth(int $planId): array
+    private function buildMonthlyGrowth(int $planId, ?string $paymentMethod, ?string $country): array
     {
         $series = [];
         $now = Carbon::now();
@@ -513,16 +655,35 @@ final class SubscriptionReportService
             $monthStart = $dt->copy()->startOfMonth();
             $monthEnd = $dt->copy()->endOfMonth();
 
-            $cnt = Subscription::where('plan_id', $planId)
-                ->where('created_at', '<=', $monthEnd)
-                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_EXPIRED])
-                ->count();
+            $base = Subscription::where('plan_id', $planId);
+            if ($paymentMethod || $country) {
+                $base->whereHas('payments', function ($q) use ($paymentMethod, $country): void {
+                    $q->where('status', SubscriptionPayment::STATUS_COMPLETED);
+                    if ($paymentMethod) $q->where('payment_method', $paymentMethod);
+                    if ($country) $q->where('resolved_country', $country);
+                });
+            }
+
+            $new = (clone $base)->whereBetween('starts_at', [$monthStart, $monthEnd])->distinct('user_id')->count('user_id');
+            $expired = (clone $base)->whereBetween('ends_at', [$monthStart, $monthEnd])->distinct('user_id')->count('user_id');
+            $cancelled = (clone $base)->whereBetween('cancelled_at', [$monthStart, $monthEnd])->distinct('user_id')->count('user_id');
+            $activeAtEnd = (clone $base)
+                ->where('starts_at', '<=', $monthEnd)
+                ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', $monthEnd))
+                ->where(fn ($q) => $q->whereNull('cancelled_at')->orWhere('cancelled_at', '>', $monthEnd))
+                ->whereNotIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+                ->distinct('user_id')->count('user_id');
 
             $series[] = [
                 'month' => $dt->format('Y-m'),
                 'label_ar' => $dt->translatedFormat('F Y'),
                 'label_en' => $dt->format('M Y'),
-                'subscribers_count' => $cnt,
+                'subscribers_count' => $activeAtEnd,
+                'new_subscribers' => $new,
+                'expired_subscribers' => $expired,
+                'cancelled_subscribers' => $cancelled,
+                'net_growth' => $new - $expired - $cancelled,
+                'active_subscribers_end_of_month' => $activeAtEnd,
             ];
         }
 
