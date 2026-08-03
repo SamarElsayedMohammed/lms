@@ -88,7 +88,7 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
         if ($request->hasFile('logo')) {
             $data['logo'] = FileService::compressAndUpload($request->file('logo'), $this->methodFolder);
         } elseif ($request->filled('logo_url')) {
-            $data['logo'] = trim((string) $request->input('logo_url'));
+            $data['logo'] = trim((string) $request->input('logo_url'), " \t\n\r\0\x0B'\"`");
         }
         unset($data['logo_url']);
 
@@ -145,7 +145,7 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
         if ($request->hasFile('logo')) {
             $data['logo'] = FileService::compressAndReplace($request->file('logo'), $this->methodFolder, $method->getRawOriginal('logo'));
         } elseif ($request->filled('logo_url')) {
-            $data['logo'] = trim((string) $request->input('logo_url'));
+            $data['logo'] = trim((string) $request->input('logo_url'), " \t\n\r\0\x0B'\"`");
         }
         unset($data['logo_url']);
 

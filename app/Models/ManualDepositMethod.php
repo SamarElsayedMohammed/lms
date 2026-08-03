@@ -22,7 +22,8 @@ class ManualDepositMethod extends Model
     public function getImageAttribute($value)
     {
         if ($value) {
-            return FileService::getFileUrl($value);
+            $clean = is_string($value) ? trim($value, " \t\n\r\0\x0B'\"`") : $value;
+            return FileService::getFileUrl($clean);
         }
         return null;
     }

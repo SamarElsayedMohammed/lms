@@ -27,13 +27,14 @@ class ManualDepositAdminApiController extends AdminCrudApiController
     public function indexMethods(Request $request)
     {
         $this->ensureAdmin();
-        $this->checkPermission('finance-list'); // Assuming finance permission
+        $this->checkPermission('finance-list');
 
         $methods = ManualDepositMethod::all()->map(function ($method) {
             return [
                 'id' => $method->id,
                 'name' => $method->name,
                 'account_details' => $method->account_details,
+                'instructions' => $method->instructions,
                 'is_active' => $method->is_active,
                 'image' => $method->image,
             ];
@@ -52,10 +53,9 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            // Accept absolute, relative, CDN, storage and deep links. Uploaded
-            // images are handled separately by the `image` file rule below.
             'image_url' => 'nullable|string|max:2048',
             'account_details' => 'nullable|string',
+            'instructions' => 'nullable|string',
             'is_active' => 'nullable|boolean',
         ]);
 
@@ -66,11 +66,11 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         $data = $request->only([
             'name', 'account_details', 'instructions', 'is_active'
         ]);
-        
+
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndUpload($request->file('image'), $this->methodFolder);
         } elseif ($request->filled('image_url')) {
-            $data['image'] = $request->input('image_url');
+            $data['image'] = trim((string) $request->input('image_url'), " \t\n\r\0\x0B'\"`");
         }
 
         $method = ManualDepositMethod::create($data);
@@ -93,6 +93,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'image_url' => 'nullable|string|max:2048',
             'account_details' => 'nullable|string',
+            'instructions' => 'nullable|string',
             'is_active' => 'nullable|boolean',
         ]);
 
@@ -107,7 +108,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
         if ($request->hasFile('image')) {
             $data['image'] = FileService::compressAndReplace($request->file('image'), $this->methodFolder, $method->getRawOriginal('image'));
         } elseif ($request->filled('image_url')) {
-            $data['image'] = $request->input('image_url');
+            $data['image'] = trim((string) $request->input('image_url'), " \t\n\r\0\x0B'\"`");
         }
 
         $method->update($data);
@@ -156,7 +157,7 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             $depositArray['original_amount'] = $deposit->amount;
             $depositArray['original_currency'] = $deposit->currency_code ?? 'EGP';
             $depositArray['amount_egp'] = $deposit->amount_egp ?? $deposit->amount;
-            $depositArray['amount'] = $deposit->amount_egp ?? $deposit->amount; // Make the primary amount EGP
+            $depositArray['amount'] = $deposit->amount_egp ?? $deposit->amount;
             return $depositArray;
         });
 
@@ -180,81 +181,36 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
+        $deposit = ManualDeposit::findOrFail($id);
+
+        if ($deposit->status !== 'pending') {
+            return ApiResponseService::errorResponse('هذا الطلب تم معالجته بالفعل.');
+        }
+
+        DB::beginTransaction();
         try {
-            DB::beginTransaction();
-
-            $deposit = ManualDeposit::where('id', $id)->lockForUpdate()->firstOrFail();
-
-            if ($deposit->status !== 'pending') {
-                DB::rollBack();
-                return ApiResponseService::errorResponse('This deposit request has already been processed.');
-            }
-
             $deposit->status = $request->status;
             $deposit->admin_notes = $request->admin_notes;
+            $deposit->processed_at = now();
+            $deposit->processed_by = auth()->id();
+            $deposit->save();
 
             if ($request->status === 'approved') {
-                // Credit user wallet
                 $walletService = app(WalletService::class);
-                
-                $netAmount = round($deposit->amount_egp ?? $deposit->amount, 2);
-
-                if (\Illuminate\Support\Facades\Schema::hasColumn('manual_deposits', 'fee_amount')) {
-                    $deposit->fee_amount = 0;
-                }
-                if (\Illuminate\Support\Facades\Schema::hasColumn('manual_deposits', 'net_amount')) {
-                    $deposit->net_amount = $netAmount;
-                }
-
-                $walletService->creditWallet(
+                $walletService->deposit(
                     $deposit->user_id,
-                    $netAmount,
-                    'deposit',
-                    'Manual Deposit Approved',
+                    $deposit->amount_egp ?? $deposit->amount,
+                    'إيداع يدوي محدد برقم معاملة: ' . $deposit->transaction_id,
                     $deposit->id,
-                    ManualDeposit::class
+                    'manual_deposit'
                 );
             }
 
-            $deposit->save();
             DB::commit();
-
-            // Send Notification to user safely after commit
-            try {
-                $deposit->user->notify(new \App\Notifications\ManualDepositStatusNotification($deposit));
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Failed to send ManualDepositStatusNotification', [
-                    'deposit_id' => $deposit->id,
-                    'error' => $e->getMessage()
-                ]);
-            }
-
-            return ApiResponseService::successResponse('Manual deposit request updated successfully', $deposit);
-        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            return ApiResponseService::successResponse('تم تحديث حالة الإيداع بنجاح.', $deposit);
+        } catch (\Throwable $e) {
             DB::rollBack();
-            throw $e;
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return ApiResponseService::errorResponse('Failed to update deposit status: ' . $e->getMessage());
+            return ApiResponseService::errorResponse('فشل في معالجة طلب الإيداع: ' . $e->getMessage());
         }
-    }
-
-    /** Return sensitive deposit evidence only to authorized finance staff. */
-    public function downloadReceipt(int $id): \Symfony\Component\HttpFoundation\BinaryFileResponse|\Illuminate\Http\JsonResponse
-    {
-        $this->ensureAdmin();
-        $this->checkPermission('finance-list');
-
-        $deposit = ManualDeposit::find($id);
-        if (!$deposit || !$deposit->getRawOriginal('receipt')) {
-            return ApiResponseService::errorResponse('Receipt not found.', [], 404);
-        }
-
-        $receipt = $deposit->getRawOriginal('receipt');
-        if (!FileService::checkPrivateFileExists($receipt)) {
-            return ApiResponseService::errorResponse('Receipt is unavailable.', [], 404);
-        }
-
-        return response()->file(FileService::getPrivateFilePath($receipt));
     }
 }

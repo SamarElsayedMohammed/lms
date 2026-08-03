@@ -31,44 +31,67 @@ final class PricingService
      */
     public function getPriceForCountry(SubscriptionPlan $plan, string $countryCode): array
     {
-        $countryCode = strtoupper($countryCode);
+        $countryCode = strtoupper(trim($countryCode));
 
         // 1. Check for specific country override
-        $planPrice = SubscriptionPlanPrice::where('plan_id', $plan->id)
-            ->where('country_code', $countryCode)
-            ->orderBy('id', 'desc')
-            ->first();
+        if (!empty($countryCode)) {
+            $country = Country::where('iso_code', $countryCode)->first();
+            $planPrice = SubscriptionPlanPrice::where('plan_id', $plan->id)
+                ->where(function ($q) use ($countryCode, $country) {
+                    $q->where('country_code', $countryCode);
+                    if ($country) {
+                        $q->orWhere('country_id', $country->id);
+                    }
+                })
+                ->orderBy('id', 'desc')
+                ->first();
 
-        if ($planPrice !== null) {
-            $currencyCode = $planPrice->currency_code ?? 'EGP';
+            if ($planPrice !== null) {
+                $currencyCode = !empty($planPrice->currency_code)
+                    ? $planPrice->currency_code
+                    : ($country?->currency_code ?? 'EGP');
 
-            // If the country override is explicitly marked as inactive, disable subscriptions for this country
-            if (!$planPrice->is_active) {
+                $symbol = $this->getCurrencySymbol($currencyCode);
+
+                if (!$planPrice->is_active) {
+                    return [
+                        'price' => $this->roundUpForDisplay((float) $planPrice->price),
+                        'old_price' => $planPrice->old_price
+                            ? $this->roundUpForDisplay((float) $planPrice->old_price)
+                            : null,
+                        'currency_code' => $currencyCode,
+                        'currency_symbol' => $symbol,
+                        'price_source' => 'country_override',
+                        'can_subscribe' => false,
+                    ];
+                }
+
                 return [
                     'price' => $this->roundUpForDisplay((float) $planPrice->price),
                     'old_price' => $planPrice->old_price
                         ? $this->roundUpForDisplay((float) $planPrice->old_price)
                         : null,
                     'currency_code' => $currencyCode,
-                    'currency_symbol' => $this->getCurrencySymbol($currencyCode),
+                    'currency_symbol' => $symbol,
                     'price_source' => 'country_override',
-                    'can_subscribe' => false,
+                    'can_subscribe' => (bool) $planPrice->can_subscribe,
                 ];
             }
+        }
 
+        // 2. USD fallback for non-Egypt countries when usd_price is configured
+        if (!empty($countryCode) && $countryCode !== 'EG' && $plan->usd_price !== null && (float) $plan->usd_price > 0) {
             return [
-                'price' => $this->roundUpForDisplay((float) $planPrice->price),
-                'old_price' => $planPrice->old_price
-                    ? $this->roundUpForDisplay((float) $planPrice->old_price)
-                    : null,
-                'currency_code' => $currencyCode,
-                'currency_symbol' => $this->getCurrencySymbol($currencyCode),
-                'price_source' => 'country_override',
-                'can_subscribe' => (bool) $planPrice->can_subscribe,
+                'price' => $this->roundUpForDisplay((float) $plan->usd_price),
+                'old_price' => null,
+                'currency_code' => 'USD',
+                'currency_symbol' => '$',
+                'price_source' => 'default_usd',
+                'can_subscribe' => true,
             ];
         }
 
-        // 2. Global Fallback: If no override exists, use the base EGP price for ALL countries
+        // 3. Global Fallback: base price in EGP
         return [
             'price' => $this->roundUpForDisplay((float) $plan->price),
             'old_price' => null,

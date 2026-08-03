@@ -196,11 +196,44 @@ final class SubscriptionPlan extends Model
 
         return $this->duration_days ?? self::CYCLE_DAYS[$this->billing_cycle] ?? null;
     }
+
+    public function getLocalizedDurationLabelAttribute(): string
+    {
+        $days = $this->getDurationDays();
+        if ($this->billing_cycle === 'yearly' || $days === 365) {
+            return 'سنة واحدة';
+        }
+        if ($this->billing_cycle === 'semi_annual' || $days === 180) {
+            return '6 أشهر';
+        }
+        if ($this->billing_cycle === 'quarterly' || $days === 90) {
+            return '3 أشهر';
+        }
+        if ($this->billing_cycle === 'monthly' || $days === 30) {
+            return 'شهر واحد';
+        }
+        if ($days) {
+            if ($days % 30 === 0) {
+                $months = (int) ($days / 30);
+                if ($months === 1) return 'شهر واحد';
+                if ($months === 2) return 'شهران';
+                if ($months >= 3 && $months <= 10) return "{$months} أشهر";
+                return "{$months} شهراً";
+            }
+            if ($days === 1) return 'يوم واحد';
+            if ($days === 2) return 'يومان';
+            if ($days >= 3 && $days <= 10) return "{$days} أيام";
+            return "{$days} يوماً";
+        }
+        return self::BILLING_CYCLES[$this->billing_cycle] ?? 'حسب الباقة';
+    }
+
     public function toArray()
     {
         $array = parent::toArray();
         $array['is_active'] = $array['is_active'] ?? false;
         $array['is_available'] = $array['is_available'] ?? false;
+        $array['localized_duration'] = $this->getLocalizedDurationLabelAttribute();
         return $array;
     }
 }

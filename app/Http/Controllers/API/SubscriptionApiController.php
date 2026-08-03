@@ -104,6 +104,8 @@ final class SubscriptionApiController extends Controller
                     'billing_cycle' => $plan->billing_cycle,
                     'billing_cycle_label' => $plan->billing_cycle_label,
                     'duration_days' => $plan->getDurationDays(),
+                    'duration_label' => $plan->getLocalizedDurationLabelAttribute(),
+                    'localized_duration' => $plan->getLocalizedDurationLabelAttribute(),
                     'formatted_price' => number_format($localized['price'], 0) . ' ' . $localized['currency_symbol'],
                     'features' => $plan->features,
                     'is_lifetime' => $plan->isLifetime(),

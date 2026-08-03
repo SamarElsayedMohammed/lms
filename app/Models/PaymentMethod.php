@@ -57,7 +57,8 @@ class PaymentMethod extends Model
     public function getLogoAttribute($value)
     {
         if ($value) {
-            return \App\Services\FileService::getFileUrl($value);
+            $clean = is_string($value) ? trim($value, " \t\n\r\0\x0B'\"`") : $value;
+            return \App\Services\FileService::getFileUrl($clean);
         }
         return null;
     }
@@ -72,6 +73,7 @@ class PaymentMethod extends Model
             'iban' => $this->iban,
             'instapay_id' => $this->instapay_id,
             'merchant_code' => $this->merchant_code,
+            'instructions' => $this->instructions,
             'additional_details' => [],
         ];
     }

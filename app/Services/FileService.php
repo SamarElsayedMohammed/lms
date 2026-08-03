@@ -195,6 +195,12 @@ class FileService
             return null;
         }
 
+        // Sanitize path: strip surrounding or trailing quotes, apostrophes, and whitespace
+        $path = is_string($path) ? trim($path, " \t\n\r\0\x0B'\"`") : $path;
+        if (empty($path)) {
+            return null;
+        }
+
         // If path is already a full URL, return as is
         if (filter_var($path, FILTER_VALIDATE_URL)) {
             return $path;

@@ -126,10 +126,23 @@ final class CountryDetectionService
      */
     private function getCustomProxyCountry(Request $request): ?string
     {
-        $country = $request->header('X-User-Country')
+        $country = $request->query('country')
+            ?? $request->query('country_code')
+            ?? $request->query('country_id')
+            ?? $request->query('test_country')
+            ?? $request->header('X-User-Country')
             ?? $request->header('X-Country')
             ?? $request->header('X-Country-Code')
-            ?? $request->header('country');
+            ?? $request->header('country')
+            ?? $request->input('country')
+            ?? $request->input('country_code');
+
+        if (is_numeric($country)) {
+            $c = \App\Models\Country::find((int) $country);
+            if ($c) {
+                return $this->validateAndNormalize($c->iso_code);
+            }
+        }
 
         return $this->validateAndNormalize($country);
     }
