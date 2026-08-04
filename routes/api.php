@@ -236,8 +236,10 @@ Route::get('/video-direct/{uuid}', [VideoStreamController::class, 'serveDirect']
     ->name('api.video.direct')
     ->middleware('throttle:300,1');
 
-Route::get('dashboard-data', [\App\Http\Controllers\API\DashboardController::class, 'getDashboardData']);
-Route::get('dashboard-charts', [\App\Http\Controllers\API\DashboardController::class, 'getChartsData']);
+Route::middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff'])->group(function (): void {
+    Route::get('dashboard-data', [\App\Http\Controllers\API\DashboardController::class, 'getDashboardData']);
+    Route::get('dashboard-charts', [\App\Http\Controllers\API\DashboardController::class, 'getChartsData']);
+});
 
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('course-reviews', [\App\Http\Controllers\API\RatingApiController::class, 'addRating']);
