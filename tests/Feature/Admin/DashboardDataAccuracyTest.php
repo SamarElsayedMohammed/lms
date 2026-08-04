@@ -41,6 +41,21 @@ final class DashboardDataAccuracyTest extends TestCase
             ->assertJsonValidationErrors('to');
     }
 
+    public function test_matching_period_and_legacy_date_range_are_accepted(): void
+    {
+        $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/dashboard-data?period=30_days&date_range=30_days')
+            ->assertOk();
+    }
+
+    public function test_conflicting_period_and_legacy_date_range_are_rejected(): void
+    {
+        $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/dashboard-data?period=30_days&date_range=this_year')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('date_range');
+    }
+
     public function test_zero_egp_snapshot_falls_back_to_the_real_completed_order_amount(): void
     {
         $customer = User::factory()->create();
