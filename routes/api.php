@@ -102,7 +102,8 @@ Route::post('course-view', [CourseApiController::class, 'courseView']);
 Route::get('get-search-suggestions', [CourseApiController::class, 'getSearchSuggestions']);
 Route::get('get-quiz-attempt-details', [CourseApiController::class, 'getQuizAttemptDetails']);
 
-Route::get('sales-chart-data', [ApiController::class, 'getSalesChartData']); // Get Sales Chart Data
+Route::get('sales-chart-data', [ApiController::class, 'getSalesChartData'])
+    ->middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff']);
 Route::get('get-sliders', [SliderApiController::class, 'getSliders']); // Get Sliders
 
 Route::get('get-course-languages', [CourseApiController::class, 'getCourseLanguages']); // Get Course Languages
@@ -275,7 +276,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('get-user-details', [ApiController::class, 'getUserDetails']); // Get User Details
     Route::get('user/profile', [ApiController::class, 'getUserDetails']); // Backward-compatible alias for user details
     Route::get('is-email-exist', [ApiController::class, 'isEmailExist']); // Check if logged-in user's email exists
-    Route::post('update-profile', [ApiController::class, 'updateProfile']); // Update User Profile (handles both user and instructor details)
+    Route::match(['post', 'put', 'patch'], 'update-profile', [ApiController::class, 'updateProfile']); // JSON updates + POST multipart uploads
     Route::post('change-password', [ApiController::class, 'changePassword'])->middleware('throttle:4,1440'); // Change User Password
     Route::get('notifications', [ApiController::class, 'getUserNotifications']); // Get User Notifications
     Route::post('notifications/mark-read', [ApiController::class, 'markNotificationAsRead']); // Mark Notification as Read

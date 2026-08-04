@@ -3665,82 +3665,53 @@ class ApiController extends Controller
     public function getSalesChartData(Request $request)
     {
         try {
-            // For now, returning static data as per your requirement
-            // In a real application, you would query the database for actual sales data
-            $salesChartData = [
-                [
-                    'name' => 'Jan',
-                    'sales' => 3,
-                    'revenue' => 1000,
-                    'profit' => 10000,
-                ],
-                [
-                    'name' => 'Feb',
-                    'sales' => 4,
-                    'revenue' => 1800,
-                    'profit' => 6000,
-                ],
-                [
-                    'name' => 'Mar',
-                    'sales' => 2,
-                    'revenue' => 2000,
-                    'profit' => 7000,
-                ],
-                [
-                    'name' => 'Apr',
-                    'sales' => 2,
-                    'revenue' => 3000,
-                    'profit' => 14000,
-                ],
-                [
-                    'name' => 'May',
-                    'sales' => 12,
-                    'revenue' => 18750,
-                    'profit' => 17000,
-                ],
-                [
-                    'name' => 'Jun',
-                    'sales' => 5,
-                    'revenue' => 4000,
-                    'profit' => 10000,
-                ],
-                [
-                    'name' => 'Jul',
-                    'sales' => 10,
-                    'revenue' => 3000,
-                    'profit' => 3500,
-                ],
-                [
-                    'name' => 'Aug',
-                    'sales' => 9,
-                    'revenue' => 4500,
-                    'profit' => 8500,
-                ],
-                [
-                    'name' => 'Sep',
-                    'sales' => 4,
-                    'revenue' => 4800,
-                    'profit' => 700,
-                ],
-                [
-                    'name' => 'Oct',
-                    'sales' => 4,
-                    'revenue' => 5000,
-                    'profit' => 12500,
-                ],
-                [
-                    'name' => 'Nov',
-                    'sales' => 3,
-                    'revenue' => 6000,
-                    'profit' => 5500,
-                ],
-                [
-                    'name' => 'Dec',
-                    'sales' => 3,
-                    'revenue' => 8500,
-                    'profit' => 7000,
-                ],
-            ];
+            $validator = Validator::make($request->all(), [
+                'preset' => ['nullable', Rule::in(['today', '7d', '30d', '90d', '12m', 'this_year', 'custom'])],
+                'date_from' => ['nullable', 'required_if:preset,custom', 'date_format:Y-m-d'],
+                'date_to' => ['nullable', 'required_if:preset,custom', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+                'group_by' => ['nullable', Rule::in(['day', 'month', 'year'])],
+                'payment_method' => ['nullable', 'string', 'max:100'],
+            ]);
+
+            if ($validator->fails()) {
+                return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            [$start, $end] = $this->resolveSalesChartPeriod(
+                (string) $request->input('preset', '12m'),
+                $request->input('date_from'),
+                $request->input('date_to'),
+            );
+            $groupBy = (string) $request->input(
+                'group_by',
+                $start->diffInDays($end) > 90 ? 'month' : 'day',
+            );
+
+            $driver = DB::connection()->getDriverName();
+            $bucketSql = $this->salesChartBucketSql($driver, $groupBy);
+            $commissionTotals = DB::table('commissions')
+                ->select('order_id')
+                ->selectRaw('SUM(admin_commission_amount) as admin_profit')
+                ->where('status', '!=', 'cancelled')
+                ->groupBy('order_id');
+
+            $rows = DB::table('orders')
+                ->leftJoinSub($commissionTotals, 'commission_totals', function ($join): void {
+                    $join->on('commission_totals.order_id', '=', 'orders.id');
+                })
+                ->selectRaw($bucketSql . ' as period')
+                ->selectRaw('COUNT(DISTINCT orders.id) as sales_count')
+                ->selectRaw('SUM(COALESCE(NULLIF(orders.amount_egp, 0), orders.final_price * COALESCE(orders.exchange_rate_snapshot, 1), 0)) as revenue_egp')
+                ->selectRaw('SUM(COALESCE(commission_totals.admin_profit, 0) * COALESCE(orders.exchange_rate_snapshot, 1)) as profit_egp')
+                ->where('orders.status', 'completed')
+                ->whereBetween('orders.created_at', [$start, $end])
+                ->when($request->filled('payment_method'), fn ($query) => $query->where('orders.payment_method', $request->input('payment_method')))
+                ->groupBy(DB::raw($bucketSql))
+                ->orderBy('period')
+                ->get()
+                ->keyBy('period');
+
+            $salesChartData = $this->fillSalesChartPeriods($rows, $start, $end, $groupBy);
 
             return ApiResponseService::successResponse('Sales chart data retrieved successfully', $salesChartData);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -3748,6 +3719,84 @@ class ApiController extends Controller
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Failed to retrieve sales chart data: ' . $e->getMessage());
         }
+    }
+
+    private function resolveSalesChartPeriod(string $preset, ?string $dateFrom, ?string $dateTo): array
+    {
+        $now = Carbon::now();
+
+        return match ($preset) {
+            'today' => [$now->copy()->startOfDay(), $now->copy()],
+            '7d' => [$now->copy()->subDays(6)->startOfDay(), $now->copy()],
+            '30d' => [$now->copy()->subDays(29)->startOfDay(), $now->copy()],
+            '90d' => [$now->copy()->subDays(89)->startOfDay(), $now->copy()],
+            'this_year' => [$now->copy()->startOfYear(), $now->copy()],
+            'custom' => [Carbon::parse($dateFrom)->startOfDay(), Carbon::parse($dateTo)->endOfDay()],
+            default => [$now->copy()->subMonths(11)->startOfMonth(), $now->copy()],
+        };
+    }
+
+    private function salesChartBucketSql(string $driver, string $groupBy): string
+    {
+        if ($groupBy === 'year') {
+            return match ($driver) {
+                'sqlite' => "strftime('%Y', orders.created_at)",
+                'pgsql' => "TO_CHAR(orders.created_at, 'YYYY')",
+                default => "DATE_FORMAT(orders.created_at, '%Y')",
+            };
+        }
+
+        if ($groupBy === 'month') {
+            return match ($driver) {
+                'sqlite' => "strftime('%Y-%m-01', orders.created_at)",
+                'pgsql' => "TO_CHAR(orders.created_at, 'YYYY-MM-01')",
+                default => "DATE_FORMAT(orders.created_at, '%Y-%m-01')",
+            };
+        }
+
+        return 'DATE(orders.created_at)';
+    }
+
+    private function fillSalesChartPeriods($rows, Carbon $start, Carbon $end, string $groupBy): array
+    {
+        $cursor = match ($groupBy) {
+            'year' => $start->copy()->startOfYear(),
+            'month' => $start->copy()->startOfMonth(),
+            default => $start->copy()->startOfDay(),
+        };
+        $last = match ($groupBy) {
+            'year' => $end->copy()->startOfYear(),
+            'month' => $end->copy()->startOfMonth(),
+            default => $end->copy()->startOfDay(),
+        };
+        $result = [];
+
+        while ($cursor->lte($last)) {
+            $key = match ($groupBy) {
+                'year' => $cursor->format('Y'),
+                default => $cursor->format('Y-m-d'),
+            };
+            $row = $rows->get($key);
+            $result[] = [
+                'date' => $key,
+                'name' => match ($groupBy) {
+                    'year' => $cursor->format('Y'),
+                    'month' => $cursor->format('M Y'),
+                    default => $cursor->format('d M Y'),
+                },
+                'sales' => (int) ($row->sales_count ?? 0),
+                'revenue' => round((float) ($row->revenue_egp ?? 0), 2),
+                'profit' => round((float) ($row->profit_egp ?? 0), 2),
+            ];
+
+            $cursor = match ($groupBy) {
+                'year' => $cursor->addYear(),
+                'month' => $cursor->addMonth(),
+                default => $cursor->addDay(),
+            };
+        }
+
+        return $result;
     }
 
     /**
