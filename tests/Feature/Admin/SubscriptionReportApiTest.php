@@ -386,4 +386,17 @@ class SubscriptionReportApiTest extends TestCase
         $this->assertSame(1, $response->json('data.summary.total_active_subscribers'));
         $this->assertSame(0, $response->json('data.summary.total_expired_subscribers'));
     }
+
+    public function test_zero_to_zero_comparison_has_zero_percentage(): void
+    {
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=30d');
+
+        $response->assertOk()
+            ->assertJsonPath('data.summary.comparisons.expired.current', 0)
+            ->assertJsonPath('data.summary.comparisons.expired.previous', 0)
+            ->assertJsonPath('data.summary.comparisons.expired.percentage', 0)
+            ->assertJsonPath('data.summary.comparisons.expired.direction', 'neutral')
+            ->assertJsonPath('data.summary.comparisons.expired.is_new', false);
+    }
 }

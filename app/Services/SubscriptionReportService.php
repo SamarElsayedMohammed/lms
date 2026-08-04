@@ -397,7 +397,11 @@ final class SubscriptionReportService
     private function buildComparisonMetric(float|int $current, float|int $previous): array
     {
         $diff = $current - $previous;
-        $pct = $previous > 0 ? round(($diff / $previous) * 100, 1) : null;
+        $pct = match (true) {
+            $previous > 0 => round(($diff / $previous) * 100, 1),
+            $current == 0 => 0.0,
+            default => null,
+        };
         $direction = $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'neutral');
 
         return [
