@@ -594,7 +594,11 @@ final class SubscriptionApiController extends Controller
             if ($request->payment_method === 'manual') {
                 $method = $this->findActiveManualPaymentMethod((string) $request->payment_method_id);
                 if (!$method) {
-                    return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
+                    return ApiResponseService::errorResponse(
+                        'طريقة الدفع اليدوية هذه غير متوفرة حالياً.',
+                        ['reason' => 'PAYMENT_METHOD_UNAVAILABLE'],
+                        422
+                    );
                 }
 
                 if ($fieldValidation = $this->validateManualPaymentFields($request, $method)) {
@@ -607,7 +611,11 @@ final class SubscriptionApiController extends Controller
                         ->exists();
 
                     if ($hasPending) {
-                        return ApiResponseService::errorResponse('لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.');
+                        return ApiResponseService::errorResponse(
+                            'لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.',
+                            ['reason' => 'DUPLICATE_SUBSCRIPTION_REQUEST'],
+                            409
+                        );
                     }
 
                     $receiptPath = \App\Services\FileService::uploadPrivate(
@@ -881,7 +889,11 @@ final class SubscriptionApiController extends Controller
             if ($request->payment_method === 'manual') {
                 $method = $this->findActiveManualPaymentMethod((string) $request->payment_method_id);
                 if (!$method) {
-                    return ApiResponseService::errorResponse('طريقة الدفع اليدوية هذه غير متوفرة حالياً.');
+                    return ApiResponseService::errorResponse(
+                        'طريقة الدفع اليدوية هذه غير متوفرة حالياً.',
+                        ['reason' => 'PAYMENT_METHOD_UNAVAILABLE'],
+                        422
+                    );
                 }
 
                 if ($fieldValidation = $this->validateManualPaymentFields($request, $method)) {
@@ -894,7 +906,11 @@ final class SubscriptionApiController extends Controller
                         ->exists();
 
                     if ($hasPending) {
-                        return ApiResponseService::errorResponse('لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.');
+                        return ApiResponseService::errorResponse(
+                            'لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.',
+                            ['reason' => 'DUPLICATE_SUBSCRIPTION_REQUEST'],
+                            409
+                        );
                     }
 
                     $receiptPath = \App\Services\FileService::uploadPrivate(
@@ -1224,8 +1240,13 @@ final class SubscriptionApiController extends Controller
 
     private function findActiveManualPaymentMethod(string $methodId): ?PaymentMethod
     {
-        if ($this->isManualDepositMethodId($methodId)) {
-            $depositId = $this->manualDepositMethodId($methodId);
+        $cleanId = trim($methodId);
+        if ($cleanId === '') {
+            return null;
+        }
+
+        if ($this->isManualDepositMethodId($cleanId)) {
+            $depositId = $this->manualDepositMethodId($cleanId);
             $deposit = ManualDepositMethod::query()->whereKey($depositId)->where('is_active', true)->first();
             if (!$deposit) return null;
 
@@ -1237,16 +1258,39 @@ final class SubscriptionApiController extends Controller
                 'logo' => $deposit->getRawOriginal('image'),
                 'dynamic_fields' => [],
             ]);
-            $method->setAttribute('id', $methodId);
+            $method->setAttribute('id', $cleanId);
             return $method;
         }
 
-        if (!ctype_digit($methodId)) return null;
-        return PaymentMethod::query()
-            ->whereKey((int) $methodId)
-            ->where('is_active', true)
-            ->whereIn('type', ['instapay', 'mobile_wallet', 'fawry', 'bank_transfer'])
-            ->first();
+        if (ctype_digit($cleanId)) {
+            $idNum = (int) $cleanId;
+            $paymentMethod = PaymentMethod::query()
+                ->whereKey($idNum)
+                ->where('is_active', true)
+                ->whereIn('type', ['instapay', 'mobile_wallet', 'fawry', 'bank_transfer'])
+                ->first();
+
+            if ($paymentMethod) {
+                return $paymentMethod;
+            }
+
+            // Fallback: If numeric ID was sent without manual-deposit- prefix, check ManualDepositMethod
+            $deposit = ManualDepositMethod::query()->whereKey($idNum)->where('is_active', true)->first();
+            if ($deposit) {
+                $method = new PaymentMethod([
+                    'name' => $deposit->name,
+                    'type' => 'bank_transfer',
+                    'instructions' => $deposit->instructions ?: $deposit->account_details,
+                    'account_number' => $deposit->account_details,
+                    'logo' => $deposit->getRawOriginal('image'),
+                    'dynamic_fields' => [],
+                ]);
+                $method->setAttribute('id', "manual-deposit-{$deposit->id}");
+                return $method;
+            }
+        }
+
+        return null;
     }
 
     private function isManualDepositMethodId(string $methodId): bool
