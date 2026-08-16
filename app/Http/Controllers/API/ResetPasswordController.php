@@ -23,6 +23,10 @@ final class ResetPasswordController extends Controller
     public function forgotPassword(Request $request)
     {
         try {
+            if ($request->has('email')) {
+                $request->merge(['email' => strtolower(trim((string) $request->email))]);
+            }
+
             ApiService::validateRequest($request, [
                 'email' => 'required|email|max:255',
             ]);
@@ -48,6 +52,13 @@ final class ResetPasswordController extends Controller
     public function verifyResetCode(Request $request)
     {
         try {
+            if ($request->has('email')) {
+                $request->merge(['email' => strtolower(trim((string) $request->email))]);
+            }
+            if ($request->has('code')) {
+                $request->merge(['code' => trim((string) $request->code)]);
+            }
+
             ApiService::validateRequest($request, [
                 'email' => 'required|email|max:255',
                 'code' => 'required|string|size:' . EmailPasswordResetService::OTP_LENGTH,
@@ -71,6 +82,16 @@ final class ResetPasswordController extends Controller
     public function resetPassword(Request $request)
     {
         try {
+            if ($request->has('email')) {
+                $request->merge(['email' => strtolower(trim((string) $request->email))]);
+            }
+            if ($request->has('code')) {
+                $request->merge(['code' => trim((string) $request->code)]);
+            }
+            if ($request->has('confirm_password') && !$request->has('password_confirmation')) {
+                $request->merge(['password_confirmation' => $request->input('confirm_password')]);
+            }
+
             ApiService::validateRequest($request, [
                 'email' => 'required|email|max:255',
                 'code' => 'required|string|size:' . EmailPasswordResetService::OTP_LENGTH,

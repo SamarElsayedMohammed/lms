@@ -129,9 +129,13 @@ class CourseApiController extends Controller
             "chapters:id,course_id",
             "chapters.lectures:id,course_chapter_id,hours,minutes,seconds",
         ])
-            ->withAvg("ratings", "rating")
+            ->withAvg(["ratings" => static function ($q): void {
+                $q->where("status", "approved");
+            }], "rating")
             ->withCount([
-                "ratings",
+                "ratings" => static function ($q): void {
+                    $q->where("status", "approved");
+                },
                 "views",
                 "orderCourses" => static function ($q): void {
                     $q->whereHas("order", static function ($orderQuery): void {
@@ -233,10 +237,14 @@ class CourseApiController extends Controller
         if ($request->filled("search")) {
             $search = $request->search;
 
-            // Record search history
-            $userId = Auth::id();
-            $ipAddress = $request->ip();
-            SearchHistory::recordSearch($search, $userId, $ipAddress);
+            // Record search history (non-blocking)
+            try {
+                $userId = Auth::id();
+                $ipAddress = $request->ip();
+                SearchHistory::recordSearch($search, $userId, $ipAddress);
+            } catch (\Throwable $e) {
+                Log::warning('SearchHistory: Failed to record search query', ['error' => $e->getMessage()]);
+            }
 
             $query->where(static function ($q) use ($search): void {
                 $q->where("title", "LIKE", "%{$search}%")
@@ -610,24 +618,34 @@ class CourseApiController extends Controller
             }
         }
 
-        // Sorting
+        // Sorting with strict allow-list and stable secondary tiebreaker
         $sortField = $request->sort_by ?? "id";
-        $sortOrder = $request->sort_order ?? "desc";
-
-        // Map aliases to actual database columns
-        if ($sortField === "latest" || $sortField === "newest") {
-            $sortField = "created_at";
-            $sortOrder = "desc";
-        } elseif ($sortField === "name") {
-            $sortField = "title";
+        $sortOrder = strtolower((string) ($request->sort_order ?? "desc"));
+        if (!in_array($sortOrder, ['asc', 'desc'], true)) {
+            $sortOrder = 'desc';
         }
+
+        $allowedSorts = [
+            'id' => 'id',
+            'latest' => 'created_at',
+            'newest' => 'created_at',
+            'created_at' => 'created_at',
+            'price' => 'price',
+            'title' => 'title',
+            'name' => 'title',
+            'course_type' => 'course_type',
+            'ratings' => 'ratings_avg_rating',
+            'views' => 'views_count',
+        ];
+
+        $mappedColumn = $allowedSorts[$sortField] ?? 'id';
 
         if ($request->filled("post_filter")) {
             if ($request->post_filter == "newest") {
-                $sortField = "created_at";
+                $mappedColumn = "created_at";
                 $sortOrder = "desc";
             } elseif ($request->post_filter == "oldest") {
-                $sortField = "created_at";
+                $mappedColumn = "created_at";
                 $sortOrder = "asc";
             } elseif ($request->post_filter == "most_popular") {
                 // Sort by enrollments/purchases count (completed orders)
@@ -642,13 +660,20 @@ class CourseApiController extends Controller
                         },
                     ])
                     ->orderByDesc("order_courses_count")
-                    ->orderByDesc("created_at"); // Secondary sort by newest if same enrollment count
-                $sortField = null; // Skip default orderBy since we're using custom ordering
+                    ->orderByDesc("created_at")
+                    ->orderByDesc("id");
+                $mappedColumn = null; // Custom order already applied
             }
         }
 
-        if ($sortField !== null) {
-            $query->orderBy($sortField, $sortOrder);
+        if ($mappedColumn !== null) {
+            if ($mappedColumn === 'ratings_avg_rating') {
+                $query->orderBy('ratings_avg_rating', $sortOrder)->orderByDesc('id');
+            } elseif ($mappedColumn === 'views_count') {
+                $query->orderBy('views_count', $sortOrder)->orderByDesc('id');
+            } else {
+                $query->orderBy($mappedColumn, $sortOrder)->orderByDesc('id');
+            }
         }
 
         if ($request->filled("rating_filter")) {
@@ -844,9 +869,13 @@ class CourseApiController extends Controller
                     ]);
                 },
             ])
-                ->withAvg("ratings", "rating")
+                ->withAvg(["ratings" => static function ($q): void {
+                    $q->where("status", "approved");
+                }], "rating")
                 ->withCount([
-                    "ratings",
+                    "ratings" => static function ($q): void {
+                        $q->where("status", "approved");
+                    },
                     "views",
                     "orderCourses" => static function ($q): void {
                         $q->whereHas("order", static function (
@@ -894,7 +923,8 @@ class CourseApiController extends Controller
                 if (
                     $course->is_active != 1 ||
                     $course->status !== "publish" ||
-                    $course->approval_status !== "approved"
+                    $course->approval_status !== "approved" ||
+                    ($course->user && $course->user->is_active != 1)
                 ) {
                     return ApiResponseService::validationError(
                         "Course is not available",
@@ -926,38 +956,6 @@ class CourseApiController extends Controller
                     })
                     ->exists();
             }
-
-            // ===== TEMPORARY DEBUG — REMOVE AFTER FIX IS CONFIRMED =====
-            if ($request->boolean("_debug")) {
-                $subscriptionQuery = $user ? $user->activeSubscription() : null;
-                return response()->json([
-                    "debug" => true,
-                    "bearer_token_present" => !empty($request->bearerToken()),
-                    "bearer_token_value" => $request->bearerToken()
-                        ? substr($request->bearerToken(), 0, 10) . "..."
-                        : null,
-                    "auth_user_id" => Auth::user()?->id,
-                    "sanctum_user_id" => Auth::guard("sanctum")->user()?->id,
-                    "resolved_user_id" => $user?->id,
-                    "resolved_user_email" => $user?->email,
-                    "is_subscribed" => $isSubscribed,
-                    "has_purchased_directly" => $hasPurchasedDirectly,
-                    "subscription_sql" => $subscriptionQuery?->toSql(),
-                    "subscription_bindings" => $subscriptionQuery?->getBindings(),
-                    "raw_subscription_row" => $user
-                        ? \App\Models\Subscription::where("user_id", $user->id)
-                            ->get([
-                                "id",
-                                "status",
-                                "starts_at",
-                                "ends_at",
-                                "deleted_at",
-                            ])
-                            ->toArray()
-                        : [],
-                ]);
-            }
-            // ===== END TEMPORARY DEBUG =====
 
             // [NEW LOGIC] Automatically grant access if course is free, user is the instructor, or has purchased directly
             if (
@@ -1073,11 +1071,12 @@ class CourseApiController extends Controller
                     $chapter,
                     $isItemCompleted,
                     $request,
+                    $hasAccess,
                     $isPurchased,
                 ) {
                     $resource = new CourseChapterLectureResource(
                         $lecture,
-                        $isPurchased,
+                        $hasAccess,
                     );
                     $lectureData = $resource->toArray($request);
 
@@ -1877,12 +1876,17 @@ class CourseApiController extends Controller
                 "requirements",
                 "tags",
                 "language",
-                "instructors",
-                "ratings.user",
+                "ratings" => static function ($q): void {
+                    $q->where("status", "approved")->with("user");
+                },
                 "chapters.lectures", // Eager load lectures relationship
             ])
-                ->withAvg("ratings", "rating")
-                ->withCount("ratings")
+                ->withAvg(["ratings" => static function ($q): void {
+                    $q->where("status", "approved");
+                }], "rating")
+                ->withCount(["ratings" => static function ($q): void {
+                    $q->where("status", "approved");
+                }])
                 ->find($courseId);
 
             if (!$course) {
@@ -2162,8 +2166,12 @@ class CourseApiController extends Controller
                     ]);
                 },
             ])
-                ->withAvg("ratings", "rating")
-                ->withCount("ratings");
+                ->withAvg(["ratings" => static function ($q): void {
+                    $q->where("status", "approved");
+                }], "rating")
+                ->withCount(["ratings" => static function ($q): void {
+                    $q->where("status", "approved");
+                }]);
 
             // Get course by ID or slug
             if ($request->filled("id")) {
@@ -9791,7 +9799,6 @@ class CourseApiController extends Controller
                                 ) .
                                 "/000000?text=" .
                                 substr($rating->user->name ?? "U", 0, 1),
-                        "email" => $rating->user->email ?? null,
                     ],
                     "created_at" => $rating->created_at->format("M d, Y"),
                     "timestamp" => $rating->created_at->toIso8601String(),
@@ -9823,6 +9830,7 @@ class CourseApiController extends Controller
                         "id" => $userRating->id,
                         "rating" => $userRating->rating,
                         "review" => $userRating->review,
+                        "status" => $userRating->status ?? "pending",
                         "created_at" => $userRating->created_at->format(
                             "M d, Y",
                         ),
@@ -9927,10 +9935,11 @@ class CourseApiController extends Controller
             // Get authenticated user
             $user = Auth::user();
 
-            // Build query for ratings
+            // Build query for ratings — only approved reviews are shown publicly
             $query = Rating::with(["user"])
                 ->where("rateable_type", Instructor::class)
-                ->where("rateable_id", $instructor->id);
+                ->where("rateable_id", $instructor->id)
+                ->where("status", "approved");
 
             // Apply sorting
             $sortBy = $request->sort_by ?? "newest";
@@ -9940,9 +9949,10 @@ class CourseApiController extends Controller
             $perPage = $request->per_page ?? 15;
             $page = $request->page ?? 1;
 
-            // Get all ratings for statistics (before pagination)
+            // Get all approved ratings for statistics (before pagination)
             $allRatings = Rating::where("rateable_type", Instructor::class)
                 ->where("rateable_id", $instructor->id)
+                ->where("status", "approved")
                 ->get();
 
             $totalReviews = $allRatings->count();
@@ -10019,7 +10029,6 @@ class CourseApiController extends Controller
                                 ) .
                                 "/000000?text=" .
                                 substr($rating->user->name ?? "U", 0, 1),
-                        "email" => $rating->user->email ?? null,
                     ],
                     "created_at" => $rating->created_at->format("M d, Y"),
                     "timestamp" => $rating->created_at->toIso8601String(),
@@ -10040,6 +10049,7 @@ class CourseApiController extends Controller
                         "id" => $userRating->id,
                         "rating" => $userRating->rating,
                         "review" => $userRating->review,
+                        "status" => $userRating->status ?? "pending",
                         "created_at" => $userRating->created_at->format(
                             "M d, Y",
                         ),
@@ -10056,7 +10066,7 @@ class CourseApiController extends Controller
             $ratings->setCollection($reviews);
 
             // Get instructor user for displaying info
-            $instructorUser = User::find($instructor->id);
+            $instructorUser = User::find($instructor->user_id);
 
             $response = [
                 "instructor" => [
@@ -11415,23 +11425,31 @@ class CourseApiController extends Controller
     }
 
     /**
-     * Recursively get all child category IDs for a given category ID
+     * Recursively get all child category IDs for a given category ID (with cycle protection)
      */
-    private function getAllChildCategoryIds(int $categoryId): array
+    private function getAllChildCategoryIds(int $categoryId, array &$visited = [], int $depth = 0): array
     {
+        if ($depth > 10 || in_array($categoryId, $visited, true)) {
+            return [];
+        }
+        $visited[] = $categoryId;
+
         $childIds = [];
 
         // Get direct children
         $children = Category::where("parent_category_id", $categoryId)->get();
 
         foreach ($children as $child) {
-            $childIds[] = $child->id;
-            // Recursively get grandchildren
-            $grandchildIds = $this->getAllChildCategoryIds($child->id);
-            $childIds = array_merge($childIds, $grandchildIds);
+            $childId = (int) $child->id;
+            if (!in_array($childId, $visited, true)) {
+                $childIds[] = $childId;
+                // Recursively get grandchildren
+                $grandchildIds = $this->getAllChildCategoryIds($childId, $visited, $depth + 1);
+                $childIds = array_merge($childIds, $grandchildIds);
+            }
         }
 
-        return $childIds;
+        return array_unique($childIds);
     }
 
     /**

@@ -109,10 +109,28 @@ class ApiController extends Controller
                     $query->where('email', $email);
                 })
                 ->when($request->has('mobile'), static function ($query) use ($request): void {
-                    $query->where([
-                        'mobile' => $request->mobile,
-                        'country_calling_code' => $request->input('country_calling_code'),
-                    ]);
+                    $rawMobile = (string) $request->mobile;
+                    $normalizedMobile = preg_replace('/\D+/', '', $rawMobile) ?? '';
+                    $trimmedMobile = ltrim($normalizedMobile, '0');
+                    $mobileVariants = array_unique(array_filter([
+                        $rawMobile,
+                        $normalizedMobile,
+                        $trimmedMobile,
+                        '0' . $trimmedMobile,
+                    ]));
+
+                    $rawCode = (string) $request->input('country_calling_code');
+                    $normalizedCode = preg_replace('/\D+/', '', $rawCode) ?? '';
+                    $codeVariants = array_unique(array_filter([
+                        $rawCode,
+                        '+' . $normalizedCode,
+                        $normalizedCode,
+                    ]));
+
+                    $query->whereIn('mobile', $mobileVariants);
+                    if (!empty($codeVariants)) {
+                        $query->whereIn('country_calling_code', $codeVariants);
+                    }
                 });
 
             $user = $userQuery->latest()->first();
@@ -140,6 +158,17 @@ class ApiController extends Controller
     public function userSignup(Request $request)
     {
         try {
+            // Normalize email and confirmation aliases before validation
+            if ($request->has('email') && !empty($request->email)) {
+                $request->merge(['email' => strtolower(trim((string) $request->email))]);
+            }
+            if ($request->filled('password_confirmation') && !$request->filled('confirm_password')) {
+                $request->merge(['confirm_password' => $request->input('password_confirmation')]);
+            }
+            if ($request->filled('confirm_password') && !$request->filled('password_confirmation')) {
+                $request->merge(['password_confirmation' => $request->input('confirm_password')]);
+            }
+
             // Base validation rules
             // firebase_token is optional for web clients (device_type=web) that use Google OAuth flow
             $isWebOAuth = ($request->device_type === 'web' || empty($request->device_type))
@@ -177,10 +206,6 @@ class ApiController extends Controller
 
             ApiService::validateRequest($request, $validationRules);
 
-            if ($request->has('email') && !empty($request->email)) {
-                $request->merge(['email' => strtolower(trim((string) $request->email))]);
-            }
-
             // ── Resolve Firebase/OAuth/Email identity ────────────────────────
             $firebaseId = null;
 
@@ -190,10 +215,16 @@ class ApiController extends Controller
                 $existingEmailUser = RoleManager::applyRoleFilter(User::where('email', $request->email)->withTrashed(), 'user')
                     ->first();
 
-                if ($existingEmailUser && !$existingEmailUser->trashed()) {
-                    ApiResponseService::validationError(
-                        'An account with this email already exists. Please log in instead.',
-                    );
+                if ($existingEmailUser) {
+                    if ($existingEmailUser->trashed() || (isset($existingEmailUser->is_active) && !$existingEmailUser->is_active)) {
+                        ApiResponseService::validationError(
+                            'This account has been deactivated. Please contact support.',
+                        );
+                    } else {
+                        ApiResponseService::validationError(
+                            'An account with this email already exists. Please log in instead.',
+                        );
+                    }
                 }
 
                 // New email user — no firebase_id needed, skip SocialLogin table
@@ -427,7 +458,7 @@ class ApiController extends Controller
         $refreshMinutes = (int) config('sanctum.refresh_token_lifetime', 43200);
 
         // ── Issue access token ───────────────────────────────────────────────
-        $accessResult = $user->createToken($baseName, ['*'], now()->addMinutes($accessMinutes));
+        $accessResult = $user->createToken($baseName, ['access-api', '*'], now()->addMinutes($accessMinutes));
         $accessToken  = $accessResult->accessToken;
         $accessToken->token_type = 'access';
         $accessToken->ip_address = $request->ip();
@@ -435,7 +466,7 @@ class ApiController extends Controller
         $accessToken->save();
 
         // ── Issue refresh token ──────────────────────────────────────────────
-        $refreshResult = $user->createToken($baseName . '-refresh', ['*'], now()->addMinutes($refreshMinutes));
+        $refreshResult = $user->createToken($baseName . '-refresh', ['issue-token'], now()->addMinutes($refreshMinutes));
         $refreshToken  = $refreshResult->accessToken;
         $refreshToken->token_type = 'refresh';
         $refreshToken->ip_address = $request->ip();
@@ -470,19 +501,23 @@ class ApiController extends Controller
     public function userLogin(Request $request)
     {
         try {
+            if ($request->has('email') && !empty($request->email)) {
+                $request->merge(['email' => strtolower(trim((string) $request->email))]);
+            }
+
             $isEmailType = ($request->type === 'email');
             $isWebOAuth  = !$isEmailType
                 && ($request->device_type === 'web' || empty($request->device_type))
                 && in_array($request->type, ['google', 'apple'])
                 && empty($request->firebase_token);
 
-            // Validation rules \u2014 firebase_token only required for google/apple
+            // Validation rules — firebase_token only required for google/apple
             $validationRules = [
                 'type'          => 'required|in:google,apple,email',
                 'platform_type' => 'nullable|in:android,ios',
                 'firebase_token'=> ($isEmailType || $isWebOAuth) ? 'nullable|string' : 'required|string',
-                'device_type'   => 'required|string|in:web,android,ios',
-                'device_id'     => 'required|string|max:255',
+                'device_type'   => 'nullable|string|in:web,android,ios,desktop',
+                'device_id'     => 'nullable|string|max:255',
                 'device_name'   => 'nullable|string|max:255',
             ];
 
@@ -493,10 +528,6 @@ class ApiController extends Controller
 
             ApiService::validateRequest($request, $validationRules);
 
-            if ($request->has('email') && !empty($request->email)) {
-                $request->merge(['email' => strtolower(trim((string) $request->email))]);
-            }
-
             // ── Email / Password path — NO Firebase ──────────────────────────
             if ($isEmailType) {
                 $user = RoleManager::applyRoleFilter(User::withTrashed()->where('email', $request->email), 'user')
@@ -506,7 +537,7 @@ class ApiController extends Controller
                     ApiResponseService::validationError('User not found. Please sign up first.');
                 }
 
-                if ($user->trashed()) {
+                if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
                     ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
                 }
 
@@ -517,7 +548,7 @@ class ApiController extends Controller
                 $auth = $user;
 
             } else {
-                // \u2500\u2500 Firebase / Socialite path (google / apple) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+                // ── Firebase / Socialite path (google / apple) ─────────────────
                 $firebaseId = null;
 
                 if ($isWebOAuth && $request->type === 'google') {
@@ -597,6 +628,10 @@ class ApiController extends Controller
     public function mobileLogin(Request $request)
     {
         try {
+            if ($request->has('mobile')) {
+                $request->merge(['mobile' => preg_replace('/\D+/', '', (string) $request->mobile)]);
+            }
+
             ApiService::validateRequest($request, [
                 'mobile' => 'required|numeric',
                 'country_calling_code' => 'required|string',
@@ -608,10 +643,28 @@ class ApiController extends Controller
                 'device_name' => 'nullable|string|max:255',
             ]);
 
+            $rawMobile = (string) $request->mobile;
+            $normalizedMobile = preg_replace('/\D+/', '', $rawMobile) ?? '';
+            $trimmedMobile = ltrim($normalizedMobile, '0');
+            $mobileVariants = array_unique(array_filter([
+                $rawMobile,
+                $normalizedMobile,
+                $trimmedMobile,
+                '0' . $trimmedMobile,
+            ]));
+
+            $rawCode = (string) $request->country_calling_code;
+            $normalizedCode = preg_replace('/\D+/', '', $rawCode) ?? '';
+            $codeVariants = array_unique(array_filter([
+                $rawCode,
+                '+' . $normalizedCode,
+                $normalizedCode,
+            ]));
+
             $user = RoleManager::applyRoleFilter(
                 User::withTrashed()
-                    ->where('mobile', $request->mobile)
-                    ->where('country_calling_code', $request->country_calling_code),
+                    ->whereIn('mobile', $mobileVariants)
+                    ->whereIn('country_calling_code', $codeVariants),
                 'user'
             )->first();
 
@@ -619,11 +672,11 @@ class ApiController extends Controller
                 ApiResponseService::validationError('User Not Found');
             }
 
-            if (!empty($user->deleted_at)) {
+            if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
                 ApiResponseService::validationError('User is deactivated. Please contact the administrator');
             }
 
-            if (!Hash::check($request->password, $user->password)) {
+            if (!Hash::check($request->password, $user->password ?? '')) {
                 ApiResponseService::validationError('Invalid password');
             }
 
@@ -688,9 +741,30 @@ class ApiController extends Controller
                 return response()->json(['status' => false, 'message' => 'Unauthenticated.'], 401);
             }
 
-            // ── 2. Revoke old pair + issue new pair ───────────────────────
-            // createTokenPair() used to delete ALL tokens. Now it issues a new pair for the session.
-            $pair = $this->createTokenPair($user, $request->device_id ?? $user->name ?? 'refresh', $request);
+            if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
+                $currentToken->delete();
+                return ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
+            }
+
+            // ── 2. Revoke old refresh token + issue new pair atomically ──
+            $pair = DB::transaction(function () use ($currentToken, $user, $request) {
+                $deleted = DB::table('personal_access_tokens')
+                    ->where('id', $currentToken->id)
+                    ->delete();
+
+                if ($deleted === 0) {
+                    return null;
+                }
+
+                return $this->createTokenPair($user, $request->device_id ?? $user->name ?? 'refresh', $request);
+            });
+
+            if ($pair === null) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Refresh token has already been used or revoked.',
+                ], 401);
+            }
 
             // ── 3. Return new token pair ──────────────────────────────────
             return response()->json([
@@ -710,10 +784,30 @@ class ApiController extends Controller
     public function mobileRegistration(Request $request)
     {
         try {
+            if ($request->has('mobile')) {
+                $request->merge(['mobile' => preg_replace('/\D+/', '', (string) $request->mobile)]);
+            }
+            if ($request->filled('password_confirmation') && !$request->filled('confirm_password')) {
+                $request->merge(['confirm_password' => $request->input('password_confirmation')]);
+            }
+            if ($request->filled('confirm_password') && !$request->filled('password_confirmation')) {
+                $request->merge(['password_confirmation' => $request->input('confirm_password')]);
+            }
+
             ApiService::validateRequest($request, [
                 'mobile' => [
                     'required',
-                    Rule::unique('users', 'mobile')->whereNull('deleted_at'),
+                    'numeric',
+                    Rule::unique('users', 'mobile')->where(function ($query) use ($request) {
+                        $rawCode = (string) $request->input('country_calling_code');
+                        $normalizedCode = preg_replace('/\D+/', '', $rawCode) ?? '';
+                        $codeVariants = array_unique(array_filter([
+                            $rawCode,
+                            '+' . $normalizedCode,
+                            $normalizedCode,
+                        ]));
+                        return $query->whereIn('country_calling_code', $codeVariants)->whereNull('deleted_at');
+                    }),
                 ],
                 'password' => 'required|string|min:6',
                 'confirm_password' => 'required|same:password',
@@ -747,13 +841,35 @@ class ApiController extends Controller
                 );
             }
 
-            $existingUser = User::where('mobile', $request->mobile)
-                ->where('country_calling_code', $request->country_calling_code)
-                ->whereNull('deleted_at')
+            $rawMobile = (string) $request->mobile;
+            $normalizedMobile = preg_replace('/\D+/', '', $rawMobile) ?? '';
+            $trimmedMobile = ltrim($normalizedMobile, '0');
+            $mobileVariants = array_unique(array_filter([
+                $rawMobile,
+                $normalizedMobile,
+                $trimmedMobile,
+                '0' . $trimmedMobile,
+            ]));
+
+            $rawCode = (string) $request->country_calling_code;
+            $normalizedCode = preg_replace('/\D+/', '', $rawCode) ?? '';
+            $codeVariants = array_unique(array_filter([
+                $rawCode,
+                '+' . $normalizedCode,
+                $normalizedCode,
+            ]));
+
+            $existingUser = User::withTrashed()
+                ->whereIn('mobile', $mobileVariants)
+                ->whereIn('country_calling_code', $codeVariants)
                 ->first();
 
             if ($existingUser) {
-                ApiResponseService::validationError('User already exists');
+                if ($existingUser->trashed() || (isset($existingUser->is_active) && !$existingUser->is_active)) {
+                    ApiResponseService::validationError('This account has been deactivated. Please contact support.');
+                } else {
+                    ApiResponseService::validationError('An account with this phone number already exists. Please log in instead.');
+                }
             }
 
             DB::beginTransaction();
@@ -867,37 +983,23 @@ class ApiController extends Controller
                 ApiResponseService::validationError('Firebase phone verification is required');
             }
 
-            if (!$this->phoneNumbersMatch(
-                (string) $verifiedPhone,
-                (string) $request->country_calling_code,
-                (string) $request->mobile,
-            )) {
-                ApiResponseService::validationError(
-                    'The verified Firebase phone number does not match the submitted phone number',
-                );
-            }
-
             $socialLogin = SocialLogin::where('firebase_id', $firebaseId)
                 ->where('type', 'phone')
                 ->with('user')
                 ->first();
 
-            $user = $socialLogin?->user;
-            if (!$user
-                || $user->trashed()
-                || !$user->is_active
-                || !$this->phoneNumbersMatch(
-                    (string) $verifiedPhone,
-                    (string) $user->country_calling_code,
-                    (string) $user->mobile,
-                )) {
-                ApiResponseService::validationError('User not found');
+            if (!$socialLogin || !$socialLogin->user) {
+                ApiResponseService::validationError('No user found associated with this verified phone number');
             }
 
-            $user->update([
-                'password' => Hash::make($request->password),
-            ]);
-            $user->tokens()->delete();
+            $user = $socialLogin->user;
+
+            if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
+                ApiResponseService::validationError('User is deactivated. Please contact the administrator');
+            }
+
+            $user->password = Hash::make($request->password);
+            $user->save();
 
             ApiResponseService::successResponse('Password reset successfully');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -911,11 +1013,39 @@ class ApiController extends Controller
     {
         $normalize = static fn(string $value): string => preg_replace('/\D+/', '', $value) ?? '';
 
-        return $normalize($verifiedPhone) !== ''
-            && hash_equals(
-                $normalize($callingCode . $mobile),
-                $normalize($verifiedPhone),
-            );
+        $verified = $normalize($verifiedPhone);
+        $calling = $normalize($callingCode);
+        $mob = $normalize($mobile);
+
+        if ($verified === '' || $mob === '' || $calling === '') {
+            return false;
+        }
+
+        // Direct comparison if verified equals full national + code
+        if (hash_equals($calling . $mob, $verified)) {
+            return true;
+        }
+
+        // Handle leading zeros stripped (e.g. 01012345678 -> 1012345678)
+        $mobNoLeadingZeros = ltrim($mob, '0');
+        if ($mobNoLeadingZeros !== '' && hash_equals($calling . $mobNoLeadingZeros, $verified)) {
+            return true;
+        }
+
+        // Verified number must start with the specific country calling code
+        if (str_starts_with($verified, $calling)) {
+            $verifiedLocal = substr($verified, strlen($calling));
+            if ($verifiedLocal === $mob || $verifiedLocal === $mobNoLeadingZeros || ltrim($verifiedLocal, '0') === $mobNoLeadingZeros) {
+                return true;
+            }
+        }
+
+        // Fallback: Check if verified ends with normalized national digits
+        if ($mobNoLeadingZeros !== '' && str_ends_with($verified, $mobNoLeadingZeros)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -1084,6 +1214,11 @@ class ApiController extends Controller
             $maxVideoSize = HelperService::systemSettings('max_video_upload_size');
             $maxSizeMB = !empty($maxVideoSize) ? (float) $maxVideoSize : 10;
             $maxSizeKB = $maxSizeMB * 1024;
+
+            // Alias avatar -> profile if sent by client
+            if ($request->hasFile('avatar') && !$request->hasFile('profile')) {
+                $request->files->set('profile', $request->file('avatar'));
+            }
 
             // Build validation rules based on user type
             $validationRules = [
@@ -1261,24 +1396,34 @@ class ApiController extends Controller
 
             // ============ UPDATE USER PROFILE ============
             $userData = [];
-            foreach (['name', 'email', 'mobile', 'country_calling_code', 'country_code'] as $field) {
+            foreach (['name', 'mobile', 'country_calling_code', 'country_code'] as $field) {
                 if ($request->has($field)) {
                     $userData[$field] = $request->input($field);
                 }
             }
 
-            // Handle profile image upload
-            if ($request->hasFile('profile')) {
-                // Delete old profile image if exists
-                $oldProfile = $user->getRawOriginal('profile');
-                if ($oldProfile && !filter_var($oldProfile, FILTER_VALIDATE_URL)) {
-                    Storage::disk('public')->delete($oldProfile);
+            // Handle email update safely
+            if ($request->has('email') && !empty($request->email)) {
+                $normalizedEmail = strtolower(trim((string) $request->email));
+                if ($normalizedEmail !== strtolower((string) $user->email)) {
+                    $userData['email'] = $normalizedEmail;
+                    $userData['email_verified_at'] = null;
                 }
+            }
 
+            // Handle profile image upload safely (store first, delete old after)
+            if ($request->hasFile('profile')) {
                 $profileImage = $request->file('profile');
-                $profileImageName = 'user_profile_' . time() . '.' . $profileImage->getClientOriginalExtension();
+                $extension = $profileImage->getClientOriginalExtension() ?: 'jpg';
+                $profileImageName = 'user_profile_' . $user->id . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $extension;
                 $profileImagePath = $profileImage->storeAs('user_profile', $profileImageName, 'public');
                 $userData['profile'] = $profileImagePath;
+
+                // Delete old profile image AFTER new one is stored safely
+                $oldProfile = $user->getRawOriginal('profile');
+                if ($oldProfile && !filter_var($oldProfile, FILTER_VALIDATE_URL) && Storage::disk('public')->exists($oldProfile)) {
+                    Storage::disk('public')->delete($oldProfile);
+                }
             }
 
             $user->update($userData);
@@ -1515,6 +1660,14 @@ class ApiController extends Controller
     public function changePassword(Request $request)
     {
         try {
+            // Support parameter aliases: current_password -> old_password, password_confirmation -> new_password_confirmation
+            if ($request->filled('current_password') && !$request->filled('old_password')) {
+                $request->merge(['old_password' => $request->input('current_password')]);
+            }
+            if ($request->filled('password_confirmation') && !$request->filled('new_password_confirmation')) {
+                $request->merge(['new_password_confirmation' => $request->input('password_confirmation')]);
+            }
+
             $validator = Validator::make($request->all(), [
                 'old_password' => 'required|string',
                 'new_password' => 'required|string|min:8|confirmed',
@@ -1527,7 +1680,7 @@ class ApiController extends Controller
 
             $user = User::where(['id' => Auth::id(), 'is_active' => 1])->first();
             if (empty($user)) {
-                return ApiResponseService::validationError('User not found');
+                return ApiResponseService::validationError('المستخدم غير موجود');
             }
 
             // Refresh user to ensure we have latest password from database
@@ -1536,19 +1689,19 @@ class ApiController extends Controller
             // Check if user has a password set
             if (empty($user->password)) {
                 return ApiResponseService::validationError(
-                    'You cannot change password. Please set a password first using forgot password.',
+                    'لا يمكنك تغيير كلمة المرور مباشرة. يرجى استخدام استعادة كلمة المرور لإنشاء كلمة مرور جديدة.',
                 );
             }
 
             // Verify old password (trim to handle whitespace issues)
             $oldPassword = trim($request->old_password);
             if (empty($oldPassword) || !Hash::check($oldPassword, $user->password)) {
-                return ApiResponseService::validationError('Old password is incorrect');
+                return ApiResponseService::validationError('كلمة المرور الحالية غير صحيحة');
             }
 
             // Check if new password is different from old password
             if (Hash::check($request->new_password, $user->password)) {
-                return ApiResponseService::validationError('New password must be different from old password');
+                return ApiResponseService::validationError('يجب أن تكون كلمة المرور الجديدة مختلفة عن كلمة المرور الحالية');
             }
 
             // Update password in database
@@ -1565,17 +1718,15 @@ class ApiController extends Controller
                     throw $e;
                 } catch (\Exception $e) {
                     Log::error('Failed to update Firebase password: ' . $e->getMessage());
-
-                    // Continue even if Firebase update fails - database password is updated
                 }
             }
 
-            // Revoke all tokens to logout user from all devices
-            // User will need to login again with new password
+            // Revoke all tokens & devices to logout user from all remote sessions
             $user->tokens()->delete();
+            \App\Models\UserDevice::where('user_id', $user->id)->delete();
 
             return ApiResponseService::successResponse(
-                'Password changed successfully. Please login again with your new password.',
+                'تم تغيير كلمة المرور بنجاح. يرجى تسجيل الدخول مجدداً بكلمة المرور الجديدة.',
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -2387,6 +2538,19 @@ class ApiController extends Controller
                 );
             }
 
+            // Check if user has pending financial operations
+            if (\App\Models\WithdrawalRequest::where('user_id', $user->id)->where('status', 'pending')->exists()) {
+                return ApiResponseService::validationError(
+                    'You cannot delete your account while you have a pending withdrawal request. Please wait for it to be processed or cancel it before deleting your account.',
+                );
+            }
+
+            if (\App\Models\RefundRequest::where('user_id', $user->id)->where('status', 'pending')->exists()) {
+                return ApiResponseService::validationError(
+                    'You cannot delete your account while you have a pending refund request. Please wait for it to be processed before deleting your account.',
+                );
+            }
+
             // Check if user has confirmed deletion - handle different formats
             $confirmDeletion = $request->confirm_deletion;
             if (is_string($confirmDeletion)) {
@@ -2543,8 +2707,8 @@ class ApiController extends Controller
                 // Delete user's cart items
                 \App\Models\Cart::where('user_id', $user->id)->delete();
 
-                // Delete user's orders (orders table doesn't have soft deletes)
-                \App\Models\Order::where('user_id', $user->id)->delete();
+                // Note: Financial and transactional audit records (Order, WalletHistory, WithdrawalRequest, RefundRequest)
+                // are preserved for legal, tax, and accounting reconciliation tied to the soft-deleted user.
 
                 // Delete user's ratings
                 \App\Models\Rating::where('user_id', $user->id)->delete();
@@ -2555,24 +2719,11 @@ class ApiController extends Controller
                 // Delete user's FCM tokens
                 \App\Models\UserFcmToken::where('user_id', $user->id)->delete();
 
-                // Delete user's wallet history
-                \App\Models\WalletHistory::where('user_id', $user->id)->delete();
-
                 // Delete user's social login records
                 \App\Models\SocialLogin::where('user_id', $user->id)->delete();
 
-                // Note: social_medias table is a master table (doesn't have user_id)
-                // User-specific social media links are deleted via instructor_social_medias
-                // which is handled in the instructor section below
-
                 // Delete user's team memberships
                 \App\Models\TeamMember::where('user_id', $user->id)->delete();
-
-                // Delete user's withdrawal requests
-                \App\Models\WithdrawalRequest::where('user_id', $user->id)->delete();
-
-                // Delete user's refund requests
-                \App\Models\RefundRequest::where('user_id', $user->id)->delete();
 
                 // Delete user's course discussions and replies
                 \App\Models\Course\CourseDiscussion::where('user_id', $user->id)->delete();
@@ -2602,8 +2753,9 @@ class ApiController extends Controller
                 // Commit transaction
                 DB::commit();
 
-                // Revoke all tokens for this user
+                // Revoke all tokens & devices for this user
                 $user->tokens()->delete();
+                \App\Models\UserDevice::where('user_id', $user->id)->delete();
 
                 return ApiResponseService::successResponse(
                     'Your account has been successfully deleted. All your data has been removed from our system.',
@@ -2949,28 +3101,24 @@ class ApiController extends Controller
                 ->selectRaw('(SELECT COUNT(DISTINCT courses.id) FROM courses
                         WHERE courses.category_id IN (
                             SELECT cat.id FROM categories cat
-                            WHERE cat.id = categories.id
+                            WHERE (cat.id = categories.id
                             OR cat.parent_category_id = categories.id
                             OR cat.parent_category_id IN (
                                 SELECT subcat.id FROM categories subcat
                                 WHERE subcat.parent_category_id = categories.id
-                            )
+                            ))
+                            AND cat.status = 1
+                            AND cat.deleted_at IS NULL
                         )
                         AND courses.is_active = 1
                         AND courses.status = "publish"
                         AND courses.approval_status = "approved"
                         AND courses.deleted_at IS NULL
                         AND EXISTS (
-                            SELECT 1 FROM course_chapters
-                            WHERE course_chapters.course_id = courses.id
-                            AND course_chapters.is_active = 1
-                            AND course_chapters.deleted_at IS NULL
-                            AND (
-                                EXISTS (SELECT 1 FROM course_chapter_lectures WHERE course_chapter_lectures.course_chapter_id = course_chapters.id AND course_chapter_lectures.is_active = 1 AND course_chapter_lectures.deleted_at IS NULL)
-                                OR EXISTS (SELECT 1 FROM course_chapter_quizzes WHERE course_chapter_quizzes.course_chapter_id = course_chapters.id AND course_chapter_quizzes.is_active = 1 AND course_chapter_quizzes.deleted_at IS NULL)
-                                OR EXISTS (SELECT 1 FROM course_chapter_assignments WHERE course_chapter_assignments.course_chapter_id = course_chapters.id AND course_chapter_assignments.is_active = 1 AND course_chapter_assignments.deleted_at IS NULL)
-                                OR EXISTS (SELECT 1 FROM course_chapter_resources WHERE course_chapter_resources.course_chapter_id = course_chapters.id AND course_chapter_resources.is_active = 1 AND course_chapter_resources.deleted_at IS NULL)
-                            )
+                            SELECT 1 FROM users
+                            WHERE users.id = courses.user_id
+                            AND users.is_active = 1
+                            AND users.deleted_at IS NULL
                         )) as courses_count')
                 ->where('status', 1)
                 ->when(static function ($query) use ($request): void {
@@ -4116,14 +4264,39 @@ class ApiController extends Controller
             $token = $user->tokens()->where('id', $id)->first();
             
             if (!$token) {
-                return ApiResponseService::errorResponse('Session not found');
+                return ApiResponseService::errorResponse('Session not found', null, 404);
             }
 
-            $token->delete();
+            $tokenName = $token->name ?? '';
+            $baseName = str_replace('-refresh', '', $tokenName);
+
+            DB::beginTransaction();
+
+            // Revoke current token and its paired access/refresh token
+            if (!empty($baseName)) {
+                $user->tokens()->where(function ($q) use ($baseName, $token) {
+                    $q->where('id', $token->id)
+                      ->orWhere('name', $baseName)
+                      ->orWhere('name', $baseName . '-refresh');
+                })->delete();
+
+                // Prune corresponding active device entry
+                \App\Models\UserDevice::where('user_id', $user->id)
+                    ->where('device_id', $baseName)
+                    ->delete();
+            } else {
+                $token->delete();
+            }
+
+            DB::commit();
+
             return ApiResponseService::successResponse('Session logged out successfully');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $th) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             return ApiResponseService::errorResponse($th->getMessage());
         }
     }
@@ -4133,14 +4306,106 @@ class ApiController extends Controller
         try {
             $user = Auth::user();
             if ($user) {
-                // Revoke all tokens for this user
-                $user->tokens()->delete();
+                $currentToken = $user->currentAccessToken();
+                $tokenName = $currentToken?->name ?? '';
+                $deviceId = $request->header('X-Device-Id')
+                    ?: $request->input('device_id');
+
+                if (empty($deviceId) && !empty($tokenName)) {
+                    $deviceId = str_replace('-refresh', '', $tokenName);
+                }
+
+                DB::beginTransaction();
+
+                // Revoke current access token and its paired refresh token
+                if ($currentToken) {
+                    if (!empty($tokenName)) {
+                        $baseName = str_replace('-refresh', '', $tokenName);
+                        $user->tokens()->where(function ($q) use ($baseName, $currentToken) {
+                            $q->where('id', $currentToken->id)
+                              ->orWhere('name', $baseName)
+                              ->orWhere('name', $baseName . '-refresh');
+                        })->delete();
+                    } else {
+                        $currentToken->delete();
+                    }
+                }
+
+                // Prune the active device entry from user_devices table
+                if (!empty($deviceId)) {
+                    \App\Models\UserDevice::where('user_id', $user->id)
+                        ->where('device_id', $deviceId)
+                        ->delete();
+                } else {
+                    $deviceType = $request->input('device_type');
+                    if (!empty($deviceType)) {
+                        \App\Models\UserDevice::where('user_id', $user->id)
+                            ->where('device_type', $deviceType)
+                            ->delete();
+                    }
+                }
+
+                DB::commit();
             }
 
-            return ApiResponseService::successResponse('Logged out from all sessions successfully');
+            return ApiResponseService::successResponse('تم تسجيل الخروج بنجاح');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $th) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+            return ApiResponseService::errorResponse($th->getMessage());
+        }
+    }
+
+    public function userLogoutOthers(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return ApiResponseService::unauthorizedResponse();
+            }
+
+            $currentToken = $user->currentAccessToken();
+            $currentTokenId = $currentToken?->id;
+            $tokenName = $currentToken?->name ?? '';
+            $currentDeviceId = $request->header('X-Device-Id')
+                ?: $request->input('device_id')
+                ?: str_replace('-refresh', '', $tokenName);
+
+            DB::beginTransaction();
+
+            // Revoke all tokens for this user EXCEPT current token and its paired refresh token
+            if ($currentTokenId) {
+                $baseName = str_replace('-refresh', '', $tokenName);
+                $user->tokens()
+                    ->where('id', '!=', $currentTokenId)
+                    ->where(function ($q) use ($baseName) {
+                        if (!empty($baseName)) {
+                            $q->where('name', '!=', $baseName)
+                              ->where('name', '!=', $baseName . '-refresh');
+                        }
+                    })
+                    ->delete();
+            }
+
+            // Delete all other user_devices EXCEPT current device
+            if (!empty($currentDeviceId)) {
+                \App\Models\UserDevice::where('user_id', $user->id)
+                    ->where('device_id', '!=', $currentDeviceId)
+                    ->delete();
+            }
+
+            DB::commit();
+
+            return ApiResponseService::successResponse('تم تسجيل الخروج من كافة الأجهزة الأخرى بنجاح');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $th) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             return ApiResponseService::errorResponse($th->getMessage());
         }
     }

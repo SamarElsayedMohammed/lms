@@ -196,15 +196,18 @@ final class Subscription extends Model
     }
 
     /**
-     * Cancel the subscription
+     * Cancel the subscription (disables auto-renew and records cancellation while preserving paid-through access until ends_at)
      */
     public function cancel(?string $reason = null): bool
     {
-        $this->status = self::STATUS_CANCELLED;
+        $this->auto_renew = false;
         $this->cancellation_reason = $reason;
         $this->cancelled_at = now();
-        $this->auto_renew = false;
-        
+
+        if ($this->ends_at === null || $this->ends_at->isPast()) {
+            $this->status = self::STATUS_CANCELLED;
+        }
+
         return $this->save();
     }
 
@@ -232,7 +235,7 @@ final class Subscription extends Model
      */
     public function isLifetime(): bool
     {
-        return false;
+        return $this->ends_at === null || $this->plan?->billing_cycle === 'lifetime';
     }
 
     /**

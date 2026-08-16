@@ -30,6 +30,13 @@ Route::middleware('api')->group(function () {
     Route::post('user-signup', [\App\Http\Controllers\ApiController::class, 'userSignup'])->middleware('throttle:5,1');
     Route::post('user-login', [\App\Http\Controllers\ApiController::class, 'userLogin'])->middleware('throttle:5,1');
     Route::post('refresh-token', [\App\Http\Controllers\ApiController::class, 'refreshToken'])->middleware('auth:sanctum');
+    Route::post('mobile-login', [\App\Http\Controllers\ApiController::class, 'mobileLogin'])->middleware('throttle:5,1');
+    Route::post('mobile-registration', [\App\Http\Controllers\ApiController::class, 'mobileRegistration'])->middleware('throttle:5,1');
+    Route::post('social-login/{provider}', [\App\Http\Controllers\API\SocialLoginApiController::class, 'handleSocialLogin'])->middleware('throttle:5,1');
+    Route::post('forgot-password', [\App\Http\Controllers\API\ResetPasswordController::class, 'forgotPassword'])->middleware('throttle:forgot-password');
+    Route::post('verify-reset-code', [\App\Http\Controllers\API\ResetPasswordController::class, 'verifyResetCode'])->middleware('throttle:10,1');
+    Route::post('reset-password', [\App\Http\Controllers\API\ResetPasswordController::class, 'resetPassword'])->middleware('throttle:4,1440');
+    Route::post('mobile-reset-password', [\App\Http\Controllers\ApiController::class, 'mobileResetPassword'])->middleware('throttle:4,1440');
 });
 /***************************************************************************************************** */
 

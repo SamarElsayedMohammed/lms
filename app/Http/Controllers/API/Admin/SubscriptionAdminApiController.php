@@ -284,11 +284,20 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
 
             if ($payment->wallet_amount > 0) {
-                if ($user->wallet_balance < $payment->wallet_amount) {
+                try {
+                    \App\Services\WalletService::debitWallet(
+                        $user->id,
+                        $payment->wallet_amount,
+                        'subscription',
+                        "Subscription payment for subscription #{$subscription->id}",
+                        $subscription->id,
+                        \App\Models\Subscription::class,
+                        'user'
+                    );
+                } catch (\Throwable) {
                     DB::rollBack();
                     return ApiResponseService::errorResponse('رصيد محفظة المستخدم غير كافٍ لإتمام هذه المعاملة.');
                 }
-                $user->decrement('wallet_balance', $payment->wallet_amount);
             }
 
             $payment->status = SubscriptionPayment::STATUS_COMPLETED;

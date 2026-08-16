@@ -156,9 +156,6 @@ class CourseProgressService
             $total = 0;
             foreach ($course->chapters as $chapter) {
                 $total += $chapter->lectures->count();
-                $total += $chapter->quizzes->count();
-                $total += $chapter->assignments->count();
-                $total += $chapter->resources->count();
             }
 
             return $total;
@@ -284,91 +281,6 @@ class CourseProgressService
                     'watch_percentage' => $watchPercentage,
                     'duration_seconds' => $durationSeconds,
                     'watched_seconds' => $watchedSeconds,
-                ];
-            }
-
-            foreach ($chapter->quizzes as $quiz) {
-                $totalItems++;
-                $key = get_class($quiz) . ':' . $quiz->id;
-                $track = $tracking->get($key);
-                $isCompleted = $track?->status === 'completed';
-                if ($isCompleted) {
-                    $completedItems++;
-                    $rawProgressScore += 1;
-                }
-                
-                if (!$nextItem && !$isCompleted) {
-                    $nextItem = [
-                        'chapter_id' => $chapter->id,
-                        'item_id' => $quiz->id,
-                        'type' => 'quiz',
-                        'title' => $quiz->title,
-                    ];
-                }
-
-                $items[] = [
-                    'item_id' => $quiz->id,
-                    'type' => 'quiz',
-                    'title' => $quiz->title,
-                    'status' => $isCompleted ? 'completed' : ($track?->status ?? 'not_started'),
-                    'completed_at' => $track?->completed_at?->format('Y-m-d H:i:s'),
-                    'score' => $track?->metadata['score'] ?? null,
-                ];
-            }
-
-            foreach ($chapter->assignments as $assignment) {
-                $totalItems++;
-                $key = get_class($assignment) . ':' . $assignment->id;
-                $track = $tracking->get($key);
-                $isCompleted = $track?->status === 'completed';
-                if ($isCompleted) {
-                    $completedItems++;
-                    $rawProgressScore += 1;
-                }
-                
-                if (!$nextItem && !$isCompleted) {
-                    $nextItem = [
-                        'chapter_id' => $chapter->id,
-                        'item_id' => $assignment->id,
-                        'type' => 'assignment',
-                        'title' => $assignment->title,
-                    ];
-                }
-
-                $items[] = [
-                    'item_id' => $assignment->id,
-                    'type' => 'assignment',
-                    'title' => $assignment->title,
-                    'status' => $isCompleted ? 'completed' : ($track?->status ?? 'not_started'),
-                    'completed_at' => $track?->completed_at?->format('Y-m-d H:i:s'),
-                ];
-            }
-
-            foreach ($chapter->resources as $resource) {
-                $totalItems++;
-                $key = get_class($resource) . ':' . $resource->id;
-                $track = $tracking->get($key);
-                $isCompleted = $track?->status === 'completed';
-                if ($isCompleted) {
-                    $completedItems++;
-                    $rawProgressScore += 1;
-                }
-                
-                if (!$nextItem && !$isCompleted) {
-                    $nextItem = [
-                        'chapter_id' => $chapter->id,
-                        'item_id' => $resource->id,
-                        'type' => 'resource',
-                        'title' => $resource->title,
-                    ];
-                }
-
-                $items[] = [
-                    'item_id' => $resource->id,
-                    'type' => 'resource',
-                    'title' => $resource->title,
-                    'status' => $isCompleted ? 'completed' : ($track?->status ?? 'not_started'),
-                    'completed_at' => $track?->completed_at?->format('Y-m-d H:i:s'),
                 ];
             }
 

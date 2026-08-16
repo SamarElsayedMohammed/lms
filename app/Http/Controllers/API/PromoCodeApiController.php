@@ -35,7 +35,7 @@ class PromoCodeApiController extends Controller
 
             $courseIds = $request->course_ids;
 
-            // 1. Get instructor promo codes linked to the course
+            // 1. Get instructor promo codes linked to the courses
             $instructorPromoCodes = PromoCode::whereHas('courses', static function ($query) use ($courseIds): void {
                 $query->whereIn('course_id', $courseIds);
             })
@@ -43,23 +43,27 @@ class PromoCodeApiController extends Controller
                 ->whereDate('start_date', '<=', now())
                 ->whereDate('end_date', '>=', now())
                 ->where(static function ($query): void {
-                    // Include promo codes with no usage limit (null) or with available uses (> 0)
                     $query->whereNull('no_of_users')->orWhere('no_of_users', '>', 0);
                 })
                 ->whereHas('user.roles', static function ($q): void {
-                    $q->where('name', 'instructor');
+                    $q->where('name', 'Instructor');
                 });
 
-            // 2. Get admin promo codes (not bound to courses)
+            // 2. Get admin promo codes (global or not bound to specific courses)
             $adminPromoCodes = PromoCode::where('status', 1)
                 ->whereDate('start_date', '<=', now())
                 ->whereDate('end_date', '>=', now())
                 ->where(static function ($query): void {
-                    // Include promo codes with no usage limit (null) or with available uses (> 0)
                     $query->whereNull('no_of_users')->orWhere('no_of_users', '>', 0);
                 })
+                ->where(static function ($query) use ($courseIds): void {
+                    $query->whereDoesntHave('courses')
+                        ->orWhereHas('courses', static function ($q) use ($courseIds): void {
+                            $q->whereIn('course_id', $courseIds);
+                        });
+                })
                 ->whereHas('user.roles', static function ($q): void {
-                    $q->where('name', 'admin');
+                    $q->whereIn('name', ['admin', 'Super Admin']);
                 });
 
             // 3. Combine both using union
@@ -101,9 +105,10 @@ class PromoCodeApiController extends Controller
                 ->where('status', 1)
                 ->whereDate('start_date', '<=', now())
                 ->whereDate('end_date', '>=', now())
-                ->where('user_id', '!=', 1) // Exclude admin promo codes (user_id != 1)
+                ->whereHas('user.roles', static function ($q): void {
+                    $q->where('name', 'Instructor');
+                })
                 ->where(static function ($query): void {
-                    // Include promo codes with no usage limit (null) or with available uses (> 0)
                     $query->whereNull('no_of_users')->orWhere('no_of_users', '>', 0);
                 })
                 ->with([
@@ -121,8 +126,8 @@ class PromoCodeApiController extends Controller
                     'discount_type' => $promo->discount_type,
                     'start_date' => $promo->start_date,
                     'end_date' => $promo->end_date,
-                    'instructor_name' => $promo->user->name,
-                    'instructor_email' => $promo->user->email,
+                    'instructor_name' => $promo->user->name ?? null,
+                    'instructor_email' => $promo->user->email ?? null,
                     'no_of_users' => $promo->no_of_users,
                 ]);
 
@@ -175,23 +180,27 @@ class PromoCodeApiController extends Controller
                 $cartPriceMap[$item->course_id] = $course->discount_price ?? $course->price ?? 0;
             }
 
-            // Only return admin promo codes (user_id = 1)
+            // Return active global/admin promo codes
             $adminPromoCodes = PromoCode::where('status', 1)
-                ->where('user_id', 1)
                 ->whereDate('start_date', '<=', $today)
                 ->whereDate('end_date', '>=', $today)
                 ->where(static function ($query): void {
-                    // Include promo codes with no usage limit (null) or with available uses (> 0)
                     $query->whereNull('no_of_users')->orWhere('no_of_users', '>', 0);
                 })
+                ->where(static function ($query): void {
+                    $query->whereDoesntHave('courses')
+                        ->orWhereHas('user.roles', static function ($q): void {
+                            $q->whereIn('name', ['admin', 'Super Admin']);
+                        });
+                })
+                ->with('courses')
                 ->get();
 
-            // Use only admin promo codes (exclude instructor promo codes)
             $promoCodes = $adminPromoCodes;
 
             // Calculate discount for each promo
             $promoCodesWithDiscount = $promoCodes->map(static function ($promo) use ($cartCourses, $cartPriceMap) {
-                if ($promo->user_id == 1) {
+                if ($promo->courses->isEmpty()) {
                     $applicableCourses = $cartCourses;
                 } else {
                     $applicableCourses = PromoCodeCourse::where('promo_code_id', $promo->id)
@@ -257,19 +266,29 @@ class PromoCodeApiController extends Controller
 
             $courseId = $request->course_id;
 
-            // Get promo code - either by ID or by code
-            if ($request->filled('promo_code_id')) {
+            // Get promo code - with ID/code mismatch protection
+            if ($request->filled('promo_code_id') && $request->filled('promo_code')) {
+                $promo = PromoCode::with(['user.roles', 'courses'])->find($request->promo_code_id);
+                if (!$promo || strtolower(trim($promo->promo_code)) !== strtolower(trim((string) $request->promo_code))) {
+                    return ApiResponseService::validationError('Promo code and ID mismatch.');
+                }
+            } elseif ($request->filled('promo_code_id')) {
                 $promo = PromoCode::with(['user.roles', 'courses'])->find($request->promo_code_id);
             } else {
-                $promo = PromoCode::with(['user.roles', 'courses'])->where('promo_code', $request->promo_code)->first();
+                $code = trim((string) $request->promo_code);
+                $promo = PromoCode::with(['user.roles', 'courses'])
+                    ->where('promo_code', $code)
+                    ->orWhereRaw('LOWER(promo_code) = ?', [strtolower($code)])
+                    ->first();
             }
 
             if (!$promo) {
                 return ApiResponseService::validationError('Promo code not found');
             }
 
-            // Check if promo code is valid using the PricingCalculationService
-            if (!$this->pricingService->isPromoCodeValid($promo, \Illuminate\Support\Facades\Auth::user())) {
+            // Check if promo code is valid using PricingCalculationService
+            $currentUser = Auth::user();
+            if (!$this->pricingService->isPromoCodeValid($promo, $currentUser)) {
                 if ($promo->status != 1) {
                     return ApiResponseService::validationError('Promo code is not active');
                 }
@@ -281,15 +300,7 @@ class PromoCodeApiController extends Controller
                         'This promo code has reached its usage limit and is no longer available',
                     );
                 }
-            }
-
-            // Reject admin promo codes (user_id = 1 or Admin role)
-            $isAdmin = $promo->user_id == 1 || $promo->user->roles->contains('name', 'Super Admin');
-
-            if ($isAdmin) {
-                return ApiResponseService::validationError(
-                    'Admin promo codes are not allowed. Only instructor promo codes can be previewed.',
-                );
+                return ApiResponseService::validationError('Promo code is invalid or usage limit reached for this user');
             }
 
             // Verify course exists
@@ -298,16 +309,15 @@ class PromoCodeApiController extends Controller
                 return ApiResponseService::validationError('Course not found');
             }
 
-            // Check if instructor promo code is linked to this course
-            $isInstructor = $promo->user->roles->contains('name', 'Instructor');
-            if ($isInstructor) {
+            // Check course scope if promo code is restricted to specific courses
+            if ($promo->courses()->exists()) {
                 $isLinkedToCourse = PromoCodeCourse::where('promo_code_id', $promo->id)
                     ->where('course_id', $courseId)
                     ->exists();
 
                 if (!$isLinkedToCourse) {
                     return ApiResponseService::validationError(
-                        'This instructor promo code is not applicable to the selected course',
+                        'This promo code is not applicable to the selected course',
                     );
                 }
             }
@@ -328,10 +338,16 @@ class PromoCodeApiController extends Controller
             }
 
             // Calculate pricing using service
-            $pricing = $this->pricingService->calculateCoursePricing($course, $promo, $totalTaxPercentage);
+            $pricing = $this->pricingService->calculateCoursePricing(
+                $course,
+                promoCode: $promo,
+                taxPercentage: $totalTaxPercentage,
+                countryCode: $countryCode,
+                user: $currentUser
+            );
 
             // Check if course has valid price
-            if ($pricing['subtotal'] <= 0) {
+            if ($pricing['subtotal'] <= 0 && $course->course_type !== 'free') {
                 return ApiResponseService::validationError('Course price not available');
             }
 

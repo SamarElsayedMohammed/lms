@@ -97,16 +97,25 @@ class OrderApiController extends Controller
                 );
             }
 
-            // Resolve promo code - either by ID or by code
+            // Resolve promo code - either by ID or by code with mismatch verification
             if ($request->filled('promo_code_id') || $request->filled('promo_code')) {
-                if ($request->filled('promo_code_id')) {
+                if ($request->filled('promo_code_id') && $request->filled('promo_code')) {
+                    $promo = PromoCode::find($request->promo_code_id);
+                    if (!$promo || strtolower(trim($promo->promo_code)) !== strtolower(trim((string) $request->promo_code))) {
+                        return ApiResponseService::validationError('Promo code and ID mismatch.');
+                    }
+                    $promoCodeId = $promo->id;
+                } elseif ($request->filled('promo_code_id')) {
                     $promoCodeId = $request->promo_code_id;
                 } else {
-                    $promoCodeModel = PromoCode::where('promo_code', $request->promo_code)->first();
+                    $code = trim((string) $request->promo_code);
+                    $promoCodeModel = PromoCode::where('promo_code', $code)
+                        ->orWhereRaw('LOWER(promo_code) = ?', [strtolower($code)])
+                        ->first();
                     $promoCodeId = $promoCodeModel?->id;
                 }
 
-                // Temporarily store the resolved ID in the request for handlers to use
+                // Store resolved ID in request for order handlers
                 $request->merge(['resolved_promo_code_id' => $promoCodeId]);
             }
 
@@ -1077,19 +1086,25 @@ class OrderApiController extends Controller
             $countryCode = $this->pricingService->getCountryCodeFromRequest($request);
             $totalTaxPercentage = Tax::getTotalTaxPercentageByCountry($countryCode);
 
-            // 2. Resolve Promo Code (if any)
+            // 2. Resolve Promo Code (if any) and verify course applicability
             $promoCode = null;
             $resolvedPromoCodeId = $request->get('resolved_promo_code_id');
             if (!$isFree && $resolvedPromoCodeId) {
-                $promoCode = PromoCode::find($resolvedPromoCodeId);
+                $candidatePromo = PromoCode::with('courses')->find($resolvedPromoCodeId);
+                if ($candidatePromo) {
+                    if (!$candidatePromo->courses()->exists() || $candidatePromo->courses->contains('id', $course->id)) {
+                        $promoCode = $candidatePromo;
+                    }
+                }
             }
 
-            // 3. Calculate Pricing (Local & EGP)
+            // 3. Calculate Pricing (Local & EGP) with user authority
             $pricing = $this->pricingService->calculateCoursePricing(
                 $course,
                 promoCode: $promoCode,
                 taxPercentage: $totalTaxPercentage,
-                countryCode: $countryCode
+                countryCode: $countryCode,
+                user: $user
             );
 
             // Create order course with calculated values
@@ -1407,7 +1422,14 @@ class OrderApiController extends Controller
             $countryCode = $this->pricingService->getCountryCodeFromRequest($request);
             $totalTaxPercentage = Tax::getTotalTaxPercentageByCountry($countryCode);
 
-            // 5. Calculate price and apply individual promo codes per course
+            // Pre-resolve order-level promo code if passed
+            $orderPromoCode = null;
+            $resolvedPromoCodeId = $request->get('resolved_promo_code_id');
+            if (!$allCoursesAreFree && $resolvedPromoCodeId) {
+                $orderPromoCode = PromoCode::with('courses')->find($resolvedPromoCodeId);
+            }
+
+            // 5. Calculate price and apply individual or order-level promo codes per course
             foreach ($cartItems as $cart) {
                 $course = $cart->course;
                 if (!$course) continue;
@@ -1416,21 +1438,31 @@ class OrderApiController extends Controller
                 if ($isFree) $hasFreeCourses = true;
 
                 // Determine promo code for this course
-                $promoCode = (!$isFree && $cart->promo_code_id) ? $cart->promoCode : null;
+                $promoCode = null;
+                if (!$isFree) {
+                    if ($cart->promo_code_id && $cart->promoCode) {
+                        $promoCode = $cart->promoCode;
+                    } elseif ($orderPromoCode) {
+                        if (!$orderPromoCode->courses()->exists() || $orderPromoCode->courses->contains('id', $course->id)) {
+                            $promoCode = $orderPromoCode;
+                        }
+                    }
+                }
 
-                // Calculate Pricing (Local & EGP)
+                // Calculate Pricing (Local & EGP) with user authority
                 $pricing = $this->pricingService->calculateCoursePricing(
                     $course,
                     promoCode: $promoCode,
                     taxPercentage: $totalTaxPercentage,
-                    countryCode: $countryCode
+                    countryCode: $countryCode,
+                    user: $user
                 );
 
                 // Create order course with localized values
                 OrderCourse::create([
                     'order_id'               => $order->id,
                     'course_id'              => $course->id,
-                    'promo_code_id'          => $cart->promo_code_id,
+                    'promo_code_id'          => $promoCode?->id,
                     'price'                  => $isFree ? 0 : $pricing['subtotal'],
                     'tax_price'              => $isFree ? 0 : $pricing['tax_amount'],
                     'discount_amount'        => $isFree ? 0 : $pricing['promo_discount'],

@@ -100,8 +100,16 @@ final class SubscriptionService
             $this->createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta);
 
             // Deduct from wallet if applicable
-            if ($walletAmount > 0 && $user->wallet_balance >= $walletAmount) {
-                $user->decrement('wallet_balance', $walletAmount);
+            if ($walletAmount > 0) {
+                WalletService::debitWallet(
+                    $user->id,
+                    $walletAmount,
+                    'subscription',
+                    "Subscription payment for plan: {$plan->name}",
+                    $subscription->id,
+                    \App\Models\Subscription::class,
+                    'user'
+                );
             }
 
             Log::info('Subscription created' . ($status === Subscription::STATUS_PENDING ? ' (Queued)' : ''), [
@@ -250,8 +258,16 @@ final class SubscriptionService
                 'paid_at' => now(),
             ]);
 
-            if ($walletAmount > 0 && $user->wallet_balance >= $walletAmount) {
-                $user->decrement('wallet_balance', $walletAmount);
+            if ($walletAmount > 0) {
+                WalletService::debitWallet(
+                    $user->id,
+                    $walletAmount,
+                    'subscription',
+                    "Subscription renewal payment for plan: " . ($subscription->plan ? $subscription->plan->name : 'plan'),
+                    $subscription->id,
+                    \App\Models\Subscription::class,
+                    'user'
+                );
             }
 
             $this->renewSubscription($subscription);
@@ -276,19 +292,6 @@ final class SubscriptionService
             'subscription_id' => $subscription->id,
             'reason' => $reason,
         ]);
-
-        // Bug 13 Fix: Cascade cancellation to any queued child subscriptions
-        $queuedChildren = Subscription::where('parent_subscription_id', $subscription->id)
-            ->where('status', Subscription::STATUS_PENDING)
-            ->get();
-
-        foreach ($queuedChildren as $child) {
-            $child->cancel('Parent subscription was cancelled: ' . $reason);
-            Log::info('Queued child subscription cancelled due to parent cancellation', [
-                'parent_id' => $subscription->id,
-                'child_id' => $child->id,
-            ]);
-        }
 
         return $result;
     }

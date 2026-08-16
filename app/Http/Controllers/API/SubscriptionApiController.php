@@ -178,12 +178,26 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::successResponse('No active subscription found', null);
             }
 
-            $hasAccess = $subscriptions->contains('status', Subscription::STATUS_ACTIVE);
+            $isEntitledNow = function ($sub): bool {
+                if ($sub->status !== Subscription::STATUS_ACTIVE) {
+                    return false;
+                }
+                if ($sub->starts_at && $sub->starts_at->isFuture()) {
+                    return false;
+                }
+                if ($sub->ends_at && $sub->ends_at->isPast()) {
+                    return false;
+                }
+                return true;
+            };
 
-            $formatSubscription = function ($subscription) use ($countryCode, $displayCurrency, $displaySymbol): array {
-                $isActive    = $subscription->status === Subscription::STATUS_ACTIVE;
+            $currentActive = $subscriptions->first($isEntitledNow);
+            $hasAccess = $currentActive !== null;
+
+            $formatSubscription = function ($subscription) use ($countryCode, $displayCurrency, $displaySymbol, $isEntitledNow): array {
+                $isCurrentlyActive = $isEntitledNow($subscription);
                 $statusLabel = match($subscription->status) {
-                    Subscription::STATUS_ACTIVE           => 'Active',
+                    Subscription::STATUS_ACTIVE           => $isCurrentlyActive ? 'Active' : ($subscription->ends_at?->isPast() ? 'Expired' : 'Scheduled'),
                     Subscription::STATUS_PENDING          => 'Pending (Queued)',
                     Subscription::STATUS_PENDING_APPROVAL => 'Pending Admin Approval',
                     default                               => ucfirst($subscription->status),
@@ -197,12 +211,12 @@ final class SubscriptionApiController extends Controller
                 $nextPaymentCurrency = $localizedPricing['currency_code'];
                 $nextPaymentSymbol   = $localizedPricing['currency_symbol'];
 
-                // Bug 4 fix: days_remaining is only meaningful for ACTIVE subscriptions.
-                // For pending/queued plans that have not started yet, return null to avoid
-                // showing misleading "32 days remaining" on a future plan.
-                // duration_days gives the plan length regardless of activation state.
-                $daysRemaining = $isActive ? $subscription->days_remaining : null;
+                $daysRemaining = $isCurrentlyActive ? $subscription->days_remaining : null;
                 $durationDays  = $subscription->plan?->getDurationDays();
+
+                $latestPayment = $subscription->payments()->latest()->first();
+                $paymentMethod = $latestPayment?->payment_method ?? 'manual';
+                $isStoreManaged = in_array($paymentMethod, ['google', 'apple', 'in_app_purchase', 'play_store', 'app_store'], true);
 
                 return [
                     'id'                  => $subscription->id,
@@ -214,64 +228,64 @@ final class SubscriptionApiController extends Controller
                         'duration_days'       => $durationDays,
                     ] : null,
                     'plan_name'           => $subscription->plan?->name ?? 'Unknown Plan',
-                    'starts_at'           => $subscription->starts_at->format('Y-m-d H:i:s'),
+                    'starts_at'           => $subscription->starts_at?->format('Y-m-d H:i:s'),
                     'ends_at'             => $subscription->ends_at?->format('Y-m-d H:i:s'),
-                    // Bug 4 fix: null for non-active subscriptions
                     'days_remaining'      => $daysRemaining,
-                    // duration_days: full plan duration (always available, even before activation)
                     'duration_days'       => $durationDays,
                     'is_lifetime'         => $subscription->isLifetime(),
                     'auto_renew'          => (bool) $subscription->auto_renew,
+                    'can_toggle_auto_renew' => !$isStoreManaged && !$subscription->isLifetime() && $isCurrentlyActive,
+                    'is_store_managed'    => $isStoreManaged,
+                    'provider'            => $isStoreManaged ? $paymentMethod : 'manual',
                     'status'              => $subscription->status,
                     'status_label'        => $statusLabel,
                     'created_at'          => $subscription->created_at->format('Y-m-d H:i:s'),
                     'renewal_date'        => $subscription->ends_at?->format('Y-m-d H:i:s'),
-                    'payment_method'      => 'wallet',
+                    'payment_method'      => $paymentMethod,
                     'next_payment_amount' => $nextPaymentAmount,
                     'currency'            => $nextPaymentCurrency,
                     'currency_symbol'     => $nextPaymentSymbol,
-                    'receipt_url'         => ($latestReceipt = $subscription->payments()->latest()->first())?->getRawOriginal('receipt')
-                        ? route('subscription.receipt', ['payment' => $latestReceipt->id])
+                    'receipt_url'         => $latestPayment?->getRawOriginal('receipt')
+                        ? route('subscription.receipt', ['payment' => $latestPayment->id])
                         : null,
                 ];
             };
 
             $formattedSubscriptions = $subscriptions->map($formatSubscription);
-
             $isAffiliateEnabled = $this->affiliateService->isEnabled();
 
-            // Bug 3 fix: always return the ACTIVE subscription as `subscription`.
-            // Any pending/queued plan is exposed separately as `upcoming_subscription`
-            // so callers always know which plan is current RIGHT NOW.
-            $activeFormatted   = null;
-            $upcomingFormatted = null;
+            $activeFormatted = $currentActive ? $formatSubscription($currentActive) : null;
 
-            foreach ($subscriptions as $sub) {
-                $formatted = $formatSubscription($sub);
-                if ($sub->status === Subscription::STATUS_ACTIVE && $activeFormatted === null) {
-                    $activeFormatted = $formatted;
-                } elseif ($sub->status !== Subscription::STATUS_ACTIVE && $upcomingFormatted === null) {
-                    $upcomingFormatted = $formatted;
+            // Separate queued/scheduled future subscriptions from pending approval
+            $upcomingSubs = $subscriptions->filter(function ($sub) use ($isEntitledNow) {
+                if ($isEntitledNow($sub)) {
+                    return false;
                 }
-            }
+                return $sub->status === Subscription::STATUS_PENDING
+                    || ($sub->status === Subscription::STATUS_ACTIVE && $sub->starts_at && $sub->starts_at->isFuture());
+            })->sortBy(fn($sub) => $sub->starts_at?->timestamp ?? 0);
 
-            // If there is no active subscription (all are pending), surface the first pending
-            // so the UI can still show something meaningful.
-            $primarySubscription = $activeFormatted ?? $formattedSubscriptions->first();
+            $formattedUpcomingList = $upcomingSubs->map($formatSubscription)->values();
+            $upcomingFormatted = $formattedUpcomingList->first();
+
+            $pendingApprovalSub = $subscriptions->firstWhere('status', Subscription::STATUS_PENDING_APPROVAL);
+            $pendingApprovalFormatted = $pendingApprovalSub ? $formatSubscription($pendingApprovalSub) : null;
+
+            $primarySubscription = $activeFormatted ?? $upcomingFormatted ?? $pendingApprovalFormatted ?? $formattedSubscriptions->first();
 
             return ApiResponseService::successResponse('Subscription status retrieved successfully', [
-                'has_access'             => $hasAccess,
-                'currency'               => $displayCurrency,
-                'currency_symbol'        => $displaySymbol,
-                'affiliate_system_enabled' => $isAffiliateEnabled,
-                'wallet_payment_enabled' => $isAffiliateEnabled,
-                'can_renew_with_wallet'  => $isAffiliateEnabled,
-                'wallet_balance'         => (float) $user->wallet_balance,
-                'subscriptions'          => $formattedSubscriptions,
-                // Bug 3 fix: `subscription` is always the currently ACTIVE one
-                'subscription'           => $primarySubscription,
-                // Bug 3 fix: upcoming/queued plan exposed separately, never as `subscription`
-                'upcoming_subscription'  => $upcomingFormatted,
+                'has_access'                   => $hasAccess,
+                'currency'                     => $displayCurrency,
+                'currency_symbol'              => $displaySymbol,
+                'affiliate_system_enabled'     => $isAffiliateEnabled,
+                'wallet_payment_enabled'       => $isAffiliateEnabled,
+                'can_renew_with_wallet'        => $isAffiliateEnabled,
+                'wallet_balance'               => (float) $user->wallet_balance,
+                'subscriptions'                => $formattedSubscriptions,
+                'subscription'                 => $primarySubscription,
+                'upcoming_subscription'        => $upcomingFormatted,
+                'upcoming_subscriptions'       => $formattedUpcomingList,
+                'pending_approval_subscription'=> $pendingApprovalFormatted,
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -291,7 +305,7 @@ final class SubscriptionApiController extends Controller
 
             $manualMethodsQuery = PaymentMethod::query()
                 ->where('is_active', true)
-                ->whereIn('type', ['instapay', 'mobile_wallet', 'fawry', 'bank_transfer'])
+                ->where('type', '!=', 'online')
                 ->orderBy('sort_order')
                 ->orderBy('name');
 
@@ -365,9 +379,14 @@ final class SubscriptionApiController extends Controller
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
+        $promoCode = strtoupper(trim((string) $request->promo_code));
+
         $promo = \App\Models\PromoCode::with('subscriptionPlans')
             ->where('status', 1)
-            ->where('promo_code', $request->promo_code)
+            ->where(function ($q) use ($promoCode) {
+                $q->where('promo_code', $promoCode)
+                    ->orWhereRaw('UPPER(promo_code) = ?', [$promoCode]);
+            })
             ->first();
 
         if (!$promo) {
@@ -401,11 +420,14 @@ final class SubscriptionApiController extends Controller
 
         $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
         $originalAmount = (float) $countryPricing['price'];
+        $discountVal = (float) $promo->discount;
 
         if ($promo->discount_type === 'percentage') {
-            $discountAmount = round($originalAmount * ($promo->discount / 100), 2);
+            $safePercent = max(0.0, min($discountVal, 100.0));
+            $discountAmount = round($originalAmount * ($safePercent / 100.0), 2);
         } else {
-            $discountAmount = $this->pricingService->convertFromEgp($promo->discount, $resolvedCurrency);
+            $safeFixed = max(0.0, $discountVal);
+            $discountAmount = $this->pricingService->convertFromEgp($safeFixed, $resolvedCurrency);
             $discountAmount = min($discountAmount, $originalAmount);
         }
 
@@ -479,9 +501,14 @@ final class SubscriptionApiController extends Controller
 
             // Apply promo code discount from PromoCode
             if ($request->filled('promo_code')) {
+                $promoCode = strtoupper(trim((string) $request->promo_code));
+
                 $promo = \App\Models\PromoCode::with('subscriptionPlans')
                     ->where('status', 1)
-                    ->where('promo_code', $request->promo_code)
+                    ->where(function ($q) use ($promoCode) {
+                        $q->where('promo_code', $promoCode)
+                            ->orWhereRaw('UPPER(promo_code) = ?', [$promoCode]);
+                    })
                     ->first();
 
                 if (!$promo) {
@@ -504,21 +531,29 @@ final class SubscriptionApiController extends Controller
                     return ApiResponseService::validationError('كود الخصم وصل للحد الأقصى من المستخدمين.');
                 }
 
-                // For now we enforce currency compatibility.
+                $discountVal = (float) $promo->discount;
+
                 if ($promo->discount_type === 'percentage') {
-                    $discountAmount = round($originalAmount * ($promo->discount / 100), 2);
+                    $safePercent = max(0.0, min($discountVal, 100.0));
+                    $discountAmount = round($originalAmount * ($safePercent / 100.0), 2);
                 } else {
-                    // Fixed amount discount is typically in the base currency (EGP).
-                    // We must convert it to the user's resolved currency to ensure compatibility.
-                    $discountAmount = $this->pricingService->convertFromEgp($promo->discount, $resolvedCurrency);
+                    $safeFixed = max(0.0, $discountVal);
+                    $discountAmount = $this->pricingService->convertFromEgp($safeFixed, $resolvedCurrency);
                     $discountAmount = min($discountAmount, $originalAmount);
                 }
 
-                $appliedPromoCode = $promo->promo_code;
-                
+                // Atomic conditional quota claim to prevent race conditions on last remaining usage
                 if ($promo->no_of_users !== null) {
-                    $promo->decrement('no_of_users');
+                    $claimed = \App\Models\PromoCode::where('id', $promo->id)
+                        ->where('no_of_users', '>', 0)
+                        ->decrement('no_of_users');
+
+                    if ($claimed === 0) {
+                        return ApiResponseService::validationError('كود الخصم وصل للحد الأقصى من المستخدمين.');
+                    }
                 }
+
+                $appliedPromoCode = $promo->promo_code;
             }
 
             $totalAmount = max($originalAmount - $discountAmount, 0);
@@ -605,12 +640,19 @@ final class SubscriptionApiController extends Controller
                     return $fieldValidation;
                 }
 
+                $receiptPath = null;
                 try {
+                    \Illuminate\Support\Facades\DB::beginTransaction();
+
+                    // Lock user row to eliminate concurrent double-submission race
+                    \App\Models\User::where('id', $user->id)->lockForUpdate()->first();
+
                     $hasPending = Subscription::where('user_id', $user->id)
                         ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
                         ->exists();
 
                     if ($hasPending) {
+                        \Illuminate\Support\Facades\DB::rollBack();
                         return ApiResponseService::errorResponse(
                             'لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.',
                             ['reason' => 'DUPLICATE_SUBSCRIPTION_REQUEST'],
@@ -624,8 +666,6 @@ final class SubscriptionApiController extends Controller
                     );
 
                     $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
-
-                    \Illuminate\Support\Facades\DB::beginTransaction();
 
                     // Create subscription with pending_approval status
                     $subscription = Subscription::create([
@@ -706,6 +746,13 @@ final class SubscriptionApiController extends Controller
                 } catch (\Exception $e) {
                     if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
                         \Illuminate\Support\Facades\DB::rollBack();
+                    }
+                    if ($receiptPath) {
+                        try {
+                            \App\Services\FileService::delete($receiptPath);
+                        } catch (\Throwable $fileEx) {
+                            Log::warning('Failed to clean up orphan receipt after rollback: ' . $fileEx->getMessage());
+                        }
                     }
                     if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
                         throw $e;
@@ -1076,10 +1123,18 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('لا يوجد اشتراك نشط للإلغاء.', [], 400);
             }
 
+            $latestPayment = $subscription->payments()->latest()->first();
+            $paymentMethod = $latestPayment?->payment_method ?? '';
+            $isStoreManaged = in_array($paymentMethod, ['google', 'apple', 'in_app_purchase', 'play_store', 'app_store'], true);
+
+            if ($isStoreManaged) {
+                return ApiResponseService::errorResponse('يتم إلغاء اشتراكات المتاجر حصرياً عبر متجر التطبيقات الخاص بك (Google Play / App Store).', [], 422);
+            }
+
             $result = $this->subscriptionService->cancelSubscription($subscription, $request->reason);
 
             if ($result) {
-                return ApiResponseService::successResponse('تم إلغاء الاشتراك بنجاح.', [
+                return ApiResponseService::successResponse('تم إيقاف التجديد التلقائي للاشتراك بنجاح، وستظل صلاحية الوصول متاحة حتى نهاية الفترة المدفوعة.', [
                     'subscription_id' => $subscription->id,
                     'cancelled_at' => $subscription->cancelled_at->format('Y-m-d H:i:s'),
                 ]);
@@ -1122,54 +1177,74 @@ final class SubscriptionApiController extends Controller
             $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
             $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
 
-            $formattedPayments = $paginator->getCollection()->map(fn($payment) => [
-                'id'                   => $payment->id,
-                'amount'               => (float) $payment->amount,
-                'local_amount'         => $this->pricingService->convertFromEgp((float) $payment->amount, $displayCurrency),
-                'wallet_amount'        => (float) $payment->wallet_amount,
-                'local_wallet_amount'  => $this->pricingService->convertFromEgp((float) $payment->wallet_amount, $displayCurrency),
-                'gateway_amount'       => (float) $payment->gateway_amount,
-                'local_gateway_amount' => $this->pricingService->convertFromEgp((float) $payment->gateway_amount, $displayCurrency),
-                'promo_code'           => $payment->promo_code,
-                'original_amount'      => $payment->original_amount ? (float) $payment->original_amount : null,
-                'local_original_amount' => $payment->original_amount ? $this->pricingService->convertFromEgp((float) $payment->original_amount, $displayCurrency) : null,
-                'discount_amount'      => (float) $payment->discount_amount,
-                'local_discount_amount' => $this->pricingService->convertFromEgp((float) $payment->discount_amount, $displayCurrency),
-                'currency'             => $displayCurrency,
-                'currency_symbol'      => $displaySymbol,
-                'status'               => $payment->status,
-                'payment_method'       => $payment->payment_method,
-                'transaction_id'       => $payment->transaction_id,
-                'paid_at'              => $payment->paid_at?->format('Y-m-d H:i:s'),
-                'plan' => $payment->subscription?->plan ? [
-                    'name'          => $payment->subscription->plan->name,
-                    'billing_cycle' => $payment->subscription->plan->billing_cycle_label,
-                ] : null,
-                'created_at' => $payment->created_at->format('Y-m-d H:i:s'),
-            ]);
+            $formattedPayments = $paginator->getCollection()->map(function ($payment) use ($displayCurrency) {
+                $histCurrency = $payment->currency_code ?: 'EGP';
+                $histSymbol = $this->pricingService->getCurrencySymbol($histCurrency);
+                $finalAmt = (float) ($payment->final_amount ?? $payment->amount);
+                $receiptRaw = $payment->getRawOriginal('receipt');
 
-            $totalPaid = \App\Models\SubscriptionPayment::where('user_id', $user->id)
+                return [
+                    'id'                   => $payment->id,
+                    'amount'               => $finalAmt,
+                    'local_amount'         => $this->pricingService->convertFromEgp((float) ($payment->amount_egp ?? $finalAmt), $displayCurrency),
+                    'wallet_amount'        => (float) ($payment->wallet_amount ?? 0),
+                    'local_wallet_amount'  => $this->pricingService->convertFromEgp((float) ($payment->wallet_amount ?? 0), $displayCurrency),
+                    'gateway_amount'       => (float) ($payment->gateway_amount ?? 0),
+                    'local_gateway_amount' => $this->pricingService->convertFromEgp((float) ($payment->gateway_amount ?? 0), $displayCurrency),
+                    'promo_code'           => $payment->promo_code,
+                    'original_amount'      => $payment->original_amount ? (float) $payment->original_amount : null,
+                    'local_original_amount' => $payment->original_amount ? $this->pricingService->convertFromEgp((float) $payment->original_amount, $displayCurrency) : null,
+                    'discount_amount'      => (float) ($payment->discount_amount ?? 0),
+                    'local_discount_amount' => $this->pricingService->convertFromEgp((float) ($payment->discount_amount ?? 0), $displayCurrency),
+                    'currency'             => $histCurrency,
+                    'currency_symbol'      => $histSymbol,
+                    'status'               => $payment->status,
+                    'payment_method'       => $payment->payment_method,
+                    'transaction_id'       => $payment->transaction_id,
+                    'receipt_url'          => $receiptRaw ? route('subscription.receipt', ['payment' => $payment->id]) : null,
+                    'paid_at'              => $payment->paid_at?->format('Y-m-d H:i:s'),
+                    'plan' => $payment->subscription?->plan ? [
+                        'name'          => $payment->subscription->plan->name,
+                        'billing_cycle' => $payment->subscription->plan->billing_cycle_label,
+                    ] : null,
+                    'created_at' => $payment->created_at->format('Y-m-d H:i:s'),
+                ];
+            });
+
+            $completedPayments = \App\Models\SubscriptionPayment::where('user_id', $user->id)
                 ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
-                ->sum('amount');
+                ->get();
             
-            $transactionsCount = \App\Models\SubscriptionPayment::where('user_id', $user->id)
-                ->where('status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
-                ->count();
+            $transactionsCount = $completedPayments->count();
+            $totalsByCurrency = [];
+            $totalEgpEquivalent = 0.0;
+
+            foreach ($completedPayments as $p) {
+                $curr = $p->currency_code ?: 'EGP';
+                $amt = (float) ($p->final_amount ?? $p->amount);
+                $totalsByCurrency[$curr] = ($totalsByCurrency[$curr] ?? 0.0) + $amt;
+                $totalEgpEquivalent += (float) ($p->amount_egp ?? ($amt * ($p->exchange_rate_snapshot ?? 1.0)));
+            }
+
+            $primaryTotalPaid = count($totalsByCurrency) === 1
+                ? array_values($totalsByCurrency)[0]
+                : (float) $totalEgpEquivalent;
 
             return ApiResponseService::successResponse('Payment history retrieved successfully', [
-                'total_paid'       => (float) $totalPaid,
-                'local_total_paid' => $this->pricingService->convertFromEgp((float) $totalPaid, $displayCurrency),
-                'currency'         => $displayCurrency,
-                'currency_symbol'  => $displaySymbol,
+                'total_paid'         => (float) $primaryTotalPaid,
+                'totals_by_currency' => $totalsByCurrency,
+                'local_total_paid'   => $this->pricingService->convertFromEgp((float) $totalEgpEquivalent, $displayCurrency),
+                'currency'           => count($totalsByCurrency) === 1 ? array_keys($totalsByCurrency)[0] : $displayCurrency,
+                'currency_symbol'    => count($totalsByCurrency) === 1 ? $this->pricingService->getCurrencySymbol(array_keys($totalsByCurrency)[0]) : $displaySymbol,
                 'transactions_count' => $transactionsCount,
-                'payments' => $formattedPayments,
+                'payments'           => $formattedPayments,
                 'pagination' => [
                     'current_page' => $paginator->currentPage(),
-                    'per_page' => $paginator->perPage(),
-                    'total' => $paginator->total(),
-                    'last_page' => $paginator->lastPage(),
-                    'from' => $paginator->firstItem(),
-                    'to' => $paginator->lastItem(),
+                    'per_page'     => $paginator->perPage(),
+                    'total'        => $paginator->total(),
+                    'last_page'    => $paginator->lastPage(),
+                    'from'         => $paginator->firstItem(),
+                    'to'           => $paginator->lastItem(),
                 ],
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -1199,13 +1274,22 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
+            $activeSub = $this->subscriptionService->getActiveSubscription($user);
+            if (!$activeSub) {
+                return ApiResponseService::errorResponse('لا يوجد اشتراك نشط لتحديث الإعدادات.', [], 400);
+            }
+
+            $latestPayment = $activeSub->payments()->latest()->first();
+            $paymentMethod = $latestPayment?->payment_method ?? '';
+            $isStoreManaged = in_array($paymentMethod, ['google', 'apple', 'in_app_purchase', 'play_store', 'app_store'], true);
+
+            if ($isStoreManaged) {
+                return ApiResponseService::errorResponse('يتم التحكم في التجديد التلقائي لاشتراكات المتاجر حصرياً عبر متجر التطبيقات الخاص بك (Google Play / App Store).', [], 422);
+            }
+
             $subscription = $this->subscriptionService->updateUserSettings($user, $request->only([
                 'auto_renew',
             ]));
-
-            if (!$subscription) {
-                return ApiResponseService::errorResponse('لا يوجد اشتراك نشط لتحديث الإعدادات.', [], 400);
-            }
 
             return ApiResponseService::successResponse('تم تحديث الإعدادات بنجاح.', [
                 'auto_renew' => $subscription->auto_renew,
@@ -1267,7 +1351,7 @@ final class SubscriptionApiController extends Controller
             $paymentMethod = PaymentMethod::query()
                 ->whereKey($idNum)
                 ->where('is_active', true)
-                ->whereIn('type', ['instapay', 'mobile_wallet', 'fawry', 'bank_transfer'])
+                ->where('type', '!=', 'online')
                 ->first();
 
             if ($paymentMethod) {

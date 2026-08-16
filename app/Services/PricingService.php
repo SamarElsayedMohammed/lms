@@ -94,7 +94,7 @@ final class PricingService
         // 3. Global Fallback: base price in EGP
         return [
             'price' => $this->roundUpForDisplay((float) $plan->price),
-            'old_price' => null,
+            'old_price' => !empty($plan->old_price) ? $this->roundUpForDisplay((float) $plan->old_price) : null,
             'currency_code' => 'EGP',
             'currency_symbol' => 'ج.م',
             'price_source' => 'default',
@@ -169,7 +169,7 @@ final class PricingService
             ->first();
     }
 
-    private function getCurrencySymbol(string $currencyCode): string
+    public function getCurrencySymbol(string $currencyCode): string
     {
         $currencyCode = strtoupper($currencyCode);
         if ($currencyCode === 'EGP') {

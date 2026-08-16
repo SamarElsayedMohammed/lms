@@ -19,7 +19,7 @@ class VideoProgressService
      * Minimum watch percentage to consider a video lecture completed.
      * Used consistently across the service and certificate checks.
      */
-    public const COMPLETION_THRESHOLD = 100.0;
+    public const COMPLETION_THRESHOLD = 85.0;
 
     /**
      * Default segment size for segment-based progress tracking.

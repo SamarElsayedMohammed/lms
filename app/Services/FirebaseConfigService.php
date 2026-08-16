@@ -102,12 +102,19 @@ final class FirebaseConfigService
 
         $envPath = config('firebase.projects.app.credentials');
 
-        if (!is_string($envPath) || $envPath === '') {
-            return null;
+        $candidates = [];
+        if (is_string($envPath) && $envPath !== '') {
+            $candidates = array_merge($candidates, $this->credentialPathCandidates($envPath));
         }
 
-        foreach ($this->credentialPathCandidates($envPath) as $candidate) {
-            if (is_readable($candidate)) {
+        // Add standard candidate locations
+        $candidates[] = base_path('firebase_credentials.json');
+        $candidates[] = base_path('../firebase_credentials.json');
+        $candidates[] = storage_path('app/firebase/firebase_credentials.json');
+        $candidates[] = storage_path('app/firebase/firebase_service.json');
+
+        foreach (array_unique($candidates) as $candidate) {
+            if (is_string($candidate) && is_readable($candidate)) {
                 return $candidate;
             }
         }

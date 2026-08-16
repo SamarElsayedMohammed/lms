@@ -67,6 +67,18 @@ class UserDeviceAdminApiController extends Controller
             ->where('id', $deviceId)
             ->firstOrFail();
 
+        $baseName = $device->device_id;
+
+        // Revoke tokens associated with this device
+        \Illuminate\Support\Facades\DB::table('personal_access_tokens')
+            ->where('tokenable_id', $userId)
+            ->where('tokenable_type', User::class)
+            ->where(function ($q) use ($baseName) {
+                $q->where('name', $baseName)
+                  ->orWhere('name', $baseName . '-refresh');
+            })
+            ->delete();
+
         $device->delete();
 
         ApiResponseService::successResponse('Device removed successfully. The user can now login from a new device.');
@@ -83,6 +95,12 @@ class UserDeviceAdminApiController extends Controller
         $this->requireAdminRole();
 
         User::findOrFail($userId); // ensure user exists
+
+        // Revoke all tokens for this user
+        \Illuminate\Support\Facades\DB::table('personal_access_tokens')
+            ->where('tokenable_id', $userId)
+            ->where('tokenable_type', User::class)
+            ->delete();
 
         $count = UserDevice::where('user_id', $userId)->count();
         UserDevice::where('user_id', $userId)->delete();

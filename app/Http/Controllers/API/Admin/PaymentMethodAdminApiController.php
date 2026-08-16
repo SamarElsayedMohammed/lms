@@ -41,7 +41,7 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'type' => 'required|string|in:online,instapay,mobile_wallet,fawry,bank_transfer',
+            'type' => 'required|string|in:online,instapay,mobile_wallet,fawry,bank_transfer,manual,other,custom',
             'is_active' => 'nullable|boolean',
             'account_name' => 'nullable|string|max:255',
             'account_number' => 'nullable|string|max:255',
@@ -109,7 +109,7 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
-            'type' => 'sometimes|required|string|in:online,instapay,mobile_wallet,fawry,bank_transfer',
+            'type' => 'sometimes|required|string|in:online,instapay,mobile_wallet,fawry,bank_transfer,manual,other,custom',
             'is_active' => 'nullable|boolean',
             'account_name' => 'nullable|string|max:255',
             'account_number' => 'nullable|string|max:255',

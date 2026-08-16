@@ -64,17 +64,33 @@ class CourseCertificate extends Model
     }
 
     /**
-     * Check that a given user actually enrolled in this certificate's course.
-     * Enrollment = completed order that contains this course.
+     * Check that a given user actually enrolled in or has access to this certificate's course.
+     * Access = completed order, active enrollment record, or active subscription access.
      */
-    public static function userIsEnrolled(int $userId, int $courseId): bool
+    public static function userIsEnrolled(int $userId, int $courseId, ?User $user = null): bool
     {
-        return OrderCourse::whereHas('order', fn ($q) => $q
+        // 1. Direct course purchase via OrderCourse
+        $hasOrder = OrderCourse::whereHas('order', fn ($q) => $q
             ->where('user_id', $userId)
             ->where('status', 'completed')
         )
             ->where('course_id', $courseId)
             ->exists();
+
+        if ($hasOrder) {
+            return true;
+        }
+
+        // 2. Active Subscription or Authorized Content Access
+        $userObj = $user ?? User::find($userId);
+        if ($userObj) {
+            $course = Course::find($courseId);
+            if ($course && app(\App\Services\ContentAccessService::class)->canAccessCourse($userObj, $course)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

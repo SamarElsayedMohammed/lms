@@ -57,7 +57,7 @@ class WalletApiController extends Controller
             $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
             $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
 
-            $availableForWithdrawal = (float) max(0, $walletBalance - $pendingWithdrawals);
+            $availableForWithdrawal = (float) $walletBalance;
 
             // Get recent transactions (last 5)
             $recentTransactions = WalletHistory::where('user_id', $user->id)
@@ -82,8 +82,10 @@ class WalletApiController extends Controller
 
             $summary = [
                 'wallet_balance'               => (float) $walletBalance,
+                'balance'                      => (float) $walletBalance,
                 'local_wallet_balance'         => $this->pricingService->convertFromEgp((float) $walletBalance, $displayCurrency),
                 'currency'                     => $displayCurrency,
+                'currency_code'                => $displayCurrency,
                 'currency_symbol'              => $displaySymbol,
                 'total_credits'                => (float) $totalCredits,
                 'local_total_credits'          => $this->pricingService->convertFromEgp((float) $totalCredits, $displayCurrency),
@@ -95,6 +97,7 @@ class WalletApiController extends Controller
                 'local_pending_withdrawals'    => $this->pricingService->convertFromEgp((float) $pendingWithdrawals, $displayCurrency),
                 'available_for_withdrawal'     => $availableForWithdrawal,
                 'local_available_for_withdrawal' => $this->pricingService->convertFromEgp($availableForWithdrawal, $displayCurrency),
+                'is_withdrawal_request_pending' => $pendingWithdrawals > 0,
                 'recent_transactions'          => $recentTransactions,
             ];
 
@@ -184,12 +187,21 @@ class WalletApiController extends Controller
 
             $walletHistories = $historyQuery->orderBy('created_at', 'desc')->get();
 
-            // 2. Fetch ALL Manual Deposits
+            // Build an O(1) lookup set of recorded reference keys: "ModelClass:Id"
+            $recordedRefs = [];
+            foreach ($walletHistories as $wh) {
+                if ($wh->reference_type && $wh->reference_id) {
+                    $recordedRefs[$wh->reference_type . ':' . $wh->reference_id] = true;
+                }
+            }
+
+            // 2. Fetch pending/unrecorded Manual Deposits
             $manualDeposits = \App\Models\ManualDeposit::with('method')
                 ->where('user_id', $user->id)
+                ->where('status', 'pending')
                 ->get();
 
-            // 3. Fetch ALL Withdrawal Requests
+            // 3. Fetch ALL Withdrawal Requests for pending status determination
             $withdrawalRequests = \App\Models\WithdrawalRequest::where('user_id', $user->id)
                 ->get();
 
@@ -201,13 +213,10 @@ class WalletApiController extends Controller
                 $unifiedList->push($this->formatHistoryItem($history, $displayCurrency));
             }
 
-            // Add Manual Deposits that don't have history yet
+            // Add pending Manual Deposits that don't have a ledger entry yet
             foreach ($manualDeposits as $deposit) {
-                $exists = $walletHistories->contains(function ($h) use ($deposit) {
-                    return $h->reference_type === \App\Models\ManualDeposit::class && $h->reference_id == $deposit->id;
-                });
-
-                if (!$exists) {
+                $refKey = \App\Models\ManualDeposit::class . ':' . $deposit->id;
+                if (!isset($recordedRefs[$refKey])) {
                     $amt = (float) $deposit->amount;
                     $unifiedList->push([
                         'id'              => 'deposit-' . $deposit->id,
@@ -229,13 +238,10 @@ class WalletApiController extends Controller
                 }
             }
 
-            // Add Withdrawal Requests that don't have history yet
+            // Add Withdrawal Requests that don't have a ledger entry yet (if any edge case exists)
             foreach ($withdrawalRequests as $withdrawal) {
-                $exists = $walletHistories->contains(function ($h) use ($withdrawal) {
-                    return $h->reference_type === \App\Models\WithdrawalRequest::class && $h->reference_id == $withdrawal->id;
-                });
-
-                if (!$exists) {
+                $refKey = \App\Models\WithdrawalRequest::class . ':' . $withdrawal->id;
+                if (!isset($recordedRefs[$refKey])) {
                     $amt = (float) $withdrawal->amount;
                     $unifiedList->push([
                         'id'              => 'withdrawal-' . $withdrawal->id,
@@ -250,9 +256,8 @@ class WalletApiController extends Controller
                         'created_at'      => $withdrawal->created_at->toIso8601String(),
                         'created_at_formatted' => $withdrawal->created_at->toIso8601String(),
                         'time_ago'        => $withdrawal->created_at->diffForHumans(),
-                        'is_pending'      => $withdrawal->status === 'pending',
+                        'is_pending'      => in_array($withdrawal->status, ['pending', 'processing'], true),
                         'payment_method'  => $withdrawal->payment_method,
-                        'payment_details' => $withdrawal->payment_details,
                     ]);
                 }
             }
@@ -273,7 +278,7 @@ class WalletApiController extends Controller
             $responseData = $paginated->toArray();
             $responseData['currency']        = $displayCurrency;
             $responseData['currency_symbol'] = $displaySymbol;
-            $responseData['is_withdrawal_request_pending'] = $withdrawalRequests->where('status', 'pending')->isNotEmpty();
+            $responseData['is_withdrawal_request_pending'] = $withdrawalRequests->whereIn('status', ['pending', 'processing'])->isNotEmpty();
 
             return ApiResponseService::successResponse('Wallet history retrieved successfully', $responseData);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -417,39 +422,6 @@ class WalletApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.');
             }
 
-            $amount = $request->amount;
-
-            // Check if user has sufficient wallet balance
-            if ($user->wallet_balance < $amount) {
-                $currencySymbol = HelperService::systemSettings('currency_symbol') ?? '$';
-                return ApiResponseService::validationError('Insufficient wallet balance. Available: '
-                . $currencySymbol
-                . number_format($user->wallet_balance, 2));
-            }
-
-            // Check if user has any pending withdrawal requests
-            $pendingRequest = WithdrawalRequest::where('user_id', $user->id)
-                ->whereIn('status', ['pending', 'processing'])
-                ->first();
-
-            if ($pendingRequest) {
-                return ApiResponseService::validationError(
-                    'You already have a pending withdrawal request. Please wait for it to be processed.',
-                );
-            }
-
-            $withdrawalMethod = \App\Models\WithdrawalMethod::where('code', $request->payment_method)->where('is_active', true)->first();
-            if (!$withdrawalMethod) {
-                return ApiResponseService::validationError('طريقة السحب المحددة غير متاحة حالياً.');
-            }
-
-            if ($amount < $withdrawalMethod->min_amount) {
-                return ApiResponseService::validationError("عذراً، الحد الأدنى للسحب هو {$withdrawalMethod->min_amount} {$withdrawalMethod->currency}");
-            }
-            if ($amount > $withdrawalMethod->max_amount) {
-                return ApiResponseService::validationError("عذراً، الحد الأقصى للسحب هو {$withdrawalMethod->max_amount} {$withdrawalMethod->currency}");
-            }
-
             // Validate payment details based on method
             $paymentDetails = $this->validatePaymentDetails($withdrawalMethod, $paymentDetailsInput);
             if (!$paymentDetails['valid']) {
@@ -458,10 +430,39 @@ class WalletApiController extends Controller
 
             DB::beginTransaction();
 
+            // Lock user row to prevent race conditions during balance check
+            $lockedUser = \App\Models\User::lockForUpdate()->find($user->id);
+            if (!$lockedUser) {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('User record not found.', [], 404);
+            }
+
+            // Check if user has sufficient wallet balance under lock
+            if ((float) $lockedUser->wallet_balance < (float) $amount) {
+                DB::rollBack();
+                $currencySymbol = HelperService::systemSettings('currency_symbol') ?? '$';
+                return ApiResponseService::validationError('Insufficient wallet balance. Available: '
+                . $currencySymbol
+                . number_format($lockedUser->wallet_balance, 2));
+            }
+
+            // Check if user has any pending withdrawal requests under lock
+            $pendingRequest = WithdrawalRequest::where('user_id', $lockedUser->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->lockForUpdate()
+                ->first();
+
+            if ($pendingRequest) {
+                DB::rollBack();
+                return ApiResponseService::validationError(
+                    'You already have a pending withdrawal request. Please wait for it to be processed.',
+                );
+            }
+
             // Determine entry type (user)
             $entryType = 'user';
             
-            $countryCode = $user->country_code ?? 'EG';
+            $countryCode = $lockedUser->country_code ?? 'EG';
             $pricingService = app(\App\Services\PricingService::class);
             $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
             $currencyCode = $currencyObj ? $currencyObj->currency_code : 'EGP';
@@ -472,7 +473,7 @@ class WalletApiController extends Controller
 
             // Create withdrawal request
             $withdrawalRequest = WithdrawalRequest::create([
-                'user_id' => $user->id,
+                'user_id' => $lockedUser->id,
                 'amount' => $amount,
                 'amount_egp' => $amountEgp,
                 'exchange_rate_snapshot' => $exchangeRate,
@@ -486,7 +487,7 @@ class WalletApiController extends Controller
 
             // Deduct the requested amount from user's wallet immediately to prevent double spending
             WalletService::debitWallet(
-                $user->id,
+                $lockedUser->id,
                 $amount,
                 'withdrawal',
                 "Withdrawal request #{$withdrawalRequest->id} submitted",
@@ -497,6 +498,8 @@ class WalletApiController extends Controller
 
             DB::commit();
 
+            $freshUser = $lockedUser->fresh();
+
             return ApiResponseService::successResponse('Withdrawal request created successfully', [
                 'withdrawal_request' => [
                     'id' => $withdrawalRequest->id,
@@ -505,7 +508,7 @@ class WalletApiController extends Controller
                     'payment_method' => $withdrawalRequest->payment_method,
                     'created_at' => $withdrawalRequest->created_at->format('Y-m-d H:i:s'),
                 ],
-                'remaining_balance' => (float) $user->wallet_balance,
+                'remaining_balance' => (float) ($freshUser ? $freshUser->wallet_balance : 0),
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;

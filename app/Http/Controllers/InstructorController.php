@@ -593,12 +593,12 @@ class InstructorController extends Controller
             ]);
 
             // Handle wallet operations based on status change
-            if ($oldStatus === 'pending' && $newStatus === 'rejected') {
+            if ($newStatus === 'rejected' && $oldStatus !== 'rejected') {
                 // Refund the amount back to user's wallet
                 \App\Services\WalletService::creditWallet(
                     $withdrawalRequest->user_id,
                     $withdrawalRequest->amount,
-                    'withdrawal',
+                    'withdrawal_refund',
                     "Withdrawal request #{$withdrawalRequest->id} rejected - Amount refunded",
                     $withdrawalRequest->id,
                     \App\Models\WithdrawalRequest::class,

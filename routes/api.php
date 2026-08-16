@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\API\AdminApiController;
 use App\Http\Controllers\API\AffiliateApiController;
+use App\Http\Controllers\API\BillingApiController;
 use App\Http\Controllers\API\BillingDetailsApiController;
 use App\Http\Controllers\API\CartApiController;
 use App\Http\Controllers\API\CourseApiController;
@@ -70,6 +71,7 @@ Route::post('reset-password', [ResetPasswordController::class, 'resetPassword'])
 Route::get('firebase-config', [FirebaseConfigApiController::class, 'show']);
 Route::post('admin-login', [ApiController::class, 'adminLogin'])->middleware('throttle:5,1');
 Route::post('logout', [ApiController::class, 'userLogout'])->middleware('auth:sanctum');
+Route::post('logout-others', [ApiController::class, 'userLogoutOthers'])->middleware('auth:sanctum');
 
 /********************************************************************************************* */
 
@@ -92,7 +94,6 @@ Route::prefix('chatbot')->group(function (): void {
  */
 
 Route::get('categories', [ApiController::class, 'getCategories']); // Get Categories
-Route::get('get-categories-with-course-count', [ApiController::class, 'getCategories']); // Get Categories Alias
 Route::get('get-custom-form-fields', [ApiController::class, 'getCustomFormFields']); // Get Custom Form Fields
 Route::get('active-popup', [\App\Http\Controllers\API\PopupCampaignApiController::class, 'getActiveCampaign']); // Get active popup campaign
 
@@ -100,7 +101,6 @@ Route::get('active-popup', [\App\Http\Controllers\API\PopupCampaignApiController
 
 Route::post('course-view', [CourseApiController::class, 'courseView']);
 Route::get('get-search-suggestions', [CourseApiController::class, 'getSearchSuggestions']);
-Route::get('get-quiz-attempt-details', [CourseApiController::class, 'getQuizAttemptDetails']);
 
 Route::get('sales-chart-data', [ApiController::class, 'getSalesChartData'])
     ->middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff']);
@@ -171,6 +171,23 @@ Route::prefix('subscription')->group(function (): void {
         Route::post('/cancel', [SubscriptionApiController::class, 'cancel']);
         Route::get('/history', [SubscriptionApiController::class, 'getHistory']);
         Route::post('/settings', [SubscriptionApiController::class, 'updateSettings']);
+    });
+});
+
+/**
+ * Mobile In-App Store Billing & Entitlements Sync APIs
+ */
+Route::prefix('billing')->group(function (): void {
+    // Public store products list
+    Route::get('/products', [BillingApiController::class, 'getProducts']);
+
+    // Authenticated store verification, restore, and entitlement queries
+    Route::middleware('auth:sanctum')->group(function (): void {
+        Route::post('/purchase/verify', [BillingApiController::class, 'verifyPurchase'])
+            ->middleware(['throttle:20,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
+        Route::post('/restore', [BillingApiController::class, 'restorePurchases'])
+            ->middleware('throttle:10,1');
+        Route::get('/entitlements/me', [BillingApiController::class, 'getMyEntitlement']);
     });
 });
 
@@ -284,6 +301,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('notifications/mark-read', [ApiController::class, 'markNotificationAsRead']); // Mark Notification as Read
     Route::post('notifications/mark-all-read', [ApiController::class, 'markAllNotificationsAsRead']); // Mark All Notifications as Read
     Route::post('delete-account', [ApiController::class, 'deleteAccount']); // Delete User Account
+    Route::post('user/delete-account', [ApiController::class, 'deleteAccount']); // Backward-compatible alias
         // Support Center APIs
         Route::get('my-contact-messages', [ApiController::class, 'getMyContactMessages']);
         Route::get('my-contact-messages/{id}', [ApiController::class, 'getContactMessageThread']);
@@ -317,6 +335,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('user/active-sessions/{id}/logout', [ApiController::class, 'logoutSession']);
     Route::get('user/devices', [\App\Http\Controllers\API\UserDeviceApiController::class, 'index']);
     Route::delete('user/devices/{id}', [\App\Http\Controllers\API\UserDeviceApiController::class, 'destroy']);
+    Route::post('user/logout-others', [ApiController::class, 'userLogoutOthers']);
 
     // Notification Settings
     Route::get('user/notification-settings', [ApiController::class, 'getNotificationSettings']);
@@ -349,18 +368,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/detailed-tracking', [CourseChapterApiController::class, 'getDetailedCurriculumTracking']);
         Route::get('/current', [CourseChapterApiController::class, 'getCurrentCurriculum']);
         Route::get('/course-completion', [CourseChapterApiController::class, 'checkCourseCompletion']);
-    });
-
-    // Tracking
-    Route::group(['prefix' => 'quiz'], function (): void {
-        Route::post('/start', [QuizTrackingApiController::class, 'startAttempt']);
-        Route::post('/answer', [QuizTrackingApiController::class, 'storeAnswer']);
-        Route::post('/finish', [QuizTrackingApiController::class, 'finishAttempt']);
-
-        Route::get('/quiz', [QuizTrackingApiController::class, 'getQuizDetails']);
-        Route::get('/quiz/attempts', [QuizTrackingApiController::class, 'getUserAttempts']);
-        Route::get('/quiz/attempt', [QuizTrackingApiController::class, 'getAttemptDetails']);
-        Route::get('/summary', [QuizTrackingApiController::class, 'getQuizSummary']);
     });
 
     // Discuss
@@ -421,53 +428,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('/add-update-wishlist', [WishlistApiController::class, 'addUpdateWishlist']);
     });
 
-    // Assignment Submissions
-    Route::group(['prefix' => 'assignments'], function (): void {
-        Route::post('/submit', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'submitAssignment',
-        ]);
-        Route::get('/submissions', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'getUserSubmissions',
-        ]);
-        Route::get('/submission/{id}', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'getSubmissionDetails',
-        ]);
-        Route::get('/submission', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'getSubmissionDetails',
-        ]); // Query parameter version
-        Route::get('/course/{courseId}', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'getCourseAssignments',
-        ]);
-        Route::post('/submission/{id}', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'updateSubmission',
-        ]);
-        Route::post('/submission', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'updateSubmission',
-        ]); // Query parameter version
-        Route::delete('/submission', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'deleteSubmission',
-        ]); // Query parameter version
-        Route::delete('/submission/{id}', [
-            \App\Http\Controllers\API\UserAssignmentSubmissionController::class,
-            'deleteSubmission',
-        ]);
-    });
-
     //Certificate
     Route::group(['prefix' => 'certificate'], function (): void {
         Route::get('/course/generate', [CertificateController::class, 'getCertificate']); // Get/Check certificate for course
         Route::get('/course/eligibility', [CertificateController::class, 'checkEligibility']); // Get detailed eligibility DTO
         Route::get('/course/view', [CertificateController::class, 'view']); // View certificate HTML
         Route::match(['get', 'post'], '/course/download', [CertificateController::class, 'download'])->middleware('throttle:10,1'); // Generate and download certificate PDF
-        Route::post('/quiz/generate', [CertificateController::class, 'generateQuizCertificate']);
     });
 
     /********************************************************************************** */
@@ -905,7 +871,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::prefix('payment-methods')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'index']);
             Route::post('/', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'store']);
-            Route::put('/{id}', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'update']);
+            Route::match(['put', 'patch', 'post'], '/{id}', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'update']);
             Route::delete('/{id}', [\App\Http\Controllers\API\Admin\PaymentMethodAdminApiController::class, 'destroy']);
         });
 

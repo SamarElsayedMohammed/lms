@@ -76,17 +76,47 @@ class HomeApiController extends Controller
                 ->selectRaw('(SELECT COUNT(DISTINCT courses.id) FROM courses
                         WHERE courses.category_id IN (
                             SELECT cat.id FROM categories cat
-                            WHERE cat.id = categories.id
+                            WHERE (cat.id = categories.id
                             OR cat.parent_category_id = categories.id
                             OR cat.parent_category_id IN (
                                 SELECT subcat.id FROM categories subcat
                                 WHERE subcat.parent_category_id = categories.id
-                            )
+                            ))
+                            AND cat.status = 1
+                            AND cat.deleted_at IS NULL
                         )
                         AND courses.is_active = 1
                         AND courses.status = "publish"
                         AND courses.approval_status = "approved"
-                        AND courses.deleted_at IS NULL) as active_course_count')
+                        AND courses.deleted_at IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM users
+                            WHERE users.id = courses.user_id
+                            AND users.is_active = 1
+                            AND users.deleted_at IS NULL
+                        )) as active_course_count')
+                ->selectRaw('(SELECT COUNT(DISTINCT courses.id) FROM courses
+                        WHERE courses.category_id IN (
+                            SELECT cat.id FROM categories cat
+                            WHERE (cat.id = categories.id
+                            OR cat.parent_category_id = categories.id
+                            OR cat.parent_category_id IN (
+                                SELECT subcat.id FROM categories subcat
+                                WHERE subcat.parent_category_id = categories.id
+                            ))
+                            AND cat.status = 1
+                            AND cat.deleted_at IS NULL
+                        )
+                        AND courses.is_active = 1
+                        AND courses.status = "publish"
+                        AND courses.approval_status = "approved"
+                        AND courses.deleted_at IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM users
+                            WHERE users.id = courses.user_id
+                            AND users.is_active = 1
+                            AND users.deleted_at IS NULL
+                        )) as courses_count')
                 ->get();
 
             return ApiResponseService::successResponse(

@@ -191,7 +191,7 @@ final class PricingCalculationService
         $promoCodeDetails = null;
 
         if ($promoCode !== null) {
-            $promoResult = $this->calculatePromoDiscount($promoCode, $subtotal, null, $currencyCode);
+            $promoResult = $this->calculatePromoDiscount($promoCode, $subtotal, $user, $currencyCode);
             $promoDiscount = $promoResult['discount_amount'];
             $promoCodeDetails = $promoResult['details'];
         }
@@ -290,14 +290,9 @@ final class PricingCalculationService
             return false;
         }
 
-        // Check global usage limit dynamically
-        if ($promoCode->no_of_users !== null) {
-            $globalUsageCount = Order::where('promo_code_id', $promoCode->id)
-                ->whereIn('status', ['completed', 'pending'])
-                ->count();
-            if ($globalUsageCount >= $promoCode->no_of_users) {
-                return false;
-            }
+        // Check global usage limit
+        if ($promoCode->no_of_users !== null && $promoCode->no_of_users <= 0) {
+            return false;
         }
 
         // Check per-user usage limit dynamically
@@ -307,7 +302,7 @@ final class PricingCalculationService
                 ->whereIn('status', ['completed', 'pending'])
                 ->count();
                 
-            if ($promoCode->repeat_usage && $promoCode->no_of_repeat_usage !== null) {
+            if ($promoCode->repeat_usage && $promoCode->no_of_repeat_usage !== null && $promoCode->no_of_repeat_usage > 0) {
                 if ($userUsageCount >= $promoCode->no_of_repeat_usage) {
                     return false;
                 }

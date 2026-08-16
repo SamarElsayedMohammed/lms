@@ -5,10 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Certificate;
 use App\Models\Course\Course;
 use App\Models\Course\CourseCertificate;
-use App\Models\Course\CourseChapter\Quiz\UserQuizAttempt;
-use App\Models\QuizCertificate;
 use App\Services\ApiResponseService;
-use App\Services\VideoProgressService;
 use App\Traits\CertificatePdfGeneratorTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -45,8 +42,8 @@ class CertificateController extends Controller
             return ApiResponseService::errorResponse(__('Course not found.'), null, 404);
         }
 
-        // Verify Enrollment
-        if (!CourseCertificate::userIsEnrolled($user->id, $course_id)) {
+        // Verify Enrollment / Subscription Access
+        if (!CourseCertificate::userIsEnrolled($user->id, $course_id, $user)) {
             return ApiResponseService::errorResponse(
                 'You are not enrolled in this course.',
                 null,
@@ -54,19 +51,10 @@ class CertificateController extends Controller
             );
         }
 
-        // Verify Completion
+        // Verify Completion (single source of truth: all required video lectures completed)
         if (!$this->isCourseCompleted($user->id, $course_id)) {
             return ApiResponseService::errorResponse(
-                'Course not completed. Please complete all lessons, quizzes, and assignments to generate a certificate.',
-                null,
-                403
-            );
-        }
-
-        $videoProgress = app(VideoProgressService::class)->getCourseProgress($user, $course);
-        if ($videoProgress < VideoProgressService::COMPLETION_THRESHOLD) {
-            return ApiResponseService::errorResponse(
-                'You must watch all video lectures to ' . VideoProgressService::COMPLETION_THRESHOLD . '% before generating a certificate. Current progress: ' . $videoProgress  . '%',
+                'Course not completed. Please complete all required video lectures to generate a certificate.',
                 null,
                 403
             );
@@ -97,7 +85,7 @@ class CertificateController extends Controller
                 'studentName'        => $certificate->student_name ?? $user->name,
                 'arabicCourseTitle'  => $certificate->arabic_title ?? $course->title,
                 'englishCourseTitle' => $certificate->english_title ?? $course->title,
-                'date'               => $certificate->issued_date->format('Y-m-d'),
+                'date'               => optional($certificate->issued_date)->format('Y-m-d'),
                 'instructorName'     => $certificate->instructor_name ?? ($course->user->name ?? 'Instructor'),
                 'certificateId'      => $certificate->certificate_number,
                 'courseId'           => $certificate->course_id,
@@ -131,7 +119,7 @@ class CertificateController extends Controller
             return ApiResponseService::errorResponse(__('Course not found.'), null, 404);
         }
 
-        $isEnrolled = CourseCertificate::userIsEnrolled($user->id, $courseId);
+        $isEnrolled = CourseCertificate::userIsEnrolled($user->id, $courseId, $user);
         if (!$isEnrolled) {
             return response()->json([
                 'success' => true,
@@ -149,18 +137,18 @@ class CertificateController extends Controller
         }
 
         $progressData = app(\App\Services\CourseProgressService::class)->getDetailedProgress($user->id, $courseId);
-        $totalItems = $progressData['summary']['total_items'] ?? 0;
-        $completedItems = $progressData['summary']['completed_items'] ?? 0;
-        $progressPct = $progressData['course']['progress_percentage'] ?? 0;
+        $totalItems = (int) ($progressData['summary']['total_items'] ?? 0);
+        $completedItems = (int) ($progressData['summary']['completed_items'] ?? 0);
+        $progressPct = (float) ($progressData['course']['progress_percentage'] ?? 0);
         $remainingItems = max(0, $totalItems - $completedItems);
 
         $isCompleted = $this->isCourseCompleted($user->id, $courseId);
-        $existingCert = Certificate::where('user_id', $user->id)
+        $existingCert = CourseCertificate::where('user_id', $user->id)
             ->where('course_id', $courseId)
-            ->where('status', 'active')
+            ->active()
             ->first();
 
-        $eligible = $isCompleted && ($progressPct >= 90 || $completedItems >= $totalItems);
+        $eligible = $isEnrolled && $isCompleted && $totalItems > 0 && $completedItems === $totalItems;
         $reasonCode = $eligible
             ? 'eligible'
             : ($progressPct > 0 ? 'course_incomplete' : 'not_started');
@@ -444,14 +432,7 @@ class CertificateController extends Controller
             ->first();
 
         if (!$certificate) {
-            $dummyUser = new \App\Models\User(['name' => 'اسم الطالب / Student Name']);
-            $dummyCourse = new \App\Models\Course\Course(['title' => 'تسويق وريادة الأعمال']);
-            $certificate = new CourseCertificate([
-                'certificate_number' => $certificate_number,
-                'created_at' => now(),
-            ]);
-            $certificate->setRelation('user', $dummyUser);
-            $certificate->setRelation('course', $dummyCourse);
+            return ApiResponseService::errorResponse('Certificate not found or invalid.', null, 404);
         }
 
         $certificateTemplate = Certificate::where('type', 'course_completion')
@@ -578,141 +559,6 @@ class CertificateController extends Controller
         // Delegate to CertificateService — single source of truth for course completion.
         return app(\App\Services\CertificateService::class)
             ->checkCourseCompletionStatus($user_id, $course_id);
-    }
-
-    public function generateQuizCertificate(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'quiz_id' => 'required|exists:course_chapter_quizzes,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $user = Auth::user();
-        $quiz_id = $request->input('quiz_id');
-
-        // Check if user completed the quiz (replace with your logic)
-        if (!$this->isQuizCompleted($user?->id, $quiz_id)) {
-            return response()->json(['message' => 'Quiz not completed'], 403);
-        }
-
-        // Find the user's completed quiz attempt
-        $userQuizAttempt = UserQuizAttempt::where('user_id', $user->id)
-            ->where('course_chapter_quiz_id', $quiz_id)
-            ->where('status', 'completed')
-            ->whereNotNull('completed_at')
-            ->latest()
-            ->first();
-
-        if (!$userQuizAttempt) {
-            return response()->json(['message' => 'Quiz attempt not found'], 404);
-        }
-
-        $certificate = QuizCertificate::firstOrCreate([
-            'user_id'              => $user->id,
-            'user_quiz_attempt_id' => $userQuizAttempt->id,
-        ], [
-            // Use cryptographically secure random number, not predictable uniqid()
-            'certificate_number' => $this->generateSecureCertificateNumber($user->id),
-            'issued_date'        => now(),
-        ]);
-
-        // You may want to return a download or certificate info
-
-        return $this->download_quiz_certificate($certificate->id);
-    }
-
-    public function download_quiz_certificate($certificate_id)
-    {
-        $certificate = \App\Models\QuizCertificate::with(['user', 'attempt.quiz'])->find($certificate_id);
-
-        if (!$certificate) {
-            return response()->json(['message' => 'Certificate not found'], 404);
-        }
-
-        $user = $certificate->user;
-        $attempt = $certificate->attempt;
-        $quiz = $attempt ? $attempt->quiz : null;
-
-        // Prepare certificate data
-        $data = [
-            'certificate_number' => $certificate->certificate_number,
-            'issued_date' => $certificate->issued_date
-                ? (
-                    $certificate->issued_date instanceof \Carbon\Carbon
-                        ? $certificate->issued_date->format('Y-m-d')
-                        : \Carbon\Carbon::parse($certificate->issued_date)->format('Y-m-d')
-                )
-                : '',
-            'user_name' => $user ? $user->name : '',
-            'quiz_title' => $quiz ? $quiz->title : '',
-            'score' => $attempt ? $attempt->score : '',
-            'completed_at' => $attempt && $attempt->completed_at
-                ? (
-                    $attempt->completed_at instanceof \Carbon\Carbon
-                        ? $attempt->completed_at->format('Y-m-d')
-                        : \Carbon\Carbon::parse($attempt->completed_at)->format('Y-m-d')
-                )
-                : '',
-        ];
-
-        // Render a view as PDF (assumes you have a Blade view at resources/views/certificate/quiz_certificate_template.blade.php)
-        $html = view('certificates.quiz_certificate_template', [
-            'name' => $user->name ?? '',
-            'quiz' => $quiz->title ?? '',
-            'score' => $attempt->score ?? '',
-            'date' => $attempt && $attempt->completed_at
-                ? \Carbon\Carbon::parse($attempt->completed_at)->format('Y-m-d')
-                : '',
-            'certificate_number' => $certificate->certificate_number ?? '',
-        ])->render();
-
-        $widthPx  = 1122; // A4 Landscape roughly
-        $heightPx = 794;  // A4 Landscape roughly
-
-        try {
-            $pdfContent = $this->generateAndCachePdf($html, $certificate->certificate_number, $widthPx, $heightPx);
-
-            return response($pdfContent, 200, [
-                'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="certificate.pdf"',
-            ]);
-        } catch (\Throwable $e) {
-            return \App\Services\ApiResponseService::errorResponse('Failed to generate quiz certificate PDF.', null, 500);
-        }
-    }
-
-    private function isQuizCompleted($user_id, $quiz_id): bool
-    {
-        return UserQuizAttempt::where('user_id', $user_id)
-            ->where('course_chapter_quiz_id', $quiz_id)
-            ->where('status', 'completed')
-            ->whereNotNull('completed_at')
-            ->exists();
-    }
-
-    /**
-     * Generate a cryptographically secure certificate number for quiz certificates.
-     * Format: CERT-{YEAR}-{USERID-5digits}-{RANDOM-8chars}
-     * Uses random_bytes (CSPRNG) — never predictable like uniqid().
-     */
-    private function generateSecureCertificateNumber(int $userId): string
-    {
-        $year     = date('Y');
-        $userPart = str_pad((string) $userId, 5, '0', STR_PAD_LEFT);
-
-        do {
-            $randomPart = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
-            $number     = "CERT-{$year}-{$userPart}-{$randomPart}";
-        } while (\App\Models\QuizCertificate::where('certificate_number', $number)->exists());
-
-        return $number;
     }
 
     /**

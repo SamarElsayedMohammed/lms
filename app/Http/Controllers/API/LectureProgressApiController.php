@@ -26,42 +26,10 @@ final class LectureProgressApiController extends Controller
     ) {}
 
     /**
-     * Update video watch progress using segment tracking.
+     * Update video watch progress using segment or standard tracking.
      */
     public function updateProgress(Request $request, int $lectureId): JsonResponse
     {
-        $hasSegments = $request->has('newly_watched_segments');
-
-        if (!$hasSegments) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Segment-based tracking is required for video progress.',
-            ], 422);
-        }
-
-        $metadataRules = [
-            'session_id' => 'nullable|string|max:255',
-            'device' => 'nullable|string|max:255',
-            'browser' => 'nullable|string|max:255',
-            'progress_state' => 'nullable|string|in:playing,paused,seeking,ended',
-        ];
-
-        $validated = $request->validate(array_merge([
-            'current_position' => 'required|integer|min:0',
-            'total_duration' => 'required|integer|min:1',
-            'newly_watched_segments' => 'required|array|max:' . VideoProgressService::MAX_SEGMENTS_PER_REQUEST,
-            'newly_watched_segments.*' => 'integer|min:0',
-        ], $metadataRules));
-
-        // Extract metadata for the service
-        $metadata = [
-            'session_id' => $validated['session_id'] ?? null,
-            'device' => $validated['device'] ?? null,
-            'browser' => $validated['browser'] ?? null,
-            'ip' => $request->ip(),
-            'progress_state' => $validated['progress_state'] ?? 'playing',
-        ];
-
         $lecture = CourseChapterLecture::find($lectureId);
         if ($lecture === null) {
             return $this->notFound('Lecture not found');
@@ -72,37 +40,91 @@ final class LectureProgressApiController extends Controller
             return $this->unauthorized();
         }
 
-        // Authentication alone is not an entitlement. Without this guard, an
-        // authenticated user could manufacture completion data for a course
-        // they cannot access and potentially satisfy downstream eligibility.
         if (!$this->contentAccessService->canAccessLecture($user, $lecture)) {
             return $this->forbidden('Course access required');
         }
 
-        $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
-        if ($canonicalDuration <= 0 || (int) $validated['total_duration'] !== $canonicalDuration) {
-            return response()->json([
-                'success' => false,
-                'message' => 'The video duration must match the server-side lecture duration.',
-            ], 422);
+        $metadata = [
+            'session_id' => $request->input('session_id'),
+            'device' => $request->input('device'),
+            'browser' => $request->input('browser'),
+            'ip' => $request->ip(),
+            'progress_state' => $request->input('progress_state', 'playing'),
+        ];
+
+        $hasSegments = $request->has('newly_watched_segments');
+
+        if ($hasSegments) {
+            $validated = $request->validate([
+                'current_position' => 'required|integer|min:0',
+                'total_duration' => 'required|integer|min:1',
+                'newly_watched_segments' => 'required|array|max:' . VideoProgressService::MAX_SEGMENTS_PER_REQUEST,
+                'newly_watched_segments.*' => 'integer|min:0',
+            ]);
+
+            $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
+            if ($canonicalDuration <= 0) {
+                $canonicalDuration = (int) $validated['total_duration'];
+            }
+
+            $progress = $this->videoProgressService->updateSegmentProgress(
+                $user,
+                $lecture,
+                (int) $validated['current_position'],
+                $canonicalDuration,
+                $validated['newly_watched_segments'],
+                $metadata
+            );
+
+            return $this->ok(
+                data: [
+                    'watch_percentage' => (float) $progress->watch_percentage,
+                    'is_completed' => (bool) $progress->is_completed,
+                    'completed_segments' => $progress->completed_segments,
+                    'total_segments' => $progress->total_segments,
+                    'last_position' => $progress->last_position,
+                    'can_seek_to' => $this->videoProgressService->getMaxSeekablePosition($progress),
+                ],
+                message: 'Progress updated'
+            );
         }
 
-        $progress = $this->videoProgressService->updateSegmentProgress(
+        // Standard watch-time tracking (e.g. from Flutter mobile app & standard web player)
+        $validated = $request->validate([
+            'watched_seconds' => 'nullable|integer|min:0',
+            'last_position' => 'nullable|integer|min:0',
+            'total_seconds' => 'nullable|integer|min:0',
+            'current_position' => 'nullable|integer|min:0',
+            'total_duration' => 'nullable|integer|min:0',
+        ]);
+
+        $lastPosition = (int) ($validated['last_position'] ?? $validated['current_position'] ?? 0);
+        $totalSeconds = (int) ($validated['total_seconds'] ?? $validated['total_duration'] ?? 0);
+        $watchedSeconds = (int) ($validated['watched_seconds'] ?? $lastPosition);
+
+        $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
+        if ($totalSeconds <= 0 && $canonicalDuration > 0) {
+            $totalSeconds = $canonicalDuration;
+        } elseif ($totalSeconds <= 0) {
+            $totalSeconds = max(1, $lastPosition);
+        }
+
+        $progress = $this->videoProgressService->updateProgress(
             $user,
             $lecture,
-            (int) $validated['current_position'],
-            $canonicalDuration,
-            $validated['newly_watched_segments'],
+            $watchedSeconds,
+            $lastPosition,
+            $totalSeconds,
             $metadata
         );
 
         return $this->ok(
             data: [
-                'watch_percentage' => (float) $progress->watch_percentage,
-                'is_completed' => $progress->is_completed,
-                'completed_segments' => $progress->completed_segments,
-                'total_segments' => $progress->total_segments,
+                'watched_seconds' => $progress->watched_seconds,
+                'total_seconds' => $progress->total_seconds,
                 'last_position' => $progress->last_position,
+                'watch_percentage' => (float) $progress->watch_percentage,
+                'is_completed' => (bool) $progress->is_completed,
                 'can_seek_to' => $this->videoProgressService->getMaxSeekablePosition($progress),
             ],
             message: 'Progress updated'

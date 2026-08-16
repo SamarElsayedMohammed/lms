@@ -2160,74 +2160,9 @@ class CourseChapterApiController extends Controller
                 return ApiResponseService::errorResponse('You are not enrolled in this course.');
             }
 
-            // Count total curriculum items
-            $totalLectures = 0;
-            $totalQuizzes = 0;
-            $totalAssignments = 0;
-            $totalResources = 0;
-
-            foreach ($course->chapters as $chapter) {
-                $totalLectures += $chapter->lectures->count();
-                $totalQuizzes += $chapter->quizzes->count();
-                $totalAssignments += $chapter->assignments->count();
-                $totalResources += $chapter->resources->count();
-            }
-
-            // Check completed items from user_curriculum_trackings
-            $completedTracking = \App\Models\UserCurriculumTracking::where('user_id', $userId)
-                ->whereIn('course_chapter_id', $course->chapters->pluck('id'))
-                ->where('status', 'completed')
-                ->get();
-
-            $completedLectures = $completedTracking
-                ->where('model_type', \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::class)
-                ->count();
-            $completedQuizzes = $completedTracking
-                ->where('model_type', \App\Models\Course\CourseChapter\Quiz\CourseChapterQuiz::class)
-                ->count();
-            $completedResources = $completedTracking
-                ->where('model_type', \App\Models\Course\CourseChapter\Resource\CourseChapterResource::class)
-                ->count();
-
-            // Check assignment submissions (must be submitted or accepted, or can_skip = 1)
-            $assignmentIds = [];
-            $skippableAssignmentIds = [];
-            foreach ($course->chapters as $chapter) {
-                foreach ($chapter->assignments as $assignment) {
-                    $assignmentIds[] = $assignment->id;
-                    if ($assignment->can_skip) {
-                        $skippableAssignmentIds[] = $assignment->id;
-                    }
-                }
-            }
-
-            $submittedAssignments = 0;
-            $skippableAssignments = count($skippableAssignmentIds);
-
-            if (!empty($assignmentIds)) {
-                // Count assignments that have been submitted/accepted (excluding skippable ones)
-                $nonSkippableAssignmentIds = array_diff($assignmentIds, $skippableAssignmentIds);
-                if (!empty($nonSkippableAssignmentIds)) {
-                    $submittedAssignments = \App\Models\Course\CourseChapter\Assignment\UserAssignmentSubmission::where(
-                        'user_id',
-                        $userId,
-                    )
-                        ->whereIn('course_chapter_assignment_id', $nonSkippableAssignmentIds)
-                        ->whereIn('status', ['submitted', 'accepted'])
-                        ->count();
-                }
-            }
-
-            // Check if all curriculum items are completed (excluding assignments)
-            $curriculumItemsTotal = $totalLectures + $totalQuizzes + $totalResources;
-            $curriculumItemsCompleted = $completedLectures + $completedQuizzes + $completedResources;
-            $allCurriculumCompleted = $curriculumItemsTotal == 0 || $curriculumItemsCompleted >= $curriculumItemsTotal;
-
-            $allAssignmentsSubmitted = \App\Services\CourseCompletionService::allAssignmentsSubmitted(
-                $totalAssignments,
-                $skippableAssignments,
-                $submittedAssignments,
-            );
+            // Video-Only Learning: Resolve completion strictly from CourseProgressService
+            $progress = app(\App\Services\CourseProgressService::class)->getProgressWithCache($userId, $courseId);
+            $allCurriculumCompleted = $progress->progress_percentage >= 100;
 
             // Determine certificate status based on course type
             $courseType = $course->course_type ?? 'paid';
@@ -2271,7 +2206,7 @@ class CourseChapterApiController extends Controller
 
             $response = [
                 'all_curriculum_completed' => $allCurriculumCompleted,
-                'all_assignments_submitted' => $allAssignmentsSubmitted,
+                'all_assignments_submitted' => true, // Assessment-free product rule: always true
                 'certificate' => $certificateStatus,
                 'certificate_fee_paid' => $certificateFeePaid,
                 'certificate_fee' => $certificateFee,

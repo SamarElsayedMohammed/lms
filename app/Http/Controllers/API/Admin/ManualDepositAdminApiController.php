@@ -196,13 +196,14 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             $deposit->save();
 
             if ($request->status === 'approved') {
-                $walletService = app(WalletService::class);
-                $walletService->deposit(
+                WalletService::creditWallet(
                     $deposit->user_id,
                     $deposit->amount_egp ?? $deposit->amount,
-                    'إيداع يدوي محدد برقم معاملة: ' . $deposit->transaction_id,
+                    'manual_deposit',
+                    'إيداع يدوي محدد برقم معاملة: ' . ($deposit->transaction_id ?? $deposit->id),
                     $deposit->id,
-                    'manual_deposit'
+                    \App\Models\ManualDeposit::class,
+                    'user'
                 );
             }
 

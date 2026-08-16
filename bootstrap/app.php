@@ -53,6 +53,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         
         $middleware->api(append: [
+            \App\Http\Middleware\EnsureAccessToken::class,
             \App\Http\Middleware\ForceJsonResponseToSnakeCase::class,
             \App\Http\Middleware\DemoModeMiddleware::class,
         ]);

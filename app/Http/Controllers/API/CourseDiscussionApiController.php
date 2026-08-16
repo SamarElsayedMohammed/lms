@@ -44,18 +44,21 @@ class CourseDiscussionApiController extends Controller
             $currentPage = $request->input('page', 1);
             $searchTerm = $request->input('search');
 
-            // Determine course_id from either course_id or course_slug
-            $courseId = null;
+            // Determine course from either course_id or course_slug with canonical public visibility
+            $courseQuery = \App\Models\Course\Course::where('is_active', 1)
+                ->where('status', 'publish')
+                ->where('approval_status', 'approved');
+
             if ($request->has('course_id')) {
-                $courseId = $request->course_id;
+                $course = $courseQuery->where('id', $request->course_id)->first();
             } else {
-                // Get course_id from course_slug
-                $course = \App\Models\Course\Course::where('slug', $request->course_slug)->first();
-                if (!$course) {
-                    return ApiResponseService::validationError('Course not found with the provided slug.');
-                }
-                $courseId = $course->id;
+                $course = $courseQuery->where('slug', $request->course_slug)->first();
             }
+
+            if (!$course) {
+                return ApiResponseService::validationError('Course not found or is not currently published.');
+            }
+            $courseId = $course->id;
 
             $applyApproval = app(FeatureFlagService::class)->isEnabled('comments_require_approval');
             $userId = Auth::id();
@@ -66,20 +69,25 @@ class CourseDiscussionApiController extends Controller
                 ? $this->visibleDiscussions($baseQuery, $userId)->count()
                 : $baseQuery->count();
 
+            // Build search closure
+            $searchClosure = function ($query) use ($searchTerm, $applyApproval, $userId): void {
+                $query->where(function ($q) use ($searchTerm, $applyApproval, $userId): void {
+                    $q->where('message', 'LIKE', "%{$searchTerm}%")
+                        ->orWhereHas('replies', function ($replyQuery) use ($searchTerm, $applyApproval, $userId): void {
+                            $replyQuery->where('message', 'LIKE', "%{$searchTerm}%");
+                            if ($applyApproval) {
+                                $this->visibleDiscussions($replyQuery, $userId);
+                            }
+                        });
+                });
+            };
+
             // Get filtered count if search is applied
             $filteredDiscussionCount = null;
             if ($searchTerm) {
                 $searchQuery = CourseDiscussion::where('course_id', $courseId)
-                    ->whereNull('parent_id')
-                    ->where(static function ($query) use ($searchTerm): void {
-                        $query->where(
-                            'message',
-                            'LIKE',
-                            "%{$searchTerm}%",
-                        )->orWhereHas('replies', static function ($replyQuery) use ($searchTerm): void {
-                            $replyQuery->where('message', 'LIKE', "%{$searchTerm}%");
-                        });
-                    });
+                    ->whereNull('parent_id');
+                $searchClosure($searchQuery);
                 $filteredDiscussionCount = $applyApproval
                     ? $this->visibleDiscussions($searchQuery, $userId)->count()
                     : $searchQuery->count();
@@ -87,9 +95,9 @@ class CourseDiscussionApiController extends Controller
 
             // Build query for discussions
             $repliesConstraint = $applyApproval
-                ? fn($q) => $this->visibleDiscussions($q->with('user'), $userId)
-                : fn($q) => $q->with('user');
-            $discussionsQuery = CourseDiscussion::with(['user', 'replies' => $repliesConstraint])
+                ? fn($q) => $this->visibleDiscussions($q->with('user:id,name,profile'), $userId)
+                : fn($q) => $q->with('user:id,name,profile');
+            $discussionsQuery = CourseDiscussion::with(['user:id,name,profile', 'replies' => $repliesConstraint])
                 ->where('course_id', $courseId)
                 ->whereNull('parent_id');
             if ($applyApproval) {
@@ -98,15 +106,7 @@ class CourseDiscussionApiController extends Controller
 
             // Apply search filter if search term is provided
             if ($searchTerm) {
-                $discussionsQuery->where(static function ($query) use ($searchTerm): void {
-                    $query->where(
-                        'message',
-                        'LIKE',
-                        "%{$searchTerm}%",
-                    )->orWhereHas('replies', static function ($replyQuery) use ($searchTerm): void {
-                        $replyQuery->where('message', 'LIKE', "%{$searchTerm}%");
-                    });
-                });
+                $searchClosure($discussionsQuery);
             }
 
             // Fetch discussions with pagination
@@ -181,29 +181,44 @@ class CourseDiscussionApiController extends Controller
                 return ApiResponseService::validationError('Please provide either course_id or course_slug, not both.');
             }
 
-            // Determine course_id from either course_id or course_slug
-            $courseId = null;
+            // Determine course with canonical public visibility
+            $courseQuery = \App\Models\Course\Course::where('is_active', 1)
+                ->where('status', 'publish')
+                ->where('approval_status', 'approved');
+
             if ($request->has('course_id')) {
-                $courseId = $request->course_id;
+                $course = $courseQuery->where('id', $request->course_id)->first();
             } else {
-                // Get course_id from course_slug
-                $course = \App\Models\Course\Course::where('slug', $request->course_slug)->first();
-                if (!$course) {
-                    return ApiResponseService::errorResponse('Course not found with the provided slug.');
-                }
-                $courseId = $course->id;
+                $course = $courseQuery->where('slug', $request->course_slug)->first();
             }
 
-            if (!$this->userHasAccess(Auth::id(), $courseId)) {
-                return ApiResponseService::errorResponse('You must purchase this course to comment.');
+            if (!$course) {
+                return ApiResponseService::errorResponse('Course not found or is not currently published.');
+            }
+            $courseId = $course->id;
+
+            if (!$this->userHasAccess(Auth::id(), $course)) {
+                return ApiResponseService::forbidden('You must have active access to this course to comment.');
+            }
+
+            // Validate parent_id if replying to a thread
+            $parentId = $validated['parent_id'] ?? null;
+            if ($parentId !== null) {
+                $parent = CourseDiscussion::find($parentId);
+                if (!$parent || (int) $parent->course_id !== (int) $courseId) {
+                    return ApiResponseService::validationError('Parent discussion does not belong to this course.');
+                }
+                if ($parent->parent_id !== null) {
+                    return ApiResponseService::validationError('Nested replies beyond one level are not supported.');
+                }
             }
 
             $discussion = CourseDiscussion::create([
-                'status' => 'pending', // Forced pending per admin request
+                'status' => 'pending', // Forced pending per moderation rule
                 'user_id' => Auth::id(),
                 'course_id' => $courseId,
-                'message' => $validated['message'],
-                'parent_id' => $validated['parent_id'] ?? null,
+                'message' => trim($validated['message']),
+                'parent_id' => $parentId,
             ]);
 
             try {
@@ -225,7 +240,7 @@ class CourseDiscussionApiController extends Controller
             }
 
             // Reload the discussion with relationships to match GET API format
-            $discussion = CourseDiscussion::with(['user', 'replies.user'])->find($discussion->id);
+            $discussion = CourseDiscussion::with(['user:id,name,profile', 'replies.user:id,name,profile'])->find($discussion->id);
 
             // Add time_ago for the discussion
             $discussion->time_ago = $discussion?->created_at->diffForHumans();
@@ -247,15 +262,17 @@ class CourseDiscussionApiController extends Controller
         }
     }
 
-    private function userHasAccess($userId, $courseId): bool
+    private function userHasAccess($userId, $course): bool
     {
-        if (!$userId) {
+        if (!$userId || !$course) {
             return false;
         }
 
-        $enrollmentService = app(\App\Services\UserEnrollmentService::class);
-        $enrolledCourses = $enrollmentService->resolveEnrolledCourses((int) $userId);
-        
-        return $enrolledCourses->contains('course_id', $courseId);
+        $user = \App\Models\User::find($userId);
+        if (!$user) {
+            return false;
+        }
+
+        return app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $course);
     }
 }

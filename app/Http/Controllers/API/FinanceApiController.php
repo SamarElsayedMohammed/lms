@@ -840,24 +840,26 @@ class FinanceApiController extends Controller
             ]);
 
             // Handle wallet operations based on status change
-            if ($newStatus === 'approved' || $newStatus === 'completed') {
-                // Debit the amount from user's wallet now that it's approved
-                WalletService::debitWallet(
+            // Under the canonical immediate-debit model, funds are debited upon submission (pending).
+            // Transitions to 'processing', 'approved', or 'completed' do NOT debit again.
+            // Transition to 'rejected' from any active state (pending, processing, approved) refunds the amount exactly once.
+            if ($newStatus === 'rejected' && $oldStatus !== 'rejected') {
+                WalletService::creditWallet(
                     $withdrawalRequest->user_id,
                     $withdrawalRequest->amount,
-                    'withdrawal',
-                    "Withdrawal request #{$withdrawalRequest->id} approved",
+                    'withdrawal_refund',
+                    "Withdrawal request #{$withdrawalRequest->id} rejected - Amount refunded",
                     $withdrawalRequest->id,
                     \App\Models\WithdrawalRequest::class,
                     $withdrawalRequest->entry_type
                 );
-            } elseif ($oldStatus === 'approved' && $newStatus === 'rejected') {
-                // If it was already approved (and thus debited), refund it
-                WalletService::creditWallet(
+            } elseif ($oldStatus === 'rejected' && $newStatus !== 'rejected') {
+                // If a rejected request is reopened, re-encumber the funds
+                WalletService::debitWallet(
                     $withdrawalRequest->user_id,
                     $withdrawalRequest->amount,
                     'withdrawal',
-                    "Withdrawal request #{$withdrawalRequest->id} previously approved but now rejected - Amount refunded",
+                    "Withdrawal request #{$withdrawalRequest->id} reopened",
                     $withdrawalRequest->id,
                     \App\Models\WithdrawalRequest::class,
                     $withdrawalRequest->entry_type

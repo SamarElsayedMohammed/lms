@@ -5,10 +5,13 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\ApiController;
 use App\Models\SocialLogin;
 use App\Models\User;
+use App\Models\UserFcmToken;
 use App\Models\UserSocialAccount;
 use App\Services\ApiResponseService;
 use App\Services\ApiService;
 use App\Services\HelperService;
+use App\Support\RoleManager;
+use Carbon\Carbon;
 use Exception;
 use GuzzleHttp\Exception\ClientException;
 use Illuminate\Http\Request;
@@ -102,7 +105,8 @@ class SocialLoginApiController extends ApiController
         $claims        = $verifiedToken->claims();
 
         $firebaseUid   = $claims->get('sub');
-        $email         = $claims->get('email');
+        $rawEmail      = $claims->get('email');
+        $email         = $rawEmail ? strtolower(trim((string) $rawEmail)) : null;
         $name          = $claims->get('name') ?? ($email ? explode('@', $email)[0] : 'User');
         $avatar        = $claims->get('picture') ?? null;
 
@@ -119,13 +123,20 @@ class SocialLoginApiController extends ApiController
                 ->first();
 
             if ($socialLogin && $socialLogin->user) {
+                if ($socialLogin->user->trashed() || (isset($socialLogin->user->is_active) && !$socialLogin->user->is_active)) {
+                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                }
                 return $socialLogin->user;
             }
 
             // ── 2. Find existing user by email ────────────────────────────
-            $user = User::where('email', $email)->first();
+            $user = User::withTrashed()->where('email', $email)->first();
 
-            if (!$user) {
+            if ($user) {
+                if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
+                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                }
+            } else {
                 // ── 3. Create new user ────────────────────────────────────
                 $slug = HelperService::generateUniqueSlug(User::class, $name);
                 $user = User::create([
@@ -144,22 +155,39 @@ class SocialLoginApiController extends ApiController
                 $user->notify(new \App\Notifications\WelcomeNotification($user));
             }
 
-            // ── 4. Link Firebase UID to local user ────────────────────────
+            // ── 4. Conflict check & Link Firebase UID to local user ────────
+            $otherSocialLogin = SocialLogin::where('firebase_id', $firebaseUid)
+                ->where('type', $provider)
+                ->first();
+
+            if ($otherSocialLogin && $otherSocialLogin->user_id !== $user->id) {
+                ApiResponseService::validationError('This social account is already linked to another user.');
+            }
+
             SocialLogin::updateOrCreate(
-                ['firebase_id' => $firebaseUid, 'type' => $provider],
-                ['user_id' => $user->id],
+                ['user_id' => $user->id, 'type' => $provider],
+                ['firebase_id' => $firebaseUid],
             );
 
             return $user;
         });
 
         // ── Guard checks ─────────────────────────────────────────────────
-        if (!empty($user->deleted_at)) {
+        if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
             return ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
         }
 
-        if (!$user->hasRole(config('constants.SYSTEM_ROLES.USER'))) {
+        if (!$user->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
             return ApiResponseService::validationError('Invalid Login Credentials');
+        }
+
+        if (!empty($request->fcm_id)) {
+            UserFcmToken::updateOrCreate(['fcm_token' => $request->fcm_id], [
+                'user_id'       => $user->id,
+                'platform_type' => $request->platform_type,
+                'created_at'    => Carbon::now(),
+                'updated_at'    => Carbon::now(),
+            ]);
         }
 
         $deviceError = \App\Services\AuthDeviceService::verifyDeviceLimits($user, $request);
@@ -188,7 +216,8 @@ class SocialLoginApiController extends ApiController
         /** @var \Laravel\Socialite\Two\User $socialUser */
         $socialUser = Socialite::driver($provider)->stateless()->userFromToken($accessToken);
 
-        $email = $socialUser->getEmail();
+        $rawEmail = $socialUser->getEmail();
+        $email = $rawEmail ? strtolower(trim((string) $rawEmail)) : null;
 
         if (empty($email)) {
             return ApiResponseService::validationError('Email address could not be retrieved from ' . ucfirst($provider) . '.');
@@ -202,14 +231,21 @@ class SocialLoginApiController extends ApiController
                 ->first();
 
             if ($socialAccount && $socialAccount->user) {
+                if ($socialAccount->user->trashed() || (isset($socialAccount->user->is_active) && !$socialAccount->user->is_active)) {
+                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                }
                 $socialAccount->update(['token' => $socialUser->token]);
                 return $socialAccount->user;
             }
 
             // Try to find existing user by email
-            $user = User::where('email', $email)->first();
+            $user = User::withTrashed()->where('email', $email)->first();
 
-            if (!$user) {
+            if ($user) {
+                if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
+                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                }
+            } else {
                 $name   = $socialUser->getName() ?? $socialUser->getNickname() ?? explode('@', $email)[0];
                 $slug   = HelperService::generateUniqueSlug(User::class, $name);
                 $avatar = $socialUser->getAvatar();
@@ -230,6 +266,14 @@ class SocialLoginApiController extends ApiController
                 $user->notify(new \App\Notifications\WelcomeNotification($user));
             }
 
+            $otherAccount = UserSocialAccount::where('provider', $provider)
+                ->where('provider_id', $socialUser->getId())
+                ->first();
+
+            if ($otherAccount && $otherAccount->user_id !== $user->id) {
+                ApiResponseService::validationError('This social account is already linked to another user.');
+            }
+
             UserSocialAccount::updateOrCreate(
                 ['provider' => $provider, 'provider_id' => $socialUser->getId()],
                 ['user_id' => $user->id, 'token' => $socialUser->token],
@@ -239,12 +283,26 @@ class SocialLoginApiController extends ApiController
         });
 
         // ── Guard checks ─────────────────────────────────────────────────
-        if (!empty($user->deleted_at)) {
+        if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
             return ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
         }
 
-        if (!$user->hasRole(config('constants.SYSTEM_ROLES.USER'))) {
+        if (!$user->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
             return ApiResponseService::validationError('Invalid Login Credentials');
+        }
+
+        if (!empty($request->fcm_id)) {
+            UserFcmToken::updateOrCreate(['fcm_token' => $request->fcm_id], [
+                'user_id'       => $user->id,
+                'platform_type' => $request->platform_type,
+                'created_at'    => Carbon::now(),
+                'updated_at'    => Carbon::now(),
+            ]);
+        }
+
+        $deviceError = \App\Services\AuthDeviceService::verifyDeviceLimits($user, $request);
+        if ($deviceError) {
+            return ApiResponseService::errorResponse($deviceError['message'], ['error_code' => $deviceError['code'] ?? 'DEVICE_ERROR'], 403);
         }
 
         // ── Issue Sanctum token ──────────────────────────────────────────

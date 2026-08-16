@@ -39,86 +39,85 @@ class UserDevice extends Model
             $deviceName = ucfirst($deviceType) . ' Device';
         }
 
-        // Check if this exact device is already registered for the user
-        $existing = self::where('user_id', $userId)
-            ->where('device_id', $deviceId)
-            ->first();
-
-        if ($existing) {
-            // Known device — update name/type and touch last seen
-            $existing->update([
-                'device_name' => $deviceName,
-                'device_type' => $deviceType,
-            ]);
-            return ['allowed' => true];
-        }
-
         try {
-            \Illuminate\Support\Facades\DB::beginTransaction();
+            return \Illuminate\Support\Facades\DB::transaction(function () use (
+                $userId,
+                $deviceType,
+                $deviceId,
+                $deviceName,
+                $maxDevices
+            ) {
+                // 1. Check if this exact device is already registered for the user (with lock to prevent race)
+                $existing = self::where('user_id', $userId)
+                    ->where('device_id', $deviceId)
+                    ->lockForUpdate()
+                    ->first();
 
-            // Check if user already has a device registered for this device_type
-            $existingType = self::where('user_id', $userId)->where('device_type', $deviceType)->first();
-            if ($existingType) {
-                $isWeb = ($deviceType === 'web');
-                $nameMatches = (!empty($deviceName) && !empty($existingType->device_name) && strtolower($existingType->device_name) === strtolower($deviceName));
-                $currentCount = self::where('user_id', $userId)->count();
-
-                // Web browsers easily reset storage/fingerprints; overwrite old slot so user is never locked out on web.
-                // For other types, allow overwrite if device_name matches or if total count is within limits.
-                if ($isWeb || $nameMatches || $currentCount <= $maxDevices) {
-                    // Revoke old tokens associated with the old device_id
-                    \Illuminate\Support\Facades\DB::table('personal_access_tokens')
-                        ->where('tokenable_id', $userId)
-                        ->where('tokenable_type', \App\Models\User::class)
-                        ->where('name', 'like', $existingType->device_id . '%')
-                        ->delete();
-
-                    $existingType->update([
-                        'device_id'   => $deviceId,
-                        'device_name' => $deviceName ?: $existingType->device_name ?: (ucfirst($deviceType) . ' Device'),
+                if ($existing) {
+                    // Known device re-authenticating — update metadata & touch updated_at without consuming new slot
+                    $existing->update([
+                        'device_name' => $deviceName,
+                        'device_type' => $deviceType,
                     ]);
-
-                    \Illuminate\Support\Facades\DB::commit();
                     return ['allowed' => true];
                 }
 
-                \Illuminate\Support\Facades\DB::rollBack();
-                return [
-                    'allowed' => false,
-                    'code' => 'DEVICE_LIMIT_EXCEEDED',
-                    'message' => 'لقد وصلت إلى الحد الأقصى للأجهزة المسموح بها من هذا النوع. يرجى تسجيل الخروج من الجهاز الآخر أو إدارة أجهزتك من لوحة التحكم.'
-                ];
-            }
+                // 2. Count current active registered devices for this user
+                $currentCount = self::where('user_id', $userId)
+                    ->lockForUpdate()
+                    ->count();
 
-            // Explicit Block: Max devices overall limit
-            $deviceCount = self::where('user_id', $userId)->count();
-            if ($deviceCount >= $maxDevices) {
-                \Illuminate\Support\Facades\DB::rollBack();
-                return [
-                    'allowed' => false,
-                    'code' => 'DEVICE_LIMIT_EXCEEDED',
-                    'message' => 'لقد وصلت إلى الحد الأقصى الإجمالي للأجهزة المسموح بها. يرجى إدارة أجهزتك من لوحة التحكم.'
-                ];
-            }
+                if ($currentCount >= $maxDevices) {
+                    return [
+                        'allowed' => false,
+                        'code' => 'DEVICE_LIMIT_EXCEEDED',
+                        'message' => 'لقد وصلت إلى الحد الأقصى للأجهزة المسموح بها. يمكنك تسجيل الخروج من الأجهزة الأخرى للمتابعة.'
+                    ];
+                }
 
-            // Register the new device
-            self::create([
-                'user_id'     => $userId,
-                'device_type' => $deviceType,
-                'device_id'   => $deviceId,
-                'device_name' => $deviceName,
-            ]);
+                // 3. Register the new device (handling potential legacy schema gracefully)
+                try {
+                    self::create([
+                        'user_id'     => $userId,
+                        'device_type' => $deviceType,
+                        'device_id'   => $deviceId,
+                        'device_name' => $deviceName,
+                    ]);
+                } catch (\Illuminate\Database\QueryException $qe) {
+                    // If legacy unique(user_id, device_type) constraint exists, update slot safely
+                    $existingType = self::where('user_id', $userId)
+                        ->where('device_type', $deviceType)
+                        ->first();
 
-            \Illuminate\Support\Facades\DB::commit();
+                    if ($existingType) {
+                        // Revoke tokens for the old device_id
+                        $oldId = $existingType->device_id;
+                        \Illuminate\Support\Facades\DB::table('personal_access_tokens')
+                            ->where('tokenable_id', $userId)
+                            ->where('tokenable_type', \App\Models\User::class)
+                            ->where(function ($q) use ($oldId) {
+                                $q->where('name', $oldId)
+                                  ->orWhere('name', $oldId . '-refresh');
+                            })
+                            ->delete();
+
+                        $existingType->update([
+                            'device_id'   => $deviceId,
+                            'device_name' => $deviceName,
+                        ]);
+                    } else {
+                        throw $qe;
+                    }
+                }
+
+                return ['allowed' => true];
+            });
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\DB::rollBack();
             return [
                 'allowed' => false,
                 'code' => 'DEVICE_ERROR',
                 'message' => 'حدث خطأ أثناء إدارة الأجهزة. يرجى المحاولة مرة أخرى.',
             ];
         }
-
-        return ['allowed' => true];
     }
 }

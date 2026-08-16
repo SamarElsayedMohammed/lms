@@ -155,42 +155,53 @@ final class EmailPasswordResetService
 
     public function resetPassword(string $email, string $code, string $password): bool
     {
-        $record = $this->getValidResetRecord($email, $code);
+        return DB::transaction(function () use ($email, $code, $password) {
+            $record = $this->getValidResetRecord($email, $code);
 
-        if ($record === null) {
-            return false;
-        }
-
-        $user = $this->findEligibleUser($email);
-
-        if ($user === null) {
-            return false;
-        }
-
-        $user->forceFill([
-            'password' => Hash::make($password),
-        ])->save();
-
-        $socialLogin = SocialLogin::query()
-            ->where('user_id', $user->id)
-            ->where('type', 'email')
-            ->first();
-
-        if ($socialLogin !== null && !empty($socialLogin->firebase_id)) {
-            try {
-                HelperService::updateFirebasePassword($socialLogin->firebase_id, $password);
-            } catch (\Throwable $e) {
-                Log::warning('Firebase password sync failed during email OTP reset', [
-                    'user_id' => $user->id,
-                    'error' => $e->getMessage(),
-                ]);
+            if ($record === null) {
+                return false;
             }
-        }
 
-        $user->tokens()->delete();
-        $this->deleteOtp($email);
+            $user = $this->findEligibleUser($email);
 
-        return true;
+            if ($user === null) {
+                return false;
+            }
+
+            // Atomically delete the OTP record to prevent concurrent replay race conditions
+            $deleted = DB::table('password_reset_tokens')
+                ->where('email', $this->normalizeEmail($email))
+                ->delete();
+
+            if ($deleted === 0) {
+                return false;
+            }
+
+            $user->forceFill([
+                'password' => Hash::make($password),
+            ])->save();
+
+            $socialLogin = SocialLogin::query()
+                ->where('user_id', $user->id)
+                ->where('type', 'email')
+                ->first();
+
+            if ($socialLogin !== null && !empty($socialLogin->firebase_id)) {
+                try {
+                    HelperService::updateFirebasePassword($socialLogin->firebase_id, $password);
+                } catch (\Throwable $e) {
+                    Log::warning('Firebase password sync failed during email OTP reset', [
+                        'user_id' => $user->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            $user->tokens()->delete();
+            \App\Models\UserDevice::where('user_id', $user->id)->delete();
+
+            return true;
+        });
     }
 
     public function remainingSeconds(string $email): ?int

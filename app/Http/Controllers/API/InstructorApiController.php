@@ -1351,12 +1351,18 @@ class InstructorApiController extends Controller
                 'user.courses.category',
                 'personal_details',
                 'social_medias.social_media',
-                'ratings.user',
+                'ratings' => static function ($q): void {
+                    $q->where('status', 'approved')->with('user');
+                },
                 'courses.category',
             ])
             ->where('status', 'approved')
-            ->withAvg('ratings', 'rating')
-            ->withCount('ratings')
+            ->withAvg(['ratings' => static function ($q): void {
+                $q->where('status', 'approved');
+            }], 'rating')
+            ->withCount(['ratings' => static function ($q): void {
+                $q->where('status', 'approved');
+            }])
             ->whereHas('user', static function ($q) use ($request): void {
                 $q->where('is_active', 1);
                 if ($request->filled('slug')) {
@@ -1506,12 +1512,14 @@ class InstructorApiController extends Controller
             $activeCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
                 ->where('approval_status', 'approved')
+                ->where('status', 'publish')
                 ->count();
 
             // Count only published courses with at least 1 active curriculum item
             $publishedCoursesCount = \App\Models\Course\Course::where('user_id', $instructor->user_id)
                 ->where('is_active', 1)
                 ->where('approval_status', 'approved')
+                ->where('status', 'publish')
                 ->count();
 
             $studentEnrolledCount = \App\Models\OrderCourse::whereHas('course', static fn($q) => $q->where(
@@ -1558,7 +1566,6 @@ class InstructorApiController extends Controller
                 'type' => $instructor->type,
                 'status' => $instructor->status,
                 'name' => $instructor->user->name ?? '',
-                'email' => $instructor->user->email ?? '',
                 'slug' => $instructor->user->slug ?? '',
                 'profile' => $instructor->user->profile ?? '',
                 'qualification' => $instructor->personal_details->qualification ?? '',
@@ -1615,11 +1622,17 @@ class InstructorApiController extends Controller
                 'user',
                 'personal_details',
                 'social_medias.social_media',
-                'ratings.user',
+                'ratings' => static function ($q): void {
+                    $q->where('status', 'approved')->with('user');
+                },
             ])
                 ->where('status', 'approved')
-                ->withAvg('ratings', 'rating')
-                ->withCount('ratings')
+                ->withAvg(['ratings' => static function ($q): void {
+                    $q->where('status', 'approved');
+                }], 'rating')
+                ->withCount(['ratings' => static function ($q): void {
+                    $q->where('status', 'approved');
+                }])
                 ->whereHas('user', static function ($userQuery) use ($request): void {
                     $userQuery->where('is_active', 1);
 
@@ -1683,14 +1696,15 @@ class InstructorApiController extends Controller
                         'id' => $myReviewData->id,
                         'rating' => $myReviewData->rating,
                         'review' => $myReviewData->review,
+                        'status' => $myReviewData->status ?? 'pending',
                         'created_at' => $myReviewData->created_at->format('Y-m-d H:i:s'),
                         'updated_at' => $myReviewData->updated_at->format('Y-m-d H:i:s'),
                     ];
                 }
             }
 
-            // Get recent ratings (excluding authenticated user's review if exists)
-            $ratingsQuery = $instructor->ratings()->with('user')->latest();
+            // Get recent ratings (excluding authenticated user's review if exists) - approved only
+            $ratingsQuery = $instructor->ratings()->where('status', 'approved')->with('user')->latest();
 
             // Exclude authenticated user's review from ratings list
             if ($authUserId) {
@@ -1715,9 +1729,15 @@ class InstructorApiController extends Controller
                 ->where('is_active', 1)
                 ->where('approval_status', 'approved')
                 ->where('status', 'publish')
-                ->with(['category', 'ratings', 'user', 'chapters.lectures'])
-                ->withCount('ratings')
-                ->withAvg('ratings', 'rating')
+                ->with(['category', 'ratings' => static function ($q): void {
+                    $q->where('status', 'approved')->with('user');
+                }, 'user', 'chapters.lectures'])
+                ->withCount(['ratings' => static function ($q): void {
+                    $q->where('status', 'approved');
+                }])
+                ->withAvg(['ratings' => static function ($q): void {
+                    $q->where('status', 'approved');
+                }], 'rating')
                 ->latest()
                 ->get()
                 ->map(function ($course) {
@@ -1810,7 +1830,6 @@ class InstructorApiController extends Controller
                 'type' => $type,
                 'status' => $instructor->status,
                 'name' => $instructor->user->name ?? '',
-                'email' => $instructor->user->email ?? '',
                 'slug' => $instructor->user->slug ?? '',
                 'profile' => $instructor->user->profile ?? '',
                 'qualification' => $personalDetails ? $personalDetails->qualification ?? '' : '',
