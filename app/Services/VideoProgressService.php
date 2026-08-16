@@ -48,12 +48,19 @@ class VideoProgressService
         CourseChapterLecture $lecture,
         int $watchedSeconds,
         int $lastPosition,
-        int $totalSeconds,
+        int $totalSeconds = 0,
         array $metadata = []
     ): VideoProgress {
-        // Normalize client supplied playback values before applying any
-        // anti-cheat or completion logic. The server must never persist a
-        // watched time or position beyond the canonical video duration.
+        // Determine canonical video duration from authoritative lecture model
+        $canonicalDuration = $this->getCanonicalDuration($lecture);
+        if ($canonicalDuration > 0) {
+            $totalSeconds = $canonicalDuration;
+        } elseif ($totalSeconds >= 10 && $totalSeconds <= 86400) {
+            try {
+                $lecture->update(['duration_seconds' => $totalSeconds]);
+            } catch (\Throwable) {}
+        }
+
         $totalSeconds = max(0, $totalSeconds);
         $watchedSeconds = min(max(0, $watchedSeconds), $totalSeconds);
         $lastPosition = min(max(0, $lastPosition), $totalSeconds);
@@ -302,8 +309,20 @@ class VideoProgressService
         array $metadata = []
     ): VideoProgress {
         $canonicalDuration = $this->getCanonicalDuration($lecture);
-        if ($canonicalDuration <= 0 || $totalDuration !== $canonicalDuration) {
-            throw new \InvalidArgumentException('The reported video duration does not match the lecture duration.');
+        if ($canonicalDuration <= 0) {
+            if ($totalDuration >= 10 && $totalDuration <= 86400) {
+                $canonicalDuration = $totalDuration;
+                try {
+                    $lecture->update(['duration_seconds' => $totalDuration]);
+                } catch (\Throwable) {}
+            } else {
+                throw new \InvalidArgumentException('Video duration must be between 10 and 86400 seconds.');
+            }
+        } elseif ($totalDuration !== $canonicalDuration) {
+            if ($totalDuration < $canonicalDuration) {
+                throw new \InvalidArgumentException('The reported video duration cannot shrink canonical lecture duration.');
+            }
+            $totalDuration = $canonicalDuration;
         }
 
         $progress = $this->getOrCreateSegmentProgress($user, $lecture, $canonicalDuration);

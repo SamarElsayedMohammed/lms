@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Events\WebinarCancelled;
 use App\Models\Webinar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,21 +27,42 @@ class AdminWebinarActionController extends AdminCrudApiController
         $this->ensureAdmin();
 
         if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
+            && (int) $webinar->instructor_id !== (int) Auth::id()) {
             return $this->jsonError('Unauthorized', 403);
         }
 
         $validator = Validator::make($request->all(), [
-            'status' => 'required|in:draft,scheduled,published,active,live,completed,cancelled',
+            'status' => 'required|in:scheduled,live,completed,cancelled',
         ]);
 
         if ($validator->fails()) {
             return $this->jsonError($validator->errors()->first(), 422);
         }
 
-        $webinar->update(['status' => $request->status]);
+        $newStatus = $request->status;
+        $oldStatus = $webinar->status;
 
-        return $this->jsonSuccess('Webinar status updated to ' . $request->status, $webinar->fresh());
+        if ($newStatus === $oldStatus) {
+            return $this->jsonSuccess('Webinar status unchanged', $webinar);
+        }
+
+        // Validate state transitions
+        if ($oldStatus === 'cancelled' && in_array($newStatus, ['live', 'completed'], true)) {
+            return $this->jsonError('Cancelled webinars cannot transition directly to live or completed.', 409);
+        }
+
+        if ($oldStatus === 'completed' && $newStatus === 'scheduled') {
+            return $this->jsonError('Completed webinars cannot transition back to scheduled.', 409);
+        }
+
+        $webinar->update(['status' => $newStatus]);
+
+        // Dispatch cancellation lifecycle event if status transitioned to cancelled
+        if ($newStatus === 'cancelled' && class_exists(WebinarCancelled::class)) {
+            event(new WebinarCancelled($webinar));
+        }
+
+        return $this->jsonSuccess('Webinar status updated to ' . $newStatus, $webinar->fresh());
     }
 
     /**
@@ -52,7 +74,7 @@ class AdminWebinarActionController extends AdminCrudApiController
         $this->ensureAdmin();
 
         if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
+            && (int) $webinar->instructor_id !== (int) Auth::id()) {
             return $this->jsonError('Unauthorized', 403);
         }
 
@@ -63,22 +85,18 @@ class AdminWebinarActionController extends AdminCrudApiController
 
         return $this->jsonSuccess($msg, [
             'id'           => $webinar->id,
+            'slug'         => $webinar->slug,
             'is_published' => $newValue,
         ]);
     }
 
     /**
-     * Set a webinar as the default.
+     * Set a webinar as the default / featured.
      * POST /api/admin/webinars/{slug}/set-default
      */
     public function setDefault(Webinar $webinar): JsonResponse
     {
         $this->ensureAdmin();
-
-        // Optional: only super admins can set default
-        // if (!Auth::user()->hasRole(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))) {
-        //     return $this->jsonError('Unauthorized', 403);
-        // }
 
         // Unset all others
         Webinar::where('id', '!=', $webinar->id)->update(['is_featured' => false]);
@@ -87,6 +105,7 @@ class AdminWebinarActionController extends AdminCrudApiController
 
         return $this->jsonSuccess('Webinar set as default successfully', [
             'id' => $webinar->id,
+            'slug' => $webinar->slug,
             'is_featured' => true,
         ]);
     }
@@ -106,7 +125,7 @@ class AdminWebinarActionController extends AdminCrudApiController
         }
 
         if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
+            && (int) $webinar->instructor_id !== (int) Auth::id()) {
             return $this->jsonError('Unauthorized', 403);
         }
 

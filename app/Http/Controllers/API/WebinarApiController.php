@@ -265,6 +265,34 @@ class WebinarApiController extends Controller
                 return ApiResponseService::errorResponse('Not registered for this webinar.', [], 400);
             }
 
+            // If webinar is paid and registration was paid, refund wallet if webinar hasn't started yet
+            if (!$webinar->is_free && $registration->payment_status === 'paid') {
+                if ($webinar->start_at && $webinar->start_at->isPast()) {
+                    return ApiResponseService::errorResponse('لا يمكن إلغاء التسجيل بعد بدء الندوة.', [], 400);
+                }
+
+                $amountToRefund = (float) $webinar->price;
+                if ($amountToRefund > 0) {
+                    try {
+                        \App\Services\WalletService::creditWallet(
+                            $user->id,
+                            $amountToRefund,
+                            'webinar_refund',
+                            'استرداد رسوم التسجيل في ندوة: ' . $webinar->title,
+                            (string) $webinar->id,
+                            'webinar',
+                            'user'
+                        );
+                    } catch (\Throwable $e) {
+                        Log::error('Failed to refund wallet on webinar cancellation', [
+                            'user_id' => $user->id,
+                            'webinar_id' => $webinar->id,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+            }
+
             $registration->delete();
 
             return ApiResponseService::successResponse('Registration cancelled successfully.');

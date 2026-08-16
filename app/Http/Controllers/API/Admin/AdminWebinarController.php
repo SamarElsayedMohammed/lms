@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Events\WebinarCancelled;
 use App\Models\Webinar;
+use App\Models\WebinarRegistration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -88,12 +90,12 @@ class AdminWebinarController extends AdminCrudApiController
 
         // Instructor ownership check
         if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
+            && (int) $webinar->instructor_id !== (int) Auth::id()) {
             return $this->jsonError('Unauthorized', 403);
         }
 
         $data = $webinar->toArray();
-        $data['registrations_count'] = $webinar->registrations->count();
+        $data['registrations_count'] = $webinar->activeRegistrationsCount();
         $data['spots_left']          = $webinar->spots_left;
         $data['is_full']             = $webinar->is_full;
 
@@ -110,6 +112,8 @@ class AdminWebinarController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'title'         => 'required|string|max:255',
+            'slug'          => 'nullable|string|max:100',
+            'instructor_id' => 'nullable|exists:users,id',
             'course_id'     => 'nullable|exists:courses,id',
             'description'   => 'nullable|string',
             'start_at'      => 'required|date|after:now',
@@ -128,9 +132,28 @@ class AdminWebinarController extends AdminCrudApiController
         }
 
         try {
-            $data                 = $validator->validated();
-            $data['instructor_id'] = Auth::id();
-            $data['slug']         = Str::slug($request->title) . '-' . Str::random(5);
+            $data = $validator->validated();
+
+            // Instructor assignment authorization
+            $user = Auth::user();
+            $isSuperOrStaff = $user->hasRole('Super Admin') || $user->hasRole('Supervisor') || $user->hasRole('Staff');
+            if ($isSuperOrStaff && !empty($data['instructor_id'])) {
+                $data['instructor_id'] = (int) $data['instructor_id'];
+            } else {
+                $data['instructor_id'] = (int) $user->id;
+            }
+
+            // Slug assignment & persistence
+            if (!empty($data['slug'])) {
+                $candidateSlug = Str::slug($data['slug']);
+                if (Webinar::where('slug', $candidateSlug)->exists()) {
+                    $data['slug'] = $candidateSlug . '-' . Str::random(4);
+                } else {
+                    $data['slug'] = $candidateSlug;
+                }
+            } else {
+                $data['slug'] = Str::slug($request->title) . '-' . Str::random(5);
+            }
 
             if ($request->is_free) {
                 $data['price'] = 0; // Price Constraint
@@ -145,7 +168,6 @@ class AdminWebinarController extends AdminCrudApiController
                         unset($data['features'][$key]);
                     }
                 }
-                // Re-index array if needed
                 $data['features'] = array_values($data['features']);
             }
 
@@ -207,12 +229,14 @@ class AdminWebinarController extends AdminCrudApiController
         $this->ensureAdmin();
 
         if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
+            && (int) $webinar->instructor_id !== (int) Auth::id()) {
             return $this->jsonError('Unauthorized', 403);
         }
 
         $validator = Validator::make($request->all(), [
             'title'         => 'sometimes|required|string|max:255',
+            'slug'          => 'nullable|string|max:100|unique:webinars,slug,' . $webinar->id,
+            'instructor_id' => 'nullable|exists:users,id',
             'course_id'     => 'nullable|exists:courses,id',
             'description'   => 'nullable|string',
             'start_at'      => 'sometimes|required|date',
@@ -234,6 +258,21 @@ class AdminWebinarController extends AdminCrudApiController
         try {
             $data = $validator->validated();
 
+            // Instructor reassignment authorization
+            $user = Auth::user();
+            $isSuperOrStaff = $user->hasRole('Super Admin') || $user->hasRole('Supervisor') || $user->hasRole('Staff');
+            if (isset($data['instructor_id'])) {
+                if (!$isSuperOrStaff) {
+                    unset($data['instructor_id']);
+                } else {
+                    $data['instructor_id'] = (int) $data['instructor_id'];
+                }
+            }
+
+            if (isset($data['slug']) && !empty($data['slug'])) {
+                $data['slug'] = Str::slug($data['slug']);
+            }
+
             if (isset($data['is_free']) && $data['is_free']) {
                 $data['price'] = 0; // Price Constraint
             }
@@ -250,7 +289,14 @@ class AdminWebinarController extends AdminCrudApiController
                 $data['features'] = array_values($data['features']);
             }
 
+            $oldStatus = $webinar->status;
             $webinar->update($data);
+
+            // Dispatch cancellation if status transitioned to cancelled
+            if (isset($data['status']) && $data['status'] === 'cancelled' && $oldStatus !== 'cancelled' && class_exists(WebinarCancelled::class)) {
+                event(new WebinarCancelled($webinar));
+            }
+
             return $this->jsonSuccess('Webinar updated successfully', $webinar->fresh('instructor'));
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -268,7 +314,7 @@ class AdminWebinarController extends AdminCrudApiController
         $this->ensureAdmin();
 
         if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
+            && (int) $webinar->instructor_id !== (int) Auth::id()) {
             return $this->jsonError('Unauthorized', 403);
         }
 
@@ -286,11 +332,11 @@ class AdminWebinarController extends AdminCrudApiController
         $this->ensureAdmin();
 
         if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
+            && (int) $webinar->instructor_id !== (int) Auth::id()) {
             return $this->jsonError('Unauthorized', 403);
         }
 
-        $registrations = \App\Models\WebinarRegistration::with('user:id,name,email,mobile')
+        $registrations = WebinarRegistration::with('user:id,name,email,mobile')
             ->where('webinar_id', $webinar->id)
             ->latest()
             ->get()
@@ -302,7 +348,9 @@ class AdminWebinarController extends AdminCrudApiController
                 'phone'          => $reg->user->mobile ?? 'N/A',
                 'payment_status' => $reg->payment_status,
                 'paid_amount'    => $reg->paid_amount,
-                'registered_at'  => $reg->created_at->toDateTimeString(),
+                'attended'       => (bool) $reg->attended,
+                'attended_at'    => $reg->attended_at ? $reg->attended_at->toDateTimeString() : null,
+                'registered_at'  => $reg->created_at ? $reg->created_at->toDateTimeString() : null,
             ]);
 
         return $this->jsonSuccess('Registrants retrieved successfully', [
@@ -322,11 +370,11 @@ class AdminWebinarController extends AdminCrudApiController
         $this->ensureAdmin();
 
         if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
+            && (int) $webinar->instructor_id !== (int) Auth::id()) {
             return $this->jsonError('Unauthorized', 403);
         }
 
-        $registrations = \App\Models\WebinarRegistration::with('user:id,name,email,mobile')
+        $registrations = WebinarRegistration::with('user:id,name,email,mobile')
             ->where('webinar_id', $webinar->id)
             ->oldest()
             ->get();
@@ -359,6 +407,8 @@ class AdminWebinarController extends AdminCrudApiController
                 'Phone',
                 'Payment Status',
                 'Paid Amount',
+                'Attended',
+                'Attended At',
                 'Registered At',
             ]);
 
@@ -370,7 +420,9 @@ class AdminWebinarController extends AdminCrudApiController
                     $reg->user->mobile  ?? 'N/A',
                     $reg->payment_status,
                     $reg->paid_amount   ?? '0.00',
-                    $reg->created_at->format('Y-m-d H:i:s'),
+                    $reg->attended ? 'Yes' : 'No',
+                    $reg->attended_at ? $reg->attended_at->format('Y-m-d H:i:s') : 'N/A',
+                    $reg->created_at ? $reg->created_at->format('Y-m-d H:i:s') : 'N/A',
                 ]);
             }
 

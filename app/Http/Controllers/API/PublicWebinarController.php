@@ -6,11 +6,19 @@ use App\Http\Controllers\Controller;
 use App\Models\Webinar;
 use App\Models\WebinarRegistration;
 use App\Services\ApiResponseService;
+use App\Services\WebinarAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class PublicWebinarController extends Controller
 {
+    protected WebinarAccessService $accessService;
+
+    public function __construct(WebinarAccessService $accessService)
+    {
+        $this->accessService = $accessService;
+    }
+
     /**
      * List all scheduled/live webinars (Public)
      * GET /api/webinars
@@ -18,14 +26,25 @@ class PublicWebinarController extends Controller
     public function index(Request $request)
     {
         try {
+            $user = Auth::guard('sanctum')->user();
+
             $query = Webinar::with(['instructor:id,name', 'course:id,title'])
                 ->where('is_published', true)
                 ->whereIn('status', ['scheduled', 'live'])
                 ->where('start_at', '>=', now()->subHours(2));
 
-            if ($user = Auth::guard('sanctum')->user()) {
+            if ($user) {
                 $query->withExists(['registrations as is_registered' => function ($q) use ($user) {
-                    $q->where('user_id', $user->id);
+                    $q->where('user_id', $user->id)
+                      ->where(function ($sub) {
+                          $sub->whereIn('payment_status', ['paid', 'free'])
+                              ->orWhere(function ($p) {
+                                  $p->where('payment_status', 'pending')
+                                    ->where(function ($e) {
+                                        $e->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                                    });
+                              });
+                      });
                 }]);
             }
 
@@ -36,11 +55,11 @@ class PublicWebinarController extends Controller
             $perPage = min((int) $request->input('per_page', 15), 50);
             $webinars = $query->orderBy('start_at', 'asc')->paginate($perPage);
 
-            $webinars->getCollection()->transform(function ($webinar) {
+            $webinars->getCollection()->transform(function ($webinar) use ($user) {
                 if (isset($webinar->is_registered_exists)) {
-                    $webinar->is_registered = $webinar->is_registered_exists;
+                    $webinar->is_registered = (bool) $webinar->is_registered_exists;
                 }
-                return $webinar;
+                return $this->accessService->sanitizeWebinarForResponse($webinar, $user);
             });
 
             return ApiResponseService::successResponse('Webinars retrieved successfully', $webinars);
@@ -56,33 +75,29 @@ class PublicWebinarController extends Controller
     public function show(Webinar $webinar)
     {
         try {
-            // Check if published
-            if (!$webinar->is_published) {
+            $user = Auth::guard('sanctum')->user();
+
+            // Access check: unpublished webinars require administrative/instructor preview privileges
+            if (!$this->accessService->canViewWebinar($webinar, $user)) {
                 return ApiResponseService::errorResponse('Webinar not found', [], 404);
             }
 
-            $webinar->load(['instructor:id,name']);
+            $webinar->load(['instructor:id,name', 'course:id,title']);
 
-            $user = Auth::guard('sanctum')->user();
-            $is_registered = $user ? WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->exists() : false;
+            $isEntitled = $this->accessService->isUserEntitled($webinar, $user);
+            $registration = $this->accessService->getRegistration($webinar, $user);
+            $isRegistered = $registration && ($registration->isConfirmed() || ($registration->isPending() && !$registration->isExpired()));
 
-            // PII Protection: do not load registrations relationship
-            // $webinar->load('registrations'); // REMOVED to protect PII
-
-            // Hide sensitive links if not registered or not completed
-            if (!$is_registered) {
-                $webinar->makeHidden(['join_url', 'meeting_password']);
-            }
-            if (!$is_registered || $webinar->status !== 'completed') {
-                $webinar->makeHidden(['recording_url']);
-            }
-
-            $webinar->append(['spots_left', 'is_full']);
+            // Sanitize webinar model to eliminate any sensitive credential leaks
+            $sanitizedWebinar = $this->accessService->sanitizeWebinarForResponse($webinar, $user);
+            $sanitizedWebinar->append(['spots_left', 'is_full']);
 
             return ApiResponseService::successResponse('Webinar details retrieved', [
-                'webinar' => $webinar,
-                'is_registered' => $is_registered,
-                'registered_count' => WebinarRegistration::where('webinar_id', $webinar->id)->count(),
+                'webinar' => $sanitizedWebinar,
+                'is_registered' => (bool) $isRegistered,
+                'is_entitled' => (bool) $isEntitled,
+                'payment_status' => $registration ? $registration->payment_status : null,
+                'registered_count' => $webinar->activeRegistrationsCount(),
             ]);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve webinar: ' . $e->getMessage());
@@ -90,43 +105,35 @@ class PublicWebinarController extends Controller
     }
 
     /**
-     * Join a webinar (get join URL)
+     * Join a webinar (authoritative join URL gateway)
      * GET /api/webinars/{slug}/join
      */
     public function join(Webinar $webinar)
     {
         try {
             $user = Auth::guard('sanctum')->user();
-            if (!$user) {
-                return ApiResponseService::errorResponse('Unauthorized.', [], 401);
+
+            $joinCheck = $this->accessService->canJoinLive($webinar, $user);
+            if (!$joinCheck['allowed']) {
+                return ApiResponseService::errorResponse(
+                    $joinCheck['reason'],
+                    ['error_code' => $joinCheck['error_code']],
+                    $joinCheck['code']
+                );
             }
 
-            $registration = WebinarRegistration::where('user_id', $user->id)
-                ->where('webinar_id', $webinar->id)
-                ->first();
-
-            if (!$webinar->is_published || $webinar->status === 'cancelled') {
-                return ApiResponseService::errorResponse('Webinar is not available.', [], 404);
+            // Record attendance check-in on the user's registration
+            if ($user) {
+                WebinarRegistration::where('user_id', $user->id)
+                    ->where('webinar_id', $webinar->id)
+                    ->whereNull('attended_at')
+                    ->update([
+                        'attended_at' => now(),
+                        'attended' => true,
+                    ]);
             }
 
-            if (!$registration || (!$webinar->is_free && !in_array($registration->payment_status, ['paid', 'free'], true))) {
-                return ApiResponseService::errorResponse('You must complete registration and payment for this webinar first.', [], 403);
-            }
-
-            if ($webinar->status === 'scheduled' && $webinar->start_at->gt(now()->addMinutes(15))) {
-                return ApiResponseService::errorResponse('The webinar has not started yet. You can join 15 minutes before the start time.');
-            }
-
-            $join_url = $webinar->join_url;
-            if ($webinar->provider === 'jitsi' && empty($join_url)) {
-                $join_url = "https://meet.jit.si/" . $webinar->slug;
-            }
-
-            return ApiResponseService::successResponse('Join link generated', [
-                'join_url' => $join_url,
-                'meeting_id' => $webinar->meeting_id,
-                'meeting_password' => $webinar->meeting_password
-            ]);
+            return ApiResponseService::successResponse('Join link generated', $joinCheck['data']);
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to join webinar: ' . $e->getMessage());
         }

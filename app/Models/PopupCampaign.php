@@ -31,15 +31,17 @@ class PopupCampaign extends Model
         'device_type',
         'display_pages',
         'delay_seconds',
+        'max_impressions',
     ];
 
     protected $casts = [
-        'is_active'      => 'boolean',
-        'starts_at'      => 'datetime',
-        'ends_at'        => 'datetime',
-        'discount_value' => 'float',
-        'display_pages'  => 'array',
-        'delay_seconds'  => 'integer',
+        'is_active'       => 'boolean',
+        'starts_at'       => 'datetime',
+        'ends_at'         => 'datetime',
+        'discount_value'  => 'float',
+        'display_pages'   => 'array',
+        'delay_seconds'   => 'integer',
+        'max_impressions' => 'integer',
     ];
 
     /**

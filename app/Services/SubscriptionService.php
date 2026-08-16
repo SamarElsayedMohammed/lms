@@ -59,21 +59,36 @@ final class SubscriptionService
                 }
             }
 
-            // 2. Queuing (Different Plan, or no extension)
+            // 2. Queuing or Replacement (Different Plan, or no extension)
             $startsAt = now();
             $status = Subscription::STATUS_ACTIVE;
             $parentSubscriptionId = null;
 
-            if ($lastSubscription) {
+            if ($lastSubscription && $lastSubscription->ends_at === null) {
+                // If user currently has an active lifetime plan, upgrade/replace it immediately
+                $startsAt = now();
+                $status = Subscription::STATUS_ACTIVE;
+                $parentSubscriptionId = $lastSubscription->id;
+                $lastSubscription->update([
+                    'status' => Subscription::STATUS_CANCELLED,
+                    'cancelled_at' => now(),
+                    'cancellation_reason' => 'Replaced by new subscription',
+                ]);
+            } elseif ($lastSubscription) {
                 // If user has an active or queued subscription, the new one starts after the very last one ends
                 $startsAt = $lastSubscription->ends_at ?? now();
                 $status = Subscription::STATUS_PENDING; // Mark as pending until it's time to start
                 $parentSubscriptionId = $lastSubscription->id;
             } elseif ($existingSubscription) {
                 // Fallback for lifetime active subscriptions
-                $startsAt = $existingSubscription->ends_at ?? now();
-                $status = Subscription::STATUS_PENDING;
+                $startsAt = now();
+                $status = Subscription::STATUS_ACTIVE;
                 $parentSubscriptionId = $existingSubscription->id;
+                $existingSubscription->update([
+                    'status' => Subscription::STATUS_CANCELLED,
+                    'cancelled_at' => now(),
+                    'cancellation_reason' => 'Replaced by new subscription',
+                ]);
             }
 
             // Calculate dates
@@ -150,15 +165,16 @@ final class SubscriptionService
      */
     private function createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, array $discountMeta = []): void
     {
-        $totalAmount = (float) $plan->price;
+        // The controller resolves country pricing and promo discounts before it calls
+        // this service. Persist that authoritative final amount instead of reverting
+        // the payment record to the plan's default-currency price.
+        $totalAmount = isset($discountMeta['total_amount'])
+            ? (float) $discountMeta['total_amount']
+            : (float) $plan->price;
         $walletAmount = $walletAmount ?? 0;
         $gatewayAmount = $gatewayAmount ?? ($totalAmount - $walletAmount);
 
-        // If discount was applied, use discounted total for the payment amount
         $paymentAmount = $totalAmount;
-        if (!empty($discountMeta['discount_amount']) && $discountMeta['discount_amount'] > 0) {
-            $paymentAmount = max($totalAmount - $discountMeta['discount_amount'], 0);
-        }
 
         SubscriptionPayment::create([
             'subscription_id' => $subscription->id,
@@ -172,7 +188,9 @@ final class SubscriptionService
             'currency_code' => $discountMeta['currency_code'] ?? 'EGP',
             'price_source' => $discountMeta['price_source'] ?? 'default',
             'promo_code' => $discountMeta['promo_code'] ?? null,
-            'original_amount' => !empty($discountMeta['promo_code']) ? $totalAmount : null,
+            'original_amount' => !empty($discountMeta['promo_code'])
+                ? (float) ($discountMeta['original_amount'] ?? $totalAmount)
+                : null,
             'discount_amount' => $discountMeta['discount_amount'] ?? 0,
             'tax' => 0,
             'final_amount' => $paymentAmount,
@@ -251,7 +269,7 @@ final class SubscriptionService
                 'gateway_amount' => $gatewayAmount,
                 'status' => SubscriptionPayment::STATUS_COMPLETED,
                 'payment_method' => $paymentMethod ?? 'wallet',
-                'currency_code' => 'EGP', // Renewals currently don't dynamically recalculate country pricing, they use base plan price. In a full system we'd recalculate here too, but this handles the schema requirement.
+                'currency_code' => 'EGP',
                 'price_source' => 'default',
                 'tax' => 0,
                 'final_amount' => $totalAmount,
@@ -514,26 +532,17 @@ final class SubscriptionService
             ->whereNotNull('ends_at')
             ->where('ends_at', '>', now())
             ->where('ends_at', '<=', now()->addDays($days))
-            // Only those not yet notified for this specific day threshold
-            // We'll use a JSON contains check if notified_intervals exists, 
-            // but since we only have hardcoded columns right now, we handle fallback gracefully
             ->where(function($query) use ($days) {
                 $column = "notified_{$days}_days";
                 if (\Illuminate\Support\Facades\Schema::hasColumn('subscriptions', $column)) {
                     $query->where($column, false);
                 } else {
-                    // Fallback to checking a generic last_notified_days column if we migrate to it later
-                    // For now, if column doesn't exist, we might send duplicates unless we add a migration
-                    // We'll assume the column doesn't exist and we just rely on it sending
-                    $query->whereNull('id'); // Wait, if the column doesn't exist, we shouldn't fail.
-                    // But we actually DO need to track it so we don't spam.
-                    // Let's rely on JSON column 'notified_intervals' or just the hardcoded ones if $days is 7,3,1.
+                    $query->whereNull('id');
                 }
             })
             ->with(['user', 'plan'])
             ->get();
     }
-
 
     /**
      * Mark a subscription as notified for a specific threshold
@@ -546,7 +555,6 @@ final class SubscriptionService
             $subscription->{$field} = true;
             $subscription->save();
         } else {
-            // Future-proofing: If we use a JSON column
             if (\Illuminate\Support\Facades\Schema::hasColumn('subscriptions', 'notified_intervals')) {
                 $intervals = $subscription->notified_intervals ?? [];
                 if (!in_array($thresholdDays, $intervals)) {

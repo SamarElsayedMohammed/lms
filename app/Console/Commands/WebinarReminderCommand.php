@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Events\WebinarStartingSoon;
+use App\Models\Webinar;
 use Illuminate\Console\Command;
 
 class WebinarReminderCommand extends Command
@@ -18,29 +20,38 @@ class WebinarReminderCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Command description';
+    protected $description = 'Dispatches starting-soon reminders for webinars starting within 1 hour';
 
     /**
      * Execute the console command.
      */
     public function handle()
     {
-        // Find webinars starting in exactly 1 hour (between 55 and 65 mins from now)
-        $start = now()->addMinutes(55);
-        $end = now()->addMinutes(65);
-
-        $webinars = \App\Models\Webinar::where('status', 'scheduled')
-            ->whereBetween('start_at', [$start, $end])
+        // Query all published, scheduled webinars starting within the next 60 minutes that have not been reminded yet
+        $dueWebinars = Webinar::where('status', 'scheduled')
+            ->where('is_published', true)
+            ->whereNull('reminder_sent_at')
+            ->where('start_at', '<=', now()->addMinutes(60))
+            ->where('start_at', '>', now())
             ->get();
 
-        foreach ($webinars as $webinar) {
-            // Fire event instead of handling directly to decouple logic and use the queue
-            if (class_exists(\App\Events\WebinarStartingSoon::class)) {
-                event(new \App\Events\WebinarStartingSoon($webinar));
+        $count = 0;
+        foreach ($dueWebinars as $webinar) {
+            // Atomic claim: set reminder_sent_at only if it is still null
+            $claimed = Webinar::where('id', $webinar->id)
+                ->whereNull('reminder_sent_at')
+                ->update(['reminder_sent_at' => now()]);
+
+            if ($claimed > 0) {
+                if (class_exists(WebinarStartingSoon::class)) {
+                    event(new WebinarStartingSoon($webinar));
+                }
+                $this->info("WebinarStartingSoon event fired for webinar #{$webinar->id}: {$webinar->title}");
+                $count++;
             }
-            $this->info("WebinarStartingSoon event fired for webinar: {$webinar->title}");
         }
 
+        $this->info("Webinar reminder scan completed. Dispatched {$count} reminder(s).");
         return Command::SUCCESS;
     }
 }

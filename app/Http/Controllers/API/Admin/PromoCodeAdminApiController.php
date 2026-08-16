@@ -90,6 +90,10 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('promo-codes-create');
 
+        if ($request->has('promo_code')) {
+            $request->merge(['promo_code' => \App\Services\SubscriptionPromoService::normalizeCode($request->promo_code)]);
+        }
+
         $rules = [
             'promo_code' => 'required|string|max:255|unique:promo_codes,promo_code',
             'message' => 'required|string|max:255',
@@ -141,6 +145,10 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         $promoCode = PromoCode::find($id);
         if (!$promoCode) {
             return $this->jsonError(__('Promo code not found'), 404);
+        }
+
+        if ($request->has('promo_code')) {
+            $request->merge(['promo_code' => \App\Services\SubscriptionPromoService::normalizeCode($request->promo_code)]);
         }
 
         $rules = [

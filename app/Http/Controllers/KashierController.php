@@ -77,7 +77,7 @@ final class KashierController extends Controller
                 Log::info('Kashier process: order already processed via previous request', ['orderId' => $orderId]);
                 $redirectPath = '/plans';
                 if (str_starts_with($orderId, 'wlt_')) $redirectPath = '/my-wallet';
-                if (str_starts_with($orderId, 'webinar_')) $redirectPath = '/my-webinars';
+                if (str_starts_with($orderId, 'webinar_')) $redirectPath = '/my-live-sessions';
                 
                 return $this->respond($request, 'OK', 200, true, $request->isMethod('get') ? $redirectPath : null, $orderId);
             }
@@ -114,7 +114,9 @@ final class KashierController extends Controller
                 ]);
 
                 if ($request->isMethod('get')) {
-                    $redirectPath = str_starts_with($orderId, 'wlt_') ? '/my-wallet' : '/plans';
+                    $redirectPath = str_starts_with($orderId, 'wlt_')
+                        ? '/my-wallet'
+                        : (str_starts_with($orderId, 'webinar_') ? '/my-live-sessions' : '/plans');
                     return $this->respond($request, 'Verification failed', 302, false, $redirectPath, $orderId);
                 }
 
@@ -151,21 +153,72 @@ final class KashierController extends Controller
                 return $this->respond($request, 'Order not found', 404, false);
             }
 
-            $gatewayAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? $plan->price);
             $transactionId = $this->extractTransactionId($data) ?: $orderId;
-
             $pending = Cache::get('kashier_pending_' . $orderId);
-            $walletAmount = $pending['wallet_amount'] ?? 0;
+
+            // Look up durable pending payment record by transaction_id or cache payment_id
+            $pendingPayment = SubscriptionPayment::where('transaction_id', $orderId)
+                ->orWhere('transaction_id', $transactionId)
+                ->first();
+
+            if (!$pendingPayment && !empty($pending['payment_id'])) {
+                $pendingPayment = SubscriptionPayment::find($pending['payment_id']);
+            }
+
+            if ($pendingPayment && $pendingPayment->status === SubscriptionPayment::STATUS_COMPLETED) {
+                Log::info('Kashier webhook: payment already completed', ['orderId' => $orderId, 'transactionId' => $transactionId]);
+                Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
+                Cache::forget('kashier_pending_' . $orderId);
+                return $this->respond($request, 'OK', 200, true, null, $orderId);
+            }
+
+            $gatewayAmount = $pendingPayment
+                ? (float) $pendingPayment->gateway_amount
+                : (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? ($pending['gateway_amount'] ?? $plan->price));
+
+            $walletAmount = $pendingPayment
+                ? (float) $pendingPayment->wallet_amount
+                : (float) ($pending['wallet_amount'] ?? 0);
 
             if ($this->isSuccessfulStatus($status)) {
+                // Verify amount if provided in callback
+                $incomingAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? 0);
+                if ($incomingAmount > 0 && $pendingPayment && abs($incomingAmount - $pendingPayment->gateway_amount) > 0.05) {
+                    $this->kashierLog('Kashier amount mismatch rejected', [
+                        'orderId' => $orderId,
+                        'expected' => $pendingPayment->gateway_amount,
+                        'received' => $incomingAmount,
+                    ]);
+                    return $this->respond($request, 'Payment amount mismatch', 422, false, null, $orderId);
+                }
+
                 return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, array_merge($data, [
                     '_kashier_status_resolved' => $status,
                     '_kashier_verified' => $isVerified,
-                ]));
+                ]), $pendingPayment);
             }
 
             if ($this->isFailedStatus($status)) {
                 Cache::forget('kashier_pending_' . $orderId);
+                if ($pendingPayment) {
+                    DB::transaction(function () use ($pendingPayment, $data) {
+                        $lockedPayment = SubscriptionPayment::where('id', $pendingPayment->id)->lockForUpdate()->first();
+                        if ($lockedPayment && $lockedPayment->status === SubscriptionPayment::STATUS_PENDING) {
+                            $lockedPayment->status = SubscriptionPayment::STATUS_FAILED;
+                            $lockedPayment->gateway_response = $data;
+                            $lockedPayment->save();
+
+                            if ($lockedPayment->subscription && in_array($lockedPayment->subscription->status, [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL], true)) {
+                                $lockedPayment->subscription->status = Subscription::STATUS_CANCELLED;
+                                $lockedPayment->subscription->save();
+                            }
+
+                            if ($lockedPayment->promo_code) {
+                                app(\App\Services\SubscriptionPromoService::class)->releasePromo($lockedPayment->promo_code);
+                            }
+                        }
+                    });
+                }
                 try {
                     $user->notify(new \App\Notifications\PaymentStatusNotification(
                         isSuccess: false,
@@ -188,9 +241,9 @@ final class KashierController extends Controller
         }
     }
 
-    private function handleSuccess(Request $request, string $orderId, User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data)
+    private function handleSuccess(Request $request, string $orderId, User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data, ?SubscriptionPayment $pendingPayment = null)
     {
-        $existingPayment = SubscriptionPayment::where('transaction_id', $transactionId)->first();
+        $existingPayment = SubscriptionPayment::where('transaction_id', $transactionId)->where('status', SubscriptionPayment::STATUS_COMPLETED)->first();
         if ($existingPayment) {
             Log::info('Kashier webhook: payment already processed', ['transactionId' => $transactionId]);
             if (!empty($orderId)) {
@@ -203,7 +256,59 @@ final class KashierController extends Controller
         $paymentMethod = $walletAmount > 0 ? 'wallet_and_kashier' : 'kashier';
 
         try {
-            $subscription = DB::transaction(function () use ($user, $plan, $walletAmount, $gatewayAmount, $paymentMethod, $transactionId, $data) {
+            $subscription = DB::transaction(function () use ($user, $plan, $walletAmount, $gatewayAmount, $paymentMethod, $transactionId, $data, $pendingPayment) {
+                if ($pendingPayment) {
+                    $lockedPayment = SubscriptionPayment::where('id', $pendingPayment->id)->lockForUpdate()->first();
+                    if ($lockedPayment) {
+                        if ($lockedPayment->status === SubscriptionPayment::STATUS_COMPLETED) {
+                            return $lockedPayment->subscription;
+                        }
+
+                        $lockedPayment->status = SubscriptionPayment::STATUS_COMPLETED;
+                        $lockedPayment->paid_at = now();
+                        $lockedPayment->transaction_id = $transactionId;
+                        $lockedPayment->gateway_response = $data;
+                        $lockedPayment->save();
+
+                        $sub = $lockedPayment->subscription;
+                        if ($sub) {
+                            $existingActive = Subscription::forUser($user->id)->active()->first();
+                            if ($existingActive && $existingActive->id !== $sub->id) {
+                                $sub->status = Subscription::STATUS_PENDING;
+                                $sub->starts_at = $existingActive->ends_at ?? now();
+                                $sub->parent_subscription_id = $existingActive->id;
+                            } else {
+                                $sub->status = Subscription::STATUS_ACTIVE;
+                                $sub->starts_at = now();
+                            }
+                            $durationDays = $plan->getDurationDays();
+                            $sub->ends_at = $durationDays !== null ? $sub->starts_at->copy()->addDays($durationDays) : null;
+                            $sub->save();
+                        }
+
+                        if ($walletAmount > 0) {
+                            $alreadyDebited = \App\Models\WalletHistory::where('user_id', $user->id)
+                                ->where('reference_id', $sub?->id ?? $lockedPayment->id)
+                                ->where('reference_type', \App\Models\Subscription::class)
+                                ->where('type', 'debit')
+                                ->exists();
+                            if (!$alreadyDebited && $user->wallet_balance >= $walletAmount) {
+                                \App\Services\WalletService::debitWallet(
+                                    $user->id,
+                                    $walletAmount,
+                                    'subscription',
+                                    "Subscription payment for subscription #{$sub?->id}",
+                                    $sub?->id,
+                                    \App\Models\Subscription::class,
+                                    'user'
+                                );
+                            }
+                        }
+
+                        return $sub;
+                    }
+                }
+
                 $subscription = $this->subscriptionService->createSubscription(
                     $user,
                     $plan,
@@ -225,7 +330,9 @@ final class KashierController extends Controller
 
             // Send notification to user
             try {
-                $user->notify(new \App\Notifications\SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+                if ($subscription) {
+                    $user->notify(new \App\Notifications\SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+                }
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
             } catch (\Throwable $e) {
@@ -236,7 +343,7 @@ final class KashierController extends Controller
                 'orderId' => $orderId,
                 'userId' => $user->id,
                 'planId' => $plan->id,
-                'subscriptionId' => $subscription->id,
+                'subscriptionId' => $subscription?->id,
                 'transactionId' => $transactionId,
                 'walletAmount' => $walletAmount,
                 'gatewayAmount' => $gatewayAmount,
@@ -450,10 +557,11 @@ final class KashierController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($registration, $user, $webinar, $orderId) {
+            DB::transaction(function () use ($registration, $user, $webinar, $orderId, $data) {
                 // Deduct wallet if it was a split payment
                 $pending = Cache::get('kashier_pending_' . $orderId);
                 $walletAmount = (float) ($pending['wallet_amount'] ?? 0);
+                $paidAmount = (float) ($pending['expected_amount'] ?? $data['amount'] ?? $data['transactionAmount'] ?? $webinar->price);
 
                 if ($walletAmount > 0 && $user->wallet_balance >= $walletAmount) {
                     \App\Services\WalletService::debitWallet(
@@ -466,7 +574,11 @@ final class KashierController extends Controller
                     );
                 }
 
-                $registration->update(['payment_status' => 'paid']);
+                $registration->update([
+                    'payment_status' => 'paid',
+                    'paid_amount' => $paidAmount,
+                    'expires_at' => null,
+                ]);
             });
 
             $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
@@ -479,7 +591,7 @@ final class KashierController extends Controller
             Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
             Cache::forget('kashier_pending_' . $orderId);
 
-            return $this->respond($request, 'OK', 200, true);
+            return $this->respond($request, 'OK', 200, true, $request->isMethod('get') ? '/my-live-sessions' : null, $orderId);
 
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -492,7 +604,7 @@ final class KashierController extends Controller
         }
     }
 
-    private function respond(Request $request, string $message, int $statusCode, bool $isSuccess, string $redirectPath = null, string $orderId = '')
+    private function respond(Request $request, string $message, int $statusCode, bool $isSuccess, ?string $redirectPath = null, string $orderId = '')
     {
         // Browser redirects are GET requests. Webhooks, including form-encoded POSTs, must receive plain responses.
         if ($request->isMethod('get')) {
@@ -502,6 +614,8 @@ final class KashierController extends Controller
                 $orderId = $orderId ?: (string) ($request->input('merchantOrderId') ?? $request->input('merchant_order_id') ?? $request->input('orderId') ?? $request->input('order_id') ?? '');
                 if (str_starts_with($orderId, 'wlt_')) {
                     $redirectPath = '/my-wallet';
+                } elseif (str_starts_with($orderId, 'webinar_')) {
+                    $redirectPath = '/my-live-sessions';
                 } else {
                     $redirectPath = '/plans';
                 }

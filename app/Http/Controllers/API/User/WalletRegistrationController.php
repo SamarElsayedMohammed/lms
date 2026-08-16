@@ -7,6 +7,7 @@ use App\Models\Webinar;
 use App\Models\WebinarRegistration;
 use App\Services\ApiResponseService;
 use App\Services\Payment\WalletPaymentIntegrationService;
+use App\Services\WebinarAccessService;
 use App\Services\WebinarRegistrationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,13 +17,16 @@ class WalletRegistrationController extends Controller
 {
     protected WebinarRegistrationService $registrationService;
     protected WalletPaymentIntegrationService $walletIntegrationService;
+    protected WebinarAccessService $accessService;
 
     public function __construct(
         WebinarRegistrationService $registrationService,
-        WalletPaymentIntegrationService $walletIntegrationService
+        WalletPaymentIntegrationService $walletIntegrationService,
+        WebinarAccessService $accessService
     ) {
         $this->registrationService = $registrationService;
         $this->walletIntegrationService = $walletIntegrationService;
+        $this->accessService = $accessService;
     }
 
     /**
@@ -41,24 +45,29 @@ class WalletRegistrationController extends Controller
                 return ApiResponseService::errorResponse('use_wallet parameter must be true for this endpoint.', [], 400);
             }
 
-            $existing = WebinarRegistration::where('user_id', $user->id)
-                ->where('webinar_id', $webinar->id)->first();
-            if ($existing) {
+            // Preliminary check using canonical access service
+            $check = $this->accessService->canRegister($webinar, $user);
+            if (!$check['allowed']) {
                 return response()->json([
-                    'success' => true,
-                    'message' => 'You are already registered for this webinar.',
-                    'transaction_id' => null,
-                ]);
+                    'success' => false,
+                    'message' => $check['reason'],
+                    'error_code' => $check['error_code'],
+                ], $check['code']);
             }
 
             $transaction = DB::transaction(function () use ($user, $webinar) {
-                $transaction = $this->walletIntegrationService->payForWebinar($user, $webinar);
+                $transaction = null;
+                if (!$webinar->is_free && $webinar->price > 0) {
+                    $transaction = $this->walletIntegrationService->payForWebinar($user, $webinar);
+                }
+
                 $this->registrationService->register(
                     $webinar,
                     $user,
                     $webinar->is_free || $webinar->price <= 0 ? 'free' : 'paid',
-                    $webinar->is_free ? 0.00 : $webinar->price,
+                    $webinar->is_free ? 0.00 : (float) $webinar->price
                 );
+
                 return $transaction;
             });
 
@@ -69,19 +78,19 @@ class WalletRegistrationController extends Controller
             ], 200);
             
         } catch (\Exception $e) {
-            if ($e->getCode() === 409 && $e->getMessage() === 'webinar_is_full') {
-                return response()->json(['message' => 'webinar_is_full'], 409);
+            $code = $e->getCode();
+            $msg = $e->getMessage();
+
+            if ($code === 409 || $msg === 'webinar_is_full' || $msg === 'already_registered') {
+                return response()->json(['success' => false, 'message' => $msg], 409);
             }
-            if ($e->getCode() === 409 && $e->getMessage() === 'already_registered') {
-                return response()->json(['message' => 'already_registered'], 409);
+            if ($code === 400 || $msg === 'insufficient_funds') {
+                return response()->json(['success' => false, 'message' => $msg], 400);
             }
-            if ($e->getCode() === 400 && $e->getMessage() === 'insufficient_funds') {
-                return response()->json(['message' => 'insufficient_funds'], 400);
+            if ($code === 404) {
+                return response()->json(['success' => false, 'message' => $msg], 404);
             }
-            if ($e->getCode() === 400) {
-                return response()->json(['message' => $e->getMessage()], 400);
-            }
-            return ApiResponseService::errorResponse('Failed to register: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $msg], 500);
         }
     }
 }

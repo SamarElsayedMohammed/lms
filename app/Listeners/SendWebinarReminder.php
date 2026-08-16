@@ -6,6 +6,7 @@ use App\Events\WebinarStartingSoon;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use App\Notifications\WebinarRegistrationNotification;
+use Illuminate\Support\Facades\Log;
 
 class SendWebinarReminder implements ShouldQueue
 {
@@ -16,10 +17,21 @@ class SendWebinarReminder implements ShouldQueue
      */
     public function handle(WebinarStartingSoon $event): void
     {
-        $registrations = $event->webinar->registrations()->with('user')->get();
+        $webinar = $event->webinar;
+
+        // Strictly notify only confirmed registrants (paid or free), excluding unpaid pending/expired
+        $registrations = $webinar->registrations()
+            ->whereIn('payment_status', ['paid', 'free'])
+            ->with('user')
+            ->get();
+
         foreach ($registrations as $reg) {
             if ($reg->user) {
-                $reg->user->notify(new WebinarRegistrationNotification($event->webinar, true));
+                try {
+                    $reg->user->notify(new WebinarRegistrationNotification($webinar, isReminder: true));
+                } catch (\Throwable $e) {
+                    Log::error("Failed sending starting soon reminder to user #{$reg->user->id}: " . $e->getMessage());
+                }
             }
         }
     }

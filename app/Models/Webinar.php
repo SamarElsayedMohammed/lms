@@ -33,10 +33,12 @@ class Webinar extends Model
         'tags',
         'is_published',
         'is_featured',
+        'reminder_sent_at',
     ];
 
     protected $casts = [
         'start_at' => 'datetime',
+        'reminder_sent_at' => 'datetime',
         'is_free' => 'boolean',
         'price' => 'decimal:2',
         'features' => 'array',
@@ -72,13 +74,31 @@ class Webinar extends Model
         return $date->format('Y-m-d\TH:i:s.v\Z');
     }
 
+    /**
+     * Count active capacity-consuming registrations (confirmed free/paid + unexpired pending).
+     */
+    public function activeRegistrationsCount(): int
+    {
+        return $this->registrations()
+            ->where(function ($q) {
+                $q->whereIn('payment_status', ['paid', 'free'])
+                  ->orWhere(function ($sub) {
+                      $sub->where('payment_status', 'pending')
+                          ->where(function ($exp) {
+                              $exp->whereNull('expires_at')
+                                  ->orWhere('expires_at', '>', now());
+                          });
+                  });
+            })->count();
+    }
+
     // Accessor for spots left
     public function getSpotsLeftAttribute(): int
     {
         if ($this->max_attendees <= 0) {
             return 9999; // Unlimited
         }
-        return max(0, $this->max_attendees - $this->registrations()->count());
+        return max(0, $this->max_attendees - $this->activeRegistrationsCount());
     }
 
     // Accessor for is full
@@ -87,7 +107,7 @@ class Webinar extends Model
         if ($this->max_attendees <= 0) {
             return false;
         }
-        return $this->registrations()->count() >= $this->max_attendees;
+        return $this->activeRegistrationsCount() >= $this->max_attendees;
     }
 
     public function course()

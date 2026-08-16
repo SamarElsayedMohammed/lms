@@ -164,6 +164,11 @@ class PaymentMethodAdminApiController extends AdminCrudApiController
 
         $method = PaymentMethod::findOrFail($id);
         
+        if (\App\Models\SubscriptionPayment::where('payment_method_id', $method->id)->exists()) {
+            $method->update(['is_active' => false]);
+            return ApiResponseService::successResponse('تم إيقاف تفعيل طريقة الدفع لوجود معاملات مرتبطة بها.');
+        }
+
         if ($method->logo) {
             FileService::delete($method->getRawOriginal('logo'));
         }

@@ -12,16 +12,16 @@ use Illuminate\Http\JsonResponse;
 final class PopupCampaignApiController extends Controller
 {
     /**
-     * Get the active popup campaign for the frontend.
+     * Get active popup campaign candidates for the frontend.
      *
-     * The popup is designed for subscription plan promotions.
-     * It returns discount info + promo code string + CTA link directly,
-     * without depending on the promo_codes table (which is for courses).
+     * Returns serialized campaign candidates with complete targeting, design,
+     * frequency, and timing configuration, preventing newer ineligible campaigns
+     * from shadowing older eligible ones (PLI-13, PLI-34, PLI-35, PLI-36).
      */
     public function getActiveCampaign(): JsonResponse
     {
         try {
-            $campaign = PopupCampaign::where('is_active', true)
+            $campaigns = PopupCampaign::where('is_active', true)
                 ->where(function ($query) {
                     $query->whereNull('starts_at')
                           ->orWhere('starts_at', '<=', now());
@@ -31,32 +31,54 @@ final class PopupCampaignApiController extends Controller
                           ->orWhere('ends_at', '>=', now());
                 })
                 ->latest()
-                ->first();
+                ->limit(10)
+                ->get();
 
-            if (!$campaign) {
-                return ApiResponseService::successResponse('No active campaign', ['campaign' => null]);
+            if ($campaigns->isEmpty()) {
+                return ApiResponseService::successResponse('No active campaign', [
+                    'campaign'  => null,
+                    'campaigns' => [],
+                ]);
             }
 
-            return ApiResponseService::successResponse('Active campaign retrieved', [
-                'campaign' => [
-                    'id'             => $campaign->id,
-                    'title'          => $campaign->title,
-                    'description'    => $campaign->description,
-                    'image'          => $campaign->image ? url($campaign->image) : null,
+            $serialized = $campaigns->map(function (PopupCampaign $campaign) {
+                return [
+                    'id'               => $campaign->id,
+                    'title'            => $campaign->title,
+                    'description'      => $campaign->description,
+                    'image'            => $campaign->image ? url($campaign->image) : null,
 
-                    // Subscription discount info
-                    'promo_code'     => $campaign->promo_code,      // e.g. "SKILLS026"
-                    'discount_value' => $campaign->discount_value,  // e.g. 30.0
-                    'discount_type'  => $campaign->discount_type,   // 'percentage' | 'amount'
+                    // Subscription discount info (Marketing presentation only)
+                    'promo_code'       => $campaign->promo_code,
+                    'discount_value'   => $campaign->discount_value,
+                    'discount_type'    => $campaign->discount_type ?: 'percentage',
 
                     // CTA button
-                    'cta_url'        => $campaign->cta_url,         // e.g. "/subscription-plans"
-                    'cta_text'       => $campaign->cta_text,        // e.g. "اشترك الآن"
+                    'cta_url'          => $campaign->cta_url,
+                    'cta_text'         => $campaign->cta_text,
 
                     // Date range
-                    'starts_at'      => $campaign->starts_at?->toDateTimeString(),
-                    'ends_at'        => $campaign->ends_at?->toDateTimeString(),
-                ],
+                    'starts_at'        => $campaign->starts_at?->toDateTimeString(),
+                    'ends_at'          => $campaign->ends_at?->toDateTimeString(),
+
+                    // Design & Appearance
+                    'background_color' => $campaign->background_color,
+                    'text_color'       => $campaign->text_color,
+                    'button_color'     => $campaign->button_color,
+                    'template_style'   => $campaign->template_style ?: 'modal',
+
+                    // Targeting & Delivery
+                    'target_audience'  => $campaign->target_audience ?: 'all',
+                    'device_type'      => $campaign->device_type ?: 'all',
+                    'display_pages'    => $campaign->display_pages,
+                    'delay_seconds'    => $campaign->delay_seconds ?? 0,
+                    'max_impressions'  => $campaign->max_impressions,
+                ];
+            })->values()->all();
+
+            return ApiResponseService::successResponse('Active campaigns retrieved', [
+                'campaign'  => $serialized[0] ?? null,
+                'campaigns' => $serialized,
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;

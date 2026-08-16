@@ -20,6 +20,21 @@ use Illuminate\Support\Facades\Validator;
 class RefundApiController extends Controller
 {
     /**
+     * Enforce admin role and permission for financial refund actions.
+     */
+    protected function ensureAdminPermission(string $permission = 'finance-list'): void
+    {
+        $user = Auth::user();
+        if (!$user) {
+            abort(401, 'Unauthenticated');
+        }
+        $adminRoles = ['Super Admin', config('constants.SYSTEM_ROLES.SUPER_ADMIN'), config('constants.SYSTEM_ROLES.STAFF'), config('constants.SYSTEM_ROLES.SUPERVISOR')];
+        if (!$user->hasAnyRole($adminRoles, 'web') && !$user->can($permission)) {
+            abort(403, 'Admin access required for refunds management');
+        }
+    }
+
+    /**
      * Request a refund for a course
      */
     public function requestRefund(Request $request)
@@ -306,6 +321,8 @@ class RefundApiController extends Controller
      */
     public function processRefund(Request $request)
     {
+        $this->ensureAdminPermission('finance-edit');
+
         $validator = Validator::make($request->all(), [
             'refund_request_id' => 'required|exists:refund_requests,id',
             'action' => 'required|in:approve,reject',
@@ -422,6 +439,8 @@ class RefundApiController extends Controller
      */
     public function getRefundSettings()
     {
+        $this->ensureAdminPermission('finance-list');
+
         try {
             $settings = Setting::whereIn('name', ['refund_enabled', 'refund_period_days'])->get();
 
@@ -443,6 +462,8 @@ class RefundApiController extends Controller
      */
     public function updateRefundSettings(Request $request)
     {
+        $this->ensureAdminPermission('finance-edit');
+
         $validator = Validator::make($request->all(), [
             'refund_enabled' => 'required|boolean',
             'refund_period_days' => 'required|integer|min:1|max:90',
@@ -481,6 +502,8 @@ class RefundApiController extends Controller
      */
     public function getAllRefunds(Request $request)
     {
+        $this->ensureAdminPermission('finance-list');
+
         try {
             $query = RefundRequest::with(['user', 'course', 'transaction', 'processedByUser']);
 

@@ -58,6 +58,7 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
             'display_pages'  => 'nullable|array',
             'display_pages.*'=> 'string',
             'delay_seconds'  => 'nullable|integer|min:0',
+            'max_impressions'=> 'nullable|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -72,7 +73,12 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
                 'starts_at', 'ends_at', 'is_active',
                 'background_color', 'text_color', 'button_color', 'template_style',
                 'target_audience', 'device_type', 'display_pages', 'delay_seconds',
+                'max_impressions',
             ]);
+
+            if ($request->filled('promo_code')) {
+                $data['promo_code'] = strtoupper(trim((string) $request->promo_code));
+            }
 
             if ($request->hasFile('image')) {
                 $data['image'] = FileService::compressAndUpload($request->file('image'), $this->folder);
@@ -134,6 +140,7 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
             'display_pages'  => 'nullable|array',
             'display_pages.*'=> 'string',
             'delay_seconds'  => 'nullable|integer|min:0',
+            'max_impressions'=> 'nullable|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -148,7 +155,12 @@ class PopupCampaignAdminApiController extends AdminCrudApiController
                 'starts_at', 'ends_at', 'is_active',
                 'background_color', 'text_color', 'button_color', 'template_style',
                 'target_audience', 'device_type', 'display_pages', 'delay_seconds',
+                'max_impressions',
             ]);
+
+            if ($request->filled('promo_code')) {
+                $data['promo_code'] = strtoupper(trim((string) $request->promo_code));
+            }
 
             if ($request->hasFile('image')) {
                 $data['image'] = FileService::compressAndReplace(

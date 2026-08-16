@@ -40,10 +40,20 @@ class IdempotencyMiddleware
             $idempotencyKey,
         ]));
 
-        if (!Cache::add($cacheKey, true, now()->addHours(24))) {
+        if (!Cache::add($cacheKey, ['state' => 'processing'], now()->addHours(24))) {
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached) && ($cached['state'] ?? null) === 'completed') {
+                return response(
+                    (string) ($cached['content'] ?? ''),
+                    (int) ($cached['status'] ?? 200),
+                    is_array($cached['headers'] ?? null) ? $cached['headers'] : [],
+                );
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'Duplicate request detected.',
+                'message' => 'Request is already being processed.',
+                'reason' => 'IDEMPOTENCY_REQUEST_IN_PROGRESS',
             ], 409); // Conflict
         }
 
@@ -53,6 +63,17 @@ class IdempotencyMiddleware
         // so the user can retry.
         if ($response->getStatusCode() >= 400 && $response->getStatusCode() !== 409) {
              Cache::forget($cacheKey);
+        } elseif ($response->getStatusCode() < 400) {
+            // Store the completed JSON response so a browser retry receives the
+            // original outcome instead of a false duplicate-payment error.
+            Cache::put($cacheKey, [
+                'state' => 'completed',
+                'status' => $response->getStatusCode(),
+                'content' => $response->getContent(),
+                'headers' => [
+                    'Content-Type' => $response->headers->get('Content-Type', 'application/json'),
+                ],
+            ], now()->addHours(24));
         }
 
         return $response;

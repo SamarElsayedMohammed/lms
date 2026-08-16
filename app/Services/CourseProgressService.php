@@ -144,8 +144,6 @@ class CourseProgressService
             $course = Course::with([
                 'chapters'              => fn($q) => $q->where('is_active', 1),
                 'chapters.lectures'     => fn($q) => $q->where('is_active', 1),
-                'chapters.quizzes'      => fn($q) => $q->where('is_active', 1),
-                'chapters.assignments'  => fn($q) => $q->where('is_active', 1),
                 'chapters.resources'    => fn($q) => $q->where('is_active', 1),
             ])->find($courseId);
 
@@ -191,8 +189,6 @@ class CourseProgressService
             $course = Course::with([
                 'chapters' => static fn ($query) => $query->where('is_active', true)->with([
                     'lectures' => static fn ($query) => $query->where('is_active', true),
-                    'quizzes' => static fn ($query) => $query->where('is_active', true),
-                    'assignments' => static fn ($query) => $query->where('is_active', true),
                     'resources' => static fn ($query) => $query->where('is_active', true),
                 ]),
             ])
@@ -347,7 +343,10 @@ class CourseProgressService
                     SELECT COUNT(DISTINCT s.user_id)
                     FROM subscriptions s
                     JOIN subscription_plans sp ON s.plan_id = sp.id
-                    WHERE s.status = "active"
+                    JOIN user_curriculum_trackings uct_sub ON uct_sub.user_id = s.user_id
+                    JOIN course_chapters cc_sub ON uct_sub.course_chapter_id = cc_sub.id
+                    WHERE cc_sub.course_id = courses.id
+                    AND s.status = "active"
                     AND (s.ends_at IS NULL OR s.ends_at > NOW())
                 ) as subscription_students')
                 ->selectRaw('(
@@ -373,7 +372,10 @@ class CourseProgressService
                         UNION
                         SELECT s.user_id
                         FROM subscriptions s
-                        WHERE s.status = "active"
+                        JOIN user_curriculum_trackings uct_u ON uct_u.user_id = s.user_id
+                        JOIN course_chapters cc_u ON uct_u.course_chapter_id = cc_u.id
+                        WHERE cc_u.course_id = courses.id
+                        AND s.status = "active"
                         AND (s.ends_at IS NULL OR s.ends_at > NOW())
                     ) AS unique_students
                 ) as total_students');
@@ -412,7 +414,6 @@ class CourseProgressService
             $data = collect($results->items())->map(function ($course) {
                 $purchased   = (int) $course->purchased_students;
                 $subscription = (int) $course->subscription_students;
-                // total_students is now a precise UNION count from the DB (no double-counting)
                 $totalStudents = (int) $course->total_students;
 
                 // Progress distribution

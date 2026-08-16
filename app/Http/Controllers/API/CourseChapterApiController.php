@@ -768,9 +768,7 @@ class CourseChapterApiController extends Controller
             $chapters = CourseChapter::where('course_id', $courseId)
                 ->where('is_active', true)
                 ->with([
-                    'lectures' => static function ($q) { $q->where('is_active', 1); },
-                    'quizzes' => static function ($q) { $q->where('is_active', 1); },
-                    'assignments' => static function ($q) { $q->where('is_active', 1); },
+                'lectures' => static function ($q) { $q->where('is_active', 1); },
                     'resources' => static function ($q) { $q->where('is_active', 1); }
                 ])
                 ->orderBy('chapter_order')
@@ -785,6 +783,11 @@ class CourseChapterApiController extends Controller
             // Get user's curriculum tracking data
             $userCurriculumTracking = UserCurriculumTracking::where('user_id', $userId)
                 ->whereIn('course_chapter_id', $chapters->pluck('id'))
+                ->whereIn('model_id', $chapters->flatMap->lectures->pluck('id'))
+                ->where(function ($query): void {
+                    $query->where('model_type', 'like', '%Lecture%')
+                        ->orWhere('model_type', 'lecture');
+                })
                 ->where('status', 'completed')
                 ->get()
                 ->groupBy('course_chapter_id');
@@ -797,11 +800,9 @@ class CourseChapterApiController extends Controller
 
             foreach ($chapters as $chapter) {
                 // Calculate content progress within chapter
-                $totalContent =
-                    $chapter->lectures->count()
-                    + $chapter->quizzes->count()
-                    + $chapter->assignments->count()
-                    + $chapter->resources->count();
+                // Student completion is video-only. Resources are supplemental
+                // and assessments are retired from the active product.
+                $totalContent = $chapter->lectures->count();
 
                 $totalCourseContent += $totalContent;
 
@@ -843,8 +844,6 @@ class CourseChapterApiController extends Controller
                     'total_content' => $totalContent,
                     'completed_content' => $chapterCompletedItems,
                     'lectures_count' => $chapter->lectures->count(),
-                    'quizzes_count' => $chapter->quizzes->count(),
-                    'assignments_count' => $chapter->assignments->count(),
                     'documents_count' => $chapter->resources->count(),
                 ];
             }

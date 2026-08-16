@@ -7,6 +7,7 @@ use App\Models\Webinar;
 use App\Models\WebinarRegistration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Tests\TestCase;
 
 class WebinarSystemTest extends TestCase
@@ -27,7 +28,7 @@ class WebinarSystemTest extends TestCase
             'price' => 0,
             'provider' => 'jitsi',
             'max_attendees' => 1,
-            'status' => 'published',
+            'status' => 'scheduled',
             'is_published' => true,
         ]);
 
@@ -44,8 +45,7 @@ class WebinarSystemTest extends TestCase
     public function test_json_config_hack_migrates_correctly()
     {
         $admin = User::factory()->create();
-        // Assume super admin role is somehow assigned, bypassing for test
-        $admin->assignRole('Super Admin'); // Or mock ensureAdmin
+        $admin->assignRole('Super Admin');
 
         $response = $this->actingAs($admin)->postJson('/api/admin/webinars', [
             'title' => 'Hack Test',
@@ -78,7 +78,7 @@ class WebinarSystemTest extends TestCase
             'is_free' => false,
             'price' => 50,
             'provider' => 'zoom',
-            'status' => 'published',
+            'status' => 'scheduled',
             'is_published' => true,
         ]);
 
@@ -104,7 +104,7 @@ class WebinarSystemTest extends TestCase
             'is_free' => false,
             'price' => 50,
             'provider' => 'zoom',
-            'status' => 'published',
+            'status' => 'scheduled',
             'is_published' => true,
         ]);
 
@@ -136,7 +136,7 @@ class WebinarSystemTest extends TestCase
             'is_free' => false,
             'price' => 10,
             'provider' => 'zoom',
-            'status' => 'published',
+            'status' => 'scheduled',
             'is_published' => true,
         ]);
 
@@ -159,7 +159,7 @@ class WebinarSystemTest extends TestCase
         $response2->assertStatus(409); // Conflict from duplicate middleware
     }
 
-    public function test_public_endpoint_hides_pii_data()
+    public function test_public_endpoint_hides_pii_data_and_credentials()
     {
         $webinar = Webinar::create([
             'title' => 'PII Test',
@@ -169,7 +169,10 @@ class WebinarSystemTest extends TestCase
             'is_free' => true,
             'price' => 0,
             'provider' => 'zoom',
-            'status' => 'published',
+            'join_url' => 'https://zoom.us/j/secret_123',
+            'meeting_id' => 'secret_id',
+            'meeting_password' => 'secret_pass',
+            'status' => 'scheduled',
             'is_published' => true,
         ]);
 
@@ -187,5 +190,65 @@ class WebinarSystemTest extends TestCase
         $data = $response->json('data.webinar');
         $this->assertArrayNotHasKey('registrations', $data);
         $this->assertArrayNotHasKey('join_url', $data); // Hidden since unauthenticated
+        $this->assertArrayNotHasKey('meeting_id', $data);
+        $this->assertArrayNotHasKey('meeting_password', $data);
+    }
+
+    public function test_join_endpoint_enforces_live_time_gate_and_records_attendance()
+    {
+        $user = User::factory()->create();
+        $webinar = Webinar::create([
+            'title' => 'Live Join Test',
+            'slug' => 'live-join-test',
+            'start_at' => now()->addMinutes(5), // Within 15-minute early window
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'zoom',
+            'join_url' => 'https://zoom.us/j/live_room',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $registration = WebinarRegistration::create([
+            'webinar_id' => $webinar->id,
+            'user_id' => $user->id,
+            'payment_status' => 'free',
+            'paid_amount' => 0,
+        ]);
+
+        $response = $this->actingAs($user)->getJson("/api/webinars/{$webinar->slug}/join");
+        $response->assertStatus(200);
+        $this->assertEquals('https://zoom.us/j/live_room', $response->json('data.join_url'));
+
+        // Verify attendance was recorded
+        $this->assertTrue((bool) $registration->fresh()->attended);
+        $this->assertNotNull($registration->fresh()->attended_at);
+    }
+
+    public function test_user_my_webinars_returns_registrations()
+    {
+        $user = User::factory()->create();
+        $webinar = Webinar::create([
+            'title' => 'My Webinar List Test',
+            'slug' => 'my-webinar-list-test',
+            'start_at' => now()->addDays(2),
+            'duration' => 60,
+            'is_free' => true,
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        WebinarRegistration::create([
+            'webinar_id' => $webinar->id,
+            'user_id' => $user->id,
+            'payment_status' => 'free',
+            'paid_amount' => 0,
+        ]);
+
+        $response = $this->actingAs($user)->getJson('/api/user/my-webinars');
+        $response->assertStatus(200);
+        $this->assertTrue($response->json('success'));
+        $this->assertCount(1, $response->json('data.items'));
+        $this->assertEquals($webinar->title, $response->json('data.items.0.title'));
     }
 }

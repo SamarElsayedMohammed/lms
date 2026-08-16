@@ -180,17 +180,22 @@ class UserReportApiController extends Controller
             ->get();
 
         $upcoming = $registrations->filter(function ($reg) {
-            return $reg->webinar && $reg->webinar->start_at->isFuture();
+            return $reg->webinar && $reg->webinar->start_at && $reg->webinar->start_at->isFuture();
+        });
+
+        $past = $registrations->filter(function ($reg) {
+            return $reg->webinar && $reg->webinar->start_at && $reg->webinar->start_at->isPast();
         });
 
         $attended = $registrations->filter(function ($reg) {
-            return $reg->webinar && $reg->webinar->start_at->isPast();
+            return (bool) $reg->attended || !is_null($reg->attended_at);
         });
 
         return [
             'total_registrations' => $registrations->count(),
             'upcoming_webinars' => $upcoming->count(),
-            'past_webinars' => $attended->count(),
+            'past_webinars' => $past->count(),
+            'attended_webinars' => $attended->count(),
             'recent_webinars' => $registrations->sortByDesc(function($reg) {
                 return $reg->webinar->start_at ?? 0;
             })->take(5)->map(function ($reg) {

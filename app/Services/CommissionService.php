@@ -186,7 +186,7 @@ class CommissionService
      * @param string $status
      * @return \Illuminate\Database\Eloquent\Collection
      */
-    public static function getInstructorCommissions(int $instructorId, string $status = null)
+    public static function getInstructorCommissions(int $instructorId, ?string $status = null)
     {
         $query = Commission::where('instructor_id', $instructorId)->with(['order', 'course']);
 

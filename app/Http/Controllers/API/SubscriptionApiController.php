@@ -37,6 +37,7 @@ final class SubscriptionApiController extends Controller
         private readonly KashierCheckoutService $kashierService,
         private readonly CountryDetectionService $countryDetectionService,
         private readonly \App\Services\AffiliateService $affiliateService,
+        private readonly \App\Services\SubscriptionPromoService $promoService,
     ) {}
 
     /**
@@ -303,60 +304,74 @@ final class SubscriptionApiController extends Controller
             $user = \Illuminate\Support\Facades\Auth::user();
             $countryCode = strtoupper((string) ($user?->country_code ?? $this->countryDetectionService->detect($request)));
 
-            $manualMethodsQuery = PaymentMethod::query()
-                ->where('is_active', true)
-                ->where('type', '!=', 'online')
-                ->orderBy('sort_order')
-                ->orderBy('name');
+            $autoEnabledSetting = \App\Models\Setting::where('name', 'automatic_payments_enabled')->value('value');
+            $manualEnabledSetting = \App\Models\Setting::where('name', 'manual_payments_enabled')->value('value');
 
-            $manualMethods = $manualMethodsQuery->get()
-                ->filter(function (PaymentMethod $method) use ($countryCode) {
-                    if (!empty($method->countries) && is_array($method->countries)) {
-                        return in_array($countryCode, array_map('strtoupper', $method->countries), true);
-                    }
-                    return true;
-                })
-                ->map(function (PaymentMethod $method) {
-                    return [
-                        'id' => $method->id,
-                        'name' => $method->name,
-                        'type' => $method->type,
-                        'description' => $method->instructions,
-                        'instructions' => $method->instructions,
-                        'account_details' => $method->toStructuredAccountDetails(),
-                        'account_name' => $method->account_name,
-                        'account_number' => $method->account_number,
-                        'bank_name' => $method->bank_name,
-                        'iban' => $method->iban,
-                        'instapay_id' => $method->instapay_id,
-                        'merchant_code' => $method->merchant_code,
-                        'image' => $method->logo,
-                        'logo' => $method->logo,
-                        'dynamic_fields' => $method->dynamic_fields ?? [],
-                        'require_receipt' => (bool) $method->require_receipt,
-                    ];
-                });
+            $automaticPaymentsEnabled = $autoEnabledSetting !== null ? filter_var($autoEnabledSetting, FILTER_VALIDATE_BOOLEAN) : false;
+            $manualPaymentsEnabled = $manualEnabledSetting !== null ? filter_var($manualEnabledSetting, FILTER_VALIDATE_BOOLEAN) : true;
 
-            $electronicGateways = PaymentMethod::query()
-                ->where('is_active', true)
-                ->where('type', 'online')
-                ->get()
-                ->map(function (PaymentMethod $method) {
-                    return [
-                        'id' => $method->id,
-                        'name' => $method->name,
+            $manualMethods = collect([]);
+            if ($manualPaymentsEnabled) {
+                $manualMethodsQuery = PaymentMethod::query()
+                    ->where('is_active', true)
+                    ->where('type', '!=', 'online')
+                    ->orderBy('sort_order')
+                    ->orderBy('name');
+
+                $manualMethods = $manualMethodsQuery->get()
+                    ->filter(function (PaymentMethod $method) use ($countryCode) {
+                        if (!empty($method->countries) && is_array($method->countries)) {
+                            return in_array($countryCode, array_map('strtoupper', $method->countries), true);
+                        }
+                        return true;
+                    })
+                    ->map(function (PaymentMethod $method) {
+                        return [
+                            'id' => $method->id,
+                            'name' => $method->name,
+                            'type' => $method->type,
+                            'description' => $method->instructions,
+                            'instructions' => $method->instructions,
+                            'account_details' => $method->toStructuredAccountDetails(),
+                            'account_name' => $method->account_name,
+                            'account_number' => $method->account_number,
+                            'bank_name' => $method->bank_name,
+                            'iban' => $method->iban,
+                            'instapay_id' => $method->instapay_id,
+                            'merchant_code' => $method->merchant_code,
+                            'image' => $method->logo,
+                            'logo' => $method->logo,
+                            'dynamic_fields' => $method->dynamic_fields ?? [],
+                            'require_receipt' => (bool) $method->require_receipt,
+                        ];
+                    });
+            }
+
+            $electronicGateways = collect([]);
+            if ($automaticPaymentsEnabled) {
+                $kashierSetting = \App\Models\Setting::where('name', 'payment_gateway_kashier')->value('value');
+                $kashierConfig = $kashierSetting ? json_decode($kashierSetting, true) : null;
+                $kashierActive = $kashierConfig ? (bool) ($kashierConfig['enabled'] ?? true) : true;
+
+                if ($kashierActive) {
+                    $electronicGateways->push([
+                        'id' => 'kashier',
+                        'name' => 'Kashier (بطاقات بنكية ومحافظ)',
                         'type' => 'online',
                         'code' => 'kashier',
-                        'logo_url' => $method->logo,
+                        'logo_url' => null,
                         'is_active' => true,
-                    ];
-                })->values();
+                    ]);
+                }
+            }
 
             return ApiResponseService::successResponse('Payment methods retrieved successfully', [
-                'electronic_gateways' => $electronicGateways,
+                'electronic_gateways' => $electronicGateways->values(),
                 'manual_methods' => $manualMethods->values(),
-                'online' => true,
+                'online' => $automaticPaymentsEnabled && $electronicGateways->isNotEmpty(),
                 'wallet' => false,
+                'automatic_payments_enabled' => $automaticPaymentsEnabled,
+                'manual_payments_enabled' => $manualPaymentsEnabled,
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -379,66 +394,33 @@ final class SubscriptionApiController extends Controller
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $promoCode = strtoupper(trim((string) $request->promo_code));
-
-        $promo = \App\Models\PromoCode::with('subscriptionPlans')
-            ->where('status', 1)
-            ->where(function ($q) use ($promoCode) {
-                $q->where('promo_code', $promoCode)
-                    ->orWhereRaw('UPPER(promo_code) = ?', [$promoCode]);
-            })
-            ->first();
-
-        if (!$promo) {
-            return ApiResponseService::validationError('كود الخصم غير صالح.');
-        }
-
-        if (
-            ($promo->start_date && $promo->start_date > now()) ||
-            ($promo->end_date && $promo->end_date < now())
-        ) {
-            return ApiResponseService::validationError('كود الخصم منتهي الصلاحية أو لم يبدأ بعد.');
-        }
-
-        if ($promo->subscriptionPlans->isNotEmpty() && !$promo->subscriptionPlans->contains('id', $request->plan_id)) {
-            return ApiResponseService::validationError('كود الخصم غير صالح لهذه الباقة.');
-        }
-        
-        if ($promo->no_of_users !== null && $promo->no_of_users <= 0) {
-            return ApiResponseService::validationError('كود الخصم وصل للحد الأقصى من المستخدمين.');
-        }
-
         $user = \Illuminate\Support\Facades\Auth::guard('sanctum')->user();
-        $plan = \App\Models\SubscriptionPlan::find($request->plan_id);
-
         $countryCode = $user?->country_code ?? $this->countryDetectionService->detect($request);
-        $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
 
-        if (!$plan->is_active || !$countryPricing['can_subscribe']) {
-            return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
+        $result = $this->promoService->validatePromo(
+            $request->promo_code,
+            (int) $request->plan_id,
+            $user,
+            $countryCode
+        );
+
+        if (!$result['valid']) {
+            return ApiResponseService::validationError($result['message']);
         }
-
-        $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
-        $originalAmount = (float) $countryPricing['price'];
-        $discountVal = (float) $promo->discount;
-
-        if ($promo->discount_type === 'percentage') {
-            $safePercent = max(0.0, min($discountVal, 100.0));
-            $discountAmount = round($originalAmount * ($safePercent / 100.0), 2);
-        } else {
-            $safeFixed = max(0.0, $discountVal);
-            $discountAmount = $this->pricingService->convertFromEgp($safeFixed, $resolvedCurrency);
-            $discountAmount = min($discountAmount, $originalAmount);
-        }
-
-        $totalAmount = max($originalAmount - $discountAmount, 0);
 
         return ApiResponseService::successResponse('Promo code is valid', [
-            'discount_amount' => $discountAmount,
-            'total_amount' => $totalAmount,
-            'currency' => $resolvedCurrency,
-            'discount_type' => $promo->discount_type,
-            'discount_value' => $promo->discount
+            'valid' => true,
+            'is_valid' => true,
+            'discount_amount' => $result['discount_amount'],
+            'discount_value' => $result['discount_value'],
+            'discount' => $result['discount_value'],
+            'discount_percent' => $result['discount_percent'],
+            'discount_percentage' => $result['discount_percent'],
+            'original_amount' => $result['original_amount'],
+            'total_amount' => $result['total_amount'],
+            'currency' => $result['currency'],
+            'discount_type' => $result['discount_type'],
+            'message' => $result['message'],
         ]);
     }
 
@@ -484,79 +466,44 @@ final class SubscriptionApiController extends Controller
 
             $countryCode = $this->countryDetectionService->detect($request);
 
-
-
             $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
             $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
-
-
 
             if (!$plan->is_active || !$countryPricing['can_subscribe']) {
                 return ApiResponseService::errorResponse('هذه الخطة غير متاحة حالياً.', [], 400);
             }
 
             $originalAmount = (float) $countryPricing['price'];
-            $discountAmount = 0;
-            $appliedPromoCode = null;
-
-            // Apply promo code discount from PromoCode
+            $discountAmount = 0;            // Authoritative promo validation & reservation (DEF-01, DEF-03, DEF-04)
             if ($request->filled('promo_code')) {
-                $promoCode = strtoupper(trim((string) $request->promo_code));
+                $promoValidation = $this->promoService->validatePromo(
+                    $request->promo_code,
+                    $plan->id,
+                    $user,
+                    $countryCode
+                );
 
-                $promo = \App\Models\PromoCode::with('subscriptionPlans')
-                    ->where('status', 1)
-                    ->where(function ($q) use ($promoCode) {
-                        $q->where('promo_code', $promoCode)
-                            ->orWhereRaw('UPPER(promo_code) = ?', [$promoCode]);
-                    })
-                    ->first();
-
-                if (!$promo) {
-                    return ApiResponseService::validationError('كود الخصم غير صالح.');
+                if (!$promoValidation['valid']) {
+                    return ApiResponseService::validationError($promoValidation['message']);
                 }
 
-                // Expiry Check
-                if (
-                    ($promo->start_date && $promo->start_date > now()) ||
-                    ($promo->end_date && $promo->end_date < now())
-                ) {
-                    return ApiResponseService::validationError('كود الخصم منتهي الصلاحية أو لم يبدأ بعد.');
-                }
-                
-                if ($promo->subscriptionPlans->isNotEmpty() && !$promo->subscriptionPlans->contains('id', $request->plan_id)) {
-                    return ApiResponseService::validationError('كود الخصم غير صالح لهذه الباقة.');
-                }
-                
-                if ($promo->no_of_users !== null && $promo->no_of_users <= 0) {
-                    return ApiResponseService::validationError('كود الخصم وصل للحد الأقصى من المستخدمين.');
+                $reserveResult = $this->promoService->reservePromo(
+                    $request->promo_code,
+                    $user->id,
+                    $plan->id,
+                    $countryCode
+                );
+
+                if (!$reserveResult['success']) {
+                    return ApiResponseService::validationError($reserveResult['message'] ?? 'كود الخصم غير متاح.');
                 }
 
-                $discountVal = (float) $promo->discount;
-
-                if ($promo->discount_type === 'percentage') {
-                    $safePercent = max(0.0, min($discountVal, 100.0));
-                    $discountAmount = round($originalAmount * ($safePercent / 100.0), 2);
-                } else {
-                    $safeFixed = max(0.0, $discountVal);
-                    $discountAmount = $this->pricingService->convertFromEgp($safeFixed, $resolvedCurrency);
-                    $discountAmount = min($discountAmount, $originalAmount);
-                }
-
-                // Atomic conditional quota claim to prevent race conditions on last remaining usage
-                if ($promo->no_of_users !== null) {
-                    $claimed = \App\Models\PromoCode::where('id', $promo->id)
-                        ->where('no_of_users', '>', 0)
-                        ->decrement('no_of_users');
-
-                    if ($claimed === 0) {
-                        return ApiResponseService::validationError('كود الخصم وصل للحد الأقصى من المستخدمين.');
-                    }
-                }
-
-                $appliedPromoCode = $promo->promo_code;
+                $appliedPromoCode = $reserveResult['promo']->promo_code;
+                $discountAmount = (float) $promoValidation['discount_amount'];
+                $totalAmount = (float) $promoValidation['total_amount'];
+            } else {
+                $totalAmount = $originalAmount;
             }
-
-            $totalAmount = max($originalAmount - $discountAmount, 0);
 
             if ($request->boolean('use_wallet') && !$this->affiliateService->isEnabled()) {
                 return ApiResponseService::errorResponse('الدفع من المحفظة متاح فقط عند تفعيل التسويق بالعمولة.', [], 400);
@@ -571,64 +518,86 @@ final class SubscriptionApiController extends Controller
             $walletAmount = $split['wallet_amount'];
             $gatewayAmount = $split['gateway_amount'];
 
+            $autoEnabledSetting = \App\Models\Setting::where('name', 'automatic_payments_enabled')->value('value');
+            $manualEnabledSetting = \App\Models\Setting::where('name', 'manual_payments_enabled')->value('value');
+            $automaticPaymentsEnabled = $autoEnabledSetting !== null ? filter_var($autoEnabledSetting, FILTER_VALIDATE_BOOLEAN) : false;
+            $manualPaymentsEnabled = $manualEnabledSetting !== null ? filter_var($manualEnabledSetting, FILTER_VALIDATE_BOOLEAN) : true;
 
-
-            // Build discount metadata for payment record
-            $discountMeta = [
-                'promo_code' => $appliedPromoCode,
-                'original_amount' => $originalAmount,
-                'discount_amount' => $discountAmount,
-                'resolved_country' => $countryCode,
-                'currency_code' => $resolvedCurrency,
-                'price_source' => $countryPricing['price_source'] ?? 'default',
-            ];
+            if ($request->payment_method === 'manual') {
+                if (!$manualPaymentsEnabled) {
+                    if ($appliedPromoCode) {
+                        $this->promoService->releasePromo($appliedPromoCode);
+                    }
+                    return ApiResponseService::errorResponse('طرق الدفع اليدوية غير متاحة حالياً.', ['reason' => 'MANUAL_PAYMENTS_DISABLED'], 422);
+                }
+            } else {
+                if ($gatewayAmount > 0 && !$automaticPaymentsEnabled) {
+                    if ($appliedPromoCode) {
+                        $this->promoService->releasePromo($appliedPromoCode);
+                    }
+                    return ApiResponseService::errorResponse('طرق الدفع الإلكترونية التلقائية غير متاحة حالياً.', ['reason' => 'AUTOMATIC_PAYMENTS_DISABLED'], 422);
+                }
+            }
 
             // Full wallet payment: create subscription immediately
             if ($gatewayAmount <= 0) {
-                $subscription = $this->subscriptionService->createSubscription(
-                    $user,
-                    $plan,
-                    $request->payment_method ?? 'wallet',
-                    $walletAmount,
-                    0,
-                    $discountMeta
-                );
-
                 try {
-                    $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
-                } catch (\Throwable $e) {
-                    Log::error('Failed to send subscription activation notification to user', [
-                        'user_id' => $user->id,
-                        'subscription_id' => $subscription->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-
-                return ApiResponseService::successResponse('تم الاشتراك بنجاح!', [
-                    'subscription' => [
-                        'id' => $subscription->id,
-                        'plan_name' => $plan->name,
-                        'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
-                        'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
-                        'is_lifetime' => $subscription->isLifetime(),
-                        'status' => $subscription->status,
-                    ],
-                    'payment' => [
+                    $discountMeta = [
+                        'promo_code' => $appliedPromoCode,
                         'original_amount' => $originalAmount,
                         'discount_amount' => $discountAmount,
-                        'promo_code' => $appliedPromoCode,
                         'total_amount' => $totalAmount,
-                        'wallet_amount' => $walletAmount,
-                        'gateway_amount' => 0,
-                    ],
-                    'requires_checkout' => false,
-                ]);
+                        'currency_code' => $resolvedCurrency,
+                        'resolved_country' => $countryCode,
+                        'price_source' => $countryPricing['price_source'] ?? 'default',
+                    ];
+
+                    $subscription = $this->subscriptionService->createSubscription(
+                        $user,
+                        $plan,
+                        'wallet',
+                        $walletAmount,
+                        0.0,
+                        $discountMeta
+                    );
+
+                    // Notify user and admins about successful subscription
+                    try {
+                        $user->notify(new SubscriptionActivatedNotification($subscription->loadMissing('plan')));
+                    } catch (\Throwable $e) {
+                        Log::error('Failed to send activation notification to user', [
+                            'user_id' => $user->id,
+                            'subscription_id' => $subscription->id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+
+                    return ApiResponseService::successResponse('تم تفعيل الاشتراك بنجاح!', [
+                        'requires_checkout' => false,
+                        'subscription' => [
+                            'id' => $subscription->id,
+                            'plan_name' => $subscription->plan->name,
+                            'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
+                            'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
+                            'is_lifetime' => $subscription->isLifetime(),
+                            'status' => $subscription->status,
+                        ],
+                    ]);
+                } catch (\Throwable $e) {
+                    if ($appliedPromoCode) {
+                        $this->promoService->releasePromo($appliedPromoCode);
+                    }
+                    throw $e;
+                }
             }
 
             // Manual payment flow
             if ($request->payment_method === 'manual') {
                 $method = $this->findActiveManualPaymentMethod((string) $request->payment_method_id);
                 if (!$method) {
+                    if ($appliedPromoCode) {
+                        $this->promoService->releasePromo($appliedPromoCode);
+                    }
                     return ApiResponseService::errorResponse(
                         'طريقة الدفع اليدوية هذه غير متوفرة حالياً.',
                         ['reason' => 'PAYMENT_METHOD_UNAVAILABLE'],
@@ -636,23 +605,35 @@ final class SubscriptionApiController extends Controller
                     );
                 }
 
+                if ($methodAvailabilityError = $this->validateManualPaymentMethodAvailability(
+                    $method,
+                    $countryCode,
+                    $resolvedCurrency,
+                    $gatewayAmount,
+                )) {
+                    if ($appliedPromoCode) {
+                        $this->promoService->releasePromo($appliedPromoCode);
+                    }
+                    return $methodAvailabilityError;
+                }
+
                 if ($fieldValidation = $this->validateManualPaymentFields($request, $method)) {
+                    if ($appliedPromoCode) {
+                        $this->promoService->releasePromo($appliedPromoCode);
+                    }
                     return $fieldValidation;
                 }
 
                 $receiptPath = null;
                 try {
-                    \Illuminate\Support\Facades\DB::beginTransaction();
-
-                    // Lock user row to eliminate concurrent double-submission race
-                    \App\Models\User::where('id', $user->id)->lockForUpdate()->first();
-
                     $hasPending = Subscription::where('user_id', $user->id)
                         ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
                         ->exists();
 
                     if ($hasPending) {
-                        \Illuminate\Support\Facades\DB::rollBack();
+                        if ($appliedPromoCode) {
+                            $this->promoService->releasePromo($appliedPromoCode);
+                        }
                         return ApiResponseService::errorResponse(
                             'لديك بالفعل طلب اشتراك قيد المراجعة. يرجى الانتظار حتى تتم مراجعته.',
                             ['reason' => 'DUPLICATE_SUBSCRIPTION_REQUEST'],
@@ -665,24 +646,21 @@ final class SubscriptionApiController extends Controller
                         'subscriptions/receipts'
                     );
 
-                    $existingSubscription = $this->subscriptionService->getActiveSubscription($user);
+                    \Illuminate\Support\Facades\DB::beginTransaction();
 
-                    // Create subscription with pending_approval status
-                    $subscription = Subscription::create([
+                    $newSubscription = Subscription::create([
                         'user_id' => $user->id,
                         'plan_id' => $plan->id,
-                        'locked_price' => $originalAmount,
+                        'locked_price' => $totalAmount,
                         'locked_currency' => $resolvedCurrency,
-                        'starts_at' => now(), // Placeholders, will be updated upon admin approval
-                        'ends_at' => null,   // Will be updated upon admin approval
+                        'starts_at' => now(),
+                        'ends_at' => null,
                         'status' => Subscription::STATUS_PENDING_APPROVAL,
                         'auto_renew' => true,
-                        'parent_subscription_id' => $existingSubscription?->id,
                     ]);
 
-                    // Create payment record in pending status
                     \App\Models\SubscriptionPayment::create([
-                        'subscription_id' => $subscription->id,
+                        'subscription_id' => $newSubscription->id,
                         'user_id' => $user->id,
                         'amount' => $totalAmount,
                         'wallet_amount' => $walletAmount,
@@ -700,25 +678,46 @@ final class SubscriptionApiController extends Controller
                         'receipt' => $receiptPath,
                         'transaction_id' => $request->transaction_id,
                         'promo_code' => $appliedPromoCode,
-                        'original_amount' => $appliedPromoCode ? $originalAmount : null,
+                        'original_amount' => $originalAmount,
                         'discount_amount' => $discountAmount,
+                        'final_amount' => $totalAmount,
                         'paid_at' => null,
                         'tax' => 0,
-                        'final_amount' => $totalAmount,
                     ]);
+
+                    // Hold wallet amount if used
+                    if ($walletAmount > 0) {
+                        \App\Services\WalletService::debitWallet(
+                            $user->id,
+                            $walletAmount,
+                            'subscription',
+                            "Hold for manual subscription #{$newSubscription->id}",
+                            $newSubscription->id,
+                            \App\Models\Subscription::class,
+                            'user'
+                        );
+                    }
 
                     \Illuminate\Support\Facades\DB::commit();
 
-                    // Notify all super-admins about the new manual subscription request
+                    // Notify super-admins
                     try {
-                        $subscription->load('plan');
-                        $admins = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
+                        $newSubscription->load('plan');
+                        $admins = User::query()->get()->filter(static function (User $candidate): bool {
+                            return $candidate->hasAnyRole([
+                                config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
+                                config('constants.SYSTEM_ROLES.SUPERVISOR'),
+                                config('constants.SYSTEM_ROLES.STAFF'),
+                            ], 'web')
+                                && $candidate->can('finance-list')
+                                && $candidate->can('finance-edit');
+                        });
                         foreach ($admins as $admin) {
-                            $admin->notify(new AdminNewSubscriptionRequestNotification($subscription, $user));
+                            $admin->notify(new AdminNewSubscriptionRequestNotification($newSubscription, $user));
                         }
                     } catch (\Throwable $e) {
                         Log::error('SubscriptionApiController: Failed to notify admins of new manual subscription request', [
-                            'subscription_id' => $subscription->id,
+                            'subscription_id' => $newSubscription->id,
                             'user_id'         => $user->id,
                             'error'           => $e->getMessage(),
                         ]);
@@ -727,11 +726,11 @@ final class SubscriptionApiController extends Controller
                     return ApiResponseService::successResponse('تم إنشاء طلب الدفع بنجاح وجاري مراجعة الطلب من قبل الإدارة.', [
                         'requires_checkout' => false,
                         'subscription' => [
-                            'id' => $subscription->id,
+                            'id' => $newSubscription->id,
                             'plan_name' => $plan->name,
-                            'starts_at' => $subscription->starts_at->format('Y-m-d H:i:s'),
+                            'starts_at' => $newSubscription->starts_at->format('Y-m-d H:i:s'),
                             'ends_at' => null,
-                            'status' => $subscription->status,
+                            'status' => $newSubscription->status,
                         ],
                         'payment' => [
                             'original_amount' => $originalAmount,
@@ -754,6 +753,9 @@ final class SubscriptionApiController extends Controller
                             Log::warning('Failed to clean up orphan receipt after rollback: ' . $fileEx->getMessage());
                         }
                     }
+                    if ($appliedPromoCode) {
+                        $this->promoService->releasePromo($appliedPromoCode);
+                    }
                     if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
                         throw $e;
                     }
@@ -770,6 +772,9 @@ final class SubscriptionApiController extends Controller
                     $resolvedCurrency,
                 );
             } catch (\RuntimeException $e) {
+                if ($appliedPromoCode) {
+                    $this->promoService->releasePromo($appliedPromoCode);
+                }
                 return ApiResponseService::errorResponse(
                     'بوابة الدفع غير مهيأة. يرجى التواصل مع الإدارة.',
                     [],
@@ -777,71 +782,101 @@ final class SubscriptionApiController extends Controller
                 );
             }
 
-            // Store pending wallet amount for webhook to apply on success
+            // Create durable pending subscription and pending SubscriptionPayment (DEF-02)
+            try {
+                \Illuminate\Support\Facades\DB::beginTransaction();
+
+                $pendingSub = Subscription::create([
+                    'user_id' => $user->id,
+                    'plan_id' => $plan->id,
+                    'locked_price' => $totalAmount,
+                    'locked_currency' => $resolvedCurrency,
+                    'starts_at' => now(),
+                    'ends_at' => null,
+                    'status' => Subscription::STATUS_PENDING,
+                    'auto_renew' => true,
+                ]);
+
+                $pendingPayment = \App\Models\SubscriptionPayment::create([
+                    'subscription_id' => $pendingSub->id,
+                    'user_id' => $user->id,
+                    'amount' => $totalAmount,
+                    'wallet_amount' => $walletAmount,
+                    'gateway_amount' => $gatewayAmount,
+                    'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
+                    'payment_method' => 'kashier',
+                    'resolved_country' => $countryCode,
+                    'currency_code' => $resolvedCurrency,
+                    'price_source' => $countryPricing['price_source'] ?? 'default',
+                    'promo_code' => $appliedPromoCode,
+                    'original_amount' => $originalAmount,
+                    'discount_amount' => $discountAmount,
+                    'final_amount' => $totalAmount,
+                    'transaction_id' => $checkout['order_id'],
+                    'tax' => 0,
+                    'paid_at' => null,
+                ]);
+
+                \Illuminate\Support\Facades\DB::commit();
+            } catch (\Throwable $dbEx) {
+                if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
+                    \Illuminate\Support\Facades\DB::rollBack();
+                }
+                if ($appliedPromoCode) {
+                    $this->promoService->releasePromo($appliedPromoCode);
+                }
+                throw $dbEx;
+            }
+
+            // Cache copy for fast lookup
             Cache::put('kashier_pending_' . $checkout['order_id'], [
+                'subscription_id' => $pendingSub->id,
+                'payment_id' => $pendingPayment->id,
                 'wallet_amount' => $walletAmount,
+                'gateway_amount' => $gatewayAmount,
+                'total_amount' => $totalAmount,
                 'plan_id' => $plan->id,
                 'user_id' => $user->id,
-                'promo_code' => $appliedPromoCode,
-                'original_amount' => $originalAmount,
-                'discount_amount' => $discountAmount,
-                'resolved_country' => $countryCode,
-                'currency_code' => $resolvedCurrency,
-                'price_source' => $countryPricing['price_source'] ?? 'default',
             ], self::KASHIER_PENDING_TTL);
 
-            return ApiResponseService::successResponse('يرجى إكمال الدفع عبر Kashier.', [
+            return ApiResponseService::successResponse('يرجى إكمال عملية الدفع عبر Kashier.', [
                 'requires_checkout' => true,
                 'checkout_url' => $checkout['url'],
                 'order_id' => $checkout['order_id'],
                 'payment' => [
-                    'original_amount' => $originalAmount,
-                    'discount_amount' => $discountAmount,
-                    'promo_code' => $appliedPromoCode,
                     'total_amount' => $totalAmount,
                     'wallet_amount' => $walletAmount,
                     'gateway_amount' => $gatewayAmount,
+                    'payment_method' => 'kashier',
                 ],
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            ApiResponseService::fail($e, 'Failed to create subscription');
+            if ($appliedPromoCode) {
+                $this->promoService->releasePromo($appliedPromoCode);
+            }
+            return ApiResponseService::errorResponse('فشل في بدء عملية الدفع: ' . $e->getMessage());
         }
     }
 
-
     /**
-     * Renew subscription (pay for next period and extend)
+     * Renew subscription
      */
     public function renew(Request $request): JsonResponse
     {
         try {
-            $validator = Validator::make($request->all(), [
-                'subscription_id' => 'nullable|exists:subscriptions,id',
-                'payment_method' => 'nullable|string',
-                'payment_method_id' => 'required_if:payment_method,manual|string|max:64',
-                'payment_fields' => 'nullable|array',
-                'receipt' => 'required_if:payment_method,manual|file|mimes:jpeg,png,jpg,webp,pdf|max:5120',
-                'use_wallet' => 'nullable|boolean',
-            ]);
-
-            if ($validator->fails()) {
-                return ApiResponseService::validationError($validator->errors()->first());
-            }
-
             $user = Auth::user();
-
             if (!$user) {
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
             $subscription = null;
-
-            if ($request->subscription_id) {
-                $subscription = Subscription::with('plan')
+            if ($request->filled('subscription_id')) {
+                $subscription = Subscription::where('id', $request->subscription_id)
                     ->where('user_id', $user->id)
-                    ->find($request->subscription_id);
+                    ->with('plan')
+                    ->first();
             }
 
             if (!$subscription) {
@@ -865,7 +900,7 @@ final class SubscriptionApiController extends Controller
             $countryCode = $this->countryDetectionService->detect($request);
             $countryPricing = $this->pricingService->getPriceForCountry($plan, $countryCode);
 
-            $totalAmount = (float) $countryPricing['price'];
+$totalAmount = (float) $countryPricing['price'];
             $resolvedCurrency = strtoupper($countryPricing['currency_code'] ?? 'EGP');
             $canSubscribe = $plan->is_active && $countryPricing['can_subscribe'];
 
@@ -885,6 +920,21 @@ final class SubscriptionApiController extends Controller
             );
             $walletAmount = $split['wallet_amount'];
             $gatewayAmount = $split['gateway_amount'];
+
+            $autoEnabledSetting = \App\Models\Setting::where('name', 'automatic_payments_enabled')->value('value');
+            $manualEnabledSetting = \App\Models\Setting::where('name', 'manual_payments_enabled')->value('value');
+            $automaticPaymentsEnabled = $autoEnabledSetting !== null ? filter_var($autoEnabledSetting, FILTER_VALIDATE_BOOLEAN) : false;
+            $manualPaymentsEnabled = $manualEnabledSetting !== null ? filter_var($manualEnabledSetting, FILTER_VALIDATE_BOOLEAN) : true;
+
+            if ($request->payment_method === 'manual') {
+                if (!$manualPaymentsEnabled) {
+                    return ApiResponseService::errorResponse('طرق الدفع اليدوية غير متاحة حالياً.', ['reason' => 'MANUAL_PAYMENTS_DISABLED'], 422);
+                }
+            } else {
+                if ($gatewayAmount > 0 && !$automaticPaymentsEnabled) {
+                    return ApiResponseService::errorResponse('طرق الدفع الإلكترونية التلقائية غير متاحة حالياً.', ['reason' => 'AUTOMATIC_PAYMENTS_DISABLED'], 422);
+                }
+            }
 
             // Full wallet payment: renew immediately
             if ($gatewayAmount <= 0) {
@@ -941,6 +991,15 @@ final class SubscriptionApiController extends Controller
                         ['reason' => 'PAYMENT_METHOD_UNAVAILABLE'],
                         422
                     );
+                }
+
+                if ($methodAvailabilityError = $this->validateManualPaymentMethodAvailability(
+                    $method,
+                    $countryCode,
+                    $resolvedCurrency,
+                    $gatewayAmount,
+                )) {
+                    return $methodAvailabilityError;
                 }
 
                 if ($fieldValidation = $this->validateManualPaymentFields($request, $method)) {
@@ -1007,7 +1066,15 @@ final class SubscriptionApiController extends Controller
 
                     // Notify admins about the new manual renewal request
                     try {
-                        $admins = User::role(config('constants.SYSTEM_ROLES.SUPER_ADMIN'))->get();
+                        $admins = User::query()->get()->filter(static function (User $candidate): bool {
+                            return $candidate->hasAnyRole([
+                                config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
+                                config('constants.SYSTEM_ROLES.SUPERVISOR'),
+                                config('constants.SYSTEM_ROLES.STAFF'),
+                            ], 'web')
+                                && $candidate->can('finance-list')
+                                && $candidate->can('finance-edit');
+                        });
                         foreach ($admins as $admin) {
                             $admin->notify(new AdminNewSubscriptionRequestNotification($newSubscription, $user));
                         }
@@ -1073,6 +1140,8 @@ final class SubscriptionApiController extends Controller
             // Store pending wallet amount for webhook to apply on success
             \Illuminate\Support\Facades\Cache::put('kashier_pending_' . $checkout['order_id'], [
                 'wallet_amount' => $walletAmount,
+                'gateway_amount' => $gatewayAmount,
+                'total_amount' => $totalAmount,
                 'plan_id' => $plan->id,
                 'user_id' => $user->id,
             ], \App\Http\Controllers\API\SubscriptionApiController::KASHIER_PENDING_TTL);
@@ -1146,6 +1215,73 @@ final class SubscriptionApiController extends Controller
         } catch (\Throwable $e) {
             ApiResponseService::fail($e, 'Failed to cancel subscription');
         }
+    }
+
+    /**
+     * Return the current state of a subscription payment to its owner.
+     * This is used after returning from a gateway and must never expose a
+     * payment belonging to another account.
+     */
+    public function getPaymentStatus(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'transaction_id' => 'nullable|string|max:255|required_without_all:subscription_id,checkout_id,payment_id',
+            'subscription_id' => 'nullable|integer|required_without_all:transaction_id,checkout_id,payment_id',
+            'checkout_id' => 'nullable|string|max:255|required_without_all:transaction_id,subscription_id,payment_id',
+            'payment_id' => 'nullable|string|max:255|required_without_all:transaction_id,subscription_id,checkout_id',
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors()->first());
+        }
+
+        $user = Auth::user();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Authentication required.', [], 401);
+        }
+
+        $payment = \App\Models\SubscriptionPayment::query()
+            ->with('subscription.plan')
+            ->where('user_id', $user->id)
+            ->where(function ($query) use ($request): void {
+                if ($request->filled('transaction_id')) {
+                    $query->orWhere('transaction_id', $request->string('transaction_id')->toString());
+                }
+                if ($request->filled('payment_id')) {
+                    $query->orWhereKey($request->string('payment_id')->toString());
+                }
+                if ($request->filled('subscription_id')) {
+                    $query->orWhere('subscription_id', $request->integer('subscription_id'));
+                }
+                if ($request->filled('checkout_id')) {
+                    $query->orWhere('transaction_id', $request->string('checkout_id')->toString());
+                }
+            })
+            ->latest('id')
+            ->first();
+
+        if (!$payment || !$payment->subscription) {
+            return ApiResponseService::errorResponse('Payment was not found.', [], 404);
+        }
+
+        $subscription = $payment->subscription;
+
+        return ApiResponseService::successResponse('Payment status retrieved successfully.', [
+            'payment' => [
+                'id' => $payment->id,
+                'transaction_id' => $payment->transaction_id,
+                'status' => $payment->status,
+                'subscription_status' => $subscription->status,
+            ],
+            'subscription' => [
+                'id' => $subscription->id,
+                'plan_id' => $subscription->plan_id,
+                'plan_name' => $subscription->plan?->name,
+                'status' => $subscription->status,
+                'starts_at' => $subscription->starts_at?->format('Y-m-d H:i:s'),
+                'ends_at' => $subscription->ends_at?->format('Y-m-d H:i:s'),
+            ],
+        ]);
     }
 
     /**
@@ -1387,6 +1523,54 @@ final class SubscriptionApiController extends Controller
         return $this->isManualDepositMethodId($methodId)
             ? (int) substr($methodId, strlen('manual-deposit-'))
             : null;
+    }
+
+    /**
+     * Enforce the availability rules configured by finance for a manual method.
+     * These checks must run again at submission time; hiding a method in the
+     * client is not an authorization or financial control.
+     */
+    private function validateManualPaymentMethodAvailability(
+        PaymentMethod $method,
+        string $countryCode,
+        string $currencyCode,
+        float $amount,
+    ): ?JsonResponse {
+        $allowedCountries = array_map('strtoupper', is_array($method->countries) ? $method->countries : []);
+        if ($allowedCountries !== [] && !in_array(strtoupper($countryCode), $allowedCountries, true)) {
+            return ApiResponseService::errorResponse(
+                'Payment method is unavailable for this country.',
+                ['reason' => 'PAYMENT_METHOD_COUNTRY_UNAVAILABLE'],
+                422,
+            );
+        }
+
+        $allowedCurrencies = array_map('strtoupper', is_array($method->currencies) ? $method->currencies : []);
+        if ($allowedCurrencies !== [] && !in_array(strtoupper($currencyCode), $allowedCurrencies, true)) {
+            return ApiResponseService::errorResponse(
+                'Payment method is unavailable for this currency.',
+                ['reason' => 'PAYMENT_METHOD_CURRENCY_UNAVAILABLE'],
+                422,
+            );
+        }
+
+        if ($method->min_amount !== null && $amount < (float) $method->min_amount) {
+            return ApiResponseService::errorResponse(
+                'Payment amount is below this method minimum.',
+                ['reason' => 'PAYMENT_METHOD_MIN_AMOUNT'],
+                422,
+            );
+        }
+
+        if ($method->max_amount !== null && $amount > (float) $method->max_amount) {
+            return ApiResponseService::errorResponse(
+                'Payment amount exceeds this method maximum.',
+                ['reason' => 'PAYMENT_METHOD_MAX_AMOUNT'],
+                422,
+            );
+        }
+
+        return null;
     }
 
     private function validateManualPaymentFields(Request $request, PaymentMethod $method): ?JsonResponse

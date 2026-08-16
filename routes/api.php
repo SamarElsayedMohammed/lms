@@ -137,6 +137,10 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('throttle:5,1');
     Route::delete('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'cancelRegistration']);
     
+    // User registered webinars (My Live Sessions / My Webinars)
+    Route::get('user/my-webinars', [\App\Http\Controllers\API\User\UserWebinarApiController::class, 'myWebinars']);
+    Route::get('user/webinars', [\App\Http\Controllers\API\User\UserWebinarApiController::class, 'myWebinars']);
+
     // Wallet registration
     Route::post('user/wallet/webinars/{webinar:slug}/register', [\App\Http\Controllers\API\User\WalletRegistrationController::class, 'register'])
         ->middleware([\App\Http\Middleware\IdempotencyMiddleware::class]);
@@ -914,6 +918,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::get('/plans/{planId}', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planDetailReport']);
             Route::get('/{planId}', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planDetailReport'])
                 ->whereNumber('planId');
+        });
+
+        // Refunds Management (Admin)
+        Route::prefix('refunds')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\API\RefundApiController::class, 'getAllRefunds']);
+            Route::post('process', [\App\Http\Controllers\API\RefundApiController::class, 'processRefund']);
+            Route::get('settings', [\App\Http\Controllers\API\RefundApiController::class, 'getRefundSettings']);
+            Route::post('settings', [\App\Http\Controllers\API\RefundApiController::class, 'updateRefundSettings']);
         });
 
         // Webinars (Admin/Instructor)

@@ -173,9 +173,9 @@ final class LectureProgressApiController extends Controller
     /**
      * Get full course progress breakdown.
      *
-     * Uses CourseProgressService as the single source of truth so that
-     * quizzes, assignments, and resources are included in the percentage
-     * (not just video lectures).
+     * Uses CourseProgressService as the single source of truth for required
+     * video lectures; retired assessment/resource nodes are not completion
+     * authorities.
      */
     public function getCourseProgress(int $courseId): JsonResponse
     {

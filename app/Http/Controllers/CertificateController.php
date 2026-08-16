@@ -17,8 +17,7 @@ class CertificateController extends Controller
     use CertificatePdfGeneratorTrait;
     /**
      * Get certificate details for a course (check if certificate exists)
-     * POST /api/certificate/course/generate
-     * (Also handles GET /api/certificate/course/generate per routes)
+     * GET /api/certificate/course/generate?course_id={courseId}
      */
     public function getCertificate(Request $request)
     {

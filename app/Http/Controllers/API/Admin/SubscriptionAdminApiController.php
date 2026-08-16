@@ -10,6 +10,7 @@ use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
 use App\Services\ApiResponseService;
 use App\Services\AffiliateService;
+use App\Services\SubscriptionPromoService;
 use App\Services\SubscriptionReportService;
 use App\Notifications\ManualSubscriptionStatusNotification;
 use App\Notifications\SubscriptionActivatedNotification;
@@ -128,6 +129,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     public function index(Request $request): JsonResponse
     {
         $this->ensureAdmin();
+        $this->checkPermission('finance-list');
 
         $baseQuery = Subscription::query()
             ->whereHas('payments', function ($q) {
@@ -207,6 +209,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     public function show(int|string $id): JsonResponse
     {
         $this->ensureAdmin();
+        $this->checkPermission('finance-list');
 
         $subscription = Subscription::with(['user', 'plan', 'payments' => function ($q) {
             $q->latest()->with('manualDepositMethod');
@@ -228,18 +231,21 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     public function approve(Request $request, $id): JsonResponse
     {
         $this->ensureAdmin();
+        $this->checkPermission('finance-edit');
 
         try {
             DB::beginTransaction();
 
-            $subscriptionData = Subscription::find($id);
+            $subscription = Subscription::with(['plan' => function ($query) {
+                $query->withTrashed();
+            }])->lockForUpdate()->find($id);
 
-            if (!$subscriptionData) {
+            if (!$subscription) {
                 DB::rollBack();
                 return ApiResponseService::errorResponse('الاشتراك غير موجود.', [], 404);
             }
 
-            $user = User::where('id', $subscriptionData->user_id)->lockForUpdate()->first();
+            $user = User::where('id', $subscription->user_id)->lockForUpdate()->first();
 
             $existingSubscription = Subscription::forUser($user->id)
                 ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING])
@@ -248,15 +254,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 ->orderByDesc('ends_at')
                 ->lockForUpdate()
                 ->first();
-
-            $subscription = Subscription::with(['plan' => function ($query) {
-                $query->withTrashed();
-            }])->lockForUpdate()->find($id);
-
-            if (!$subscription) {
-                DB::rollBack();
-                return ApiResponseService::errorResponse('الاشتراك غير موجود.');
-            }
 
             if (in_array($subscription->status, [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING], true)) {
                 DB::rollBack();
@@ -284,19 +281,27 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
 
             if ($payment->wallet_amount > 0) {
-                try {
-                    \App\Services\WalletService::debitWallet(
-                        $user->id,
-                        $payment->wallet_amount,
-                        'subscription',
-                        "Subscription payment for subscription #{$subscription->id}",
-                        $subscription->id,
-                        \App\Models\Subscription::class,
-                        'user'
-                    );
-                } catch (\Throwable) {
-                    DB::rollBack();
-                    return ApiResponseService::errorResponse('رصيد محفظة المستخدم غير كافٍ لإتمام هذه المعاملة.');
+                $alreadyDebited = \App\Models\WalletHistory::where('user_id', $user->id)
+                    ->where('reference_id', $subscription->id)
+                    ->where('reference_type', \App\Models\Subscription::class)
+                    ->where('type', 'debit')
+                    ->exists();
+
+                if (!$alreadyDebited) {
+                    try {
+                        \App\Services\WalletService::debitWallet(
+                            $user->id,
+                            $payment->wallet_amount,
+                            'subscription',
+                            "Subscription payment for subscription #{$subscription->id}",
+                            $subscription->id,
+                            \App\Models\Subscription::class,
+                            'user'
+                        );
+                    } catch (\Throwable) {
+                        DB::rollBack();
+                        return ApiResponseService::errorResponse('رصيد محفظة المستخدم غير كافٍ لإتمام هذه المعاملة.');
+                    }
                 }
             }
 
@@ -404,6 +409,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     public function downloadReceipt(int $id): \Symfony\Component\HttpFoundation\BinaryFileResponse|JsonResponse
     {
         $this->ensureAdmin();
+        $this->checkPermission('finance-list');
 
         $payment = SubscriptionPayment::query()
             ->where('subscription_id', $id)
@@ -429,6 +435,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
     public function reject(Request $request, $id): JsonResponse
     {
         $this->ensureAdmin();
+        $this->checkPermission('finance-edit');
 
         $validator = Validator::make($request->all(), [
             'admin_notes' => 'required|string|min:3|max:500',
@@ -476,6 +483,37 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $payment->status = SubscriptionPayment::STATUS_FAILED;
             $payment->admin_notes = $reason;
             $payment->save();
+
+            // Release promo code quota if applied (DEF-01)
+            if ($payment->promo_code) {
+                try {
+                    app(\App\Services\SubscriptionPromoService::class)->releasePromo($payment->promo_code);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to release promo code quota on subscription rejection: ' . $e->getMessage());
+                }
+            }
+
+            // Refund wallet hold if used
+            if ($payment->wallet_amount > 0) {
+                try {
+                    \App\Services\WalletService::creditWallet(
+                        $subscription->user_id,
+                        (float) $payment->wallet_amount,
+                        'refund',
+                        "استرداد مبلغ الاشتراك اليدوي المرفوض #{$subscription->id}",
+                        $subscription->id,
+                        \App\Models\Subscription::class,
+                        'user'
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('Failed to refund wallet on manual subscription rejection', [
+                        'subscription_id' => $subscription->id,
+                        'user_id' => $subscription->user_id,
+                        'amount' => $payment->wallet_amount,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             $subscription->status = Subscription::STATUS_CANCELLED;
             $subscription->cancellation_reason = $reason;
