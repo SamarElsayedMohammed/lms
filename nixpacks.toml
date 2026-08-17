@@ -2,7 +2,7 @@
 # See: https://coolify.io/docs/applications/laravel
 
 [phases.setup]
-nixPkgs = ["...", "python311Packages.supervisor", "nginx"]
+aptPkgs = ["supervisor", "nginx"]
 
 [phases.install]
 cmds = [
