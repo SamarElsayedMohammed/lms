@@ -13,7 +13,7 @@ mkdir -p \
     /var/run \
     /etc/supervisor/conf.d
 
-# ── Permissions (safe — ignore errors) ───────────────────────────────────────
+# ── Permissions (must run BEFORE artisan — www-data needs write access) ───────
 chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run 2>/dev/null || true
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache 2>/dev/null || true
 

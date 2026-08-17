@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\API\AdminApiController;
 use App\Http\Controllers\API\AffiliateApiController;
 use App\Http\Controllers\API\BillingApiController;
@@ -46,6 +48,24 @@ use Illuminate\Support\Facades\Route;
  | be assigned to the "api" middleware group. Make something great!
  |
  */
+
+// ─── Healthcheck (no auth — required by Docker HEALTHCHECK / Coolify) ─────────
+Route::get('health', static function () {
+    try {
+        DB::connection()->getPdo();
+        $db = true;
+    } catch (\Throwable) {
+        $db = false;
+    }
+
+    $status = $db ? 200 : 503;
+
+    return response()->json([
+        'status' => $db ? 'ok' : 'degraded',
+        'db'     => $db,
+        'ts'     => now()->toIso8601String(),
+    ], $status);
+});
 
 /**
  * User Authentication APIs
