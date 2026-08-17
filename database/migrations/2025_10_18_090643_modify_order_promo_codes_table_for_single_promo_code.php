@@ -14,46 +14,55 @@ return new class extends Migration
     {
         // Check if table exists before modifying
         if (Schema::hasTable('order_promo_codes')) {
+            Schema::disableForeignKeyConstraints();
+
             // Drop the foreign key constraint first if it exists
             if (Schema::hasColumn('order_promo_codes', 'course_id')) {
-                Schema::table('order_promo_codes', function (Blueprint $table) {
-                    // Check if foreign key exists before dropping
-                    $foreignKeys = DB::select(
-                        "SELECT CONSTRAINT_NAME 
-                        FROM information_schema.KEY_COLUMN_USAGE 
-                        WHERE TABLE_SCHEMA = DATABASE() 
-                        AND TABLE_NAME = 'order_promo_codes' 
-                        AND COLUMN_NAME = 'course_id' 
-                        AND CONSTRAINT_NAME LIKE '%foreign%'"
-                    );
-                    
-                    if (!empty($foreignKeys)) {
-                        $table->dropForeign(['course_id']);
-                    }
-                });
+                if (DB::getDriverName() === 'mysql') {
+                    Schema::table('order_promo_codes', function (Blueprint $table) {
+                        // Check if foreign key exists before dropping
+                        $foreignKeys = DB::select(
+                            "SELECT CONSTRAINT_NAME 
+                            FROM information_schema.KEY_COLUMN_USAGE 
+                            WHERE TABLE_SCHEMA = DATABASE() 
+                            AND TABLE_NAME = 'order_promo_codes' 
+                            AND COLUMN_NAME = 'course_id' 
+                            AND CONSTRAINT_NAME LIKE '%foreign%'"
+                        );
+                        
+                        if (!empty($foreignKeys)) {
+                            $table->dropForeign(['course_id']);
+                        }
+                    });
+                }
 
                 // Remove course_id column since we only need one promo code per order
-                Schema::table('order_promo_codes', function (Blueprint $table) {
-                    $table->dropColumn('course_id');
-                });
+                if (DB::getDriverName() !== 'sqlite') {
+                    Schema::table('order_promo_codes', function (Blueprint $table) {
+                        $table->dropColumn('course_id');
+                    });
+                }
             }
 
-            // Add unique constraint on order_id to ensure only one promo code per order
-            // Check if unique constraint doesn't already exist
-            $uniqueExists = DB::select(
-                "SELECT CONSTRAINT_NAME 
-                FROM information_schema.TABLE_CONSTRAINTS 
-                WHERE TABLE_SCHEMA = DATABASE() 
-                AND TABLE_NAME = 'order_promo_codes' 
-                AND CONSTRAINT_TYPE = 'UNIQUE' 
-                AND CONSTRAINT_NAME = 'unique_order_promo_code'"
-            );
+            // Add unique constraint on order_id to ensure only one promo code per order if not already present
+            if (DB::getDriverName() === 'mysql') {
+                $uniqueExists = DB::select(
+                    "SELECT CONSTRAINT_NAME 
+                    FROM information_schema.TABLE_CONSTRAINTS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'order_promo_codes' 
+                    AND CONSTRAINT_TYPE = 'UNIQUE' 
+                    AND CONSTRAINT_NAME = 'unique_order_promo_code'"
+                );
 
-            if (empty($uniqueExists)) {
-                Schema::table('order_promo_codes', function (Blueprint $table) {
-                    $table->unique('order_id', 'unique_order_promo_code');
-                });
+                if (empty($uniqueExists)) {
+                    Schema::table('order_promo_codes', function (Blueprint $table) {
+                        $table->unique('order_id', 'unique_order_promo_code');
+                    });
+                }
             }
+
+            Schema::enableForeignKeyConstraints();
         }
     }
 
@@ -65,14 +74,17 @@ return new class extends Migration
         // Check if table exists before modifying
         if (Schema::hasTable('order_promo_codes')) {
             // Drop the unique constraint if it exists
-            $uniqueExists = DB::select(
-                "SELECT CONSTRAINT_NAME 
-                FROM information_schema.TABLE_CONSTRAINTS 
-                WHERE TABLE_SCHEMA = DATABASE() 
-                AND TABLE_NAME = 'order_promo_codes' 
-                AND CONSTRAINT_TYPE = 'UNIQUE' 
-                AND CONSTRAINT_NAME = 'unique_order_promo_code'"
-            );
+            $uniqueExists = [];
+            if (DB::getDriverName() === 'mysql') {
+                $uniqueExists = DB::select(
+                    "SELECT CONSTRAINT_NAME 
+                    FROM information_schema.TABLE_CONSTRAINTS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'order_promo_codes' 
+                    AND CONSTRAINT_TYPE = 'UNIQUE' 
+                    AND CONSTRAINT_NAME = 'unique_order_promo_code'"
+                );
+            }
 
             if (!empty($uniqueExists)) {
                 Schema::table('order_promo_codes', function (Blueprint $table) {

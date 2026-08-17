@@ -13,7 +13,7 @@ return new class extends Migration
     public function up(): void
     {
         // Check if table exists
-        if (!Schema::hasTable('instructor_social_medias')) {
+        if (!Schema::hasTable('instructor_social_medias') || DB::getDriverName() !== 'mysql') {
             return;
         }
         
@@ -54,14 +54,16 @@ return new class extends Migration
         }
         
         // Drop foreign key constraint before modifying the column (if it exists)
-        try {
-            $foreignKeys = DB::select("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'instructor_social_medias' AND COLUMN_NAME = 'social_media_id' AND REFERENCED_TABLE_NAME IS NOT NULL");
-            if (!empty($foreignKeys)) {
-                $fkName = $foreignKeys[0]->CONSTRAINT_NAME;
-                DB::statement("ALTER TABLE instructor_social_medias DROP FOREIGN KEY `{$fkName}`");
+        if (DB::getDriverName() === 'mysql') {
+            try {
+                $foreignKeys = DB::select("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'instructor_social_medias' AND COLUMN_NAME = 'social_media_id' AND REFERENCED_TABLE_NAME IS NOT NULL");
+                if (!empty($foreignKeys)) {
+                    $fkName = $foreignKeys[0]->CONSTRAINT_NAME;
+                    DB::statement("ALTER TABLE instructor_social_medias DROP FOREIGN KEY `{$fkName}`");
+                }
+            } catch (\Exception $e) {
+                // Foreign key might not exist, continue
             }
-        } catch (\Exception $e) {
-            // Foreign key might not exist, continue
         }
         
         Schema::table('instructor_social_medias', function (Blueprint $table) {
@@ -100,7 +102,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (!Schema::hasTable('instructor_social_medias')) {
+        if (!Schema::hasTable('instructor_social_medias') || DB::getDriverName() !== 'mysql') {
             return;
         }
         
@@ -131,15 +133,17 @@ return new class extends Migration
         }
         
         // Restore foreign key constraint if it doesn't exist
-        try {
-            $foreignKeys = DB::select("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'instructor_social_medias' AND COLUMN_NAME = 'social_media_id' AND REFERENCED_TABLE_NAME IS NOT NULL");
-            if (empty($foreignKeys)) {
-                Schema::table('instructor_social_medias', function (Blueprint $table) {
-                    $table->foreign('social_media_id')->references('id')->on('social_medias')->onDelete('cascade');
-                });
+        if (DB::getDriverName() === 'mysql') {
+            try {
+                $foreignKeys = DB::select("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'instructor_social_medias' AND COLUMN_NAME = 'social_media_id' AND REFERENCED_TABLE_NAME IS NOT NULL");
+                if (empty($foreignKeys)) {
+                    Schema::table('instructor_social_medias', function (Blueprint $table) {
+                        $table->foreign('social_media_id')->references('id')->on('social_medias')->onDelete('cascade');
+                    });
+                }
+            } catch (\Exception $e) {
+                // Continue
             }
-        } catch (\Exception $e) {
-            // Continue
         }
         
         // Restore the original unique constraint if it doesn't exist

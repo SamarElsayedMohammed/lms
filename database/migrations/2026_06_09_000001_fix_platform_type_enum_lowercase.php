@@ -18,7 +18,9 @@ return new class extends Migration
         DB::statement("UPDATE user_fcm_tokens SET platform_type = LOWER(platform_type) WHERE platform_type IS NOT NULL");
 
         // Step 2: Change enum definition to lowercase values
-        DB::statement("ALTER TABLE user_fcm_tokens MODIFY COLUMN platform_type ENUM('android', 'ios') NULL DEFAULT NULL");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE user_fcm_tokens MODIFY COLUMN platform_type ENUM('android', 'ios') NULL DEFAULT NULL");
+        }
     }
 
     public function down(): void
@@ -30,6 +32,8 @@ return new class extends Migration
             ELSE platform_type
         END WHERE platform_type IS NOT NULL");
 
-        DB::statement("ALTER TABLE user_fcm_tokens MODIFY COLUMN platform_type ENUM('Android', 'iOS') NULL DEFAULT NULL");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE user_fcm_tokens MODIFY COLUMN platform_type ENUM('Android', 'iOS') NULL DEFAULT NULL");
+        }
     }
 };

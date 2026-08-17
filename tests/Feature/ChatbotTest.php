@@ -1,111 +1,122 @@
 <?php
 
+namespace Tests\Feature;
+
 use App\Models\User;
 use App\Models\Course\Course;
-use App\Models\ChatbotKnowledgeBase;
 use App\Models\Setting;
 use Illuminate\Support\Facades\Http;
-use function Pest\Laravel\actingAs;
-use function Pest\Laravel\postJson;
+use Tests\TestCase;
 
-beforeEach(function () {
-    // Mock the AI API calls so we don't actually hit Gemini/OpenAI
-    Http::fake([
-        '*' => Http::response([
-            'candidates' => [
-                [
-                    'content' => [
-                        'parts' => [
-                            ['text' => 'Mock AI Response']
+class ChatbotTest extends TestCase
+{
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Mock the AI API calls so we don't actually hit Gemini/OpenAI
+        Http::fake([
+            '*' => Http::response([
+                'candidates' => [
+                    [
+                        'content' => [
+                            'parts' => [
+                                ['text' => 'Mock AI Response']
+                            ]
                         ]
                     ]
                 ]
-            ]
-        ], 200)
-    ]);
-});
+            ], 200)
+        ]);
+    }
 
-test('course chatbot rejects non-enrolled users', function () {
-    $course = Course::factory()->create([
-        'ai_knowledge_content' => 'Test knowledge',
-        'chatbot_enabled' => true,
-    ]);
-    
-    $user = User::factory()->create(); // Not enrolled
+    public function test_course_chatbot_rejects_non_enrolled_users(): void
+    {
+        $course = Course::factory()->create([
+            'ai_knowledge_content' => 'Test knowledge',
+            'chatbot_enabled' => true,
+        ]);
 
-    actingAs($user)
-        ->postJson('/api/chatbot/course-message', [
-            'course_id' => $course->id,
-            'message' => 'Hello',
+        $user = User::factory()->create(); // Not enrolled
+
+        $this->actingAs($user)
+            ->postJson('/api/chatbot/course-message', [
+                'course_id' => $course->id,
+                'message' => 'Hello',
+            ])
+            ->assertStatus(403)
+            ->assertJsonPath('status', false)
+            ->assertJsonPath('message', 'You must be enrolled in this course to use the assistant');
+    }
+
+    public function test_course_chatbot_allows_enrolled_users(): void
+    {
+        $course = Course::factory()->create([
+            'ai_knowledge_content' => 'Test knowledge',
+            'chatbot_enabled' => true,
+        ]);
+
+        $user = User::factory()->create();
+        $course->students()->attach($user->id, ['status' => 'active']); // Enrolled
+
+        $this->actingAs($user)
+            ->postJson('/api/chatbot/course-message', [
+                'course_id' => $course->id,
+                'message' => 'Hello',
+            ])
+            ->assertStatus(200)
+            ->assertJsonPath('status', true);
+    }
+
+    public function test_global_chatbot_respects_chatbot_enabled_setting(): void
+    {
+        // Disable chatbot
+        Setting::updateOrCreate(['name' => 'chatbot_enabled'], ['value' => '0', 'type' => 'boolean']);
+
+        $this->postJson('/api/chatbot/message', [
+            'message' => 'Hello'
         ])
         ->assertStatus(403)
-        ->assertJsonPath('status', false)
-        ->assertJsonPath('message', 'You must be enrolled in this course to use the assistant');
-});
+        ->assertJsonPath('message', 'Chatbot is currently disabled');
 
-test('course chatbot allows enrolled users', function () {
-    $course = Course::factory()->create([
-        'ai_knowledge_content' => 'Test knowledge',
-        'chatbot_enabled' => true,
-    ]);
-    
-    $user = User::factory()->create();
-    $course->students()->attach($user->id, ['status' => 'active']); // Enrolled
+        // Enable chatbot
+        Setting::updateOrCreate(['name' => 'chatbot_enabled'], ['value' => '1', 'type' => 'boolean']);
 
-    actingAs($user)
-        ->postJson('/api/chatbot/course-message', [
-            'course_id' => $course->id,
-            'message' => 'Hello',
+        $this->postJson('/api/chatbot/message', [
+            'message' => 'Hello'
         ])
-        ->assertStatus(200)
-        ->assertJsonPath('status', true);
-});
+        ->assertStatus(200);
+    }
 
-test('global chatbot respects chatbot_enabled setting', function () {
-    // Disable chatbot
-    Setting::updateOrCreate(['name' => 'chatbot_enabled'], ['value' => '0', 'type' => 'boolean']);
-    
-    postJson('/api/chatbot/message', [
-        'message' => 'Hello'
-    ])
-    ->assertStatus(403)
-    ->assertJsonPath('message', 'Chatbot is currently disabled');
-    
-    // Enable chatbot
-    Setting::updateOrCreate(['name' => 'chatbot_enabled'], ['value' => '1', 'type' => 'boolean']);
-    
-    postJson('/api/chatbot/message', [
-        'message' => 'Hello'
-    ])
-    ->assertStatus(200);
-});
+    public function test_visitor_chatbot_works_end_to_end_with_session_id(): void
+    {
+        Setting::updateOrCreate(['name' => 'chatbot_enabled'], ['value' => '1', 'type' => 'boolean']);
+        $sessionId = 'test-session-123';
 
-test('visitor chatbot works end-to-end with session id', function () {
-    Setting::updateOrCreate(['name' => 'chatbot_enabled'], ['value' => '1', 'type' => 'boolean']);
-    $sessionId = 'test-session-123';
-    
-    $response = postJson('/api/chatbot/message', [
-        'message' => 'Hello visitor'
-    ], [
-        'X-Chat-Session-ID' => $sessionId
-    ]);
-    
-    $response->assertStatus(200);
-    $data = $response->json('data');
-    
-    $conversationId = $data['conversation_id'];
-    expect($conversationId)->not->toBeNull();
-    
-    // Verify it was logged under this session ID in the database
-    $this->assertDatabaseHas('chatbot_conversations', [
-        'id' => $conversationId,
-        'session_id' => $sessionId,
-        'user_id' => null,
-    ]);
-    
-    $this->assertDatabaseHas('chatbot_messages', [
-        'conversation_id' => $conversationId,
-        'session_id' => $sessionId,
-        'message' => 'Hello visitor',
-    ]);
-});
+        $response = $this->postJson('/api/chatbot/message', [
+            'message' => 'Hello visitor'
+        ], [
+            'X-Chat-Session-ID' => $sessionId
+        ]);
+
+        $response->assertStatus(200);
+        $data = $response->json('data');
+
+        $conversationId = $data['conversation_id'];
+        $this->assertNotNull($conversationId);
+
+        // Verify it was logged under this session ID in the database
+        $this->assertDatabaseHas('chatbot_conversations', [
+            'id' => $conversationId,
+            'session_id' => $sessionId,
+            'user_id' => null,
+        ]);
+
+        $this->assertDatabaseHas('chatbot_messages', [
+            'conversation_id' => $conversationId,
+            'session_id' => $sessionId,
+            'message' => 'Hello visitor',
+        ]);
+    }
+}

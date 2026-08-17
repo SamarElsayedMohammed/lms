@@ -12,19 +12,18 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Use raw SQL to modify the column to be nullable
-        // This works even without doctrine/dbal package
-        // Check the actual column type first and modify accordingly
-        try {
-            $columnInfo = DB::select("SHOW COLUMNS FROM promo_codes WHERE Field = 'max_discount_amount'");
-            if (!empty($columnInfo)) {
-                $columnType = $columnInfo[0]->Type;
-                // Modify column to be nullable, preserving the original type
-                DB::statement("ALTER TABLE promo_codes MODIFY COLUMN max_discount_amount {$columnType} NULL");
+        if (DB::getDriverName() === 'mysql') {
+            try {
+                $columnInfo = DB::select("SHOW COLUMNS FROM promo_codes WHERE Field = 'max_discount_amount'");
+                if (!empty($columnInfo)) {
+                    $columnType = $columnInfo[0]->Type;
+                    // Modify column to be nullable, preserving the original type
+                    DB::statement("ALTER TABLE promo_codes MODIFY COLUMN max_discount_amount {$columnType} NULL");
+                }
+            } catch (\Exception $e) {
+                // Fallback: try with INT if column info query fails
+                DB::statement('ALTER TABLE promo_codes MODIFY COLUMN max_discount_amount INT NULL');
             }
-        } catch (\Exception $e) {
-            // Fallback: try with INT if column info query fails
-            DB::statement('ALTER TABLE promo_codes MODIFY COLUMN max_discount_amount INT NULL');
         }
     }
 
@@ -33,7 +32,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Use raw SQL to modify the column to be NOT NULL
-        DB::statement('ALTER TABLE promo_codes MODIFY COLUMN max_discount_amount INT NOT NULL');
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE promo_codes MODIFY COLUMN max_discount_amount INT NOT NULL');
+        }
     }
 };

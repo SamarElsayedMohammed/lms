@@ -16,7 +16,7 @@ return new class extends Migration
         DB::table('legacy_notifications')
             ->whereRaw('LENGTH(message) > 250')
             ->update([
-                'message' => DB::raw('LEFT(message, 250)')
+                'message' => DB::raw('SUBSTR(message, 1, 250)')
             ]);
 
         // Update message column to VARCHAR(250) for legacy_notifications table
@@ -30,8 +30,7 @@ return new class extends Migration
             $driver = DB::getDriverName();
             if ($driver === 'mysql' || $driver === 'mariadb') {
                 DB::statement('ALTER TABLE legacy_notifications MODIFY message VARCHAR(250)');
-            } else {
-                // For other databases (PostgreSQL, SQLite, etc.)
+            } elseif ($driver === 'pgsql') {
                 DB::statement('ALTER TABLE legacy_notifications ALTER COLUMN message TYPE VARCHAR(250)');
             }
         }
@@ -52,8 +51,7 @@ return new class extends Migration
             $driver = DB::getDriverName();
             if ($driver === 'mysql' || $driver === 'mariadb') {
                 DB::statement('ALTER TABLE legacy_notifications MODIFY message TEXT');
-            } else {
-                // For other databases (PostgreSQL, SQLite, etc.)
+            } elseif ($driver === 'pgsql') {
                 DB::statement('ALTER TABLE legacy_notifications ALTER COLUMN message TYPE TEXT');
             }
         }

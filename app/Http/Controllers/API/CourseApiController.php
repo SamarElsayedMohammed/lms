@@ -845,10 +845,10 @@ class CourseApiController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                "id" => "nullable|exists:courses,id",
-                "course_id" => "nullable|exists:courses,id",
-                "slug" => "nullable|string|exists:courses,slug",
-                "course_slug" => "nullable|string|exists:courses,slug",
+                "id" => "nullable",
+                "course_id" => "nullable",
+                "slug" => "nullable|string",
+                "course_slug" => "nullable|string",
             ]);
 
             if ($validator->fails()) {
@@ -899,10 +899,23 @@ class CourseApiController extends Controller
                     },
                 ]);
 
-            if ($request->filled("id")) {
-                $course = $courseQuery->where("id", $request->id)->first();
-            } elseif ($request->filled("slug")) {
-                $course = $courseQuery->where("slug", $request->slug)->first();
+            $id = $request->input("id") ?? $request->input("course_id");
+            $slug = $request->input("slug") ?? $request->input("course_slug");
+
+            $course = null;
+            if (!empty($id)) {
+                $course = (clone $courseQuery)->where("id", $id)->first();
+            } elseif (!empty($slug)) {
+                $rawSlug = trim((string) $slug);
+                $decodedSlug = urldecode($rawSlug);
+                $course = (clone $courseQuery)->where("slug", $rawSlug)
+                    ->orWhere("slug", $decodedSlug)
+                    ->first();
+
+                // If slug is numeric, also allow fallback to ID
+                if (!$course && is_numeric($rawSlug)) {
+                    $course = (clone $courseQuery)->where("id", (int) $rawSlug)->first();
+                }
             } else {
                 return ApiResponseService::validationError(
                     "Course id or slug is required",
@@ -2131,10 +2144,10 @@ class CourseApiController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                "id" => "nullable|exists:courses,id",
-                "course_id" => "nullable|exists:courses,id",
-                "slug" => "nullable|string|exists:courses,slug",
-                "course_slug" => "nullable|string|exists:courses,slug",
+                "id" => "nullable",
+                "course_id" => "nullable",
+                "slug" => "nullable|string",
+                "course_slug" => "nullable|string",
                 "user_team_slug" => "nullable|string|exists:users,slug", // Add user_team_slug parameter
                 "statistics" => "nullable|boolean", // Add statistics parameter
                 "quiz_reports" => "nullable|boolean", // Add quiz reports parameter
@@ -2186,11 +2199,23 @@ class CourseApiController extends Controller
                     $q->where("status", "approved");
                 }]);
 
-            // Get course by ID or slug
-            if ($request->filled("id")) {
-                $course = $courseQuery->where("id", $request->id)->first();
-            } elseif ($request->filled("slug")) {
-                $course = $courseQuery->where("slug", $request->slug)->first();
+            $id = $request->input("id") ?? $request->input("course_id");
+            $slug = $request->input("slug") ?? $request->input("course_slug");
+
+            $course = null;
+            if (!empty($id)) {
+                $course = (clone $courseQuery)->where("id", $id)->first();
+            } elseif (!empty($slug)) {
+                $rawSlug = trim((string) $slug);
+                $decodedSlug = urldecode($rawSlug);
+                $course = (clone $courseQuery)->where("slug", $rawSlug)
+                    ->orWhere("slug", $decodedSlug)
+                    ->first();
+
+                // If slug is numeric, also allow fallback to ID
+                if (!$course && is_numeric($rawSlug)) {
+                    $course = (clone $courseQuery)->where("id", (int) $rawSlug)->first();
+                }
             } else {
                 return ApiResponseService::validationError(
                     "Course id or slug is required",

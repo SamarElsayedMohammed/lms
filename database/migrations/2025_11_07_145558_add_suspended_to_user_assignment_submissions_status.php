@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (Schema::hasTable('user_assignment_submissions')) {
+        if (Schema::hasTable('user_assignment_submissions') && DB::getDriverName() === 'mysql') {
             // Modify the enum to include 'suspended'
             DB::statement("ALTER TABLE user_assignment_submissions MODIFY COLUMN status ENUM('pending', 'submitted', 'accepted', 'rejected', 'suspended') DEFAULT 'pending'");
         }
@@ -22,7 +22,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (Schema::hasTable('user_assignment_submissions')) {
+        if (Schema::hasTable('user_assignment_submissions') && DB::getDriverName() === 'mysql') {
             // Revert back to enum without suspended
             DB::statement("ALTER TABLE user_assignment_submissions MODIFY COLUMN status ENUM('pending', 'submitted', 'accepted', 'rejected') DEFAULT 'pending'");
         }

@@ -14,8 +14,16 @@ return new class extends Migration
     {
         // First drop existing foreign keys and unique indexes if they exist
         Schema::table('subscription_plan_prices', function (Blueprint $table) {
-            // Drop the foreign key on country_id to allow dropping the column
-            $table->dropForeign(['country_id']);
+            try {
+                $table->dropUnique(['plan_id', 'country_id']);
+            } catch (\Exception $e) {
+                // Ignore if not present
+            }
+            try {
+                $table->dropForeign(['country_id']);
+            } catch (\Exception $e) {
+                // Ignore if not present
+            }
         });
 
         // Drop existing rows since we are replacing country_id with country_code 

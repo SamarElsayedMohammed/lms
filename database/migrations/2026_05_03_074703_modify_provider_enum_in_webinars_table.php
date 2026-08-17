@@ -11,7 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        \Illuminate\Support\Facades\DB::statement("ALTER TABLE webinars MODIFY COLUMN provider ENUM('zoom', 'jitsi', 'google_meet', 'custom') DEFAULT 'jitsi'");
+        if (\Illuminate\Support\Facades\DB::getDriverName() === 'mysql') {
+            \Illuminate\Support\Facades\DB::statement("ALTER TABLE webinars MODIFY COLUMN provider ENUM('zoom', 'jitsi', 'google_meet', 'custom') DEFAULT 'jitsi'");
+        }
     }
 
     /**
@@ -19,6 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        \Illuminate\Support\Facades\DB::statement("ALTER TABLE webinars MODIFY COLUMN provider ENUM('zoom', 'jitsi', 'custom') DEFAULT 'jitsi'");
+        if (\Illuminate\Support\Facades\DB::getDriverName() === 'mysql') {
+            \Illuminate\Support\Facades\DB::statement("ALTER TABLE webinars MODIFY COLUMN provider ENUM('zoom', 'jitsi', 'custom') DEFAULT 'jitsi'");
+        }
     }
 };

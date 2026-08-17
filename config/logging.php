@@ -50,8 +50,8 @@ return [
     'channels' => [
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
-            'ignore_exceptions' => false,
+            'channels' => explode(',', (string) env('LOG_STACK', 'single,stderr')),
+            'ignore_exceptions' => (bool) env('LOG_IGNORE_EXCEPTIONS', true),
         ],
         'single' => [
             'driver' => 'single',

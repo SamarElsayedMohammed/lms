@@ -28,10 +28,12 @@ return new class extends Migration
         });
 
         // Fix provider enum to include google_meet
-        try {
-            DB::statement("ALTER TABLE webinars MODIFY COLUMN provider ENUM('zoom','jitsi','google_meet','custom') DEFAULT 'jitsi'");
-        } catch (\Exception $e) {
-            // Ignore if fails
+        if (DB::getDriverName() === 'mysql') {
+            try {
+                DB::statement("ALTER TABLE webinars MODIFY COLUMN provider ENUM('zoom','jitsi','google_meet','custom') DEFAULT 'jitsi'");
+            } catch (\Exception $e) {
+                // Ignore if fails
+            }
         }
     }
 
@@ -49,10 +51,12 @@ return new class extends Migration
             }
         });
 
-        try {
-            DB::statement("ALTER TABLE webinars MODIFY COLUMN provider ENUM('zoom','jitsi','custom') DEFAULT 'jitsi'");
-        } catch (\Exception $e) {
-            // Ignore
+        if (DB::getDriverName() === 'mysql') {
+            try {
+                DB::statement("ALTER TABLE webinars MODIFY COLUMN provider ENUM('zoom','jitsi','custom') DEFAULT 'jitsi'");
+            } catch (\Exception $e) {
+                // Ignore
+            }
         }
     }
 };

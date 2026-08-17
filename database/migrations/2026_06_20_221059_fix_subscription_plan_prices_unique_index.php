@@ -7,6 +7,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         // The FK on plan_id needs a backing index. The unique (plan_id, country_code)
         // is currently the only index starting with plan_id, so MySQL refuses to drop it.
         // Fix: add a temporary plain index on plan_id first, so the FK has a fallback.

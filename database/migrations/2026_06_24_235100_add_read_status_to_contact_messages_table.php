@@ -10,7 +10,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE `contact_messages` MODIFY COLUMN `status` ENUM('new', 'read', 'waiting_admin', 'replied', 'closed', 'completed', 'reopened') DEFAULT 'new'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE `contact_messages` MODIFY COLUMN `status` ENUM('new', 'read', 'waiting_admin', 'replied', 'closed', 'completed', 'reopened') DEFAULT 'new'");
+        }
     }
 
     /**
@@ -20,6 +22,8 @@ return new class extends Migration
     {
         DB::statement("UPDATE `contact_messages` SET `status` = 'new' WHERE `status` = 'read'");
 
-        DB::statement("ALTER TABLE `contact_messages` MODIFY COLUMN `status` ENUM('new', 'waiting_admin', 'replied', 'closed', 'completed', 'reopened') DEFAULT 'new'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE `contact_messages` MODIFY COLUMN `status` ENUM('new', 'waiting_admin', 'replied', 'closed', 'completed', 'reopened') DEFAULT 'new'");
+        }
     }
 };

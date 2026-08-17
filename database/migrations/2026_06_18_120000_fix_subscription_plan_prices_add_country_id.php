@@ -59,28 +59,30 @@ return new class extends Migration
 
         // 8. Ensure there is a (plan_id, country_id) unique index if country_id exists
         //    We check via information_schema to avoid exceptions on already-existing indexes.
-        $hasUniqueOnCountryId = DB::select("
-            SELECT COUNT(*) as cnt
-            FROM information_schema.statistics
-            WHERE table_schema = DATABASE()
-              AND table_name = 'subscription_plan_prices'
-              AND index_name = 'subscription_plan_prices_plan_id_country_id_unique'
-        ");
+        if (DB::getDriverName() === 'mysql') {
+            $hasUniqueOnCountryId = DB::select("
+                SELECT COUNT(*) as cnt
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'subscription_plan_prices'
+                  AND index_name = 'subscription_plan_prices_plan_id_country_id_unique'
+            ");
 
-        if (($hasUniqueOnCountryId[0]->cnt ?? 0) == 0) {
-            Schema::table('subscription_plan_prices', function (Blueprint $table) {
-                // Only add if country_id actually exists now
-                if (Schema::hasColumn('subscription_plan_prices', 'country_id')) {
-                    // Drop stale unique on (plan_id, country_code) if it still exists
-                    try {
-                        $table->dropUnique(['plan_id', 'country_code']);
-                    } catch (\Throwable) {
-                        // index may already be gone — ignore
+            if (($hasUniqueOnCountryId[0]->cnt ?? 0) == 0) {
+                Schema::table('subscription_plan_prices', function (Blueprint $table) {
+                    // Only add if country_id actually exists now
+                    if (Schema::hasColumn('subscription_plan_prices', 'country_id')) {
+                        // Drop stale unique on (plan_id, country_code) if it still exists
+                        try {
+                            $table->dropUnique(['plan_id', 'country_code']);
+                        } catch (\Throwable) {
+                            // index may already be gone — ignore
+                        }
+
+                        $table->unique(['plan_id', 'country_id'], 'subscription_plan_prices_plan_id_country_id_unique');
                     }
-
-                    $table->unique(['plan_id', 'country_id'], 'subscription_plan_prices_plan_id_country_id_unique');
-                }
-            });
+                });
+            }
         }
     }
 

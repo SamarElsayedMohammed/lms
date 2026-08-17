@@ -96,6 +96,7 @@ final class ApiResponseService
         $code ??= (int) config('constants.RESPONSE_CODE.SUCCESS');
         $response = [
             'success' => true,
+            'status' => true,
             'error' => false,
             'message' => trans($message),
             'data' => $data ?? (object) [],
@@ -147,6 +148,7 @@ final class ApiResponseService
         $code ??= (int) config('constants.RESPONSE_CODE.ERROR');
         $response = [
             'success' => false,
+            'status' => false,
             'error' => true,
             'message' => trans($message),
             'data' => $data ?? (object) [],
@@ -162,7 +164,7 @@ final class ApiResponseService
             $response['redirect_url'] = $redirectUrl;
         }
 
-        if (config('app.debug') === true && $exception instanceof Throwable) {
+        if (app()->environment('local') && config('app.debug') === true && $exception instanceof Throwable) {
             $response['debug'] = [
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
@@ -202,11 +204,15 @@ final class ApiResponseService
             throw $e;
         }
 
-        Log::error($logMessage . ': ' . $e->getMessage(), [
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString(),
-        ]);
+        try {
+            Log::error($logMessage . ': ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+        } catch (Throwable) {
+            // Suppress logging error to prevent crash
+        }
     }
 
     /**

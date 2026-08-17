@@ -16,7 +16,7 @@ return new class extends Migration
         });
 
         // Backfill from existing US country override rows where configured by admin.
-        if (Schema::hasTable('subscription_plan_prices')) {
+        if (Schema::hasTable('subscription_plan_prices') && DB::getDriverName() === 'mysql') {
             DB::statement('
                 UPDATE subscription_plans sp
                 INNER JOIN subscription_plan_prices spp

@@ -9,6 +9,10 @@ return new class extends Migration
 {
     public function up()
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         // Check if the column is already CHAR(36) - if so, skip migration
         $columnType = DB::select("SHOW COLUMNS FROM notifications WHERE Field = 'id'")[0]->Type;
 
@@ -38,6 +42,10 @@ return new class extends Migration
 
     public function down()
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         // Revert back to bigint auto increment
         Schema::table('notifications', function (Blueprint $table) {
             $table->dropPrimary();

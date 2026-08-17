@@ -21,7 +21,7 @@ class InstructorTest extends TestCase
     public function test_instructor_has_courses_relationship()
     {
         $instructor = new Instructor();
-        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Relations\HasMany::class, $instructor->courses());
+        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Relations\BelongsToMany::class, $instructor->courses());
     }
 
     public function test_instructor_fillable_attributes()

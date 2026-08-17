@@ -20,6 +20,7 @@ final class CourseChapterFactory extends Factory
     {
         return [
             'course_id' => Course::factory(),
+            'user_id' => \App\Models\User::factory(),
             'title' => fake()->sentence(3),
             'chapter_order' => fake()->numberBetween(1, 10),
             'is_active' => true,

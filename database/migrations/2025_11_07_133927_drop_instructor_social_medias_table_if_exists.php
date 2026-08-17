@@ -14,20 +14,22 @@ return new class extends Migration
     {
         if (Schema::hasTable('instructor_social_medias')) {
             // Drop foreign key constraints first
-            try {
-                $foreignKeys = DB::select("
-                    SELECT CONSTRAINT_NAME 
-                    FROM information_schema.KEY_COLUMN_USAGE 
-                    WHERE TABLE_SCHEMA = DATABASE() 
-                    AND TABLE_NAME = 'instructor_social_medias' 
-                    AND REFERENCED_TABLE_NAME IS NOT NULL
-                ");
-                
-                foreach ($foreignKeys as $fk) {
-                    DB::statement("ALTER TABLE instructor_social_medias DROP FOREIGN KEY `{$fk->CONSTRAINT_NAME}`");
+            if (DB::getDriverName() === 'mysql') {
+                try {
+                    $foreignKeys = DB::select("
+                        SELECT CONSTRAINT_NAME 
+                        FROM information_schema.KEY_COLUMN_USAGE 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = 'instructor_social_medias' 
+                        AND REFERENCED_TABLE_NAME IS NOT NULL
+                    ");
+                    
+                    foreach ($foreignKeys as $fk) {
+                        DB::statement("ALTER TABLE instructor_social_medias DROP FOREIGN KEY `{$fk->CONSTRAINT_NAME}`");
+                    }
+                } catch (\Exception $e) {
+                    // Continue if foreign keys don't exist
                 }
-            } catch (\Exception $e) {
-                // Continue if foreign keys don't exist
             }
             
             // Drop the table

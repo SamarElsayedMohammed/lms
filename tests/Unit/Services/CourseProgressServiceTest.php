@@ -11,12 +11,12 @@ use App\Models\UserCurriculumTracking;
 use App\Models\UserCourseProgress;
 use App\Models\VideoProgress;
 use App\Services\CourseProgressService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
 
 class CourseProgressServiceTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     private CourseProgressService $service;
 
@@ -87,7 +87,7 @@ class CourseProgressServiceTest extends TestCase
         });
 
         // Add 100% curriculum tracking
-        UserCurriculumTracking::factory()->create([
+        UserCurriculumTracking::create([
             'user_id' => $user->id,
             'course_chapter_id' => $chapter->id,
             'model_type' => CourseChapterLecture::class,

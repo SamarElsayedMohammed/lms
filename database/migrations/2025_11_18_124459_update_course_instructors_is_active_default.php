@@ -23,8 +23,7 @@ return new class extends Migration
             $driver = DB::getDriverName();
             if ($driver === 'mysql' || $driver === 'mariadb') {
                 DB::statement('ALTER TABLE course_instructors MODIFY is_active BOOLEAN DEFAULT 1');
-            } else {
-                // For other databases (PostgreSQL, SQLite, etc.)
+            } elseif ($driver === 'pgsql') {
                 DB::statement('ALTER TABLE course_instructors ALTER COLUMN is_active SET DEFAULT 1');
             }
         }
@@ -46,8 +45,7 @@ return new class extends Migration
             $driver = DB::getDriverName();
             if ($driver === 'mysql' || $driver === 'mariadb') {
                 DB::statement('ALTER TABLE course_instructors MODIFY is_active BOOLEAN DEFAULT 0');
-            } else {
-                // For other databases (PostgreSQL, SQLite, etc.)
+            } elseif ($driver === 'pgsql') {
                 DB::statement('ALTER TABLE course_instructors ALTER COLUMN is_active SET DEFAULT 0');
             }
         }

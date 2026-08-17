@@ -11,10 +11,8 @@ abstract class TestCase extends BaseTestCase
     #[\Override]
     protected function setUp(): void
     {
+        ini_set('memory_limit', '512M');
         parent::setUp();
-
-        // Skip database setup for now due to SQLite VACUUM issues
-        // $this->artisan('migrate:fresh');
     }
 
     #[\Override]

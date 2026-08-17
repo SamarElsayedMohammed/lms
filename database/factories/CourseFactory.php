@@ -26,6 +26,8 @@ final class CourseFactory extends Factory
             'slug' => Str::slug($title) . '-' . Str::random(5),
             'short_description' => fake()->paragraph(),
             'thumbnail' => 'courses/default.jpg',
+            'category_id' => fn() => \App\Models\Category::firstOrCreate(['slug' => 'default-category'], ['name' => 'Default Category', 'status' => 1])->id,
+            'language_id' => fn() => \App\Models\Course\CourseLanguage::firstOrCreate(['slug' => 'en'], ['name' => 'English', 'is_active' => 1])->id,
             'user_id' => User::factory(),
             'level' => fake()->randomElement(['beginner', 'intermediate', 'advanced']),
             'course_type' => 'paid',

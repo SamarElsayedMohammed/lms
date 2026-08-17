@@ -17,9 +17,11 @@ return new class extends Migration
             ->where('status', 'processed')
             ->update(['status' => 'approved']);
 
-        // Modify the enum to remove 'processed' and keep only 'pending', 'approved', 'rejected'
-        // Using raw SQL because Laravel doesn't support modifying enum values directly
-        DB::statement("ALTER TABLE refund_requests MODIFY COLUMN status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending'");
+        if (DB::getDriverName() === 'mysql') {
+            // Modify the enum to remove 'processed' and keep only 'pending', 'approved', 'rejected'
+            // Using raw SQL because Laravel doesn't support modifying enum values directly
+            DB::statement("ALTER TABLE refund_requests MODIFY COLUMN status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending'");
+        }
     }
 
     /**
@@ -27,7 +29,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Restore 'processed' to the enum
-        DB::statement("ALTER TABLE refund_requests MODIFY COLUMN status ENUM('pending', 'approved', 'rejected', 'processed') NOT NULL DEFAULT 'pending'");
+        if (DB::getDriverName() === 'mysql') {
+            // Restore 'processed' to the enum
+            DB::statement("ALTER TABLE refund_requests MODIFY COLUMN status ENUM('pending', 'approved', 'rejected', 'processed') NOT NULL DEFAULT 'pending'");
+        }
     }
 };

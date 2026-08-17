@@ -13,9 +13,12 @@ mkdir -p \
     /var/run \
     /etc/supervisor/conf.d
 
+# ── Set umask to ensure group writeability for www-data ───────────────────────
+umask 0002
+
 # ── Permissions (must run BEFORE artisan — www-data needs write access) ───────
-chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run 2>/dev/null || true
-chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache 2>/dev/null || true
+chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run 2>/dev/null || true
+chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run 2>/dev/null || true
 
 # ── Laravel runtime optimizations ────────────────────────────────────────────
 cd /var/www/html
@@ -32,6 +35,12 @@ php artisan route:cache    2>/dev/null || true
 
 # Run pending migrations (safe in staging — remove in strict production)
 php artisan migrate --force 2>/dev/null || true
+
+# ── Re-apply ownership & permissions AFTER artisan commands create/touch files ──
+touch /var/www/html/storage/logs/laravel.log 2>/dev/null || true
+chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run 2>/dev/null || true
+chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run 2>/dev/null || true
+chmod 664 /var/www/html/storage/logs/laravel.log 2>/dev/null || true
 
 # ── Nginx port override (if Coolify sets PORT) ────────────────────────────────
 if [ -n "$PORT" ] && [ "$PORT" != "80" ]; then

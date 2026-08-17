@@ -20,6 +20,11 @@ class Course extends Model
 {
     use HasFactory, SoftDeletes, ProtectsDemoData;
 
+    protected static function newFactory()
+    {
+        return \Database\Factories\CourseFactory::new();
+    }
+
     protected $fillable = [
         'title',
         'import_code',
@@ -432,7 +437,8 @@ class Course extends Model
             $totalLectures += $chapter->lectures()->count();
         }
 
-        $this->update([
+        // updateQuietly prevents any course-level observers re-triggering this method.
+        $this->updateQuietly([
             'duration_seconds' => $totalDuration,
             'lectures_count' => $totalLectures,
         ]);

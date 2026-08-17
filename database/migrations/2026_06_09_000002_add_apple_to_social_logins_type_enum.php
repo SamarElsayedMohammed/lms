@@ -13,7 +13,9 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement("ALTER TABLE social_logins MODIFY COLUMN type ENUM('google', 'email', 'phone', 'apple') NOT NULL");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE social_logins MODIFY COLUMN type ENUM('google', 'email', 'phone', 'apple') NOT NULL");
+        }
     }
 
     public function down(): void
@@ -21,6 +23,8 @@ return new class extends Migration
         // Remove apple entries first to avoid constraint violation on rollback
         DB::statement("DELETE FROM social_logins WHERE type = 'apple'");
 
-        DB::statement("ALTER TABLE social_logins MODIFY COLUMN type ENUM('google', 'email', 'phone') NOT NULL");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE social_logins MODIFY COLUMN type ENUM('google', 'email', 'phone') NOT NULL");
+        }
     }
 };

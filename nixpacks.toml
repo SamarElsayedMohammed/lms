@@ -8,7 +8,7 @@ aptPkgs = ["supervisor", "nginx"]
 cmds = [
     "mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp /etc/nginx /etc/supervisor/conf.d",
     "mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs",
-    "chmod -R 777 bootstrap/cache storage",
+    "chmod -R 775 bootstrap/cache storage",
     "composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs"
 ]
 
@@ -30,7 +30,7 @@ set -e
 # Setup directories and permissions
 mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /var/run /tmp /etc/nginx /etc/supervisor/conf.d
 mkdir -p /app/bootstrap/cache /app/storage/framework/cache /app/storage/framework/sessions /app/storage/framework/views /app/storage/logs
-chmod -R 777 /app/bootstrap/cache /app/storage /tmp /var/log /var/cache /var/run /var/log/nginx /var/log/supervisor 2>/dev/null || true
+chmod -R 775 /app/bootstrap/cache /app/storage /tmp /var/log /var/cache /var/run /var/log/nginx /var/log/supervisor 2>/dev/null || true
 
 # Copy supervisor assets to configuration paths
 cp /assets/worker-*.conf /etc/supervisor/conf.d/ 2>/dev/null || true

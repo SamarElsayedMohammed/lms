@@ -65,11 +65,97 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request) {
-            if ($request->is('api/*') || $request->expectsJson() || true) {
+            if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
+                    'success' => false,
                     'status' => false,
                     'message' => 'Unauthenticated.',
+                    'code' => 401,
                 ], 401);
+            }
+        });
+
+        $exceptions->render(function (\Illuminate\Auth\Access\AuthorizationException|\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'status' => false,
+                    'message' => $e->getMessage() ?: 'Unauthorized action.',
+                    'code' => 403,
+                ], 403);
+            }
+        });
+
+        $exceptions->render(function (\Illuminate\Database\Eloquent\ModelNotFoundException|\Symfony\Component\HttpKernel\Exception\NotFoundHttpException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'status' => false,
+                    'message' => 'Resource not found.',
+                    'code' => 404,
+                ], 404);
+            }
+        });
+
+        $exceptions->render(function (\Illuminate\Validation\ValidationException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'status' => false,
+                    'message' => $e->validator->errors()->first() ?: 'Validation failed.',
+                    'errors' => $e->errors(),
+                    'code' => 422,
+                ], 422);
+            }
+        });
+
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'status' => false,
+                    'message' => 'Too many requests. Please slow down.',
+                    'code' => 429,
+                ], 429);
+            }
+        });
+
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
+                    return $e->getResponse();
+                }
+
+                try {
+                    \Illuminate\Support\Facades\Log::error('API Exception: ' . $e->getMessage(), [
+                        'exception' => get_class($e),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                        'url' => $request->fullUrl(),
+                        'method' => $request->method(),
+                    ]);
+                } catch (\Throwable) {
+                    // Suppress log failure to guarantee API error response delivery
+                }
+
+                $isLocal = app()->environment('local') && config('app.debug') === true;
+
+                $payload = [
+                    'success' => false,
+                    'status' => false,
+                    'message' => $isLocal ? $e->getMessage() : 'Internal server error.',
+                    'code' => 500,
+                ];
+
+                if ($isLocal) {
+                    $payload['debug'] = [
+                        'exception' => get_class($e),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                    ];
+                }
+
+                return response()->json($payload, 500);
             }
         });
     })->create();

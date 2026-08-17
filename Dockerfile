@@ -45,7 +45,8 @@ RUN mkdir -p \
         storage/framework/cache \
         storage/framework/sessions \
         storage/framework/views \
-    && chmod -R 777 bootstrap/cache storage
+    && chown -R www-data:www-data bootstrap/cache storage \
+    && chmod -R 775 bootstrap/cache storage
 
 # ─── 7. Composer install ─────────────────────────────────────────────────────
 RUN APP_ENV=production composer install \
@@ -70,8 +71,8 @@ RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
 RUN ln -sf /var/www/html /app
 
 # ─── 10. Final permissions ────────────────────────────────────────────────────
-RUN chmod -R 777 storage bootstrap/cache \
-    && chown -R www-data:www-data /var/www/html
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 775 storage bootstrap/cache
 
 # ─── 11. Nginx ────────────────────────────────────────────────────────────────
 COPY docker/nginx/nginx.conf /etc/nginx/sites-available/default

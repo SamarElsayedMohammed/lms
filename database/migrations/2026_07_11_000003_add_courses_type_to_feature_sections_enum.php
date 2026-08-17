@@ -10,12 +10,16 @@ return new class extends Migration
 
     public function up(): void
     {
-        DB::statement('ALTER TABLE feature_sections MODIFY COLUMN type ENUM(' . self::TYPES_WITH_COURSES . ') NOT NULL');
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE feature_sections MODIFY COLUMN type ENUM(' . self::TYPES_WITH_COURSES . ') NOT NULL');
+        }
     }
 
     public function down(): void
     {
         DB::table('feature_sections')->where('type', 'courses')->update(['type' => 'newly_added_courses']);
-        DB::statement('ALTER TABLE feature_sections MODIFY COLUMN type ENUM(' . self::TYPES_WITHOUT_COURSES . ') NOT NULL');
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE feature_sections MODIFY COLUMN type ENUM(' . self::TYPES_WITHOUT_COURSES . ') NOT NULL');
+        }
     }
 };

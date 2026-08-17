@@ -17,6 +17,11 @@ class CourseChapter extends Model
 {
     use HasFactory, SoftDeletes;
 
+    protected static function newFactory()
+    {
+        return \Database\Factories\CourseChapterFactory::new();
+    }
+
     protected $fillable = [
         'course_id',
         'user_id',
@@ -199,7 +204,9 @@ class CourseChapter extends Model
             $totalDuration += $lecture->duration_seconds;
         }
 
-        $this->update([
+        // Use updateQuietly to avoid re-firing the ChapterObserver and causing
+        // an infinite save → recalculate loop (especially with sync queue).
+        $this->updateQuietly([
             'duration_seconds' => $totalDuration,
         ]);
 

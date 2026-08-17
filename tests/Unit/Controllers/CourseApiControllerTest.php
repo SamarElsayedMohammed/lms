@@ -24,7 +24,7 @@ class CourseApiControllerTest extends TestCase
 
     public function test_controller_extends_base_controller()
     {
-        $controller = new CourseApiController();
+        $controller = app(CourseApiController::class);
         $this->assertInstanceOf(\App\Http\Controllers\Controller::class, $controller);
     }
 }

@@ -56,6 +56,11 @@ final class CourseChapterLecture extends Model
 {
     use HasFactory, SoftDeletes, HasChapterOrder;
 
+    protected static function newFactory()
+    {
+        return \Database\Factories\CourseChapterLectureFactory::new();
+    }
+
     protected $fillable = [
         'user_id',
         'course_chapter_id',

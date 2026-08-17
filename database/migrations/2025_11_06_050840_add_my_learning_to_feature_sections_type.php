@@ -12,21 +12,23 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Modify the enum to include 'my_learning'
-        DB::statement("ALTER TABLE feature_sections MODIFY COLUMN type ENUM(
-            'top_rated_courses',
-            'newly_added_courses',
-            'most_viewed_courses',
-            'offer',
-            'why_choose_us',
-            'free_courses',
-            'become_instructor',
-            'top_rated_instructors',
-            'wishlist',
-            'searching_based',
-            'recommend_for_you',
-            'my_learning'
-        )");
+        if (DB::getDriverName() === 'mysql') {
+            // Modify the enum to include 'my_learning'
+            DB::statement("ALTER TABLE feature_sections MODIFY COLUMN type ENUM(
+                'top_rated_courses',
+                'newly_added_courses',
+                'most_viewed_courses',
+                'offer',
+                'why_choose_us',
+                'free_courses',
+                'become_instructor',
+                'top_rated_instructors',
+                'wishlist',
+                'searching_based',
+                'recommend_for_you',
+                'my_learning'
+            )");
+        }
     }
 
     /**
@@ -34,20 +36,22 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Revert back to enum without my_learning
-        DB::statement("ALTER TABLE feature_sections MODIFY COLUMN type ENUM(
-            'top_rated_courses',
-            'newly_added_courses',
-            'most_viewed_courses',
-            'offer',
-            'why_choose_us',
-            'free_courses',
-            'become_instructor',
-            'top_rated_instructors',
-            'wishlist',
-            'searching_based',
-            'recommend_for_you'
-        )");
+        if (DB::getDriverName() === 'mysql') {
+            // Revert back to enum without my_learning
+            DB::statement("ALTER TABLE feature_sections MODIFY COLUMN type ENUM(
+                'top_rated_courses',
+                'newly_added_courses',
+                'most_viewed_courses',
+                'offer',
+                'why_choose_us',
+                'free_courses',
+                'become_instructor',
+                'top_rated_instructors',
+                'wishlist',
+                'searching_based',
+                'recommend_for_you'
+            )");
+        }
     }
 };
 
