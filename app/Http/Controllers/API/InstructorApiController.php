@@ -1295,8 +1295,8 @@ class InstructorApiController extends Controller
     public function getInstructors(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id' => 'nullable|exists:instructors,id',
-            'slug' => 'nullable|string|exists:users,slug',
+            'id' => 'nullable',
+            'slug' => 'nullable|string|max:255',
             'type' => 'nullable|in:individual,team',
             'search' => 'nullable|string|max:255',
             'sort_by' => 'nullable|string',
@@ -1356,7 +1356,13 @@ class InstructorApiController extends Controller
                 },
                 'courses.category',
             ])
-            ->where('status', 'approved')
+            ->where(function ($q) use ($request): void {
+                if ($request->filled('status')) {
+                    $q->where('status', $request->status);
+                } else {
+                    $q->whereNull('status')->orWhereNotIn('status', ['suspended', 'rejected']);
+                }
+            })
             ->withAvg(['ratings' => static function ($q): void {
                 $q->where('status', 'approved');
             }], 'rating')
@@ -1364,20 +1370,34 @@ class InstructorApiController extends Controller
                 $q->where('status', 'approved');
             }])
             ->whereHas('user', static function ($q) use ($request): void {
-                $q->where('is_active', 1);
                 if ($request->filled('slug')) {
-                    $q->where('slug', $request->slug);
+                    $slugVal = (string) $request->slug;
+                    $decodedSlug = urldecode($slugVal);
+                    $q->where(function ($uq) use ($slugVal, $decodedSlug): void {
+                        $uq->where('slug', $slugVal)
+                           ->orWhere('slug', $decodedSlug)
+                           ->orWhere('name', $decodedSlug)
+                           ->orWhereRaw('LOWER(slug) = ?', [strtolower($decodedSlug)])
+                           ->orWhereRaw('LOWER(name) = ?', [strtolower($decodedSlug)]);
+
+                        if (is_numeric($slugVal)) {
+                            $uq->orWhere('id', (int) $slugVal);
+                        }
+                    });
                 }
             });
 
-        // ✅ Filter by ID, type, and status
-        foreach (['id', 'type', 'status'] as $field) {
-            if (!$request->filled($field)) {
-                continue;
-            }
+        // ✅ Filter by ID and type
+        if ($request->filled('id')) {
+            $ids = explode(',', (string) $request->id);
+            $query->where(function ($q) use ($ids): void {
+                $q->whereIn('id', $ids)->orWhereIn('user_id', $ids);
+            });
+        }
 
-            $values = explode(',', $request->$field);
-            $query->whereIn($field, $values);
+        if ($request->filled('type')) {
+            $types = explode(',', (string) $request->type);
+            $query->whereIn('type', $types);
         }
 
         // ✅ Category-based filtering (direct relation by user_id)
@@ -1605,16 +1625,19 @@ class InstructorApiController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'id' => 'nullable|exists:instructors,id',
-                'slug' => 'nullable|string|exists:users,slug',
+                'id' => 'nullable',
+                'slug' => 'nullable|string|max:255',
             ]);
 
             if ($validator->fails()) {
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
+            $idParam = $request->input('id');
+            $slugParam = $request->input('slug') ?? $request->input('param');
+
             // Check if either id or slug is provided
-            if (!$request->filled('id') && !$request->filled('slug')) {
+            if (empty($idParam) && empty($slugParam)) {
                 return ApiResponseService::validationError('Either id or slug parameter is required');
             }
 
@@ -1626,31 +1649,90 @@ class InstructorApiController extends Controller
                     $q->where('status', 'approved')->with('user');
                 },
             ])
-                ->where('status', 'approved')
                 ->withAvg(['ratings' => static function ($q): void {
                     $q->where('status', 'approved');
                 }], 'rating')
                 ->withCount(['ratings' => static function ($q): void {
                     $q->where('status', 'approved');
                 }])
-                ->whereHas('user', static function ($userQuery) use ($request): void {
-                    $userQuery->where('is_active', 1);
-
-                    // Filter by slug if provided
-                    if ($request->filled('slug')) {
-                        $userQuery->where('slug', $request->slug);
-                    }
+                ->where(function ($q): void {
+                    $q->whereNull('status')->orWhereNotIn('status', ['suspended', 'rejected']);
                 });
 
-            // Filter by ID if provided
-            if ($request->filled('id')) {
-                $query->where('id', $request->id);
-            }
+            // Apply flexible filter by id, user_id, slug, or name
+            $query->where(function ($q) use ($idParam, $slugParam): void {
+                if (!empty($idParam)) {
+                    $q->where('id', $idParam)
+                      ->orWhere('user_id', $idParam);
+                }
+
+                if (!empty($slugParam)) {
+                    $slugVal = (string) $slugParam;
+                    $decodedSlug = urldecode($slugVal);
+
+                    $q->orWhere(function ($subQ) use ($slugVal, $decodedSlug): void {
+                        if (is_numeric($slugVal)) {
+                            $subQ->where('id', (int) $slugVal)
+                                 ->orWhere('user_id', (int) $slugVal);
+                        }
+
+                        $subQ->orWhereHas('user', function ($uq) use ($slugVal, $decodedSlug): void {
+                            $uq->where('slug', $slugVal)
+                               ->orWhere('slug', $decodedSlug)
+                               ->orWhere('name', $decodedSlug)
+                               ->orWhereRaw('LOWER(slug) = ?', [strtolower($decodedSlug)])
+                               ->orWhereRaw('LOWER(name) = ?', [strtolower($decodedSlug)]);
+
+                            if (is_numeric($slugVal)) {
+                                $uq->orWhere('id', (int) $slugVal);
+                            }
+                        });
+                    });
+                }
+            });
 
             $instructor = $query->first();
 
+            // If not found in instructors table, check if User exists
+            if (!$instructor && (!empty($slugParam) || !empty($idParam))) {
+                $userQuery = \App\Models\User::query();
+                if (!empty($idParam)) {
+                    $userQuery->where('id', $idParam);
+                }
+                if (!empty($slugParam)) {
+                    $slugVal = (string) $slugParam;
+                    $decodedSlug = urldecode($slugVal);
+                    $userQuery->where(function ($uq) use ($slugVal, $decodedSlug): void {
+                        $uq->where('slug', $slugVal)
+                           ->orWhere('slug', $decodedSlug)
+                           ->orWhere('name', $decodedSlug)
+                           ->orWhereRaw('LOWER(slug) = ?', [strtolower($decodedSlug)])
+                           ->orWhereRaw('LOWER(name) = ?', [strtolower($decodedSlug)]);
+
+                        if (is_numeric($slugVal)) {
+                            $uq->orWhere('id', (int) $slugVal);
+                        }
+                    });
+                }
+                $user = $userQuery->first();
+                if ($user) {
+                    $instructor = Instructor::firstOrCreate(
+                        ['user_id' => $user->id],
+                        ['type' => 'individual', 'status' => 'approved']
+                    );
+                    $instructor->load([
+                        'user',
+                        'personal_details',
+                        'social_medias.social_media',
+                        'ratings' => static function ($q): void {
+                            $q->where('status', 'approved')->with('user');
+                        },
+                    ]);
+                }
+            }
+
             if (!$instructor) {
-                return ApiResponseService::validationError('Instructor not found');
+                return ApiResponseService::errorResponse('Instructor not found', 404);
             }
 
             // Get student enrolled count for this instructor's courses

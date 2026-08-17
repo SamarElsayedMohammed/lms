@@ -54,11 +54,12 @@ class VideoProgressService
         // Determine canonical video duration from authoritative lecture model
         $canonicalDuration = $this->getCanonicalDuration($lecture);
         if ($canonicalDuration > 0) {
+            // Server-authoritative duration wins — client-supplied value is discarded.
             $totalSeconds = $canonicalDuration;
-        } elseif ($totalSeconds >= 10 && $totalSeconds <= 86400) {
-            try {
-                $lecture->update(['duration_seconds' => $totalSeconds]);
-            } catch (\Throwable) {}
+        } else {
+            // No authoritative duration in DB. Client input must NEVER mutate canonical lecture duration.
+            // Progress accumulation is blocked until server duration authority is configured.
+            $totalSeconds = 0;
         }
 
         $totalSeconds = max(0, $totalSeconds);
@@ -310,14 +311,7 @@ class VideoProgressService
     ): VideoProgress {
         $canonicalDuration = $this->getCanonicalDuration($lecture);
         if ($canonicalDuration <= 0) {
-            if ($totalDuration >= 10 && $totalDuration <= 86400) {
-                $canonicalDuration = $totalDuration;
-                try {
-                    $lecture->update(['duration_seconds' => $totalDuration]);
-                } catch (\Throwable) {}
-            } else {
-                throw new \InvalidArgumentException('Video duration must be between 10 and 86400 seconds.');
-            }
+            throw new \InvalidArgumentException('Lecture duration is not yet set by the server. Progress tracking is temporarily unavailable.');
         } elseif ($totalDuration !== $canonicalDuration) {
             if ($totalDuration < $canonicalDuration) {
                 throw new \InvalidArgumentException('The reported video duration cannot shrink canonical lecture duration.');
@@ -542,7 +536,20 @@ class VideoProgressService
 
     public function getCanonicalDuration(CourseChapterLecture $lecture): int
     {
-        return max(0, (int) ($lecture->duration_seconds ?: $lecture->total_duration ?: $lecture->duration ?: 0));
+        $durationSeconds = (int) ($lecture->duration_seconds ?? 0);
+        if ($durationSeconds > 0) {
+            return $durationSeconds;
+        }
+
+        $hmsSeconds = ((int) ($lecture->hours ?? 0) * 3600)
+            + ((int) ($lecture->minutes ?? 0) * 60)
+            + ((int) ($lecture->seconds ?? 0));
+
+        if ($hmsSeconds > 0) {
+            return $hmsSeconds;
+        }
+
+        return max(0, (int) ($lecture->total_duration ?: $lecture->duration ?: 0));
     }
 
     /** @param array<int, int|bool> $watchedSegments */

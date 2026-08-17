@@ -450,32 +450,48 @@ final class KashierController extends Controller
             return $this->respond($request, 'OK', 200, false);
         }
 
-        // Idempotency: check if already processed
-        $existing = \App\Models\WalletHistory::where('reference_type', 'wallet_topup')
-            ->where('reference_id', $transactionId)
-            ->exists();
-        if ($existing) {
-            Log::info('Kashier webhook: wallet top-up already processed', ['orderId' => $orderId]);
-            return $this->respond($request, 'OK', 200, true);
-        }
-
         try {
-            WalletService::creditWallet(
-                $userId,
-                $amount,
-                'wallet_topup',
-                'Wallet top-up via Kashier',
-                $transactionId,
-                'wallet_topup',
-                'user'
-            );
+            // Idempotency: check and credit inside a DB transaction so the exists() check
+            // and the WalletHistory insert are atomic, closing the concurrent double-top-up window.
+            $alreadyProcessed = false;
+            DB::transaction(function () use ($userId, $amount, $transactionId, $orderId, &$alreadyProcessed) {
+                // Acquire row lock on parent User record to serialize all balance mutations
+                \App\Models\User::lockForUpdate()->findOrFail($userId);
+
+                $existing = \App\Models\WalletHistory::where('user_id', $userId)
+                    ->where('reference_type', 'wallet_topup')
+                    ->where('reference_id', (string) $transactionId)
+                    ->lockForUpdate()
+                    ->exists();
+
+                if ($existing) {
+                    Log::info('Kashier webhook: wallet top-up already processed', ['orderId' => $orderId]);
+                    $alreadyProcessed = true;
+                    return;
+                }
+
+                WalletService::creditWallet(
+                    $userId,
+                    $amount,
+                    'wallet_topup',
+                    'Wallet top-up via Kashier',
+                    $transactionId,
+                    'wallet_topup',
+                    'user'
+                );
+            });
+
+            if ($alreadyProcessed) {
+                return $this->respond($request, 'OK', 200, true);
+            }
+
             Log::info('Kashier webhook: wallet top-up completed', ['userId' => $userId, 'amount' => $amount]);
-            
+
             // Attempt to save credit card token if available
             $this->saveCreditCardIfPresent($user, $data);
-            
+
             Cache::put('kashier_order_processed_' . $orderId, true, now()->addMinutes(60));
-            
+
             // Send successful payment notification
             try {
                 $user->notify(new \App\Notifications\PaymentStatusNotification(
@@ -488,7 +504,7 @@ final class KashierController extends Controller
             } catch (\Throwable $e) {
                 Log::warning('Failed to send wallet top-up success notification: ' . $e->getMessage());
             }
-            
+
             return $this->respond($request, 'OK', 200, true, null, $orderId);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
@@ -541,23 +557,26 @@ final class KashierController extends Controller
             return $this->respond($request, 'OK', 200, false);
         }
 
-        // Get registration
-        $registration = \App\Models\WebinarRegistration::where('user_id', $userId)
-            ->where('webinar_id', $webinarId)
-            ->first();
-
-        if (!$registration) {
-            Log::warning('Kashier webhook: webinar registration not found', ['userId' => $userId, 'webinarId' => $webinarId]);
-            return $this->respond($request, 'Registration not found', 404, false);
-        }
-
-        if ($registration->payment_status === 'paid') {
-            Log::info('Kashier webhook: webinar already paid', ['orderId' => $orderId]);
-            return $this->respond($request, 'OK', 200, true);
-        }
-
         try {
-            DB::transaction(function () use ($registration, $user, $webinar, $orderId, $data) {
+            // Use a DB transaction with a row-level lock so that concurrent webhook/redirect
+            // calls cannot both pass the 'already paid' check before either commits.
+            $alreadyProcessed = false;
+            DB::transaction(function () use ($userId, $webinarId, $orderId, $data, $user, $webinar, &$alreadyProcessed) {
+                $registration = \App\Models\WebinarRegistration::where('user_id', $userId)
+                    ->where('webinar_id', $webinarId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$registration) {
+                    throw new \RuntimeException('webinar_registration_not_found');
+                }
+
+                if ($registration->payment_status === 'paid') {
+                    Log::info('Kashier webhook: webinar already paid', ['orderId' => $orderId]);
+                    $alreadyProcessed = true;
+                    return;
+                }
+
                 // Deduct wallet if it was a split payment
                 $pending = Cache::get('kashier_pending_' . $orderId);
                 $walletAmount = (float) ($pending['wallet_amount'] ?? 0);
@@ -581,6 +600,10 @@ final class KashierController extends Controller
                 ]);
             });
 
+            if ($alreadyProcessed) {
+                return $this->respond($request, 'OK', 200, true);
+            }
+
             $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
 
             Log::info('Kashier webhook: webinar payment completed', ['userId' => $userId, 'webinarId' => $webinarId]);
@@ -595,6 +618,16 @@ final class KashierController extends Controller
 
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
+        } catch (\RuntimeException $e) {
+            if ($e->getMessage() === 'webinar_registration_not_found') {
+                Log::warning('Kashier webhook: webinar registration not found', ['userId' => $userId, 'webinarId' => $webinarId]);
+                return $this->respond($request, 'Registration not found', 404, false);
+            }
+            Log::error('Kashier webhook: failed to activate webinar registration', [
+                'message' => $e->getMessage(),
+                'orderId' => $orderId,
+            ]);
+            return $this->respond($request, 'Internal Server Error', 500, false);
         } catch (\Throwable $e) {
             Log::error('Kashier webhook: failed to activate webinar registration', [
                 'message' => $e->getMessage(),

@@ -63,9 +63,6 @@ final class LectureProgressApiController extends Controller
             ]);
 
             $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
-            if ($canonicalDuration <= 0) {
-                $canonicalDuration = (int) $validated['total_duration'];
-            }
 
             $progress = $this->videoProgressService->updateSegmentProgress(
                 $user,
@@ -99,22 +96,16 @@ final class LectureProgressApiController extends Controller
         ]);
 
         $lastPosition = (int) ($validated['last_position'] ?? $validated['current_position'] ?? 0);
-        $totalSeconds = (int) ($validated['total_seconds'] ?? $validated['total_duration'] ?? 0);
         $watchedSeconds = (int) ($validated['watched_seconds'] ?? $lastPosition);
 
         $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
-        if ($totalSeconds <= 0 && $canonicalDuration > 0) {
-            $totalSeconds = $canonicalDuration;
-        } elseif ($totalSeconds <= 0) {
-            $totalSeconds = max(1, $lastPosition);
-        }
 
         $progress = $this->videoProgressService->updateProgress(
             $user,
             $lecture,
             $watchedSeconds,
             $lastPosition,
-            $totalSeconds,
+            $canonicalDuration,
             $metadata
         );
 

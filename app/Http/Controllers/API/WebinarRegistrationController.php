@@ -118,6 +118,24 @@ class WebinarRegistrationController extends Controller
                 return ApiResponseService::errorResponse('Not registered for this webinar.', [], 400);
             }
 
+            // Guard: If already refunded, return 400 Bad Request
+            if ($registration->payment_status === 'refunded') {
+                return ApiResponseService::errorResponse(
+                    'تم استرداد رسوم هذا التسجيل مسبقاً ولا يمكن إلغاؤه مرة أخرى.',
+                    ['error_code' => 'already_refunded'],
+                    400
+                );
+            }
+
+            // Guard: If already cancelled, return 400 Bad Request
+            if ($registration->payment_status === 'cancelled') {
+                return ApiResponseService::errorResponse(
+                    'التسجيل ملغى مسبقاً.',
+                    ['error_code' => 'already_cancelled'],
+                    400
+                );
+            }
+
             // If paid registration: process atomic refund to wallet if webinar has not started
             if ($registration->payment_status === 'paid') {
                 if ($webinar->start_at && $webinar->start_at->isPast()) {
@@ -152,9 +170,12 @@ class WebinarRegistrationController extends Controller
                 return ApiResponseService::successResponse('تم إلغاء التسجيل واسترداد المبلغ إلى المحفظة بنجاح.');
             }
 
-            $registration->delete();
+            // For non-paid / free registrations, transition to cancelled to preserve audit history
+            $registration->update([
+                'payment_status' => 'cancelled',
+            ]);
 
-            return ApiResponseService::successResponse('Registration cancelled successfully.');
+            return ApiResponseService::successResponse('تم إلغاء التسجيل بنجاح.');
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Failed to cancel registration: ' . $e->getMessage());
         }

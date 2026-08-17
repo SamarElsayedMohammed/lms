@@ -140,7 +140,7 @@ final class CourseChapterLecture extends Model
 
     public function getDurationAttribute(): int
     {
-        return $this->duration_seconds;
+        return (int) ($this->duration_seconds ?? 0);
     }
 
     /**

@@ -31,6 +31,17 @@ class WalletService
         ) {
             $user = User::lockForUpdate()->findOrFail($userId);
 
+            if ($referenceId !== null && $referenceType !== null) {
+                $existing = WalletHistory::where('user_id', $userId)
+                    ->where('reference_type', (string) $referenceType)
+                    ->where('reference_id', (string) $referenceId)
+                    ->where('type', 'credit')
+                    ->first();
+                if ($existing !== null) {
+                    return $existing;
+                }
+            }
+
             // Auto-detect entry_type if not explicitly provided (null or empty)
             if (empty($entryType)) {
                 $entryType = self::detectEntryType($user, $transactionType, $referenceType);
@@ -90,6 +101,17 @@ class WalletService
             $entryType,
         ) {
             $user = User::lockForUpdate()->findOrFail($userId);
+
+            if ($referenceId !== null && $referenceType !== null) {
+                $existing = WalletHistory::where('user_id', $userId)
+                    ->where('reference_type', (string) $referenceType)
+                    ->where('reference_id', (string) $referenceId)
+                    ->where('type', 'debit')
+                    ->first();
+                if ($existing !== null) {
+                    return $existing;
+                }
+            }
 
             // Auto-detect entry_type if not explicitly provided (null or empty)
             if (empty($entryType)) {

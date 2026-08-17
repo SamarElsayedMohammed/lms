@@ -336,11 +336,8 @@ class RefundApiController extends Controller
         try {
             DB::beginTransaction();
 
-            $refundRequest = RefundRequest::with([
-                'user',
-                'course',
-                'transaction',
-            ])->findOrFail($request->refund_request_id);
+            $refundRequest = RefundRequest::lockForUpdate()->findOrFail($request->refund_request_id);
+            $refundRequest->load(['user', 'course', 'transaction']);
 
             if ($refundRequest->status !== 'pending') {
                 DB::rollBack();
@@ -355,12 +352,14 @@ class RefundApiController extends Controller
                     FileService::delete($refundRequest->admin_receipt);
                 }
 
+                $courseTitle = $refundRequest->course?->title ?? 'Course #' . $refundRequest->course_id;
+
                 // Credit amount to user's wallet using WalletService with EGP amount
                 WalletService::creditWallet(
                     $refundRequest->user_id,
                     $refundRequest->amount_egp ?? $refundRequest->refund_amount,
                     'refund',
-                    "Refund for course: {$refundRequest->course->title}",
+                    "Refund for course: {$courseTitle}",
                     $refundRequest->id,
                     \App\Models\RefundRequest::class,
                 );
@@ -376,7 +375,7 @@ class RefundApiController extends Controller
                         $commission->instructor_id,
                         $commission->instructor_commission_amount,
                         'refund',
-                        "Commission clawback for refunded course: {$refundRequest->course->title}",
+                        "Commission clawback for refunded course: {$courseTitle}",
                         $refundRequest->id,
                         \App\Models\RefundRequest::class,
                     );

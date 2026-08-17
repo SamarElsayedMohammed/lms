@@ -210,15 +210,28 @@ class CourseApiController extends Controller
         }
 
         if ($request->filled("instructor_id")) {
-            $query->whereIn("user_id", explode(",", $request->instructor_id));
+            $instructorIds = array_filter(array_map('intval', explode(",", (string) $request->instructor_id)));
+            $query->where(static function ($q) use ($instructorIds): void {
+                $q->whereIn("user_id", $instructorIds)
+                  ->orWhereHas("instructors", static function ($iq) use ($instructorIds): void {
+                      $iq->whereIn("users.id", $instructorIds);
+                  });
+            });
         }
 
         if ($request->filled("instructor_slug")) {
-            $instructorSlug = explode(",", $request->instructor_slug);
-            $query->whereHas("user", static function ($q) use (
-                $instructorSlug,
-            ): void {
-                $q->whereIn("slug", $instructorSlug);
+            $rawSlugs = explode(",", (string) $request->instructor_slug);
+            $decodedSlugs = array_map(urldecode(...), $rawSlugs);
+            $allSlugs = array_values(array_unique(array_filter(array_merge($rawSlugs, $decodedSlugs))));
+
+            $query->where(static function ($q) use ($allSlugs): void {
+                $q->whereHas("user", static function ($uq) use ($allSlugs): void {
+                    $uq->whereIn("slug", $allSlugs)
+                       ->orWhereIn("name", $allSlugs);
+                })->orWhereHas("instructors", static function ($iq) use ($allSlugs): void {
+                    $iq->whereIn("slug", $allSlugs)
+                       ->orWhereIn("name", $allSlugs);
+                });
             });
         }
 
