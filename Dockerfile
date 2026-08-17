@@ -3,10 +3,12 @@ FROM php:8.3-fpm
 # Set working directory
 WORKDIR /var/www/html
 
-# Install system dependencies
+# Install system dependencies + Nginx + Supervisor
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    nginx \
+    supervisor \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
@@ -21,7 +23,6 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     libsodium-dev \
     ffmpeg \
-    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
@@ -43,16 +44,6 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
 RUN pecl install redis \
     && docker-php-ext-enable redis
 
-# Install Xdebug (Development Only - Disabled for Production)
-# RUN pecl install xdebug \
-#     && docker-php-ext-enable xdebug
-
-# Install PCOV
-RUN pecl install pcov \
-    && docker-php-ext-enable pcov \
-    && echo "pcov.enabled=1" >> /usr/local/etc/php/conf.d/docker-php-ext-pcov.ini \
-    && echo "pcov.clobber=1" >> /usr/local/etc/php/conf.d/docker-php-ext-pcov.ini
-
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
@@ -64,10 +55,18 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Copy application files
 COPY . /var/www/html
 
+# Install composer dependencies
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs
+
+# Build frontend assets if package.json exists
+RUN (npm ci || npm install || true) \
+    && (npm run production || npm run build || true) \
+    && rm -rf node_modules
+
 # Set permissions
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 777 /var/www/html/storage \
-    && chmod -R 777 /var/www/html/bootstrap/cache
+RUN mkdir -p /var/www/html/storage/logs /var/www/html/storage/framework/cache /var/www/html/storage/framework/sessions /var/www/html/storage/framework/views /var/www/html/bootstrap/cache /var/log/supervisor /var/log/nginx \
+    && chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache /var/log \
+    && chown -R www-data:www-data /var/www/html
 
 # Configure PHP
 RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
@@ -76,7 +75,18 @@ RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && echo "memory_limit = 512M" >> "$PHP_INI_DIR/conf.d/uploads.ini" \
     && echo "max_execution_time = 300" >> "$PHP_INI_DIR/conf.d/uploads.ini"
 
-# Expose port 9000 for PHP-FPM
-EXPOSE 9000
+# Configure Nginx
+COPY docker/nginx/nginx.conf /etc/nginx/sites-available/default
+RUN rm -f /etc/nginx/sites-enabled/default \
+    && ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
 
-CMD ["php-fpm"]
+# Configure Supervisor
+COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Start script
+COPY docker/start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
+
+EXPOSE 80 9000
+
+CMD ["/usr/local/bin/start.sh"]
