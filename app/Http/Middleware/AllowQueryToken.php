@@ -9,7 +9,12 @@ class AllowQueryToken
 {
     public function handle(Request $request, Closure $next)
     {
-        // Security Fix: Do not allow tokens in query string to prevent token leakage
+        if (!$request->bearerToken()) {
+            $token = $request->query('token') ?? $request->query('api_token') ?? $request->query('auth_token');
+            if ($token && is_string($token) && trim($token) !== '') {
+                $request->headers->set('Authorization', 'Bearer ' . trim($token));
+            }
+        }
 
         return $next($request);
     }

@@ -24,6 +24,8 @@ Route::group(['prefix' => 'common'], static function (): void {
 });
 /***************************************************************************************************** */
 
+Route::get('login', static fn() => response()->json(['status' => false, 'message' => 'Unauthenticated.'], 401))->name('login');
+
 // Fallback API routes without the /api prefix
 Route::middleware('api')->group(function () {
     Route::post('user-exists', [\App\Http\Controllers\ApiController::class, 'userExists'])->middleware('throttle:5,1');

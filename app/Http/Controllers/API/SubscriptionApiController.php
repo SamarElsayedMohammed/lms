@@ -1437,14 +1437,25 @@ $totalAmount = (float) $countryPricing['price'];
         }
     }
 
-    /** Return a private manual-payment receipt only to its owner. */
+    /** Return a private manual-payment receipt only to its owner or authorized administrator. */
     public function downloadReceipt(Request $request, int $payment): \Symfony\Component\HttpFoundation\BinaryFileResponse|JsonResponse
     {
         $user = Auth::user();
-        $record = \App\Models\SubscriptionPayment::query()
-            ->whereKey($payment)
-            ->where('user_id', $user?->id)
-            ->first();
+        if (!$user) {
+            return ApiResponseService::errorResponse('Unauthenticated.', [], 401);
+        }
+
+        $query = \App\Models\SubscriptionPayment::query()->whereKey($payment);
+
+        $role = strtolower((string) ($user->role ?? $user->type ?? ''));
+        $isAdmin = in_array($role, ['admin', 'super_admin', 'superadmin'], true)
+            || (method_exists($user, 'hasRole') && ($user->hasRole('admin') || $user->hasRole('super_admin')));
+
+        if (!$isAdmin) {
+            $query->where('user_id', $user->id);
+        }
+
+        $record = $query->first();
 
         if (!$record || !$record->getRawOriginal('receipt')) {
             return ApiResponseService::errorResponse('Receipt not found.', [], 404);
@@ -1455,7 +1466,13 @@ $totalAmount = (float) $countryPricing['price'];
             return ApiResponseService::errorResponse('Receipt is unavailable.', [], 404);
         }
 
-        return response()->file(\App\Services\FileService::getPrivateFilePath($receipt));
+        $filePath = \App\Services\FileService::getPrivateFilePath($receipt);
+        $mimeType = @mime_content_type($filePath) ?: 'application/octet-stream';
+
+        return response()->file($filePath, [
+            'Content-Type' => $mimeType,
+            'Content-Disposition' => 'inline; filename="' . basename($filePath) . '"',
+        ]);
     }
 
     private function findActiveManualPaymentMethod(string $methodId): ?PaymentMethod
