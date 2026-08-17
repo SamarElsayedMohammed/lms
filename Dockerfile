@@ -63,6 +63,9 @@ RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
         "upload_max_filesize = 50M\npost_max_size = 50M\nmemory_limit = 512M\nmax_execution_time = 300\n" \
         > "$PHP_INI_DIR/conf.d/uploads.ini"
 
+# ─── Symlink /app → /var/www/html (Coolify pre-deployment commands use /app) ──
+RUN ln -sf /var/www/html /app
+
 # ─── 9. Final permissions ─────────────────────────────────────────────────────
 RUN chmod -R 777 storage bootstrap/cache \
     && chown -R www-data:www-data /var/www/html
