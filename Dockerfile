@@ -64,8 +64,8 @@ RUN (npm ci || npm install || true) \
     && rm -rf node_modules
 
 # Set permissions
-RUN mkdir -p /var/www/html/storage/logs /var/www/html/storage/framework/cache /var/www/html/storage/framework/sessions /var/www/html/storage/framework/views /var/www/html/bootstrap/cache /var/log/supervisor /var/log/nginx \
-    && chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache /var/log \
+RUN mkdir -p /var/www/html/storage/logs /var/www/html/storage/framework/cache /var/www/html/storage/framework/sessions /var/www/html/storage/framework/views /var/www/html/bootstrap/cache /var/log/supervisor /var/log/nginx /var/run /etc/supervisor/conf.d \
+    && chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run \
     && chown -R www-data:www-data /var/www/html
 
 # Configure PHP
@@ -81,7 +81,7 @@ RUN rm -f /etc/nginx/sites-enabled/default \
     && ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
 
 # Configure Supervisor
-COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 
 # Start script
 COPY docker/start.sh /usr/local/bin/start.sh

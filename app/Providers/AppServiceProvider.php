@@ -5,7 +5,6 @@ namespace App\Providers;
 use App\Services\HelperService;
 use App\Services\Mail\MailFromResolver;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -25,22 +24,20 @@ class AppServiceProvider extends ServiceProvider
     {
         Model::preventLazyLoading(! $this->app->isProduction());
 
-        // Set timezone from database settings
-        try {
-            // Check if settings table exists
-            if (Schema::hasTable('settings')) {
+        // Fast, non-blocking bootstrap for web/api requests; skip during CLI build commands
+        if (! $this->app->runningInConsole() || $this->app->runningUnitTests()) {
+            try {
                 $timezone = HelperService::systemSettings('timezone');
                 if (!empty($timezone)) {
                     date_default_timezone_set($timezone);
                     config(['app.timezone' => $timezone]);
                 }
+            } catch (\Throwable) {
+                // If settings table doesn't exist or query fails, keep default timezone
             }
-        } catch (\Exception) {
-            // If settings table doesn't exist or query fails, use default timezone
-            // This is expected during installation
-        }
 
-        $this->configureMailFrom();
+            $this->configureMailFrom();
+        }
 
         \Illuminate\Auth\Notifications\VerifyEmail::toMailUsing(function ($notifiable, $url) {
             return (new \Illuminate\Notifications\Messages\MailMessage)
@@ -63,10 +60,6 @@ class AppServiceProvider extends ServiceProvider
     private function configureMailFrom(): void
     {
         try {
-            if (!Schema::hasTable('settings')) {
-                return;
-            }
-
             $resolver = app(MailFromResolver::class);
 
             if (!$resolver->isConfigured()) {
