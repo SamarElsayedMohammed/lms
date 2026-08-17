@@ -2,11 +2,11 @@
 # See: https://coolify.io/docs/applications/laravel
 
 [phases.setup]
-nixPkgs = ["...", "python311Packages.supervisor"]
+nixPkgs = ["...", "python311Packages.supervisor", "nginx"]
 
 [phases.install]
 cmds = [
-    "mkdir -p /var/log/nginx && mkdir -p /var/cache/nginx /var/log/supervisor /tmp",
+    "mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp /etc/nginx",
     "mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs",
     "chmod -R 777 bootstrap/cache storage",
     "composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs"
@@ -16,7 +16,7 @@ cmds = [
 cmds = [
     "npm ci || npm install",
     "npm run production || npm run build || true",
-    "mkdir -p /etc/supervisor/conf.d/",
+    "mkdir -p /etc/supervisor/conf.d/ /etc/nginx",
     "cp /assets/worker-*.conf /etc/supervisor/conf.d/",
     "cp /assets/supervisord.conf /etc/supervisord.conf",
     "chmod +x /assets/start.sh",
@@ -30,14 +30,17 @@ cmd = "/assets/start.sh"
 "start.sh" = '''
 #!/bin/bash
 set -e
-mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp
+
+# Setup directories and permissions
+mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp /etc/nginx
 mkdir -p /app/bootstrap/cache /app/storage/framework/cache /app/storage/framework/sessions /app/storage/framework/views /app/storage/logs
-chmod -R 777 /app/bootstrap/cache /app/storage /tmp /var/log
+chmod -R 777 /app/bootstrap/cache /app/storage /tmp /var/log /var/cache /var/log/nginx /var/log/supervisor 2>/dev/null || true
 
-# Transform the nginx configuration
-node /assets/scripts/prestart.mjs /assets/nginx.template.conf /etc/nginx.conf
+# Substitute PORT in nginx template
+PORT=${PORT:-80}
+sed "s/__PORT__/$PORT/g" /assets/nginx.template.conf > /etc/nginx/nginx.conf
 
-# Start supervisor in foreground
+# Start supervisor in foreground to keep container running
 exec supervisord -c /etc/supervisord.conf -n
 '''
 
@@ -69,7 +72,7 @@ files = /etc/supervisor/conf.d/*.conf
 "worker-nginx.conf" = '''
 [program:worker-nginx]
 process_name=%(program_name)s_%(process_num)02d
-command=nginx -c /etc/nginx.conf
+command=nginx -c /etc/nginx/nginx.conf -g 'daemon off;'
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/worker-nginx.log
@@ -119,22 +122,18 @@ stderr_logfile=/var/log/worker-laravel-video.log
 "php-fpm.conf" = '''
 [www]
 listen = 127.0.0.1:9000
-user = www-data
-group = www-data
-listen.owner = www-data
-listen.group = www-data
 pm = dynamic
 pm.max_children = 10
 pm.start_servers = 2
 pm.min_spare_servers = 1
 pm.max_spare_servers = 4
 clear_env = no
+catch_workers_output = yes
 php_admin_value[post_max_size] = 50M
 php_admin_value[upload_max_filesize] = 50M
 '''
 
 "nginx.template.conf" = '''
-user www-data www-data;
 worker_processes auto;
 daemon off;
 
@@ -145,8 +144,24 @@ events {
 }
 
 http {
-    include    $!{nginx}/conf/mime.types;
-    index    index.html index.htm index.php;
+    types {
+        text/html                             html htm shtml;
+        text/css                              css;
+        text/xml                              xml;
+        image/gif                             gif;
+        image/jpeg                            jpeg jpg;
+        application/javascript                js;
+        application/json                      json;
+        image/png                             png;
+        image/svg+xml                         svg svgz;
+        image/webp                            webp;
+        image/x-icon                          ico;
+        application/pdf                       pdf;
+        font/woff                             woff;
+        font/woff2                            woff2;
+        font/ttf                              ttf;
+        application/octet-stream              bin exe dll deb dmg iso img msi msp msm;
+    }
 
     default_type application/octet-stream;
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
@@ -159,48 +174,54 @@ http {
     server_names_hash_bucket_size 128;
 
     server {
-        listen ${PORT};
-        listen [::]:${PORT};
+        listen __PORT__;
+        listen [::]:__PORT__;
         server_name localhost;
 
-        $if(NIXPACKS_PHP_ROOT_DIR) (
-            root ${NIXPACKS_PHP_ROOT_DIR};
-        ) else (
-            root /app/public;
-        )
+        root /app/public;
 
         add_header X-Content-Type-Options "nosniff";
-
         client_max_body_size 50M;
-     
-        index index.php;
-     
+
+        index index.php index.html index.htm;
         charset utf-8;
 
-        $if(NIXPACKS_PHP_FALLBACK_PATH) (
-            location / {
-                try_files $uri $uri/ ${NIXPACKS_PHP_FALLBACK_PATH}?$query_string;
-            }
-        ) else (
-          location / {
-                try_files $uri $uri/ /index.php?$query_string;
-           }
-        )
-     
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
+        }
+
         location = /favicon.ico { access_log off; log_not_found off; }
         location = /robots.txt  { access_log off; log_not_found off; }
-     
-        $if(IS_LARAVEL) (
-            error_page 404 /index.php;
-        ) else ()
-     
+
+        error_page 404 /index.php;
+
         location ~ \.php$ {
             fastcgi_pass 127.0.0.1:9000;
+            fastcgi_split_path_info ^(.+\.php)(/.+)$;
             fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-            include $!{nginx}/conf/fastcgi_params;
-            include $!{nginx}/conf/fastcgi.conf;
+            fastcgi_param PATH_INFO $fastcgi_path_info;
+            fastcgi_param QUERY_STRING $query_string;
+            fastcgi_param REQUEST_METHOD $request_method;
+            fastcgi_param CONTENT_TYPE $content_type;
+            fastcgi_param CONTENT_LENGTH $content_length;
+            fastcgi_param SCRIPT_NAME $fastcgi_script_name;
+            fastcgi_param REQUEST_URI $request_uri;
+            fastcgi_param DOCUMENT_URI $document_uri;
+            fastcgi_param DOCUMENT_ROOT $document_root;
+            fastcgi_param SERVER_PROTOCOL $server_protocol;
+            fastcgi_param REQUEST_SCHEME $scheme;
+            fastcgi_param HTTPS $https if_not_empty;
+            fastcgi_param GATEWAY_INTERFACE CGI/1.1;
+            fastcgi_param SERVER_SOFTWARE nginx/$nginx_version;
+            fastcgi_param REMOTE_ADDR $remote_addr;
+            fastcgi_param REMOTE_PORT $remote_port;
+            fastcgi_param SERVER_ADDR $server_addr;
+            fastcgi_param SERVER_PORT $server_port;
+            fastcgi_param SERVER_NAME $server_name;
+            fastcgi_index index.php;
+            fastcgi_read_timeout 300;
         }
-     
+
         location ~ /\.(?!well-known).* {
             deny all;
         }
