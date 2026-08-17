@@ -1,67 +1,41 @@
 FROM php:8.3-fpm
 
-# Set working directory
 WORKDIR /var/www/html
 
-# Install system dependencies + Nginx + Supervisor
-RUN apt-get update && apt-get install -y \
+# Install minimal system dependencies + Nginx + Supervisor + ffmpeg (without desktop GUI packages)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    unzip \
     nginx \
     supervisor \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    libzip-dev \
-    zip \
-    unzip \
-    libfreetype6-dev \
-    libjpeg62-turbo-dev \
-    libwebp-dev \
-    libxpm-dev \
-    libicu-dev \
-    libpq-dev \
-    libsodium-dev \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PHP extensions
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j$(nproc) \
-    pdo \
+# Install official PHP extension installer for fast binary installations
+COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+
+# Install and enable PHP extensions in seconds
+RUN install-php-extensions \
     pdo_mysql \
-    mbstring \
-    exif \
-    pcntl \
+    redis \
     bcmath \
     gd \
     zip \
     intl \
     opcache \
-    sodium
-
-# Install Redis extension
-RUN pecl install redis \
-    && docker-php-ext-enable redis
+    sodium \
+    pcntl \
+    exif
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
-# Install Node.js and npm
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy application files
 COPY . /var/www/html
 
 # Install composer dependencies
 RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs
-
-# Build frontend assets if package.json exists
-RUN (npm ci || npm install || true) \
-    && (npm run production || npm run build || true) \
-    && rm -rf node_modules
 
 # Set permissions
 RUN mkdir -p /var/www/html/storage/logs /var/www/html/storage/framework/cache /var/www/html/storage/framework/sessions /var/www/html/storage/framework/views /var/www/html/bootstrap/cache /var/log/supervisor /var/log/nginx /var/run /etc/supervisor/conf.d \
