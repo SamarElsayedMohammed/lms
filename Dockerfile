@@ -1,38 +1,34 @@
 # syntax=docker/dockerfile:1
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 1: Pull ffmpeg static binary ONLY (no GUI / X11 / Mesa junk)
-# Using a static ffmpeg build keeps the final image lean and the build fast.
+# Stage 1: Install ffmpeg in isolation (all heavy deps stay here, never copied)
 # ─────────────────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS ffmpeg-stage
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget \
-        xz-utils \
-    && rm -rf /var/lib/apt/lists/* \
-    && wget -q -O /tmp/ffmpeg.tar.xz \
-        "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" \
-    && mkdir -p /ffmpeg-bin \
-    && tar -xJf /tmp/ffmpeg.tar.xz -C /ffmpeg-bin --strip-components=1 \
-    && chmod +x /ffmpeg-bin/ffmpeg /ffmpeg-bin/ffprobe
+        ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 2: Final application image
+# Stage 2: Final application image (lean — no ffmpeg apt dependencies)
 # ─────────────────────────────────────────────────────────────────────────────
 FROM php:8.3-fpm
 
 WORKDIR /var/www/html
 
-# ─── 1. System packages (minimal — no ffmpeg from apt, no GUI) ───────────────
+# ─── 1. System packages (minimal — no ffmpeg here) ───────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
         unzip \
         nginx \
         supervisor \
+        libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── 2. Copy static ffmpeg/ffprobe binaries (no 224-package apt chain) ───────
-COPY --from=ffmpeg-stage /ffmpeg-bin/ffmpeg  /usr/local/bin/ffmpeg
-COPY --from=ffmpeg-stage /ffmpeg-bin/ffprobe /usr/local/bin/ffprobe
+# ─── 2. Copy ONLY the ffmpeg/ffprobe binaries from the isolated stage ─────────
+#        (the 200+ ffmpeg dependencies are left behind in the build stage)
+COPY --from=ffmpeg-stage /usr/bin/ffmpeg  /usr/local/bin/ffmpeg
+COPY --from=ffmpeg-stage /usr/bin/ffprobe /usr/local/bin/ffprobe
 
 # ─── 3. PHP extensions via fast binary installer ─────────────────────────────
 COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
