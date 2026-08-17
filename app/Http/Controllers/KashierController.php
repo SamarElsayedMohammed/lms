@@ -455,16 +455,16 @@ final class KashierController extends Controller
             // and the WalletHistory insert are atomic, closing the concurrent double-top-up window.
             $alreadyProcessed = false;
             DB::transaction(function () use ($userId, $amount, $transactionId, $orderId, &$alreadyProcessed) {
-                // Acquire row lock on parent User record to serialize all balance mutations
-                \App\Models\User::lockForUpdate()->findOrFail($userId);
+                // Acquire exclusive row lock on parent User record FIRST to serialize all balance mutations
+                $user = User::lockForUpdate()->findOrFail($userId);
 
                 $existing = \App\Models\WalletHistory::where('user_id', $userId)
                     ->where('reference_type', 'wallet_topup')
                     ->where('reference_id', (string) $transactionId)
-                    ->lockForUpdate()
-                    ->exists();
+                    ->where('type', 'credit')
+                    ->first();
 
-                if ($existing) {
+                if ($existing !== null) {
                     Log::info('Kashier webhook: wallet top-up already processed', ['orderId' => $orderId]);
                     $alreadyProcessed = true;
                     return;

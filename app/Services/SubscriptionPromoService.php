@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\PromoQuotaExceededException;
 use App\Models\PromoCode;
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
@@ -220,6 +221,24 @@ class SubscriptionPromoService
     }
 
     /**
+     * Atomically claim promo code quota using where condition.
+     *
+     * @throws PromoQuotaExceededException
+     */
+    public function claimPromoQuota(PromoCode $promo): void
+    {
+        if ($promo->no_of_users !== null) {
+            $affected = PromoCode::where('id', $promo->id)
+                ->where('no_of_users', '>', 0)
+                ->decrement('no_of_users');
+
+            if ($affected === 0) {
+                throw new PromoQuotaExceededException('كوبون الخصم استنفذ الحد الأقصى للاستخدام');
+            }
+        }
+    }
+
+    /**
      * Atomically reserve promo code quota during checkout initiation.
      *
      * @return array{success: bool, message?: string, promo?: PromoCode}
@@ -231,59 +250,55 @@ class SubscriptionPromoService
             return ['success' => false, 'message' => 'كود الخصم غير صالح.'];
         }
 
-        return DB::transaction(function () use ($normalizedCode, $userId, $planId, $countryCode) {
-            /** @var PromoCode|null $promo */
-            $promo = PromoCode::where(function ($q) use ($normalizedCode) {
-                $q->where('promo_code', $normalizedCode)
-                  ->orWhereRaw('UPPER(promo_code) = ?', [$normalizedCode]);
-            })
-            ->where('status', 1)
-            ->lockForUpdate()
-            ->first();
+        try {
+            return DB::transaction(function () use ($normalizedCode, $userId, $planId, $countryCode) {
+                /** @var PromoCode|null $promo */
+                $promo = PromoCode::where(function ($q) use ($normalizedCode) {
+                    $q->where('promo_code', $normalizedCode)
+                      ->orWhereRaw('UPPER(promo_code) = ?', [$normalizedCode]);
+                })
+                ->where('status', 1)
+                ->lockForUpdate()
+                ->first();
 
-            if (! $promo) {
-                return ['success' => false, 'message' => 'كود الخصم غير صحيح أو غير مفعل.'];
-            }
-
-            // Date checks
-            if ($promo->start_date && $promo->start_date->copy()->startOfDay()->isFuture()) {
-                return ['success' => false, 'message' => 'كود الخصم لم يبدأ بعد.'];
-            }
-
-            if ($promo->end_date && $promo->end_date->copy()->endOfDay()->isPast()) {
-                return ['success' => false, 'message' => 'كود الخصم منتهي الصلاحية.'];
-            }
-
-            // Plan checks
-            if ($promo->subscriptionPlans()->exists()) {
-                $isPlanAllowed = $promo->subscriptionPlans()->where('subscription_plans.id', $planId)->exists();
-                if (! $isPlanAllowed) {
-                    return ['success' => false, 'message' => 'كود الخصم غير صالح لهذه الباقة.'];
+                if (! $promo) {
+                    return ['success' => false, 'message' => 'كود الخصم غير صحيح أو غير مفعل.'];
                 }
-            }
 
-            // Per-user check
-            $userCheck = $this->checkUserEligibility($promo, $userId, $normalizedCode);
-            if (! $userCheck['allowed']) {
-                return ['success' => false, 'message' => $userCheck['message']];
-            }
-
-            // Global quota check & atomic decrement
-            if ($promo->no_of_users !== null) {
-                $claimed = PromoCode::where('id', $promo->id)
-                    ->where('no_of_users', '>', 0)
-                    ->decrement('no_of_users');
-
-                if ($claimed === 0) {
-                    return ['success' => false, 'message' => 'كود الخصم وصل للحد الأقصى من المستخدمين.'];
+                // Date checks
+                if ($promo->start_date && $promo->start_date->copy()->startOfDay()->isFuture()) {
+                    return ['success' => false, 'message' => 'كود الخصم لم يبدأ بعد.'];
                 }
-            }
 
-            return [
-                'success' => true,
-                'promo' => $promo,
-            ];
-        });
+                if ($promo->end_date && $promo->end_date->copy()->endOfDay()->isPast()) {
+                    return ['success' => false, 'message' => 'كود الخصم منتهي الصلاحية.'];
+                }
+
+                // Plan checks
+                if ($promo->subscriptionPlans()->exists()) {
+                    $isPlanAllowed = $promo->subscriptionPlans()->where('subscription_plans.id', $planId)->exists();
+                    if (! $isPlanAllowed) {
+                        return ['success' => false, 'message' => 'كود الخصم غير صالح لهذه الباقة.'];
+                    }
+                }
+
+                // Per-user check
+                $userCheck = $this->checkUserEligibility($promo, $userId, $normalizedCode);
+                if (! $userCheck['allowed']) {
+                    return ['success' => false, 'message' => $userCheck['message']];
+                }
+
+                // Global quota check & atomic decrement
+                $this->claimPromoQuota($promo);
+
+                return [
+                    'success' => true,
+                    'promo' => $promo,
+                ];
+            });
+        } catch (PromoQuotaExceededException $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
     }
 
     /**

@@ -6,7 +6,7 @@ nixPkgs = ["...", "python311Packages.supervisor", "nginx"]
 
 [phases.install]
 cmds = [
-    "mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp",
+    "mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp /etc/nginx",
     "mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs",
     "chmod -R 777 bootstrap/cache storage",
     "composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs"
@@ -16,7 +16,7 @@ cmds = [
 cmds = [
     "npm ci || npm install",
     "npm run production || npm run build || true",
-    "mkdir -p /etc/supervisor/conf.d/",
+    "mkdir -p /etc/supervisor/conf.d/ /etc/nginx",
     "cp /assets/worker-*.conf /etc/supervisor/conf.d/",
     "cp /assets/supervisord.conf /etc/supervisord.conf",
     "chmod +x /assets/start.sh",
@@ -32,13 +32,13 @@ cmd = "/assets/start.sh"
 set -e
 
 # Setup directories and permissions
-mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp
+mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp /etc/nginx
 mkdir -p /app/bootstrap/cache /app/storage/framework/cache /app/storage/framework/sessions /app/storage/framework/views /app/storage/logs
 chmod -R 777 /app/bootstrap/cache /app/storage
 
 # Substitute PORT in nginx template
 PORT=${PORT:-80}
-sed -e "s/\${PORT}/$PORT/g" /assets/nginx.template.conf > /etc/nginx.conf
+sed -i "s/\${PORT:-80}/$PORT/g" /assets/nginx.template.conf && cp /assets/nginx.template.conf /etc/nginx/nginx.conf
 
 # Start supervisor in foreground to keep container running
 exec supervisord -c /etc/supervisord.conf -n
@@ -72,7 +72,7 @@ files = /etc/supervisor/conf.d/*.conf
 "worker-nginx.conf" = '''
 [program:worker-nginx]
 process_name=%(program_name)s_%(process_num)02d
-command=nginx -c /etc/nginx.conf
+command=nginx -c /etc/nginx/nginx.conf
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/worker-nginx.log
@@ -160,8 +160,8 @@ http {
     server_names_hash_bucket_size 128;
 
     server {
-        listen ${PORT};
-        listen [::]:${PORT};
+        listen ${PORT:-80};
+        listen [::]:${PORT:-80};
         server_name localhost;
 
         root /app/public;

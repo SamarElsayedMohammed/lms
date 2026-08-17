@@ -90,6 +90,7 @@ class WalletService
         $referenceId = null,
         $referenceType = null,
         $entryType = null,
+        bool $allowNegative = false,
     ) {
         return DB::transaction(static function () use (
             $userId,
@@ -99,6 +100,7 @@ class WalletService
             $referenceId,
             $referenceType,
             $entryType,
+            $allowNegative,
         ) {
             $user = User::lockForUpdate()->findOrFail($userId);
 
@@ -118,7 +120,7 @@ class WalletService
                 $entryType = self::detectEntryType($user, $transactionType, $referenceType);
             }
 
-            if ($user->wallet_balance < $amount) {
+            if (! $allowNegative && $user->wallet_balance < $amount) {
                 throw new \Exception('Insufficient wallet balance');
             }
 

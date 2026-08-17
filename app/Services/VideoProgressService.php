@@ -466,6 +466,35 @@ class VideoProgressService
     }
 
     /**
+     * Update progress using segment-based tracking (alias).
+     *
+     * @param User $user
+     * @param CourseChapterLecture $lecture
+     * @param int $currentPosition Current playback position in seconds
+     * @param int $totalDuration Total video duration in seconds
+     * @param array $newlyWatchedSegments Array of segment indices that were newly watched
+     * @param array $metadata
+     * @return VideoProgress
+     */
+    public function updateProgressWithSegments(
+        User $user,
+        CourseChapterLecture $lecture,
+        int $currentPosition,
+        int $totalDuration,
+        array $newlyWatchedSegments,
+        array $metadata = []
+    ): VideoProgress {
+        return $this->updateSegmentProgress(
+            $user,
+            $lecture,
+            $currentPosition,
+            $totalDuration,
+            $newlyWatchedSegments,
+            $metadata
+        );
+    }
+
+    /**
      * Get maximum position user can seek to (highest continuously watched point from start).
      *
      * @param VideoProgress $progress
@@ -547,6 +576,28 @@ class VideoProgressService
 
         if ($hmsSeconds > 0) {
             return $hmsSeconds;
+        }
+
+        $rawAttributes = $lecture->getAttributes();
+        $rawTotal = $rawAttributes['total_duration'] ?? $lecture->getAttribute('total_duration') ?? $lecture->total_duration ?? null;
+        if ($rawTotal !== null && $rawTotal !== '') {
+            if (is_numeric($rawTotal)) {
+                return max(0, (int) $rawTotal);
+            }
+            if (is_string($rawTotal) && str_contains($rawTotal, ':')) {
+                $parts = array_map('intval', explode(':', $rawTotal));
+                if (count($parts) === 3) {
+                    return max(0, ($parts[0] * 3600) + ($parts[1] * 60) + $parts[2]);
+                }
+                if (count($parts) === 2) {
+                    return max(0, ($parts[0] * 60) + $parts[1]);
+                }
+            }
+        }
+
+        $rawDuration = $rawAttributes['duration'] ?? $lecture->duration ?? 0;
+        if (is_numeric($rawDuration) && (int) $rawDuration > 0) {
+            return (int) $rawDuration;
         }
 
         return max(0, (int) ($lecture->total_duration ?: $lecture->duration ?: 0));

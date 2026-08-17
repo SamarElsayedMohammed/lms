@@ -483,41 +483,52 @@ final class SubscriptionService
             ->get();
 
         foreach ($expiredSubscriptions as $subscription) {
-            if ($subscription->auto_renew && $subscription->plan) {
-                $user = $subscription->user;
-                $plan = $subscription->plan;
-                $price = (float) $plan->price;
+            DB::transaction(function () use ($subscription, &$count) {
+                $lockedSub = Subscription::where('id', $subscription->id)
+                    ->where('status', Subscription::STATUS_ACTIVE)
+                    ->lockForUpdate()
+                    ->first();
 
-                $walletRenewalEnabled = app(\App\Services\AffiliateService::class)->isEnabled();
+                if (! $lockedSub) {
+                    return;
+                }
 
-                if ($walletRenewalEnabled && $user && $user->wallet_balance >= $price) {
-                    try {
-                        $this->renewWithPayment($user, $subscription, 'wallet', $price, 0);
+                if ($lockedSub->auto_renew && $lockedSub->plan) {
+                    $user = $lockedSub->user;
+                    $plan = $lockedSub->plan;
+                    $price = (float) $plan->price;
 
-                        Log::info('Subscription auto-renewed via wallet', [
-                            'subscription_id' => $subscription->id,
-                            'user_id' => $user->id,
-                            'amount' => $price,
-                        ]);
+                    $walletRenewalEnabled = app(\App\Services\AffiliateService::class)->isEnabled();
 
-                        continue;
-                    } catch (\Throwable $e) {
-                        Log::warning('Auto-renewal failed, marking as expired', [
-                            'subscription_id' => $subscription->id,
-                            'error' => $e->getMessage(),
-                        ]);
+                    if ($walletRenewalEnabled && $user && $user->wallet_balance >= $price) {
+                        try {
+                            $this->renewWithPayment($user, $lockedSub, 'wallet', $price, 0);
+
+                            Log::info('Subscription auto-renewed via wallet', [
+                                'subscription_id' => $lockedSub->id,
+                                'user_id' => $user->id,
+                                'amount' => $price,
+                            ]);
+
+                            return;
+                        } catch (\Throwable $e) {
+                            Log::warning('Auto-renewal failed, marking as expired', [
+                                'subscription_id' => $lockedSub->id,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
                     }
                 }
-            }
 
-            $subscription->status = Subscription::STATUS_EXPIRED;
-            $subscription->save();
-            $count++;
+                $lockedSub->status = Subscription::STATUS_EXPIRED;
+                $lockedSub->save();
+                $count++;
 
-            Log::info('Subscription marked as expired', [
-                'subscription_id' => $subscription->id,
-                'user_id' => $subscription->user_id,
-            ]);
+                Log::info('Subscription marked as expired', [
+                    'subscription_id' => $lockedSub->id,
+                    'user_id' => $lockedSub->user_id,
+                ]);
+            });
         }
 
         return $count;

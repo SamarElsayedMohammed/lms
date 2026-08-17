@@ -57,21 +57,27 @@ final class LectureProgressApiController extends Controller
         if ($hasSegments) {
             $validated = $request->validate([
                 'current_position' => 'required|integer|min:0',
-                'total_duration' => 'required|integer|min:1',
                 'newly_watched_segments' => 'required|array|max:' . VideoProgressService::MAX_SEGMENTS_PER_REQUEST,
                 'newly_watched_segments.*' => 'integer|min:0',
             ]);
 
             $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
+            if ($canonicalDuration <= 0) {
+                return $this->error('Lecture duration is not configured on the server', 422);
+            }
 
-            $progress = $this->videoProgressService->updateSegmentProgress(
-                $user,
-                $lecture,
-                (int) $validated['current_position'],
-                $canonicalDuration,
-                $validated['newly_watched_segments'],
-                $metadata
-            );
+            try {
+                $progress = $this->videoProgressService->updateSegmentProgress(
+                    $user,
+                    $lecture,
+                    (int) $validated['current_position'],
+                    $canonicalDuration,
+                    $validated['newly_watched_segments'],
+                    $metadata
+                );
+            } catch (\InvalidArgumentException $e) {
+                return $this->error($e->getMessage(), 422);
+            }
 
             return $this->ok(
                 data: [
@@ -90,9 +96,7 @@ final class LectureProgressApiController extends Controller
         $validated = $request->validate([
             'watched_seconds' => 'nullable|integer|min:0',
             'last_position' => 'nullable|integer|min:0',
-            'total_seconds' => 'nullable|integer|min:0',
             'current_position' => 'nullable|integer|min:0',
-            'total_duration' => 'nullable|integer|min:0',
         ]);
 
         $lastPosition = (int) ($validated['last_position'] ?? $validated['current_position'] ?? 0);
@@ -100,14 +104,18 @@ final class LectureProgressApiController extends Controller
 
         $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
 
-        $progress = $this->videoProgressService->updateProgress(
-            $user,
-            $lecture,
-            $watchedSeconds,
-            $lastPosition,
-            $canonicalDuration,
-            $metadata
-        );
+        try {
+            $progress = $this->videoProgressService->updateProgress(
+                $user,
+                $lecture,
+                $watchedSeconds,
+                $lastPosition,
+                $canonicalDuration,
+                $metadata
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
 
         return $this->ok(
             data: [

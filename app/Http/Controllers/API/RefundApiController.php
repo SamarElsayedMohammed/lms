@@ -334,101 +334,145 @@ class RefundApiController extends Controller
         }
 
         try {
-            DB::beginTransaction();
+            return DB::transaction(function () use ($request) {
+                $refundRequest = RefundRequest::lockForUpdate()->findOrFail($request->refund_request_id);
+                $refundRequest->load(['user', 'course' => fn ($q) => $q->withTrashed(), 'transaction']);
 
-            $refundRequest = RefundRequest::lockForUpdate()->findOrFail($request->refund_request_id);
-            $refundRequest->load(['user', 'course', 'transaction']);
-
-            if ($refundRequest->status !== 'pending') {
-                DB::rollBack();
-                return ApiResponseService::validationError('This refund request has already been processed');
-            }
-
-            $admin = Auth::user();
-
-            if ($request->action === 'approve') {
-                // Delete existing receipt if any
-                if ($refundRequest->admin_receipt) {
-                    FileService::delete($refundRequest->admin_receipt);
+                if ($refundRequest->status !== 'pending') {
+                    return ApiResponseService::validationError('This refund request has already been processed');
                 }
 
-                $courseTitle = $refundRequest->course?->title ?? 'Course #' . $refundRequest->course_id;
+                $admin = Auth::user();
 
-                // Credit amount to user's wallet using WalletService with EGP amount
-                WalletService::creditWallet(
-                    $refundRequest->user_id,
-                    $refundRequest->amount_egp ?? $refundRequest->refund_amount,
-                    'refund',
-                    "Refund for course: {$courseTitle}",
-                    $refundRequest->id,
-                    \App\Models\RefundRequest::class,
-                );
+                if ($request->action === 'approve') {
+                    // Lock student and course (including soft-deleted)
+                    $student = \App\Models\User::lockForUpdate()->find($refundRequest->user_id);
+                    $course = \App\Models\Course\Course::withTrashed()->lockForUpdate()->find($refundRequest->course_id);
 
-                // Handle instructor commission clawback
-                $commission = \App\Models\Commission::where('order_id', $refundRequest->transaction->order_id)
-                    ->where('course_id', $refundRequest->course_id)
-                    ->where('status', 'paid')
-                    ->first();
+                    // Delete existing receipt if any
+                    if ($refundRequest->admin_receipt) {
+                        FileService::delete($refundRequest->admin_receipt);
+                    }
 
-                if ($commission) {
-                    WalletService::debitWallet(
-                        $commission->instructor_id,
-                        $commission->instructor_commission_amount,
+                    $courseTitle = $course?->title ?? 'Course #' . $refundRequest->course_id;
+
+                    // 1. Credit amount to student's wallet using WalletService with EGP amount
+                    WalletService::creditWallet(
+                        $refundRequest->user_id,
+                        $refundRequest->amount_egp ?? $refundRequest->refund_amount,
                         'refund',
-                        "Commission clawback for refunded course: {$courseTitle}",
+                        "Refund for course: {$courseTitle}",
                         $refundRequest->id,
                         \App\Models\RefundRequest::class,
+                        'user'
                     );
 
-                    $commission->update(['status' => 'refunded']);
+                    // 2. Handle instructor commission clawback (null-safe)
+                    $orderId = $refundRequest->transaction?->order_id;
+                    $commission = null;
+                    if ($orderId) {
+                        $commission = \App\Models\Commission::where('order_id', $orderId)
+                            ->where('course_id', $refundRequest->course_id)
+                            ->where('status', 'paid')
+                            ->first();
+                    }
+
+                    if ($commission) {
+                        $instructorId = $commission->instructor_id ?: ($course?->user_id ?? $course?->instructor_id);
+                        $instructor = $instructorId ? \App\Models\User::withTrashed()->find($instructorId) : null;
+
+                        if ($instructor) {
+                            try {
+                                WalletService::debitWallet(
+                                    $instructor->id,
+                                    $commission->instructor_commission_amount,
+                                    'refund',
+                                    "Commission clawback for refunded course: {$courseTitle}",
+                                    $refundRequest->id,
+                                    \App\Models\RefundRequest::class,
+                                    'instructor',
+                                    true // allow negative balance for clawback recovery
+                                );
+                                $commission->update(['status' => 'refunded']);
+                            } catch (\Throwable $e) {
+                                \Illuminate\Support\Facades\Log::warning('Instructor commission clawback debit failed', [
+                                    'instructor_id' => $instructor->id,
+                                    'commission_id' => $commission->id,
+                                    'error' => $e->getMessage(),
+                                ]);
+                                $commission->update(['status' => 'pending_recovery']);
+                            }
+                        } else {
+                            \Illuminate\Support\Facades\Log::warning('Instructor record not found for commission clawback', [
+                                'instructor_id' => $instructorId,
+                                'commission_id' => $commission->id,
+                            ]);
+                            $commission->update(['status' => 'refunded']);
+                        }
+                    }
+
+                    // 3. Remove student course access and enrollment tracks
+                    UserCourseTrack::where([
+                        'user_id' => $refundRequest->user_id,
+                        'course_id' => $refundRequest->course_id,
+                    ])->delete();
+
+                    if (\Illuminate\Support\Facades\Schema::hasTable('course_user')) {
+                        DB::table('course_user')
+                            ->where('user_id', $refundRequest->user_id)
+                            ->where('course_id', $refundRequest->course_id)
+                            ->delete();
+                    }
+
+                    // 4. Mark certificates as revoked
+                    $certificates = \App\Models\Course\CourseCertificate::where('user_id', $refundRequest->user_id)
+                        ->where('course_id', $refundRequest->course_id)
+                        ->get();
+
+                    foreach ($certificates as $certificate) {
+                        $certData = [
+                            'status' => 'revoked',
+                            'revoked_at' => Carbon::now(),
+                            'revoked_reason' => 'Course refunded',
+                        ];
+                        if (\Illuminate\Support\Facades\Schema::hasColumn('course_certificates', 'is_valid')) {
+                            $certData['is_valid'] = false;
+                        }
+                        $certificate->update($certData);
+                    }
+
+                    $refundRequest->update([
+                        'status' => 'approved',
+                        'admin_notes' => $request->admin_notes,
+                        'admin_receipt' => null,
+                        'processed_at' => Carbon::now(),
+                        'processed_by' => $admin?->id,
+                    ]);
+
+                    // Add media URLs to response
+                    $refundRequest->user_media_url = $refundRequest->user_media
+                        ? FileService::getFileUrl($refundRequest->user_media)
+                        : null;
+                    $refundRequest->admin_receipt_url = null;
+
+                    return ApiResponseService::successResponse(
+                        'Refund approved and processed successfully',
+                        $refundRequest,
+                    );
+                } else {
+                    $refundRequest->update([
+                        'status' => 'rejected',
+                        'admin_notes' => $request->admin_notes,
+                        'processed_at' => Carbon::now(),
+                        'processed_by' => $admin?->id,
+                    ]);
+
+                    return ApiResponseService::successResponse('Refund request rejected');
                 }
-
-                // Remove course access
-                UserCourseTrack::where([
-                    'user_id' => $refundRequest->user_id,
-                    'course_id' => $refundRequest->course_id,
-                ])->delete();
-
-                // Delete certificates
-                \App\Models\CourseCertificate::where([
-                    'user_id' => $refundRequest->user_id,
-                    'course_id' => $refundRequest->course_id,
-                ])->delete();
-
-                $refundRequest->update([
-                    'status' => 'approved',
-                    'admin_notes' => $request->admin_notes,
-                    'admin_receipt' => null, // Remove receipt from database
-                    'processed_at' => Carbon::now(),
-                    'processed_by' => $admin?->id,
-                ]);
-
-                // Add media URLs to response
-                $refundRequest->user_media_url = $refundRequest->user_media
-                    ? FileService::getFileUrl($refundRequest->user_media)
-                    : null;
-                $refundRequest->admin_receipt_url = null; // No receipt stored
-
-                DB::commit();
-                return ApiResponseService::successResponse(
-                    'Refund approved and processed successfully',
-                    $refundRequest,
-                );
-            } else {
-                $refundRequest->update([
-                    'status' => 'rejected',
-                    'admin_notes' => $request->admin_notes,
-                    'processed_at' => Carbon::now(),
-                    'processed_by' => $admin?->id,
-                ]);
-
-                DB::commit();
-                return ApiResponseService::successResponse('Refund request rejected');
-            }
+            });
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            DB::rollBack();
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
     }

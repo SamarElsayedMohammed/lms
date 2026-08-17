@@ -193,7 +193,7 @@ class RefundController extends Controller
         try {
             DB::beginTransaction();
 
-            $refundRequest = RefundRequest::with(['user', 'course', 'transaction'])->findOrFail($id);
+            $refundRequest = RefundRequest::with(['user', 'course' => fn ($q) => $q->withTrashed(), 'transaction'])->findOrFail($id);
 
             if ($refundRequest->status !== 'pending') {
                 return redirect()
@@ -202,39 +202,70 @@ class RefundController extends Controller
             }
 
             if ($request->action === 'approve') {
+                // Lock student and course (including soft-deleted)
+                $student = \App\Models\User::lockForUpdate()->find($refundRequest->user_id);
+                $course = \App\Models\Course\Course::withTrashed()->lockForUpdate()->find($refundRequest->course_id);
+
                 // Delete existing receipt if any
                 if ($refundRequest->admin_receipt) {
                     FileService::delete($refundRequest->admin_receipt);
                 }
 
+                $courseTitle = $course?->title ?? 'Course #' . $refundRequest->course_id;
+
                 // Credit amount to user's wallet using WalletService
                 WalletService::creditWallet(
                     $refundRequest->user_id,
-                    $refundRequest->refund_amount,
+                    $refundRequest->amount_egp ?? $refundRequest->refund_amount,
                     'refund',
-                    "Refund for course: {$refundRequest->course->title}",
+                    "Refund for course: {$courseTitle}",
                     $refundRequest->id,
                     \App\Models\RefundRequest::class,
                     'user', // User-side entry
                 );
 
-                // Handle instructor commission clawback
-                $commission = \App\Models\Commission::where('order_id', $refundRequest->transaction->order_id)
-                    ->where('course_id', $refundRequest->course_id)
-                    ->where('status', 'paid')
-                    ->first();
+                // Handle instructor commission clawback (null-safe)
+                $orderId = $refundRequest->transaction?->order_id;
+                $commission = null;
+                if ($orderId) {
+                    $commission = \App\Models\Commission::where('order_id', $orderId)
+                        ->where('course_id', $refundRequest->course_id)
+                        ->where('status', 'paid')
+                        ->first();
+                }
 
                 if ($commission) {
-                    WalletService::debitWallet(
-                        $commission->instructor_id,
-                        $commission->instructor_commission_amount,
-                        'refund',
-                        "Commission clawback for refunded course: {$refundRequest->course->title}",
-                        $refundRequest->id,
-                        \App\Models\RefundRequest::class,
-                    );
+                    $instructorId = $commission->instructor_id ?: ($course?->user_id ?? $course?->instructor_id);
+                    $instructor = $instructorId ? \App\Models\User::withTrashed()->find($instructorId) : null;
 
-                    $commission->update(['status' => 'refunded']);
+                    if ($instructor) {
+                        try {
+                            WalletService::debitWallet(
+                                $instructor->id,
+                                $commission->instructor_commission_amount,
+                                'refund',
+                                "Commission clawback for refunded course: {$courseTitle}",
+                                $refundRequest->id,
+                                \App\Models\RefundRequest::class,
+                                'instructor',
+                                true // allow negative balance
+                            );
+                            $commission->update(['status' => 'refunded']);
+                        } catch (\Throwable $e) {
+                            \Illuminate\Support\Facades\Log::warning('Admin instructor commission clawback failed', [
+                                'instructor_id' => $instructor->id,
+                                'commission_id' => $commission->id,
+                                'error' => $e->getMessage(),
+                            ]);
+                            $commission->update(['status' => 'pending_recovery']);
+                        }
+                    } else {
+                        \Illuminate\Support\Facades\Log::warning('Instructor record not found for admin commission clawback', [
+                            'instructor_id' => $instructorId,
+                            'commission_id' => $commission->id,
+                        ]);
+                        $commission->update(['status' => 'refunded']);
+                    }
                 }
 
                 // Remove course access
@@ -242,6 +273,30 @@ class RefundController extends Controller
                     'user_id' => $refundRequest->user_id,
                     'course_id' => $refundRequest->course_id,
                 ])->delete();
+
+                if (\Illuminate\Support\Facades\Schema::hasTable('course_user')) {
+                    DB::table('course_user')
+                        ->where('user_id', $refundRequest->user_id)
+                        ->where('course_id', $refundRequest->course_id)
+                        ->delete();
+                }
+
+                // Revoke certificates
+                $certificates = \App\Models\Course\CourseCertificate::where('user_id', $refundRequest->user_id)
+                    ->where('course_id', $refundRequest->course_id)
+                    ->get();
+
+                foreach ($certificates as $certificate) {
+                    $certData = [
+                        'status' => 'revoked',
+                        'revoked_at' => Carbon::now(),
+                        'revoked_reason' => 'Course refunded',
+                    ];
+                    if (\Illuminate\Support\Facades\Schema::hasColumn('course_certificates', 'is_valid')) {
+                        $certData['is_valid'] = false;
+                    }
+                    $certificate->update($certData);
+                }
 
                 $refundRequest->update([
                     'status' => 'approved',
@@ -257,7 +312,7 @@ class RefundController extends Controller
                     ->route('admin.refunds.show', $id)
                     ->with(
                         'success',
-                        "Refund approved and processed successfully for {$refundRequest->user->name}. Amount credited to user's wallet.",
+                        "Refund approved and processed successfully for {$refundRequest->user?->name}. Amount credited to user's wallet.",
                     );
             } else {
                 // Reject refund

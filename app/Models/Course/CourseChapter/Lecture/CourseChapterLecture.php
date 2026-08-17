@@ -78,6 +78,8 @@ final class CourseChapterLecture extends Model
         'hls_error_message',
         'hls_encoded_at',
         'duration_seconds',
+        'total_duration',
+        'duration',
     ];
 
     protected $casts = [

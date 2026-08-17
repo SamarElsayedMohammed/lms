@@ -2,13 +2,14 @@
 
 namespace App\Jobs;
 
+use App\Models\FeatureSectionAnalyticsDaily;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
-use App\Models\FeatureSectionAnalyticsDaily;
 
 class FlushFeatureSectionAnalyticsJob implements ShouldQueue
 {
@@ -75,12 +76,10 @@ class FlushFeatureSectionAnalyticsJob implements ShouldQueue
                 }
             }
         } catch (\Throwable $e) {
-            // Redis may be unavailable or disabled; suppress to avoid crashing recurring scheduler
-            if (config('app.debug')) {
-                \Illuminate\Support\Facades\Log::debug('FlushFeatureSectionAnalyticsJob: Redis unavailable, skipping flush', [
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            // Redis may be unavailable or disabled; log warning to avoid crashing recurring scheduler
+            Log::warning('FlushFeatureSectionAnalyticsJob: Redis operation failed or connection is unavailable, skipping flush.', [
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 }
