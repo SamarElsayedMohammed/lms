@@ -34,7 +34,27 @@ set -e
 # Setup directories and permissions
 mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp /etc/nginx
 mkdir -p /app/bootstrap/cache /app/storage/framework/cache /app/storage/framework/sessions /app/storage/framework/views /app/storage/logs
-chmod -R 777 /app/bootstrap/cache /app/storage
+chmod -R 777 /app/bootstrap/cache /app/storage /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp
+
+# Ensure fallback mime.types exists if missing
+if [ ! -f /etc/nginx/mime.types ]; then
+  cat << 'EOF' > /etc/nginx/mime.types
+types {
+    text/html                             html htm shtml;
+    text/css                              css;
+    text/xml                              xml;
+    image/gif                             gif;
+    image/jpeg                            jpeg jpg;
+    application/javascript                js;
+    application/json                      json;
+    image/png                             png;
+    image/svg+xml                         svg svgz;
+    image/webp                            webp;
+    application/pdf                       pdf;
+    application/octet-stream              bin exe dll deb dmg iso img msi msp msm;
+}
+EOF
+fi
 
 # Substitute PORT in nginx template
 PORT=${PORT:-80}
@@ -122,22 +142,18 @@ stderr_logfile=/var/log/worker-laravel-video.log
 "php-fpm.conf" = '''
 [www]
 listen = 127.0.0.1:9000
-user = www-data
-group = www-data
-listen.owner = www-data
-listen.group = www-data
 pm = dynamic
 pm.max_children = 10
 pm.start_servers = 2
 pm.min_spare_servers = 1
 pm.max_spare_servers = 4
 clear_env = no
+catch_workers_output = yes
 php_admin_value[post_max_size] = 50M
 php_admin_value[upload_max_filesize] = 50M
 '''
 
 "nginx.template.conf" = '''
-user www-data www-data;
 worker_processes auto;
 daemon off;
 
@@ -185,7 +201,6 @@ http {
             fastcgi_pass 127.0.0.1:9000;
             fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
             include fastcgi_params;
-            include fastcgi.conf;
         }
 
         location ~ /\.(?!well-known).* {
