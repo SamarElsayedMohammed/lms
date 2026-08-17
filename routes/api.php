@@ -939,7 +939,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::delete('{webinar:slug}', [\App\Http\Controllers\API\Admin\AdminWebinarController::class, 'destroy']);
             
             // Actions
-            Route::post('{webinar:slug}/change-status', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'changeStatus']);
+            Route::post('{webinar:slug}/change-status', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'changeWebinarStatus']);
             Route::post('{webinar:slug}/toggle-publish', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'togglePublish']);
             Route::post('{webinar:slug}/set-default', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'setDefault']);
             Route::put('{slug}/restore', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'restore']); // No model binding since it's soft deleted

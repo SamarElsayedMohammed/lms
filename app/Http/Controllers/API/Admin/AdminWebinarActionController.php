@@ -22,7 +22,7 @@ class AdminWebinarActionController extends AdminCrudApiController
      * Update webinar status
      * POST /api/admin/webinars/{slug}/change-status
      */
-    public function changeStatus(Request $request, Webinar $webinar): JsonResponse
+    public function changeWebinarStatus(Request $request, Webinar $webinar): JsonResponse
     {
         $this->ensureAdmin();
 

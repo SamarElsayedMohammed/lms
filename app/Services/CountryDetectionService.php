@@ -157,7 +157,11 @@ final class CountryDetectionService
     private function getCountryFromGeoIP(Request $request): ?string
     {
         // Skip GeoIP lookups in testing environment
-        if (app()->environment('testing')) {
+        $isTesting = function_exists('app') && method_exists(app(), 'environment')
+            ? app()->environment('testing')
+            : false;
+
+        if ($isTesting) {
             return null;
         }
 
@@ -345,7 +349,11 @@ final class CountryDetectionService
      */
     private function getDefaultCountry(): string
     {
-        return strtoupper(config('app.default_country', 'EG'));
+        $default = function_exists('app') && app()->bound('config')
+            ? (string) config('app.default_country', 'EG')
+            : 'EG';
+
+        return strtoupper($default ?: 'EG');
     }
 
     /**
@@ -353,8 +361,11 @@ final class CountryDetectionService
      */
     private function isTestingOverride(Request $request): bool
     {
-        return !app()->environment('production')
-            && $request->has('test_country');
+        $isProd = function_exists('app') && method_exists(app(), 'environment')
+            ? app()->environment('production')
+            : false;
+
+        return !$isProd && $request->has('test_country');
     }
 
     /**
@@ -371,23 +382,30 @@ final class CountryDetectionService
      */
     private function logDetection(Request $request, string $country, string $source): void
     {
+        $isDebug = function_exists('app') && app()->bound('config') ? (bool) config('app.debug') : false;
+        $isProd = function_exists('app') && method_exists(app(), 'environment')
+            ? app()->environment('production')
+            : false;
+
         // Only log in debug mode or non-production environments
-        if (!config('app.debug') && app()->environment('production')) {
+        if (!$isDebug && $isProd) {
             return;
         }
 
-        Log::info('CountryDetectionService: Country detected', [
-            'detected_country' => $country,
-            'detection_source' => $source,
-            'headers_received' => [
-                'CF-IPCountry' => $request->header('CF-IPCountry'),
-                'X-User-Country' => $request->header('X-User-Country'),
-                'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
-                'X-Forwarded-For' => $request->header('X-Forwarded-For'),
-            ],
-            'client_ip' => $request->ip(),
-            'remote_addr' => $request->server('REMOTE_ADDR'),
-        ]);
+        if (function_exists('app') && app()->bound('log')) {
+            Log::info('CountryDetectionService: Country detected', [
+                'detected_country' => $country,
+                'detection_source' => $source,
+                'headers_received' => [
+                    'CF-IPCountry' => $request->header('CF-IPCountry'),
+                    'X-User-Country' => $request->header('X-User-Country'),
+                    'X-Vercel-IP-Country' => $request->header('X-Vercel-IP-Country'),
+                    'X-Forwarded-For' => $request->header('X-Forwarded-For'),
+                ],
+                'client_ip' => $request->ip(),
+                'remote_addr' => $request->server('REMOTE_ADDR'),
+            ]);
+        }
     }
 
     /**
