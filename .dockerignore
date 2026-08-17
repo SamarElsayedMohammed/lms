@@ -10,6 +10,11 @@
 # IDE
 .vscode
 .idea
+.cursor
+.claude
+.agent
+.skills
+.specify
 *.swp
 *.swo
 *.swn
@@ -26,6 +31,8 @@ vendor
 # Environment files
 .env.local
 .env.*.local
+.env.old
+.env.telescope
 
 # Build files
 public/hot
@@ -41,13 +48,25 @@ storage/logs/*
 
 # Testing
 .phpunit.result.cache
+.phpunit.cache
 coverage
+specs
+tests
 
 # Documentation
 README.md
-DEMO_MODE_SETUP.md
-Features.txt
+*.md
+docs
 
 # Misc
 *.log
 .cache
+scratch
+
+# Large data files (not needed in container)
+*.xlsx
+diff_output.txt
+conversations.json
+composer.phar
+package-lock.json
+package.json
