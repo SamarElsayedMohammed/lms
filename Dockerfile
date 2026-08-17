@@ -34,6 +34,10 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Copy application files
 COPY . /var/www/html
 
+# Create required directories before composer install (needed for package:discover)
+RUN mkdir -p /var/www/html/bootstrap/cache /var/www/html/storage/logs \
+    && chmod -R 777 /var/www/html/bootstrap/cache /var/www/html/storage
+
 # Install composer dependencies
 RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs
 
