@@ -79,6 +79,10 @@ COPY docker/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 COPY docker/start.sh /usr/local/bin/start.sh
 RUN chmod +x /usr/local/bin/start.sh
 
+# ─── Health check (lets Coolify/Docker know the app is alive) ────────────────
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost/api/health 2>/dev/null || curl -f http://localhost/ 2>/dev/null || exit 1
+
 EXPOSE 80
 
 CMD ["/usr/local/bin/start.sh"]
