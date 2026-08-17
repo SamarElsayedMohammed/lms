@@ -1,34 +1,22 @@
-# syntax=docker/dockerfile:1
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 1: Install ffmpeg in isolation (all heavy deps stay here, never copied)
-# ─────────────────────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS ffmpeg-stage
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Stage 2: Final application image (lean — no ffmpeg apt dependencies)
+# Application image with PHP 8.3 FPM, Nginx, and static ffmpeg
 # ─────────────────────────────────────────────────────────────────────────────
 FROM php:8.3-fpm
 
 WORKDIR /var/www/html
 
-# ─── 1. System packages (minimal — no ffmpeg here) ───────────────────────────
+# ─── 1. System packages (minimal) ─────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
         unzip \
         nginx \
         supervisor \
-        libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── 2. Copy ONLY the ffmpeg/ffprobe binaries from the isolated stage ─────────
-#        (the 200+ ffmpeg dependencies are left behind in the build stage)
-COPY --from=ffmpeg-stage /usr/bin/ffmpeg  /usr/local/bin/ffmpeg
-COPY --from=ffmpeg-stage /usr/bin/ffprobe /usr/local/bin/ffprobe
+# ─── 2. Copy static ffmpeg/ffprobe binaries (multi-arch, fully self-contained) ─
+COPY --from=mwader/static-ffmpeg:latest /ffmpeg  /usr/local/bin/ffmpeg
+COPY --from=mwader/static-ffmpeg:latest /ffprobe /usr/local/bin/ffprobe
 
 # ─── 3. PHP extensions via fast binary installer ─────────────────────────────
 COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
