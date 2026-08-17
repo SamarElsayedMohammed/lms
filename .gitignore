@@ -100,6 +100,7 @@ backups/
 !docs/AUTHENTICATION_BUG_REPORT_AR.md
 
 *.sh
+!docker/*.sh
 
 # Public folder
 !/public/*
