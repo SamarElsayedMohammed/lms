@@ -2,11 +2,11 @@
 # See: https://coolify.io/docs/applications/laravel
 
 [phases.setup]
-nixPkgs = ["...", "python311Packages.supervisor", "nginx"]
+nixPkgs = ["...", "python311Packages.supervisor"]
 
 [phases.install]
 cmds = [
-    "mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp /etc/nginx",
+    "mkdir -p /var/log/nginx && mkdir -p /var/cache/nginx /var/log/supervisor /tmp",
     "mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs",
     "chmod -R 777 bootstrap/cache storage",
     "composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs"
@@ -16,7 +16,7 @@ cmds = [
 cmds = [
     "npm ci || npm install",
     "npm run production || npm run build || true",
-    "mkdir -p /etc/supervisor/conf.d/ /etc/nginx",
+    "mkdir -p /etc/supervisor/conf.d/",
     "cp /assets/worker-*.conf /etc/supervisor/conf.d/",
     "cp /assets/supervisord.conf /etc/supervisord.conf",
     "chmod +x /assets/start.sh",
@@ -30,37 +30,14 @@ cmd = "/assets/start.sh"
 "start.sh" = '''
 #!/bin/bash
 set -e
-
-# Setup directories and permissions
-mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp /etc/nginx
+mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp
 mkdir -p /app/bootstrap/cache /app/storage/framework/cache /app/storage/framework/sessions /app/storage/framework/views /app/storage/logs
-chmod -R 777 /app/bootstrap/cache /app/storage /var/log/nginx /var/cache/nginx /var/log/supervisor /tmp
+chmod -R 777 /app/bootstrap/cache /app/storage /tmp /var/log
 
-# Ensure fallback mime.types exists if missing
-if [ ! -f /etc/nginx/mime.types ]; then
-  cat << 'EOF' > /etc/nginx/mime.types
-types {
-    text/html                             html htm shtml;
-    text/css                              css;
-    text/xml                              xml;
-    image/gif                             gif;
-    image/jpeg                            jpeg jpg;
-    application/javascript                js;
-    application/json                      json;
-    image/png                             png;
-    image/svg+xml                         svg svgz;
-    image/webp                            webp;
-    application/pdf                       pdf;
-    application/octet-stream              bin exe dll deb dmg iso img msi msp msm;
-}
-EOF
-fi
+# Transform the nginx configuration
+node /assets/scripts/prestart.mjs /assets/nginx.template.conf /etc/nginx.conf
 
-# Substitute PORT in nginx template
-PORT=${PORT:-80}
-sed -i "s/\${PORT:-80}/$PORT/g" /assets/nginx.template.conf && cp /assets/nginx.template.conf /etc/nginx/nginx.conf
-
-# Start supervisor in foreground to keep container running
+# Start supervisor in foreground
 exec supervisord -c /etc/supervisord.conf -n
 '''
 
@@ -92,7 +69,7 @@ files = /etc/supervisor/conf.d/*.conf
 "worker-nginx.conf" = '''
 [program:worker-nginx]
 process_name=%(program_name)s_%(process_num)02d
-command=nginx -c /etc/nginx/nginx.conf
+command=nginx -c /etc/nginx.conf
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/worker-nginx.log
@@ -142,18 +119,22 @@ stderr_logfile=/var/log/worker-laravel-video.log
 "php-fpm.conf" = '''
 [www]
 listen = 127.0.0.1:9000
+user = www-data
+group = www-data
+listen.owner = www-data
+listen.group = www-data
 pm = dynamic
 pm.max_children = 10
 pm.start_servers = 2
 pm.min_spare_servers = 1
 pm.max_spare_servers = 4
 clear_env = no
-catch_workers_output = yes
 php_admin_value[post_max_size] = 50M
 php_admin_value[upload_max_filesize] = 50M
 '''
 
 "nginx.template.conf" = '''
+user www-data www-data;
 worker_processes auto;
 daemon off;
 
@@ -164,7 +145,9 @@ events {
 }
 
 http {
-    include /etc/nginx/mime.types;
+    include    $!{nginx}/conf/mime.types;
+    index    index.html index.htm index.php;
+
     default_type application/octet-stream;
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                     '$status $body_bytes_sent "$http_referer" '
@@ -176,33 +159,48 @@ http {
     server_names_hash_bucket_size 128;
 
     server {
-        listen ${PORT:-80};
-        listen [::]:${PORT:-80};
+        listen ${PORT};
+        listen [::]:${PORT};
         server_name localhost;
 
-        root /app/public;
+        $if(NIXPACKS_PHP_ROOT_DIR) (
+            root ${NIXPACKS_PHP_ROOT_DIR};
+        ) else (
+            root /app/public;
+        )
 
         add_header X-Content-Type-Options "nosniff";
-        client_max_body_size 50M;
 
-        index index.php index.html index.htm;
+        client_max_body_size 50M;
+     
+        index index.php;
+     
         charset utf-8;
 
-        location / {
-            try_files $uri $uri/ /index.php?$query_string;
-        }
-
+        $if(NIXPACKS_PHP_FALLBACK_PATH) (
+            location / {
+                try_files $uri $uri/ ${NIXPACKS_PHP_FALLBACK_PATH}?$query_string;
+            }
+        ) else (
+          location / {
+                try_files $uri $uri/ /index.php?$query_string;
+           }
+        )
+     
         location = /favicon.ico { access_log off; log_not_found off; }
         location = /robots.txt  { access_log off; log_not_found off; }
-
-        error_page 404 /index.php;
-
+     
+        $if(IS_LARAVEL) (
+            error_page 404 /index.php;
+        ) else ()
+     
         location ~ \.php$ {
             fastcgi_pass 127.0.0.1:9000;
             fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-            include fastcgi_params;
+            include $!{nginx}/conf/fastcgi_params;
+            include $!{nginx}/conf/fastcgi.conf;
         }
-
+     
         location ~ /\.(?!well-known).* {
             deny all;
         }
