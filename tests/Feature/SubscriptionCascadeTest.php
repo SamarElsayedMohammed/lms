@@ -17,33 +17,47 @@ class SubscriptionCascadeTest extends TestCase
     public function it_cancels_queued_child_subscriptions_when_parent_is_cancelled()
     {
         $user = User::factory()->create();
-        $plan = SubscriptionPlan::factory()->create();
+        $plan = SubscriptionPlan::create([
+            'name' => 'Pro Plan',
+            'slug' => 'pro-plan-' . uniqid(),
+            'price' => 99.00,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
 
         // Active parent subscription
-        $parent = Subscription::factory()->create([
+        $parent = Subscription::create([
             'user_id' => $user->id,
-            'subscription_plan_id' => $plan->id,
+            'plan_id' => $plan->id,
+            'starts_at' => now(),
+            'ends_at' => now()->addDays(30),
             'status' => Subscription::STATUS_ACTIVE,
         ]);
 
         // Queued child subscription
-        $child = Subscription::factory()->create([
+        $child = Subscription::create([
             'user_id' => $user->id,
-            'subscription_plan_id' => $plan->id,
+            'plan_id' => $plan->id,
+            'starts_at' => now()->addDays(30),
+            'ends_at' => now()->addDays(60),
             'status' => Subscription::STATUS_PENDING,
             'parent_subscription_id' => $parent->id,
         ]);
 
-        // Unrelated queued subscription
-        $unrelated = Subscription::factory()->create([
-            'user_id' => $user->id,
-            'subscription_plan_id' => $plan->id,
+        // Unrelated queued subscription for a different user
+        $otherUser = User::factory()->create();
+        $unrelated = Subscription::create([
+            'user_id' => $otherUser->id,
+            'plan_id' => $plan->id,
+            'starts_at' => now()->addDays(60),
+            'ends_at' => now()->addDays(90),
             'status' => Subscription::STATUS_PENDING,
             'parent_subscription_id' => null,
         ]);
 
         $service = app(SubscriptionService::class);
-        $service->cancelSubscription($parent, 'User requested cancellation');
+        $service->cancelSubscription($parent, 'User requested cancellation', true);
 
         // Assert parent is cancelled
         $this->assertEquals(Subscription::STATUS_CANCELLED, $parent->fresh()->status);

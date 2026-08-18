@@ -440,6 +440,8 @@ final class SubscriptionApiController extends Controller
             'ip' => request()->ip()
         ]);
 
+        $appliedPromoCode = null;
+
         try {
             $validator = Validator::make($request->all(), [
                 'plan_id' => 'required|exists:subscription_plans,id',
@@ -646,59 +648,74 @@ final class SubscriptionApiController extends Controller
                         'subscriptions/receipts'
                     );
 
-                    \Illuminate\Support\Facades\DB::beginTransaction();
+                    $newSubscription = \Illuminate\Support\Facades\DB::transaction(function () use (
+                        $user,
+                        $plan,
+                        $totalAmount,
+                        $resolvedCurrency,
+                        $walletAmount,
+                        $gatewayAmount,
+                        $countryCode,
+                        $countryPricing,
+                        $request,
+                        $method,
+                        $receiptPath,
+                        $appliedPromoCode,
+                        $originalAmount,
+                        $discountAmount
+                    ) {
+                        $subscription = Subscription::create([
+                            'user_id' => $user->id,
+                            'plan_id' => $plan->id,
+                            'locked_price' => $totalAmount,
+                            'locked_currency' => $resolvedCurrency,
+                            'starts_at' => now(),
+                            'ends_at' => null,
+                            'status' => Subscription::STATUS_PENDING_APPROVAL,
+                            'auto_renew' => true,
+                        ]);
 
-                    $newSubscription = Subscription::create([
-                        'user_id' => $user->id,
-                        'plan_id' => $plan->id,
-                        'locked_price' => $totalAmount,
-                        'locked_currency' => $resolvedCurrency,
-                        'starts_at' => now(),
-                        'ends_at' => null,
-                        'status' => Subscription::STATUS_PENDING_APPROVAL,
-                        'auto_renew' => true,
-                    ]);
+                        \App\Models\SubscriptionPayment::create([
+                            'subscription_id' => $subscription->id,
+                            'user_id' => $user->id,
+                            'amount' => $totalAmount,
+                            'wallet_amount' => $walletAmount,
+                            'gateway_amount' => $gatewayAmount,
+                            'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
+                            'payment_method' => 'manual',
+                            'resolved_country' => $countryCode,
+                            'currency_code' => $resolvedCurrency,
+                            'price_source' => $countryPricing['price_source'] ?? 'default',
+                            'payment_method_id' => $this->isManualDepositMethodId((string) $request->payment_method_id)
+                                ? null : (int) $request->payment_method_id,
+                            'manual_deposit_method_id' => $this->manualDepositMethodId((string) $request->payment_method_id),
+                            'method_snapshot' => $this->manualPaymentMethodSnapshot($method),
+                            'submitted_fields' => $this->submittedManualFields($request, $method),
+                            'receipt' => $receiptPath,
+                            'transaction_id' => $request->transaction_id,
+                            'promo_code' => $appliedPromoCode,
+                            'original_amount' => $originalAmount,
+                            'discount_amount' => $discountAmount,
+                            'final_amount' => $totalAmount,
+                            'paid_at' => null,
+                            'tax' => 0,
+                        ]);
 
-                    \App\Models\SubscriptionPayment::create([
-                        'subscription_id' => $newSubscription->id,
-                        'user_id' => $user->id,
-                        'amount' => $totalAmount,
-                        'wallet_amount' => $walletAmount,
-                        'gateway_amount' => $gatewayAmount,
-                        'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
-                        'payment_method' => 'manual',
-                        'resolved_country' => $countryCode,
-                        'currency_code' => $resolvedCurrency,
-                        'price_source' => $countryPricing['price_source'] ?? 'default',
-                        'payment_method_id' => $this->isManualDepositMethodId((string) $request->payment_method_id)
-                            ? null : (int) $request->payment_method_id,
-                        'manual_deposit_method_id' => $this->manualDepositMethodId((string) $request->payment_method_id),
-                        'method_snapshot' => $this->manualPaymentMethodSnapshot($method),
-                        'submitted_fields' => $this->submittedManualFields($request, $method),
-                        'receipt' => $receiptPath,
-                        'transaction_id' => $request->transaction_id,
-                        'promo_code' => $appliedPromoCode,
-                        'original_amount' => $originalAmount,
-                        'discount_amount' => $discountAmount,
-                        'final_amount' => $totalAmount,
-                        'paid_at' => null,
-                        'tax' => 0,
-                    ]);
+                        // Hold wallet amount if used
+                        if ($walletAmount > 0) {
+                            \App\Services\WalletService::debitWallet(
+                                $user->id,
+                                $walletAmount,
+                                'subscription',
+                                "Hold for manual subscription #{$subscription->id}",
+                                $subscription->id,
+                                \App\Models\Subscription::class,
+                                'user'
+                            );
+                        }
 
-                    // Hold wallet amount if used
-                    if ($walletAmount > 0) {
-                        \App\Services\WalletService::debitWallet(
-                            $user->id,
-                            $walletAmount,
-                            'subscription',
-                            "Hold for manual subscription #{$newSubscription->id}",
-                            $newSubscription->id,
-                            \App\Models\Subscription::class,
-                            'user'
-                        );
-                    }
-
-                    \Illuminate\Support\Facades\DB::commit();
+                        return $subscription;
+                    });
 
                     // Notify super-admins
                     try {
@@ -851,9 +868,15 @@ final class SubscriptionApiController extends Controller
                 ],
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
+                \Illuminate\Support\Facades\DB::rollBack();
+            }
             throw $e;
         } catch (\Throwable $e) {
-            if ($appliedPromoCode) {
+            if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
+                \Illuminate\Support\Facades\DB::rollBack();
+            }
+            if (!empty($appliedPromoCode)) {
                 $this->promoService->releasePromo($appliedPromoCode);
             }
             return ApiResponseService::errorResponse('فشل في بدء عملية الدفع: ' . $e->getMessage());
@@ -1644,7 +1667,7 @@ $totalAmount = (float) $countryPricing['price'];
         }
 
         $allowedKeys = collect($method->dynamic_fields ?? [])
-            ->filter('is_array')
+            ->filter(static fn ($item): bool => is_array($item))
             ->pluck('key')
             ->filter(static fn ($key): bool => is_string($key) && preg_match('/^[A-Za-z][A-Za-z0-9_]*$/', $key))
             ->all();

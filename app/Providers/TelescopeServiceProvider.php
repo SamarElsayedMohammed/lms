@@ -14,7 +14,7 @@ class TelescopeServiceProvider extends TelescopeApplicationServiceProvider
      */
     public function register(): void
     {
-        if (! filter_var(env('TELESCOPE_ENABLED', true), FILTER_VALIDATE_BOOL)) {
+        if (! filter_var(config('telescope.enabled', true), FILTER_VALIDATE_BOOL)) {
             Telescope::stopRecording();
             return;
         }
@@ -64,13 +64,13 @@ class TelescopeServiceProvider extends TelescopeApplicationServiceProvider
             }
 
             // Allow specific emails
-            $allowedEmails = array_filter(explode(',', (string) env('TELESCOPE_ALLOWED_EMAILS', '')));
+            $allowedEmails = array_filter(explode(',', (string) config('telescope.allowed_emails', '')));
             if (in_array($user->email, $allowedEmails, true)) {
                 return true;
             }
 
             // Allow by user ID
-            $allowedIds = array_filter(explode(',', (string) env('TELESCOPE_ALLOWED_IDS', '')));
+            $allowedIds = array_filter(explode(',', (string) config('telescope.allowed_ids', '')));
             if (in_array((string) $user->id, $allowedIds, true)) {
                 return true;
             }

@@ -88,20 +88,49 @@ class FlushFeatureSectionAnalyticsJob implements ShouldQueue
      * KEYS blocks the entire Redis server and can cause timeouts in production.
      * SCAN is cursor-based and non-blocking.
      *
+     * Handles both phpredis (reference-based cursor) and Predis / raw command return shapes.
+     *
      * @return array<int, string>
      */
     private function scanKeys(string $pattern): array
     {
         $keys = [];
-        $cursor = '0';
 
-        do {
-            [$cursor, $found] = Redis::scan($cursor, 'MATCH', $pattern, 'COUNT', 100);
-            if (is_array($found)) {
-                $keys = array_merge($keys, $found);
+        try {
+            $connection = Redis::connection();
+            $client = $connection->client();
+
+            if (is_object($client) && get_class($client) === 'Redis') {
+                // phpredis extension native scan: scan(&$iterator, $pattern, $count)
+                $cursor = null;
+                while (($found = $client->scan($cursor, $pattern, 100)) !== false) {
+                    if (is_array($found)) {
+                        $keys = array_merge($keys, $found);
+                    }
+                    if ($cursor === 0 || $cursor === '0' || $cursor === null) {
+                        break;
+                    }
+                }
+            } else {
+                // Predis or generic Laravel Redis connection command
+                $cursor = '0';
+                do {
+                    $result = $connection->command('scan', [$cursor, 'MATCH', $pattern, 'COUNT', 100]);
+                    if (is_array($result) && count($result) >= 2) {
+                        $cursor = (string) $result[0];
+                        $found = $result[1];
+                        if (is_array($found)) {
+                            $keys = array_merge($keys, $found);
+                        }
+                    } else {
+                        break;
+                    }
+                } while ($cursor !== '0' && $cursor !== 0 && !empty($cursor));
             }
-        } while ($cursor !== '0' && $cursor !== 0);
+        } catch (\Throwable $e) {
+            Log::warning('FlushFeatureSectionAnalyticsJob: scanKeys encountered error: ' . $e->getMessage());
+        }
 
-        return $keys;
+        return array_values(array_unique($keys));
     }
 }

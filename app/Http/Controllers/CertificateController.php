@@ -371,67 +371,155 @@ class CertificateController extends Controller
     /**
      * Verify certificate via JSON API — returns only safe public fields.
      *
-     * GET /api/certificate/verify?token={verification_token}
+     * GET /api/certificate/verify?token={verification_token}&code={certificate_number}
      *
-     * Security:
-     * - Only accepts `verification_token` (32-char cryptographic hex).
-     * - NEVER accepts certificate_number or internal DB id.
-     * - NEVER exposes: email, user_id, DB id, certificate_number, internal metadata.
-     * - Returns a constant-time 404 for invalid/revoked/not-found to prevent enumeration.
+     * Invariants:
+     * - Multi-state support: VALID, REVOKED, NOT_FOUND, INVALID_INPUT
+     * - Accepts 18-digit random numeric certificate_number or 32-char verification_token
+     * - Normalizes all spaces, hyphens, and whitespace
+     * - Never exposes private user PII (emails, IDs, storage paths)
+     * - Exact lookup only (no SQL LIKE)
      */
     public function verifyApi(\Illuminate\Http\Request $request)
     {
-        // Accept token from ?token= or legacy ?code= (for QR codes already distributed)
         $token = trim((string) $request->input('token', ''));
-        $certificateNumber = strtoupper(trim((string) ($request->input('code') ?: $request->input('certificate_number') ?: '')));
+        $rawCode = trim((string) ($request->input('code') ?: $request->input('certificate_number') ?: ''));
+        $normalizedCode = CourseCertificate::normalizeCertificateNumber($rawCode);
 
-        if ($token === '' && $certificateNumber === '') {
-            return ApiResponseService::errorResponse('Verification code is required.', null, 422);
+        if ($token === '' && $normalizedCode === '' && $rawCode === '') {
+            return response()->json([
+                'ok'         => false,
+                'is_valid'   => false,
+                'valid'      => false,
+                'status'     => 'invalid_input',
+                'message'    => 'رمز التحقق مطلوب.',
+                'message_en' => 'Verification code is required.',
+                'data'       => null,
+            ], 422);
         }
 
-        // Lookup ONLY by verification_token — never by certificate_number or id
-        $query = CourseCertificate::query()->with(['user', 'course'])->active();
-        $certificate = $token !== ''
-            ? $query->where('verification_token', $token)->first()
-            : $query->where('certificate_number', $certificateNumber)->first();
+        $query = CourseCertificate::query()->with(['user', 'course']);
+        $certificate = null;
+
+        if ($token !== '') {
+            $certificate = (clone $query)->where('verification_token', $token)->first();
+        }
+
+        if (!$certificate && $normalizedCode !== '') {
+            $certificate = (clone $query)
+                ->where('certificate_number', $normalizedCode)
+                ->orWhere('verification_token', $normalizedCode)
+                ->orWhere('verification_code', $normalizedCode)
+                ->first();
+        }
+
+        if (!$certificate && $rawCode !== '') {
+            $certificate = (clone $query)
+                ->where('certificate_number', $rawCode)
+                ->first();
+        }
 
         if (!$certificate) {
             return response()->json([
-                'ok'       => false,
-                'message'  => 'Certificate not found or invalid.',
-                'is_valid' => false,
-                'data'     => null,
+                'ok'         => false,
+                'is_valid'   => false,
+                'valid'      => false,
+                'status'     => 'not_found',
+                'message'    => 'الشهادة غير مسجلة لدينا أو غير صالحة.',
+                'message_en' => 'Certificate not found or invalid.',
+                'data'       => null,
             ], 404);
         }
 
-        // Return only safe public fields — NEVER expose certificate_number or DB id
+        $studentName = $certificate->student_name ?? ($certificate->user->name ?? 'N/A');
+        $arabicTitle = $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A');
+        $englishTitle = $certificate->english_title ?? ($certificate->course->title ?? 'N/A');
+        $instructorName = $certificate->instructor_name ?? ($certificate->course->user->name ?? 'Skillso Platform');
+        $issuedIso = optional($certificate->issued_date ?? $certificate->created_at)->toIso8601String();
+        $issuedDate = optional($certificate->issued_date ?? $certificate->created_at)->toDateString();
+
+        if ($certificate->isRevoked()) {
+            return response()->json([
+                'ok'         => true,
+                'is_valid'   => false,
+                'valid'      => false,
+                'status'     => 'revoked',
+                'message'    => 'تم إلغاء هذه الشهادة.',
+                'message_en' => 'Certificate has been revoked.',
+                'data'       => [
+                    'status'             => 'revoked',
+                    'is_valid'           => false,
+                    'certificateId'      => $certificate->certificate_number,
+                    'certificate_number' => $certificate->certificate_number,
+                    'student'            => ['name' => $studentName],
+                    'student_name'       => $studentName,
+                    'studentName'        => $studentName,
+                    'course_title'       => $arabicTitle,
+                    'arabicCourseTitle'  => $arabicTitle,
+                    'englishCourseTitle' => $englishTitle,
+                    'issued_at'          => $issuedIso,
+                    'issued_date'        => $issuedDate,
+                    'date'               => $issuedDate,
+                    'instructor_name'    => $instructorName,
+                    'instructorName'     => $instructorName,
+                    'revoked_at'         => optional($certificate->revoked_at)->toIso8601String(),
+                    'revoked_reason'     => $certificate->revoked_reason ?? 'Revoked by administration',
+                    'display_code'       => $certificate->verification_code,
+                ],
+            ], 200);
+        }
+
         return response()->json([
-            'ok'           => true,
-            'is_valid'     => true,
-            'message'      => 'Certificate is valid.',
-            'valid'        => true,
-            'student'      => ['name' => $certificate->student_name ?? ($certificate->user->name ?? 'N/A')],
-            'course_title' => $certificate->arabic_title ?? ($certificate->course->title ?? 'N/A'),
-            'certificate_number' => $certificate->certificate_number,
-            'issued_at'    => optional($certificate->issued_date ?? $certificate->created_at)->toIso8601String(),
-            'issued_date'  => optional($certificate->issued_date ?? $certificate->created_at)->toDateString(),
-            'display_code' => $certificate->verification_code,
-            'status'       => 'valid',
+            'ok'         => true,
+            'is_valid'   => true,
+            'valid'      => true,
+            'status'     => 'valid',
+            'message'    => 'Certificate is valid.',
+            'message_ar' => 'الشهادة صالحة وموثقة.',
+            'data'       => [
+                'status'             => 'valid',
+                'is_valid'           => true,
+                'certificateId'      => $certificate->certificate_number,
+                'certificate_number' => $certificate->certificate_number,
+                'student'            => ['name' => $studentName],
+                'student_name'       => $studentName,
+                'studentName'        => $studentName,
+                'course_title'       => $arabicTitle,
+                'arabicCourseTitle'  => $arabicTitle,
+                'englishCourseTitle' => $englishTitle,
+                'issued_at'          => $issuedIso,
+                'issued_date'        => $issuedDate,
+                'date'               => $issuedDate,
+                'instructor_name'    => $instructorName,
+                'instructorName'     => $instructorName,
+                'display_code'       => $certificate->verification_code,
+                'download_url'       => url("/api/certificate/public/{$certificate->certificate_number}/download"),
+            ],
         ], 200);
     }
 
     /**
-     * Publicly download a verified certificate via the certificate_number in the URL.
+     * Publicly download a verified certificate via certificate_number or token.
      * Uses attachment disposition for maximum browser/mobile compatibility.
      */
     public function downloadPublic(string $certificate_number)
     {
-        $certificate = CourseCertificate::active()->with(['user', 'course'])
-            ->where('certificate_number', $certificate_number)
+        $normalized = CourseCertificate::normalizeCertificateNumber($certificate_number);
+
+        $certificate = CourseCertificate::with(['user', 'course'])
+            ->where(function ($q) use ($certificate_number, $normalized) {
+                $q->where('certificate_number', $normalized)
+                  ->orWhere('verification_token', $certificate_number)
+                  ->orWhere('certificate_number', $certificate_number);
+            })
             ->first();
 
         if (!$certificate) {
             return ApiResponseService::errorResponse('Certificate not found or invalid.', null, 404);
+        }
+
+        if ($certificate->isRevoked()) {
+            return ApiResponseService::errorResponse('Certificate has been revoked.', null, 403);
         }
 
         $certificateTemplate = Certificate::where('type', 'course_completion')

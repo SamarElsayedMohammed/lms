@@ -57,8 +57,7 @@ class AdminCertificateController extends AdminCrudApiController
         if ($enrollment->order?->status !== 'completed') {
             return ApiResponseService::errorResponse(
                 'This enrollment is not for a completed order.',
-                null,
-                422,
+                null, 422,
             );
         }
 
@@ -71,16 +70,14 @@ class AdminCertificateController extends AdminCrudApiController
         if (!$certificate) {
             return ApiResponseService::errorResponse(
                 "No certificate has been generated yet for student \"{$student->name}\" in course \"{$course->title}\".",
-                null,
-                404,
+                null, 404,
             );
         }
 
         if ($certificate->isRevoked()) {
             return ApiResponseService::errorResponse(
                 'This certificate has been revoked and cannot be downloaded.',
-                null,
-                403,
+                null, 403,
             );
         }
 
@@ -134,11 +131,19 @@ class AdminCertificateController extends AdminCrudApiController
             ], 409);
         }
 
+        $reason = trim((string) $request->input('reason', ''));
+        if ($reason === '') {
+            $reason = 'Revoked by administrator';
+        }
+
         $certificate->update([
             'status'         => 'revoked',
             'revoked_at'     => now(),
-            'revoked_reason' => $request->input('reason', 'Revoked by admin'),
+            'revoked_reason' => $reason,
+            'revoked_by'     => \Illuminate\Support\Facades\Auth::id(),
         ]);
+
+        \Illuminate\Support\Facades\Log::info("Certificate {$certificate->certificate_number} revoked by admin ID " . (\Illuminate\Support\Facades\Auth::id() ?? 0) . " reason: {$reason}");
 
         // Delete all cached versions of this certificate
         $disk = \Illuminate\Support\Facades\Storage::disk('local');
@@ -155,6 +160,7 @@ class AdminCertificateController extends AdminCrudApiController
             'data' => [
                 'certificate_number' => $certificate->certificate_number,
                 'revoked_at'         => $certificate->revoked_at->toDateTimeString(),
+                'revoked_reason'     => $certificate->revoked_reason,
             ]
         ], 200);
     }
@@ -187,13 +193,17 @@ class AdminCertificateController extends AdminCrudApiController
             'status'         => 'active',
             'revoked_at'     => null,
             'revoked_reason' => null,
+            'revoked_by'     => null,
         ]);
+
+        \Illuminate\Support\Facades\Log::info("Certificate {$certificate->certificate_number} restored by admin ID " . (\Illuminate\Support\Facades\Auth::id() ?? 0));
 
         return response()->json([
             'ok' => true,
             'message' => 'Certificate restored successfully.',
             'data' => [
                 'certificate_number' => $certificate->certificate_number,
+                'status'             => 'active',
             ]
         ], 200);
     }

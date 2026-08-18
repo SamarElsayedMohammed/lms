@@ -21,8 +21,10 @@ class CourseCertificate extends Model
         'instructor_name',
         'issued_date',
         'status',
+        'issuance_source',
         'revoked_at',
         'revoked_reason',
+        'revoked_by',
         'verification_code',
         'verification_token',
         'enrollment_id',
@@ -94,27 +96,40 @@ class CourseCertificate extends Model
     }
 
     /**
-     * Generate a cryptographically unique certificate number matching PRD specs.
-     * Format: CERT-{YEAR}-{USERID-5digits}-{RANDOM-6chars}
-     * Example: CERT-2026-00042-AB3X7K
+     * Generate a cryptographically random, non-sequential, non-predictable 18-digit numeric string.
+     * Guaranteed to be 18 digits [0-9]{18} and unique in the database.
+     * Example: 583104927641805273
      */
     public static function generateCertificateNumber(int $userId = 0): string
     {
-        $year = date('Y');
-        $userPart = str_pad((string)$userId, 5, '0', STR_PAD_LEFT);
-        
         do {
-            // Use cryptographically secure random bytes for the random part
-            $randomBytes = random_bytes(4); // 8 hex characters
-            $randomPart = strtoupper(substr(bin2hex($randomBytes), 0, 8));
-            $number = "CERT-{$year}-{$userPart}-{$randomPart}";
+            // Generate two 9-digit random numbers using cryptographically secure random_int
+            $part1 = str_pad((string) random_int(100000000, 999999999), 9, '0', STR_PAD_LEFT);
+            $part2 = str_pad((string) random_int(0, 999999999), 9, '0', STR_PAD_LEFT);
+            $number = $part1 . $part2;
         } while (self::where('certificate_number', $number)->exists());
 
         return $number;
     }
 
     /**
-     * Generate a cryptographically secure verification token.
+     * Normalize certificate number or code input by trimming whitespace,
+     * removing spaces, hyphens, underscores, and normalizing Eastern Arabic numerals to standard digits.
+     */
+    public static function normalizeCertificateNumber(?string $code): string
+    {
+        if ($code === null) {
+            return '';
+        }
+        $arabicNumerals = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        $englishNumerals = ['0','1','2','3','4','5','6','7','8','9'];
+        $normalized = str_replace($arabicNumerals, $englishNumerals, (string) $code);
+        $normalized = preg_replace('/[\s\-\_]+/u', '', $normalized);
+        return trim($normalized);
+    }
+
+    /**
+     * Generate a cryptographically secure verification token (32 hex characters).
      */
     public static function generateVerificationToken(): string
     {
@@ -126,7 +141,7 @@ class CourseCertificate extends Model
     }
 
     /**
-     * Generate a verification code.
+     * Generate a verification code (10 alphanumeric characters).
      */
     public static function generateVerificationCode(): string
     {

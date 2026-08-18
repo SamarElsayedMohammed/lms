@@ -300,11 +300,24 @@ final class SubscriptionService
     }
 
     /**
-     * Cancel a subscription
+     * Cancel a subscription and any associated queued child subscriptions
      */
-    public function cancelSubscription(Subscription $subscription, ?string $reason = null): bool
+    public function cancelSubscription(Subscription $subscription, ?string $reason = null, bool $immediate = false): bool
     {
+        if ($immediate) {
+            $subscription->status = Subscription::STATUS_CANCELLED;
+        }
+
         $result = $subscription->cancel($reason);
+
+        // Cascade cancellation to any queued child subscriptions linked to this parent
+        Subscription::where('parent_subscription_id', $subscription->id)
+            ->where('status', Subscription::STATUS_PENDING)
+            ->update([
+                'status' => Subscription::STATUS_CANCELLED,
+                'cancelled_at' => now(),
+                'cancellation_reason' => 'Parent subscription was cancelled: ' . ($reason ?? 'No reason provided'),
+            ]);
 
         Log::info('Subscription cancelled', [
             'subscription_id' => $subscription->id,

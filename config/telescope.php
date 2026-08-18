@@ -63,6 +63,10 @@ return [
 
     'enabled' => env('TELESCOPE_ENABLED', true),
 
+    'allowed_emails' => env('TELESCOPE_ALLOWED_EMAILS', ''),
+
+    'allowed_ids' => env('TELESCOPE_ALLOWED_IDS', ''),
+
     /*
     |--------------------------------------------------------------------------
     | Allowed / Ignored Paths & Commands

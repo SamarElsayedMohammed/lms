@@ -61,15 +61,34 @@ class BackfillCertificatesCommand extends Command
                         $needsSave = true;
                     }
 
-                    // Generate Verification URL
-                    if (empty($certificate->verification_url)) {
-                        $certificate->verification_url = config('app.url') . '/certificates/verify/' . $certificate->verification_code;
-                        $needsSave = true;
-                    }
-
                     // Ensure Certificate Number exists
                     if (empty($certificate->certificate_number)) {
                         $certificate->certificate_number = CourseCertificate::generateCertificateNumber($certificate->user_id ?? 0);
+                        $needsSave = true;
+                    }
+
+                    // Generate Verification URL
+                    if (empty($certificate->verification_url)) {
+                        $appUrl = rtrim(config('app.frontend_url') ?: config('app.url'), '/');
+                        $certificate->verification_url = $appUrl . '/verify-certificate?code=' . $certificate->certificate_number;
+                        $needsSave = true;
+                    }
+
+                    // Populate Snapshot metadata if missing
+                    if (empty($certificate->student_name) && $certificate->user) {
+                        $certificate->student_name = $certificate->user->name ?? 'Student';
+                        $needsSave = true;
+                    }
+                    if (empty($certificate->arabic_title) && $certificate->course) {
+                        $certificate->arabic_title = $certificate->course->title ?? 'Course';
+                        $needsSave = true;
+                    }
+                    if (empty($certificate->english_title) && $certificate->course) {
+                        $certificate->english_title = $certificate->course->title ?? 'Course';
+                        $needsSave = true;
+                    }
+                    if (empty($certificate->instructor_name) && $certificate->course?->user) {
+                        $certificate->instructor_name = $certificate->course->user->name ?? 'Instructor';
                         $needsSave = true;
                     }
 
