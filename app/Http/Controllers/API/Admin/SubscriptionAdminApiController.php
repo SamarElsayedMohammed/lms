@@ -413,7 +413,9 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             return ApiResponseService::errorResponse('فشل في إتمام عملية الموافقة: ' . $e->getMessage());
         }
     }
@@ -568,7 +570,9 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             return ApiResponseService::errorResponse('فشل في إتمام عملية الرفض: ' . $e->getMessage());
         }
     }
