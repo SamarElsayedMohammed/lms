@@ -31,8 +31,8 @@ Schedule::command('subscriptions:activate-queued')->everyFiveMinutes()->withoutO
 Schedule::command('currencies:update-rates')->everyFourHours()->withoutOverlapping()->runInBackground();
 Schedule::command('webinar:remind')->everyFifteenMinutes()->withoutOverlapping();
 
-// Telescope data pruning - keeps last 48 hours only
-Schedule::command('telescope:prune --hours=48')->daily()->withoutOverlapping();
+// Telescope data pruning — every 6 hours, keeps last 24 hours only
+Schedule::command('telescope:prune --hours=24')->everySixHours()->withoutOverlapping();
 
 // Feature sections analytics
 Schedule::job(new \App\Jobs\FlushFeatureSectionAnalyticsJob)->everyFiveMinutes()->withoutOverlapping();

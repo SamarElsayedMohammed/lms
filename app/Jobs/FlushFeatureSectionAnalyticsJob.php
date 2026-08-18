@@ -20,10 +20,10 @@ class FlushFeatureSectionAnalyticsJob implements ShouldQueue
         try {
             $date = now()->format('Y-m-d');
 
-            // Look for keys matching our pattern
-            // Example key: feature_section:1:views
-            $viewKeys = Redis::keys('feature_section:*:views');
-            $clickKeys = Redis::keys('feature_section:*:clicks');
+            // Use SCAN instead of KEYS — KEYS is a blocking operation that freezes Redis
+            // on large keyspaces. SCAN iterates incrementally without blocking.
+            $viewKeys = $this->scanKeys('feature_section:*:views');
+            $clickKeys = $this->scanKeys('feature_section:*:clicks');
 
             if (empty($viewKeys) && empty($clickKeys)) {
                 return;
@@ -32,8 +32,8 @@ class FlushFeatureSectionAnalyticsJob implements ShouldQueue
             $interactions = [];
 
             foreach ($viewKeys as $key) {
-                // Redis keys returns keys with prefix, depending on config. Let's parse section ID
-                // Assuming pattern feature_section:{id}:views
+                // Redis keys may return with prefix depending on config. Parse section ID.
+                // Pattern: feature_section:{id}:views or {prefix}_feature_section:{id}:views
                 if (preg_match('/feature_section:(\d+):views/', $key, $matches)) {
                     $sectionId = $matches[1];
                     $views = (int) Redis::get($key);
@@ -81,5 +81,27 @@ class FlushFeatureSectionAnalyticsJob implements ShouldQueue
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Use SCAN instead of KEYS to safely iterate over matching Redis keys.
+     * KEYS blocks the entire Redis server and can cause timeouts in production.
+     * SCAN is cursor-based and non-blocking.
+     *
+     * @return array<int, string>
+     */
+    private function scanKeys(string $pattern): array
+    {
+        $keys = [];
+        $cursor = '0';
+
+        do {
+            [$cursor, $found] = Redis::scan($cursor, 'MATCH', $pattern, 'COUNT', 100);
+            if (is_array($found)) {
+                $keys = array_merge($keys, $found);
+            }
+        } while ($cursor !== '0' && $cursor !== 0);
+
+        return $keys;
     }
 }

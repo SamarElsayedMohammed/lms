@@ -25,22 +25,61 @@ cmd = "/assets/start.sh"
 [staticAssets]
 "start.sh" = '''
 #!/bin/bash
-set -e
+# DO NOT use "set -e" — a single failed command must NOT kill the whole container
+# Every command that can fail must use || true
 
-# Setup directories and permissions
-mkdir -p /var/log/nginx /var/cache/nginx /var/log/supervisor /var/run /tmp /etc/nginx /etc/supervisor/conf.d
-mkdir -p /app/bootstrap/cache /app/storage/framework/cache /app/storage/framework/sessions /app/storage/framework/views /app/storage/logs
+# ── Ensure all required directories exist ────────────────────────────────────
+mkdir -p \
+    /var/log/nginx /var/cache/nginx \
+    /var/log/supervisor \
+    /var/run /tmp \
+    /etc/nginx /etc/supervisor/conf.d \
+    /app/bootstrap/cache \
+    /app/storage/framework/cache \
+    /app/storage/framework/sessions \
+    /app/storage/framework/views \
+    /app/storage/logs
+
+# ── Set umask to ensure group writeability ────────────────────────────────────
+umask 0002
+
+# ── Permissions before artisan runs ──────────────────────────────────────────
+chown -R www-data:www-data /app/storage /app/bootstrap/cache /var/log /var/run 2>/dev/null || true
 chmod -R 775 /app/bootstrap/cache /app/storage /tmp /var/log /var/cache /var/run /var/log/nginx /var/log/supervisor 2>/dev/null || true
 
-# Copy supervisor assets to configuration paths
+# ── Copy supervisor assets to configuration paths ─────────────────────────────
 cp /assets/worker-*.conf /etc/supervisor/conf.d/ 2>/dev/null || true
 cp /assets/supervisord.conf /etc/supervisord.conf 2>/dev/null || true
 
-# Substitute PORT in nginx template
+# ── Substitute PORT in nginx template (safe fallback to 80) ──────────────────
 PORT=${PORT:-80}
-sed "s/__PORT__/$PORT/g" /assets/nginx.template.conf > /etc/nginx/nginx.conf
+if [ -f /assets/nginx.template.conf ]; then
+    sed "s/__PORT__/$PORT/g" /assets/nginx.template.conf > /etc/nginx/nginx.conf 2>/dev/null || true
+fi
 
-# Start supervisor in foreground to keep container running
+# ── Laravel runtime bootstrap ─────────────────────────────────────────────────
+cd /app
+
+# Clear stale bootstrap caches from previous deployment
+php artisan config:clear   2>/dev/null || true
+php artisan cache:clear    2>/dev/null || true
+php artisan route:clear    2>/dev/null || true
+php artisan view:clear     2>/dev/null || true
+
+# Re-cache for performance
+php artisan config:cache   2>/dev/null || true
+php artisan route:cache    2>/dev/null || true
+
+# Run pending database migrations
+php artisan migrate --force 2>/dev/null || true
+
+# ── Re-apply ownership AFTER artisan creates/touches files ───────────────────
+touch /app/storage/logs/laravel.log 2>/dev/null || true
+chown -R www-data:www-data /app/storage /app/bootstrap/cache 2>/dev/null || true
+chmod -R 775 /app/storage /app/bootstrap/cache 2>/dev/null || true
+chmod 664 /app/storage/logs/laravel.log 2>/dev/null || true
+
+# ── Start supervisor in foreground to keep container alive ───────────────────
 exec supervisord -c /etc/supervisord.conf -n
 '''
 
@@ -246,7 +285,7 @@ http {
             fastcgi_param SERVER_PORT $server_port;
             fastcgi_param SERVER_NAME $server_name;
             fastcgi_index index.php;
-            fastcgi_read_timeout 300;
+            fastcgi_read_timeout 65;
             fastcgi_buffer_size 128k;
             fastcgi_buffers 4 256k;
             fastcgi_busy_buffers_size 256k;

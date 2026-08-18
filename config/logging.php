@@ -50,7 +50,7 @@ return [
     'channels' => [
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single,stderr')),
+            'channels' => explode(',', (string) env('LOG_STACK', 'daily,stderr')),
             'ignore_exceptions' => (bool) env('LOG_IGNORE_EXCEPTIONS', true),
         ],
         'single' => [
@@ -63,7 +63,7 @@ return [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
-            'days' => env('LOG_DAILY_DAYS', 14),
+            'days' => env('LOG_DAILY_DAYS', 7),
             'replace_placeholders' => true,
         ],
         'slack' => [

@@ -16,8 +16,8 @@ class DemoModeMiddleware
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // Check if DEMO_MODE is enabled (1 = on, 0 = off)
-        $demoMode = env('DEMO_MODE', 0);
+        // Check if DEMO_MODE is enabled — use config() not env() for config:cache compatibility
+        $demoMode = config('app.demo_mode', false);
 
         // Allow Super Admin to bypass demo mode restrictions
         if ($demoMode == 1) {
