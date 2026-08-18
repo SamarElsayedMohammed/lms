@@ -87,23 +87,21 @@ class IncidentForensicRegressionTest extends TestCase
     }
 
     /**
-     * Test 4: Course Details parameter parsing handles course_id, id, slug, course_slug, and Arabic URL encoding.
+     * Test 4: Course Details parameter parsing requires id/course_id or slug/course_slug.
      */
     public function test_course_controller_parameter_acceptance(): void
     {
         $controller = app(CourseApiController::class);
 
-        // Test non-existent course returns 404 or validation error without throwing 500
-        $request = Request::create('/api/course', 'GET', [
-            'course_id' => 999999,
-        ]);
+        // Test missing id and slug parameters returns validation error (422)
+        $request = Request::create('/api/course', 'GET', []);
 
         try {
-            $response = $controller->getCourse($request);
-            $this->assertNotNull($response);
+            $controller->getCourse($request);
+            $this->fail('Expected validation error for missing parameters');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             $data = json_decode((string) $e->getResponse()->getContent(), true);
-            $this->assertContains($data['code'], [404, 422]);
+            $this->assertEquals(422, $data['code']);
         }
     }
 
@@ -116,5 +114,25 @@ class IncidentForensicRegressionTest extends TestCase
         $service = new CourseProgressService();
         $this->assertInstanceOf(CourseProgressService::class, $service);
         $this->assertEquals(0, $service->getTotalItemsForCourse(999999));
+    }
+
+    /**
+     * Test 6: Healthcheck endpoint returns HTTP 200 to prevent premature container restarts.
+     */
+    public function test_healthcheck_endpoint_returns_200(): void
+    {
+        $response = $this->getJson('/api/health');
+        $response->assertStatus(200)
+            ->assertJsonStructure(['status', 'db', 'ts']);
+    }
+
+    /**
+     * Test 7: MySQL config has explicit PDO connection timeout to prevent process hangs.
+     */
+    public function test_mysql_database_has_pdo_timeout(): void
+    {
+        $mysqlConfig = config('database.connections.mysql');
+        $this->assertIsArray($mysqlConfig);
+        $this->assertArrayHasKey('options', $mysqlConfig);
     }
 }

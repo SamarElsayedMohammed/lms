@@ -111,7 +111,7 @@ stderr_logfile=/var/log/worker-laravel-default.log
 "worker-laravel-video.conf" = '''
 [program:worker-laravel-video]
 process_name=%(program_name)s_%(process_num)02d
-command=php /app/artisan queue:work --queue=video-encoding --sleep=10 --tries=1 --max-time=7200 --memory=512
+command=php /app/artisan queue:work --queue=video-encoding --sleep=10 --tries=1 --max-time=7200 --memory=384
 autostart=true
 autorestart=true
 stopasgroup=true
@@ -124,6 +124,19 @@ stdout_logfile=/var/log/worker-laravel-video.log
 stderr_logfile=/var/log/worker-laravel-video.log
 '''
 
+"worker-scheduler.conf" = '''
+[program:worker-scheduler]
+process_name=%(program_name)s
+command=php /app/artisan schedule:work --sleep=60
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+priority=30
+stdout_logfile=/var/log/worker-scheduler.log
+stderr_logfile=/var/log/worker-scheduler.log
+'''
+
 "php-fpm.conf" = '''
 [global]
 error_log = /var/log/worker-phpfpm.log
@@ -133,17 +146,18 @@ daemonize = no
 [www]
 listen = 127.0.0.1:9000
 pm = dynamic
-pm.max_children = 20
-pm.start_servers = 4
+pm.max_children = 16
+pm.start_servers = 3
 pm.min_spare_servers = 2
-pm.max_spare_servers = 8
-pm.max_requests = 1000
+pm.max_spare_servers = 6
+pm.max_requests = 500
+request_terminate_timeout = 60s
 clear_env = no
 catch_workers_output = yes
 php_admin_value[post_max_size] = 50M
 php_admin_value[upload_max_filesize] = 50M
-php_admin_value[memory_limit] = 512M
-php_admin_value[max_execution_time] = 300
+php_admin_value[memory_limit] = 256M
+php_admin_value[max_execution_time] = 60
 '''
 
 "nginx.template.conf" = '''

@@ -141,22 +141,26 @@ class CourseProgressService
         $cacheKey = "course:{$courseId}:total_items";
 
         return Cache::remember($cacheKey, 3600, function () use ($courseId) {
-            $course = Course::with([
-                'chapters'              => fn($q) => $q->where('is_active', 1),
-                'chapters.lectures'     => fn($q) => $q->where('is_active', 1),
-                'chapters.resources'    => fn($q) => $q->where('is_active', 1),
-            ])->find($courseId);
+            try {
+                $course = Course::with([
+                    'chapters'              => fn($q) => $q->where('is_active', 1),
+                    'chapters.lectures'     => fn($q) => $q->where('is_active', 1),
+                    'chapters.resources'    => fn($q) => $q->where('is_active', 1),
+                ])->find($courseId);
 
-            if (!$course) {
+                if (!$course) {
+                    return 0;
+                }
+
+                $total = 0;
+                foreach ($course->chapters as $chapter) {
+                    $total += $chapter->lectures->count();
+                }
+
+                return $total;
+            } catch (\Throwable) {
                 return 0;
             }
-
-            $total = 0;
-            foreach ($course->chapters as $chapter) {
-                $total += $chapter->lectures->count();
-            }
-
-            return $total;
         });
     }
 

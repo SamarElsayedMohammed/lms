@@ -61,11 +61,12 @@ RUN APP_ENV=production composer install \
 # ─── 8. Generate package manifest (no DB needed, safe at build time) ─────────
 RUN php artisan package:discover --ansi 2>/dev/null || true
 
-# ─── 9. PHP config ───────────────────────────────────────────────────────────
+# ─── 9. PHP & FPM config ─────────────────────────────────────────────────────
 RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && printf \
-        "upload_max_filesize = 50M\npost_max_size = 50M\nmemory_limit = 512M\nmax_execution_time = 300\n" \
+        "upload_max_filesize = 50M\npost_max_size = 50M\nmemory_limit = 256M\nmax_execution_time = 60\ndisplay_errors = Off\nlog_errors = On\nopcache.enable = 1\nopcache.memory_consumption = 64\nopcache.max_accelerated_files = 10000\n" \
         > "$PHP_INI_DIR/conf.d/uploads.ini"
+COPY docker/php/zz-skillso-fpm.conf /usr/local/etc/php-fpm.d/zz-skillso.conf
 
 # ─── Symlink /app → /var/www/html (Coolify pre-deployment commands use /app) ──
 RUN ln -sf /var/www/html /app

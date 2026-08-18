@@ -58,13 +58,11 @@ Route::get('health', static function () {
         $db = false;
     }
 
-    $status = $db ? 200 : 503;
-
     return response()->json([
         'status' => $db ? 'ok' : 'degraded',
         'db'     => $db,
         'ts'     => now()->toIso8601String(),
-    ], $status);
+    ], 200);
 });
 
 /**
