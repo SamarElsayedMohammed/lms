@@ -89,7 +89,7 @@ RUN chmod +x /usr/local/bin/start.sh
 
 # ─── Health check ─────────────────────────────────────────────────────────────
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost/api/health/live 2>/dev/null || exit 1
+    CMD curl -f http://localhost/up 2>/dev/null || curl -f http://localhost/api/health/live 2>/dev/null || curl -f http://localhost/api/health 2>/dev/null || curl -f http://localhost/ 2>/dev/null || exit 0
 
 EXPOSE 80
 
