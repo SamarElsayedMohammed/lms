@@ -533,7 +533,7 @@ class CourseProgressService
             }
 
             $query = UserCourseProgress::where('course_id', $courseId)
-                ->with(['user:id,name,email,phone,avatar']);
+                ->with(['user:id,name,email,mobile,profile']);
 
             if ($search) {
                 $query->whereHas('user', function ($q) use ($search) {

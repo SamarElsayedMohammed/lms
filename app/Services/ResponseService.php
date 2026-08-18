@@ -18,7 +18,10 @@ class ResponseService
      */
     public static function noPermissionThenRedirect($permission)
     {
-        if (!Auth::user()->can($permission)) {
+        if (!Auth::user() || !Auth::user()->can($permission)) {
+            if (request()->expectsJson() || request()->is('api/*')) {
+                abort(403, trans("You Don't have enough permissions"));
+            }
             return redirect()
                 ->back()
                 ->withErrors([
@@ -35,8 +38,8 @@ class ResponseService
      */
     public static function noPermissionThenSendJson($permission)
     {
-        if (!Auth::user()->can($permission)) {
-            self::errorResponse("You Don't have enough permissions");
+        if (!Auth::user() || !Auth::user()->can($permission)) {
+            self::errorResponse("You Don't have enough permissions", null, 403);
         }
         return true;
     }
@@ -48,7 +51,10 @@ class ResponseService
     // Check user role
     public static function noRoleThenRedirect($role)
     {
-        if (!Auth::user()->hasRole($role)) {
+        if (!Auth::user() || !Auth::user()->hasRole($role)) {
+            if (request()->expectsJson() || request()->is('api/*')) {
+                abort(403, trans("You Don't have enough permissions"));
+            }
             return redirect()
                 ->back()
                 ->withErrors([
@@ -65,7 +71,10 @@ class ResponseService
      */
     public static function noAnyRoleThenRedirect(array $role)
     {
-        if (!Auth::user()->hasAnyRole($role)) {
+        if (!Auth::user() || !Auth::user()->hasAnyRole($role)) {
+            if (request()->expectsJson() || request()->is('api/*')) {
+                abort(403, trans("You Don't have enough permissions"));
+            }
             return redirect()
                 ->back()
                 ->withErrors([
@@ -76,39 +85,6 @@ class ResponseService
         return true;
     }
 
-    //    /**
-    //     * @param $role
-    //     * @return true
-    //     */
-    //    public static function noRoleThenSendJson($role)
-    //    {
-    //        if (!Auth::user()->hasRole($role)) {
-    //            self::errorResponse("You Don't have enough permissions");
-    //        }
-    //        return true;
-    //    }
-
-    /**
-     * @param $feature
-     * @return RedirectResponse|true
-     */
-    // Check Feature
-    //    public static function noFeatureThenRedirect($feature) {
-    //        if (Auth::user()->school_id && !app(FeaturesService::class)->hasFeature($feature)) {
-    //            return redirect()->back()->withErrors([
-    //                'message' => trans('Purchase') . " " . $feature . " " . trans("to Continue using this functionality")
-    //            ])->send();
-    //        }
-    //        return true;
-    //    }
-    //
-    //    public static function noFeatureThenSendJson($feature) {
-    //        if (Auth::user()->school_id && !app(FeaturesService::class)->hasFeature($feature)) {
-    //            self::errorResponse(trans('Purchase') . " " . $feature . " " . trans("to Continue using this functionality"));
-    //        }
-    //        return true;
-    //    }
-
     /**
      * If User don't have any of the permission that is specified in Array then Redirect will happen
      * @param array $permissions
@@ -116,7 +92,10 @@ class ResponseService
      */
     public static function noAnyPermissionThenRedirect(array $permissions)
     {
-        if (!Auth::user()->canany($permissions)) {
+        if (!Auth::user() || !Auth::user()->canany($permissions)) {
+            if (request()->expectsJson() || request()->is('api/*')) {
+                abort(403, trans("You Don't have enough permissions"));
+            }
             return redirect()
                 ->back()
                 ->withErrors([

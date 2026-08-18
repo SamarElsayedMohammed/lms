@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
@@ -269,6 +270,18 @@ final class KashierController extends Controller
                         $lockedPayment->transaction_id = $transactionId;
                         $lockedPayment->gateway_response = $data;
                         $lockedPayment->save();
+
+                        if (!empty($lockedPayment->promo_code)) {
+                            try {
+                                app(\App\Services\SubscriptionPromoService::class)->consumePromo($lockedPayment->id, $lockedPayment->promo_code);
+                            } catch (\Throwable $e) {
+                                Log::error('KashierController: Promo consumption failed', [
+                                    'payment_id' => $lockedPayment->id,
+                                    'promo_code' => $lockedPayment->promo_code,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
+                        }
 
                         $sub = $lockedPayment->subscription;
                         if ($sub) {

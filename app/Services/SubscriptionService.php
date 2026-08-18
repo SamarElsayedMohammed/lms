@@ -176,7 +176,7 @@ final class SubscriptionService
 
         $paymentAmount = $totalAmount;
 
-        SubscriptionPayment::create([
+        $payment = SubscriptionPayment::create([
             'subscription_id' => $subscription->id,
             'user_id' => $user->id,
             'amount' => $paymentAmount,
@@ -196,6 +196,18 @@ final class SubscriptionService
             'final_amount' => $paymentAmount,
             'paid_at' => now(),
         ]);
+
+        if (!empty($discountMeta['promo_code'])) {
+            try {
+                app(\App\Services\SubscriptionPromoService::class)->consumePromo($payment->id, (string) $discountMeta['promo_code']);
+            } catch (\Throwable $e) {
+                Log::error('SubscriptionService: Promo consumption failed', [
+                    'payment_id' => $payment->id,
+                    'promo_code' => $discountMeta['promo_code'],
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     /**

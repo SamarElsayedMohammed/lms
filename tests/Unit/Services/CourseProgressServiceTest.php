@@ -11,12 +11,12 @@ use App\Models\UserCurriculumTracking;
 use App\Models\UserCourseProgress;
 use App\Models\VideoProgress;
 use App\Services\CourseProgressService;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 
 class CourseProgressServiceTest extends TestCase
 {
-    use DatabaseTransactions;
+    use RefreshDatabase;
 
     private CourseProgressService $service;
 
@@ -86,13 +86,22 @@ class CourseProgressServiceTest extends TestCase
             $mock->shouldReceive('autoGenerateCertificate')->once()->andReturn(null);
         });
 
-        // Add 100% curriculum tracking
+        // Add 100% curriculum tracking and video progress
         UserCurriculumTracking::create([
             'user_id' => $user->id,
             'course_chapter_id' => $chapter->id,
             'model_type' => CourseChapterLecture::class,
             'model_id' => $lecture->id,
             'status' => 'completed'
+        ]);
+
+        VideoProgress::create([
+            'user_id' => $user->id,
+            'lecture_id' => $lecture->id,
+            'watched_seconds' => 100,
+            'total_seconds' => 100,
+            'watch_percentage' => 100,
+            'is_completed' => true,
         ]);
 
         Cache::flush();
@@ -111,8 +120,8 @@ class CourseProgressServiceTest extends TestCase
         $lecture = CourseChapterLecture::factory()->create([
             'course_chapter_id' => $chapter->id,
             'is_active' => true,
-            'file_type' => 'video',
-            'duration_seconds' => 100,
+            'type' => 'file',
+            'file_extension' => 'mp4',
         ]);
 
         $actualAccessAt = now()->subDay()->startOfMinute();
@@ -155,8 +164,8 @@ class CourseProgressServiceTest extends TestCase
         $lecture = CourseChapterLecture::factory()->create([
             'course_chapter_id' => $chapter->id,
             'is_active' => true,
-            'file_type' => 'video',
-            'duration_seconds' => 100,
+            'type' => 'file',
+            'file_extension' => 'mp4',
         ]);
 
         VideoProgress::create([

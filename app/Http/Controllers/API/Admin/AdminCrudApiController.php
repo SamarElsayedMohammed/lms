@@ -34,6 +34,7 @@ abstract class AdminCrudApiController extends Controller
     protected function jsonSuccess(string $message, mixed $data = null, int $code = 200): JsonResponse
     {
         return response()->json([
+            'success' => true,
             'status' => true,
             'message' => $message,
             'data' => $data,
@@ -43,6 +44,7 @@ abstract class AdminCrudApiController extends Controller
     protected function jsonError(string $message, int $code = 400): JsonResponse
     {
         return response()->json([
+            'success' => false,
             'status' => false,
             'message' => $message,
         ], $code, [], JSON_UNESCAPED_UNICODE);

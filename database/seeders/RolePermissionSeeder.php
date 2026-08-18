@@ -147,7 +147,7 @@ class RolePermissionSeeder extends Seeder
             return $data;
         }, $permissions);
 
-        Permission::upsert($permissions, ['name'], ['name']); // Upsert Permissions
+        Permission::upsert($permissions, ['name', 'guard_name'], ['name']); // Upsert Permissions
     }
 
     // Assign Permissions to Roles

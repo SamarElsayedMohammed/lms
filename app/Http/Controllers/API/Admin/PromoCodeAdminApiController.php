@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\PromoCode;
+use App\Models\PromoRedemption;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -33,6 +34,16 @@ class PromoCodeAdminApiController extends AdminCrudApiController
             }));
 
         $promoCodes = $query->orderBy('id', 'desc')->paginate($perPage);
+
+        // Append computed usage statistics to each row
+        $promoCodes->getCollection()->transform(function (PromoCode $promo) {
+            $array = $promo->toArray();
+            $array['used_count'] = $promo->used_count;
+            $array['reserved_count'] = $promo->reserved_count;
+            $array['max_uses'] = $promo->no_of_users;
+            $array['remaining_uses'] = $promo->remaining_uses;
+            return $array;
+        });
 
         // ── Stats (calculated on full dataset, ignoring current filters) ──
         $stats = PromoCode::withTrashed()->selectRaw('
@@ -63,7 +74,50 @@ class PromoCodeAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Promo code not found'), 404);
         }
 
-        return $this->jsonSuccess(__('Promo code retrieved'), $promoCode);
+        $array = $promoCode->toArray();
+        $array['used_count'] = $promoCode->used_count;
+        $array['reserved_count'] = $promoCode->reserved_count;
+        $array['max_uses'] = $promoCode->no_of_users;
+        $array['remaining_uses'] = $promoCode->remaining_uses;
+
+        return $this->jsonSuccess(__('Promo code retrieved'), $array);
+    }
+
+    public function usages(int $id, Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('promo-codes-list');
+
+        $promoCode = PromoCode::withTrashed()->find($id);
+        if (!$promoCode) {
+            return $this->jsonError(__('Promo code not found'), 404);
+        }
+
+        $code = strtoupper(trim((string) $promoCode->promo_code));
+        $perPage = min((int) $request->input('per_page', 15), 100);
+
+        $redemptions = PromoRedemption::with(['user', 'subscription.plan', 'order', 'subscriptionPayment'])
+            ->where(function ($q) use ($promoCode, $code) {
+                $q->where('promo_code_id', $promoCode->id)
+                  ->orWhere('promo_code', $code)
+                  ->orWhereRaw('UPPER(promo_code) = ?', [$code]);
+            })
+            ->orderBy('id', 'desc')
+            ->paginate($perPage);
+
+        return $this->jsonSuccess(__('Promo code usages retrieved'), [
+            'promo_code' => [
+                'id' => $promoCode->id,
+                'promo_code' => $promoCode->promo_code,
+                'discount' => $promoCode->discount,
+                'discount_type' => $promoCode->discount_type,
+                'no_of_users' => $promoCode->no_of_users,
+                'used_count' => $promoCode->used_count,
+                'reserved_count' => $promoCode->reserved_count,
+                'remaining_uses' => $promoCode->remaining_uses,
+            ],
+            'usages' => $redemptions,
+        ]);
     }
 
     public function trashed(Request $request): JsonResponse

@@ -88,7 +88,17 @@ class UserWebinarApiController extends Controller
             $filteredCollection = $registrations->getCollection()->filter()->values();
             $registrations->setCollection($filteredCollection);
 
-            return ApiResponseService::successResponse('My registered webinars retrieved successfully', $registrations);
+            return ApiResponseService::successResponse('My registered webinars retrieved successfully', [
+                'items' => $filteredCollection,
+                'pagination' => [
+                    'current_page' => $registrations->currentPage(),
+                    'last_page' => $registrations->lastPage(),
+                    'per_page' => $registrations->perPage(),
+                    'total' => $registrations->total(),
+                ],
+            ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve registered webinars: ' . $e->getMessage());
         }

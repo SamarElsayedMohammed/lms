@@ -19,9 +19,10 @@ final class KashierCheckoutServiceCurrencyTest extends TestCase
     {
         parent::setUp();
 
-        Setting::query()->create(['name' => 'kashier_merchant_id', 'value' => 'TEST_MERCHANT']);
-        Setting::query()->create(['name' => 'kashier_api_key', 'value' => 'TEST_API_KEY']);
-        Setting::query()->create(['name' => 'kashier_mode', 'value' => 'test']);
+        Setting::query()->updateOrCreate(['name' => 'kashier_merchant_id'], ['value' => 'TEST_MERCHANT', 'type' => 'string']);
+        Setting::query()->updateOrCreate(['name' => 'kashier_api_key'], ['value' => 'TEST_API_KEY', 'type' => 'string']);
+        Setting::query()->updateOrCreate(['name' => 'kashier_mode'], ['value' => 'test', 'type' => 'string']);
+        Setting::query()->updateOrCreate(['name' => 'kashier_status'], ['value' => '1', 'type' => 'boolean']);
     }
 
     /**

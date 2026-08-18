@@ -27,9 +27,9 @@ final class CartApiTest extends TestCase
         parent::setUp();
 
         // Create roles
-        Role::create(['name' => 'Admin', 'guard_name' => 'web']);
-        Role::create(['name' => 'Instructor', 'guard_name' => 'web']);
-        Role::create(['name' => 'Student', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'Instructor', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'Student', 'guard_name' => 'web']);
 
         // Create admin user (user_id = 1 for admin promo codes)
         $this->admin = User::factory()->create();

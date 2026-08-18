@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Log;
  *
  * @see https://developers.kashier.io/
  */
-final class KashierCheckoutService implements PaymentGatewayContract
+class KashierCheckoutService implements PaymentGatewayContract
 {
     /**
      * Kashier is for subscription checkout. For Order-based flows, use createCheckoutSession with plan/user/amount.

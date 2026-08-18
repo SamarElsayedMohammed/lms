@@ -58,7 +58,7 @@ final class AuthenticationSecurityTest extends TestCase
             ->assertJsonPath('message', 'User Not Found');
     }
 
-    public function test_user_login_requires_device_tracking_fields(): void
+    public function test_user_login_allows_login_without_device_tracking_fields(): void
     {
         $user = User::factory()->create([
             'email' => 'tracked@example.com',
@@ -71,18 +71,8 @@ final class AuthenticationSecurityTest extends TestCase
             'type' => 'email',
             'email' => 'tracked@example.com',
             'password' => 'Password#123',
-        ])->assertStatus(422)
-            ->assertJsonPath('error', true)
-            ->assertJsonPath('message', 'The device type field is required.');
-
-        $this->postJson('/api/user-login', [
-            'type' => 'email',
-            'email' => 'tracked@example.com',
-            'password' => 'Password#123',
-            'device_type' => '',
-            'device_id' => '',
-        ])->assertStatus(422)
-            ->assertJsonPath('error', true);
+        ])->assertOk()
+            ->assertJsonPath('error', false);
 
         $this->assertDatabaseMissing('user_devices', ['user_id' => $user->id]);
     }
@@ -93,7 +83,7 @@ final class AuthenticationSecurityTest extends TestCase
             'email' => 'device-limit@example.com',
             'password' => Hash::make('Password#123'),
             'is_active' => 1,
-            'allowed_devices_count' => 3,
+            'allowed_devices_count' => 1,
         ]);
         $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
 
@@ -119,10 +109,15 @@ final class AuthenticationSecurityTest extends TestCase
             'password' => 'Password#123',
             'device_type' => 'web',
             'device_id' => 'browser-b',
-        ])->assertStatus(422)
-            ->assertJsonPath('error', true);
+        ])->assertStatus(403)
+            ->assertJsonPath('error', true)
+            ->assertJsonPath('errors.error_code', 'DEVICE_LIMIT_EXCEEDED');
 
         $this->assertSame(1, UserDevice::where('user_id', $user->id)->count());
+        $this->assertDatabaseHas('user_devices', [
+            'user_id' => $user->id,
+            'device_id' => 'browser-a',
+        ]);
     }
 
     public function test_user_profile_route_alias_returns_user_details(): void

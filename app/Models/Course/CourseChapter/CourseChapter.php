@@ -210,8 +210,9 @@ class CourseChapter extends Model
             'duration_seconds' => $totalDuration,
         ]);
 
-        if ($this->course) {
-            $this->course->recalculateDuration();
+        $course = $this->relationLoaded('course') ? $this->course : ($this->course_id ? Course::find($this->course_id) : null);
+        if ($course) {
+            $course->recalculateDuration();
         }
     }
 }

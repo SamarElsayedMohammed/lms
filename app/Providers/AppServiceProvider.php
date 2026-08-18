@@ -24,6 +24,10 @@ class AppServiceProvider extends ServiceProvider
     {
         Model::preventLazyLoading(! $this->app->isProduction());
 
+        \Illuminate\Support\Facades\Gate::before(function ($user, $ability) {
+            return $user->hasRole('Super Admin') ? true : null;
+        });
+
         // Fast, non-blocking bootstrap for web/api requests; skip during CLI build commands
         if (! $this->app->runningInConsole() || $this->app->runningUnitTests()) {
             try {

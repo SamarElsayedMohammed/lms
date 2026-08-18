@@ -38,6 +38,39 @@ class CertificateService
     }
 
     /**
+     * Generate course completion certificate (adapter for CourseApiController).
+     */
+    public function generateCourseCompletionCertificate(int $userId, int $courseId, ?int $certificateTemplateId = null): array
+    {
+        $cert = $this->issueCertificate($userId, $courseId, [
+            'certificate_template_id' => $certificateTemplateId,
+            'issuance_source'         => 'automatic',
+        ]);
+
+        if (!$cert) {
+            return [
+                'success' => false,
+                'error'   => 'User is not eligible for this certificate or course is incomplete.',
+            ];
+        }
+
+        $appUrl = rtrim(config('app.frontend_url') ?: config('app.url'), '/');
+        $downloadUrl = $appUrl . "/api/certificate/public/{$cert->certificate_number}/download";
+
+        return [
+            'success' => true,
+            'file_url' => $downloadUrl,
+            'certificate_data' => [
+                'certificate_number' => $cert->certificate_number,
+                'course_id'          => $cert->course_id,
+                'course_name'        => $cert->arabic_title ?: ($cert->course->title ?? null),
+                'issued_date'        => optional($cert->issued_date)->format('Y-m-d'),
+                'status'             => $cert->status,
+            ],
+        ];
+    }
+
+    /**
      * Canonical Certificate Issuance Pipeline
      *
      * Every certificate enters the system through this single authoritative method:

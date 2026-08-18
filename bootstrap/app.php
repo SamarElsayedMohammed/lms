@@ -75,7 +75,7 @@ return Application::configure(basePath: dirname(__DIR__))
             }
         });
 
-        $exceptions->render(function (\Illuminate\Auth\Access\AuthorizationException|\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e, \Illuminate\Http\Request $request) {
+        $exceptions->render(function (\Illuminate\Auth\Access\AuthorizationException|\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException|\Spatie\Permission\Exceptions\UnauthorizedException $e, \Illuminate\Http\Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
                     'success' => false,
@@ -117,6 +117,17 @@ return Application::configure(basePath: dirname(__DIR__))
                     'message' => 'Too many requests. Please slow down.',
                     'code' => 429,
                 ], 429);
+            }
+        });
+
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'status' => false,
+                    'message' => $e->getMessage() ?: 'Http Error',
+                    'code' => $e->getStatusCode(),
+                ], $e->getStatusCode());
             }
         });
 

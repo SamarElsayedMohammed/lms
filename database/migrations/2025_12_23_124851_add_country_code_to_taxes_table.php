@@ -11,10 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('taxes', function (Blueprint $table) {
-            $table->string('country_code', 2)->nullable()->after('percentage');
-            $table->index('country_code');
-        });
+        if (!Schema::hasColumn('taxes', 'country_code')) {
+            Schema::table('taxes', function (Blueprint $table) {
+                $table->string('country_code', 2)->nullable()->after('percentage');
+                $table->index('country_code');
+            });
+        }
     }
 
     /**

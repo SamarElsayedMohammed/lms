@@ -83,6 +83,8 @@ class WebinarRegistrationController extends Controller
             $this->registrationService->register($webinar, $user, 'free', 0.00);
 
             return ApiResponseService::successResponse('Successfully registered for the webinar.');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             $code = $e->getCode();
             if ($code === 409) {
@@ -176,6 +178,8 @@ class WebinarRegistrationController extends Controller
             ]);
 
             return ApiResponseService::successResponse('تم إلغاء التسجيل بنجاح.');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return ApiResponseService::errorResponse('Failed to cancel registration: ' . $e->getMessage());
         }

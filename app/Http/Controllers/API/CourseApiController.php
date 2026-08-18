@@ -3421,9 +3421,7 @@ class CourseApiController extends Controller
                 "id" => $student->id,
                 "name" => $student->name,
                 "email" => $student->email,
-                "profile" => $student->profile
-                    ? asset("storage/" . $student->profile)
-                    : null,
+                "profile" => $student->profile ?? null,
                 "enrolled_at" => $enrollmentDate
                     ? $enrollmentDate->format("d F, Y")
                     : null,
@@ -4415,9 +4413,7 @@ class CourseApiController extends Controller
                     "id" => $submission->user->id,
                     "name" => $submission->user->name,
                     "email" => $submission->user->email,
-                    "profile" => $submission->user->profile
-                        ? asset("storage/" . $submission->user->profile)
-                        : null,
+                    "profile" => $submission->user->profile ?? null,
                 ],
                 "assignment" => [
                     "id" => $submission->assignment->id,
@@ -4524,9 +4520,7 @@ class CourseApiController extends Controller
                     "id" => $submission->user->id,
                     "name" => $submission->user->name,
                     "email" => $submission->user->email,
-                    "profile" => $submission->user->profile
-                        ? asset("storage/" . $submission->user->profile)
-                        : null,
+                    "profile" => $submission->user->profile ?? null,
                 ],
                 "assignment" => [
                     "id" => $submission->assignment->id,

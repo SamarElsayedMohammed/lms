@@ -17,7 +17,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasPermissions;
 use Spatie\Permission\Traits\HasRoles;
@@ -110,14 +109,44 @@ final class User extends Authenticatable
         'wallet_balance' => 'decimal:2',
     ];
 
+    /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array<int, string>
+     */
+    protected $appends = [
+        'avatar',
+        'avatar_url',
+        'phone',
+    ];
+
     protected function profile(): Attribute
     {
         return Attribute::get(function (null|string $value): null|string {
-            if ($value !== null && $value !== '' && !filter_var($value, FILTER_VALIDATE_URL)) {
-                return url(Storage::url($value));
+            if ($value !== null && $value !== '') {
+                if (filter_var($value, FILTER_VALIDATE_URL) || str_starts_with($value, 'data:') || str_starts_with($value, 'blob:')) {
+                    return $value;
+                }
+                $clean = preg_replace('#^/?storage/#', '', $value);
+                return asset('storage/' . $clean);
             }
             return $value;
         });
+    }
+
+    public function getAvatarAttribute(): ?string
+    {
+        return $this->profile;
+    }
+
+    public function getAvatarUrlAttribute(): ?string
+    {
+        return $this->profile;
+    }
+
+    public function getPhoneAttribute(): ?string
+    {
+        return $this->mobile;
     }
 
     /**

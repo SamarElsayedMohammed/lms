@@ -47,14 +47,18 @@ class ChatbotAdminApiController extends AdminCrudApiController
         ];
 
         $settings = [];
+        $isKeyConfigured = false;
         foreach ($settingKeys as $key) {
             $setting = Setting::where('name', $key)->first();
             $val = $setting?->value;
-            if ($key === 'openai_api_key' && !empty($val) && strlen($val) > 10) {
-                $val = substr($val, 0, 10) . '...';
+            if ($key === 'openai_api_key') {
+                $isKeyConfigured = !empty($val);
+                $val = $isKeyConfigured ? '••••••••' : '';
             }
             $settings[$key] = $val;
         }
+
+        $settings['openai_api_key_configured'] = $isKeyConfigured;
 
         return $this->jsonSuccess(__('Chatbot settings retrieved'), $settings);
     }
@@ -98,9 +102,18 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             foreach ($settingKeys as $key) {
                 if ($request->has($key)) {
-                    $value = $key === 'chatbot_enabled'
-                        ? ($request->boolean($key) ? '1' : '0')
-                        : (string) $request->input($key);
+                    if ($key === 'openai_api_key') {
+                        $rawVal = trim((string) $request->input($key));
+                        // Ignore empty or placeholder strings so real key is never overwritten accidentally
+                        if ($rawVal === '' || $rawVal === '••••••••' || str_starts_with($rawVal, '••••') || str_ends_with($rawVal, '...')) {
+                            continue;
+                        }
+                        $value = $rawVal;
+                    } else {
+                        $value = $key === 'chatbot_enabled'
+                            ? ($request->boolean($key) ? '1' : '0')
+                            : (string) $request->input($key);
+                    }
 
                     Setting::updateOrCreate(
                         ['name' => $key],
@@ -129,12 +142,19 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
-            // Re-fetch and return updated settings
+            // Re-fetch and return updated settings securely
             $updatedSettings = [];
+            $isKeyConfigured = false;
             foreach ($settingKeys as $key) {
                 $setting = Setting::where('name', $key)->first();
-                $updatedSettings[$key] = $setting?->value;
+                $val = $setting?->value;
+                if ($key === 'openai_api_key') {
+                    $isKeyConfigured = !empty($val);
+                    $val = $isKeyConfigured ? '••••••••' : '';
+                }
+                $updatedSettings[$key] = $val;
             }
+            $updatedSettings['openai_api_key_configured'] = $isKeyConfigured;
 
             return $this->jsonSuccess(__('Chatbot settings updated successfully'), $updatedSettings);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -361,7 +381,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
     /**
      * Create a new knowledge base entry
-     * Supports: direct text content OR file upload (.txt, .md, .csv, .json)
+     * Supports: direct text content OR file upload (.txt, .md, .csv, .json, .pdf, .docx)
      */
     public function storeKnowledge(Request $request): JsonResponse
     {
@@ -370,7 +390,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|min:2|max:255',
             'content' => 'required_without:file|nullable|string',
-            'file' => 'required_without:content|nullable|file|mimes:txt,csv,json|max:5120', // 5MB max
+            'file' => 'required_without:content|nullable|file|mimes:txt,csv,json,pdf,docx,md|max:10240', // 10MB max
             'is_active' => 'nullable|boolean',
             'target_audience' => 'nullable|in:visitor,subscriber,course',
             'course_id' => 'nullable|integer|exists:courses,id',
@@ -383,11 +403,15 @@ class ChatbotAdminApiController extends AdminCrudApiController
         try {
             DB::beginTransaction();
 
+            $targetAudience = $request->input('target_audience', 'visitor');
+            $courseId = $request->input('course_id') ? (int) $request->input('course_id') : null;
+
             $data = [
                 'title' => $request->input('title'),
                 'is_active' => $request->boolean('is_active', true),
-                'target_audience' => $request->input('target_audience', 'visitor'),
-                'course_id' => $request->input('course_id'),
+                'target_audience' => $targetAudience,
+                'course_id' => $courseId,
+                'processing_status' => 'queued',
             ];
 
             if ($request->hasFile('file')) {
@@ -401,6 +425,13 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             $entry = ChatbotKnowledgeBase::create($data);
             DB::commit();
+
+            // Dispatch vector ingestion job for semantic chunking & indexing
+            \App\Jobs\ProcessKnowledgeIngestionJob::dispatch(
+                $entry->id,
+                $courseId,
+                $targetAudience === 'visitor' ? 'visitor' : ($targetAudience === 'course' ? 'course' : 'subscriber')
+            );
 
             return $this->jsonSuccess(__('Knowledge base entry created successfully'), $entry, 201);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -445,7 +476,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|min:2|max:255',
             'content' => 'nullable|string',
-            'file' => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
+            'file' => 'nullable|file|mimes:txt,md,csv,json,xml,pdf,docx|max:10240',
             'is_active' => 'nullable|boolean',
             'target_audience' => 'nullable|in:visitor,subscriber,course',
             'course_id' => 'nullable|integer|exists:courses,id',
@@ -490,8 +521,18 @@ class ChatbotAdminApiController extends AdminCrudApiController
                 $data['content'] = $request->input('content');
             }
 
+            $data['processing_status'] = 'queued';
+            $data['failure_reason'] = null;
+
             $entry->update($data);
             DB::commit();
+
+            // Refresh vector chunks via ingestion job
+            \App\Jobs\ProcessKnowledgeIngestionJob::dispatch(
+                $entry->id,
+                $entry->course_id,
+                $entry->target_audience === 'visitor' ? 'visitor' : ($entry->target_audience === 'course' ? 'course' : 'subscriber')
+            );
 
             return $this->jsonSuccess(__('Knowledge base entry updated successfully'), $entry->fresh());
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -503,7 +544,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
     }
 
     /**
-     * Delete a knowledge base entry
+     * Delete a knowledge base entry and cascade delete vector chunks
      */
     public function destroyKnowledge(int $id): JsonResponse
     {
@@ -519,12 +560,15 @@ class ChatbotAdminApiController extends AdminCrudApiController
             FileService::delete($entry->file_path);
         }
 
+        // Delete associated vector chunks so RAG never returns stale data
+        \App\Models\ChatbotVectorChunk::where('knowledge_base_id', $id)->delete();
+
         $entry->delete();
         return $this->jsonSuccess(__('Knowledge base entry deleted successfully'));
     }
 
     /**
-     * Toggle knowledge base entry active status
+     * Toggle knowledge base entry active status and sync to vector chunks
      */
     public function toggleKnowledge(int $id): JsonResponse
     {
@@ -535,10 +579,13 @@ class ChatbotAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Knowledge base entry not found'), 404);
         }
 
-        $entry->update(['is_active' => !$entry->is_active]);
+        $newActive = !$entry->is_active;
+        $entry->update(['is_active' => $newActive]);
 
-        $status = $entry->is_active ? 'activated' : 'deactivated';
-        return $this->jsonSuccess(__('Knowledge base entry activated successfully'), $entry->fresh());
+        // Synchronize active status to vector chunks
+        \App\Models\ChatbotVectorChunk::where('knowledge_base_id', $id)->update(['is_active' => $newActive]);
+
+        return $this->jsonSuccess(__('Knowledge base entry updated successfully'), $entry->fresh());
     }
 
     /**
@@ -561,7 +608,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
         \App\Jobs\ProcessKnowledgeIngestionJob::dispatch(
             $entry->id,
             $entry->course_id,
-            $entry->target_audience === 'visitor' ? 'visitor' : 'course'
+            $entry->target_audience === 'visitor' ? 'visitor' : ($entry->target_audience === 'course' ? 'course' : 'subscriber')
         );
 
         return $this->jsonSuccess(__('Knowledge base reindexing queued successfully'), $entry->fresh());
@@ -642,7 +689,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
         $courseId = $request->input('course_id');
         $userId = $request->input('user_id');
 
-        $query = \App\Models\ChatbotConversation::with(['user:id,name,email', 'course:id,title'])
+        $query = \App\Models\ChatbotConversation::with(['user:id,name,email,mobile,type', 'course:id,title', 'messages' => fn ($q) => $q->latest()->limit(1)])
             ->when($search, function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
                   ->orWhere('session_id', 'like', "%{$search}%");
@@ -654,9 +701,14 @@ class ChatbotAdminApiController extends AdminCrudApiController
         $conversations = $query->orderBy('last_message_at', 'desc')->paginate($perPage);
 
         $conversations->getCollection()->transform(function ($conversation) {
-            $conversation->user = $conversation->user ?? null;
-            $conversation->user_name = $conversation->user ? $conversation->user->name : ($conversation->session_id ? 'Guest #' . substr($conversation->session_id, 0, 8) : 'Guest');
-            $conversation->user_email = $conversation->user ? $conversation->user->email : 'N/A';
+            $user = $conversation->user;
+            $conversation->user_name = $user ? $user->name : ($conversation->session_id ? 'Guest #' . substr($conversation->session_id, 0, 8) : 'Guest');
+            $conversation->user_email = $user ? $user->email : 'N/A';
+            $conversation->user_phone = $user?->mobile ?: 'N/A';
+            $conversation->user_role = $user?->type ?: ($user ? 'student' : 'guest');
+            $conversation->is_guest = empty($conversation->user_id);
+            $lastMsg = $conversation->messages->first();
+            $conversation->last_message = $lastMsg ? $lastMsg->message : ($conversation->title ?: 'لا توجد رسالة');
             return $conversation;
         });
 
@@ -664,14 +716,14 @@ class ChatbotAdminApiController extends AdminCrudApiController
     }
 
     /**
-     * Show a single chat conversation and its messages
+     * Show a single chat conversation and its complete chronological messages transcript
      */
     public function showConversation(int $id): JsonResponse
     {
         $this->ensureAdmin();
 
         $conversation = \App\Models\ChatbotConversation::with([
-            'user:id,name,email',
+            'user:id,name,email,mobile,type',
             'course:id,title',
             'messages' => function ($q) {
                 $q->orderBy('created_at', 'asc');
@@ -682,10 +734,42 @@ class ChatbotAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Conversation not found'), 404);
         }
 
-        $conversation->user_name = $conversation->user ? $conversation->user->name : ($conversation->session_id ? 'Guest #' . substr($conversation->session_id, 0, 8) : 'Guest');
-        $conversation->user_email = $conversation->user ? $conversation->user->email : 'N/A';
+        $formattedMessages = [];
+        foreach ($conversation->messages as $msg) {
+            if (!empty($msg->message)) {
+                $formattedMessages[] = [
+                    'id' => $msg->id . '_user',
+                    'conversation_id' => $conversation->id,
+                    'sender' => 'user',
+                    'role' => 'user',
+                    'message' => $msg->message,
+                    'type' => $msg->type,
+                    'created_at' => $msg->created_at?->toISOString() ?? (string) $msg->created_at,
+                ];
+            }
+            if (!empty($msg->reply)) {
+                $formattedMessages[] = [
+                    'id' => $msg->id . '_bot',
+                    'conversation_id' => $conversation->id,
+                    'sender' => 'bot',
+                    'role' => 'bot',
+                    'message' => $msg->reply,
+                    'type' => $msg->type,
+                    'created_at' => $msg->created_at?->toISOString() ?? (string) $msg->created_at,
+                ];
+            }
+        }
 
-        return $this->jsonSuccess(__('Chat conversation retrieved'), $conversation);
+        $conversationData = $conversation->toArray();
+        $conversationData['messages'] = $formattedMessages;
+        $user = $conversation->user;
+        $conversationData['user_name'] = $user ? $user->name : ($conversation->session_id ? 'Guest #' . substr($conversation->session_id, 0, 8) : 'Guest');
+        $conversationData['user_email'] = $user ? $user->email : 'N/A';
+        $conversationData['user_phone'] = $user?->mobile ?: 'N/A';
+        $conversationData['user_role'] = $user?->type ?: ($user ? 'student' : 'guest');
+        $conversationData['is_guest'] = empty($conversation->user_id);
+
+        return $this->jsonSuccess(__('Chat conversation retrieved'), $conversationData);
     }
 
     // ==========================================

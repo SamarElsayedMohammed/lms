@@ -41,20 +41,12 @@ class IdempotencyMiddleware
         ]));
 
         if (!Cache::add($cacheKey, ['state' => 'processing'], now()->addHours(24))) {
-            $cached = Cache::get($cacheKey);
-            if (is_array($cached) && ($cached['state'] ?? null) === 'completed') {
-                return response(
-                    (string) ($cached['content'] ?? ''),
-                    (int) ($cached['status'] ?? 200),
-                    is_array($cached['headers'] ?? null) ? $cached['headers'] : [],
-                );
-            }
-
             return response()->json([
                 'success' => false,
-                'message' => 'Request is already being processed.',
-                'reason' => 'IDEMPOTENCY_REQUEST_IN_PROGRESS',
-            ], 409); // Conflict
+                'status' => false,
+                'message' => 'Duplicate request detected with the same Idempotency-Key.',
+                'reason' => 'IDEMPOTENCY_CONFLICT',
+            ], 409); // Conflict from duplicate middleware
         }
 
         $response = $next($request);

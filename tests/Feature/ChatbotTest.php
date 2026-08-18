@@ -4,12 +4,16 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Models\Course\Course;
+use App\Models\Course\CourseProgress;
 use App\Models\Setting;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class ChatbotTest extends TestCase
 {
+    use RefreshDatabase;
+
     #[\Override]
     protected function setUp(): void
     {
@@ -36,6 +40,8 @@ class ChatbotTest extends TestCase
         $course = Course::factory()->create([
             'ai_knowledge_content' => 'Test knowledge',
             'chatbot_enabled' => true,
+            'course_type' => 'paid',
+            'price' => 100,
         ]);
 
         $user = User::factory()->create(); // Not enrolled
@@ -55,10 +61,19 @@ class ChatbotTest extends TestCase
         $course = Course::factory()->create([
             'ai_knowledge_content' => 'Test knowledge',
             'chatbot_enabled' => true,
+            'course_type' => 'paid',
+            'price' => 100,
         ]);
 
         $user = User::factory()->create();
-        $course->students()->attach($user->id, ['status' => 'active']); // Enrolled
+        \App\Models\UserCourseProgress::create([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'completed_items' => 1,
+            'total_items' => 10,
+            'progress_percentage' => 10,
+            'status' => 'in_progress',
+        ]);
 
         $this->actingAs($user)
             ->postJson('/api/chatbot/course-message', [

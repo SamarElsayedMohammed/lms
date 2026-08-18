@@ -113,10 +113,11 @@ class WebinarAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
 
         $validator = Validator::make($request->all(), [
+            'instructor_id' => 'nullable|exists:users,id',
             'title'         => 'required|string|max:255',
             'course_id'     => 'nullable|exists:courses,id',
             'description'   => 'nullable|string',
-            'start_at'      => 'required|date|after:now',
+            'start_at'      => 'required|date',
             'duration'      => 'required|integer|min:5',
             'is_free'       => 'required|boolean',
             'price'         => 'required_if:is_free,false|numeric|min:0',
@@ -132,9 +133,14 @@ class WebinarAdminApiController extends AdminCrudApiController
         }
 
         try {
-            $data                 = $validator->validated();
-            $data['instructor_id'] = Auth::id();
-            $data['slug']         = Str::slug($request->title) . '-' . Str::random(5);
+            $data = $validator->validated();
+            $this->extractLegacyConfig($data);
+
+            if (empty($data['instructor_id'])) {
+                $data['instructor_id'] = Auth::id();
+            }
+
+            $data['slug'] = Str::slug($request->title) . '-' . Str::random(5);
 
             if ($request->provider === 'jitsi' && empty($request->join_url)) {
                 $data['join_url'] = 'https://meet.jit.si/' . $data['slug'];
@@ -225,6 +231,8 @@ class WebinarAdminApiController extends AdminCrudApiController
 
         try {
             $data = $validator->validated();
+            $this->extractLegacyConfig($data);
+
             if (($data['is_free'] ?? false) === true) {
                 $data['price'] = 0;
             }
@@ -456,7 +464,7 @@ class WebinarAdminApiController extends AdminCrudApiController
         $callback = function () use ($registrations, $webinar) {
             $handle = fopen('php://output', 'w');
 
-            // UTF-8 BOM لدعم Excel
+            // UTF-8 BOM לדعم Excel
             fprintf($handle, chr(0xEF) . chr(0xBB) . chr(0xBF));
 
             // معلومات الويبنار
@@ -493,5 +501,31 @@ class WebinarAdminApiController extends AdminCrudApiController
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * Extract legacy embedded JSON config header from features array
+     */
+    private function extractLegacyConfig(array &$data): void
+    {
+        if (!empty($data['features']) && is_array($data['features'])) {
+            $cleanFeatures = [];
+            $extractedConfig = $data['config'] ?? [];
+            foreach ($data['features'] as $feature) {
+                if (is_string($feature) && str_starts_with($feature, '__skillso_webinar_config_v1__:')) {
+                    $jsonStr = substr($feature, strlen('__skillso_webinar_config_v1__:'));
+                    $decoded = json_decode($jsonStr, true);
+                    if (is_array($decoded)) {
+                        $extractedConfig = array_merge($extractedConfig, $decoded);
+                    }
+                } else {
+                    $cleanFeatures[] = $feature;
+                }
+            }
+            $data['features'] = $cleanFeatures;
+            if (!empty($extractedConfig)) {
+                $data['config'] = $extractedConfig;
+            }
+        }
     }
 }

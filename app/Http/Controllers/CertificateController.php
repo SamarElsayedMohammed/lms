@@ -380,10 +380,10 @@ class CertificateController extends Controller
      * - Never exposes private user PII (emails, IDs, storage paths)
      * - Exact lookup only (no SQL LIKE)
      */
-    public function verifyApi(\Illuminate\Http\Request $request)
+    public function verifyApi(\Illuminate\Http\Request $request, ?string $code = null)
     {
         $token = trim((string) $request->input('token', ''));
-        $rawCode = trim((string) ($request->input('code') ?: $request->input('certificate_number') ?: ''));
+        $rawCode = trim((string) ($code ?: $request->input('code') ?: $request->input('certificate_number') ?: $request->input('number') ?: $request->input('certificate_id') ?: $request->input('id') ?: ''));
         $normalizedCode = CourseCertificate::normalizeCertificateNumber($rawCode);
 
         if ($token === '' && $normalizedCode === '' && $rawCode === '') {
@@ -416,6 +416,8 @@ class CertificateController extends Controller
         if (!$certificate && $rawCode !== '') {
             $certificate = (clone $query)
                 ->where('certificate_number', $rawCode)
+                ->orWhere('verification_token', $rawCode)
+                ->orWhere('verification_code', $rawCode)
                 ->first();
         }
 

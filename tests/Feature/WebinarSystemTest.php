@@ -14,12 +14,21 @@ class WebinarSystemTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $instructor;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->instructor = User::factory()->create();
+    }
+
     public function test_capacity_limits_block_registration()
     {
         $user = User::factory()->create();
         $user2 = User::factory()->create();
         
         $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
             'title' => 'Test',
             'slug' => 'test-webinar',
             'start_at' => now()->addDays(1),
@@ -48,6 +57,7 @@ class WebinarSystemTest extends TestCase
         $admin->assignRole('Super Admin');
 
         $response = $this->actingAs($admin)->postJson('/api/admin/webinars', [
+            'instructor_id' => $this->instructor->id,
             'title' => 'Hack Test',
             'start_at' => now()->addDays(1)->toDateTimeString(),
             'duration' => 60,
@@ -71,6 +81,7 @@ class WebinarSystemTest extends TestCase
         $user = User::factory()->create(['wallet_balance' => 10]); // Insufficient
 
         $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
             'title' => 'Paid Webinar',
             'slug' => 'paid-webinar',
             'start_at' => now()->addDays(1),
@@ -97,6 +108,7 @@ class WebinarSystemTest extends TestCase
         $user = User::factory()->create(['wallet_balance' => 100]); // Sufficient
 
         $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
             'title' => 'Paid Webinar 2',
             'slug' => 'paid-webinar-2',
             'start_at' => now()->addDays(1),
@@ -129,6 +141,7 @@ class WebinarSystemTest extends TestCase
     {
         $user = User::factory()->create(['wallet_balance' => 100]);
         $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
             'title' => 'Idempotent Webinar',
             'slug' => 'idem-webinar',
             'start_at' => now()->addDays(1),
@@ -162,6 +175,7 @@ class WebinarSystemTest extends TestCase
     public function test_public_endpoint_hides_pii_data_and_credentials()
     {
         $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
             'title' => 'PII Test',
             'slug' => 'pii-test',
             'start_at' => now()->addDays(1),
@@ -198,6 +212,7 @@ class WebinarSystemTest extends TestCase
     {
         $user = User::factory()->create();
         $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
             'title' => 'Live Join Test',
             'slug' => 'live-join-test',
             'start_at' => now()->addMinutes(5), // Within 15-minute early window
@@ -229,6 +244,7 @@ class WebinarSystemTest extends TestCase
     {
         $user = User::factory()->create();
         $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
             'title' => 'My Webinar List Test',
             'slug' => 'my-webinar-list-test',
             'start_at' => now()->addDays(2),

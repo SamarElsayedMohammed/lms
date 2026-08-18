@@ -63,6 +63,8 @@ class PublicWebinarController extends Controller
             });
 
             return ApiResponseService::successResponse('Webinars retrieved successfully', $webinars);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve webinars: ' . $e->getMessage());
         }
@@ -99,6 +101,8 @@ class PublicWebinarController extends Controller
                 'payment_status' => $registration ? $registration->payment_status : null,
                 'registered_count' => $webinar->activeRegistrationsCount(),
             ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to retrieve webinar: ' . $e->getMessage());
         }
@@ -134,6 +138,8 @@ class PublicWebinarController extends Controller
             }
 
             return ApiResponseService::successResponse('Join link generated', $joinCheck['data']);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to join webinar: ' . $e->getMessage());
         }

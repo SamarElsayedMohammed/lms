@@ -129,7 +129,6 @@ Route::prefix('chatbot')->group(function (): void {
     Route::post('/faq-answer', [\App\Http\Controllers\API\ChatbotApiController::class, 'getFaqAnswer']);
     Route::post('/message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendMessage'])
         ->middleware('throttle:30,1'); // Rate limit: 30 messages per minute
-    Route::get('/debug', [\App\Http\Controllers\API\ChatbotApiController::class, 'debug']);
 });
 
 /********************************************************************************************* */
@@ -169,8 +168,13 @@ Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO
 
 // Public certificate verification — returns only safe fields, no auth needed
 Route::get('certificate/verify', [CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
+Route::get('certificates/verify', [CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
+Route::get('certificate/verify/{code}', [CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
+Route::get('certificates/verify/{code}', [CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
+
 // Public certificate download — returns the cached PDF directly without auth, using the unguessable certificate number
 Route::get('certificate/public/{certificate_number}/download', [CertificateController::class, 'downloadPublic'])->middleware('throttle:10,1');
+Route::get('certificates/public/{certificate_number}/download', [CertificateController::class, 'downloadPublic'])->middleware('throttle:10,1');
 
 // Webinars Public / User APIs
 Route::get('webinars', [\App\Http\Controllers\API\PublicWebinarController::class, 'index']);
@@ -239,11 +243,17 @@ Route::prefix('billing')->group(function (): void {
         Route::get('/entitlements/me', [BillingApiController::class, 'getMyEntitlement']);
     });
 });
-
-
-
-
-
+/**
+ * Cart APIs
+ */
+Route::middleware('auth:sanctum')->group(function (): void {
+    Route::get('/cart', [CartApiController::class, 'getUserCart']);
+    Route::post('/cart/add', [CartApiController::class, 'addToCart']);
+    Route::post('/cart/apply-promo', [CartApiController::class, 'applyPromoCodeToCart']);
+    Route::post('/cart/remove-promo', [CartApiController::class, 'removePromoCode']);
+    Route::post('/cart/remove', [CartApiController::class, 'removeFromCart']);
+    Route::post('/cart/clear', [CartApiController::class, 'clearCart']);
+});
 if (app()->environment('local', 'staging', 'development')) {
     Route::get('/debug/geo-headers', [ApiController::class, 'debugGeoHeaders']);
     Route::get('/debug/raw-request', [ApiController::class, 'debugRawRequest']);
@@ -619,52 +629,54 @@ Route::middleware('auth:sanctum')->group(function (): void {
     });
 
     /**
-     * Admin Assignment Management APIs
+     * Admin Management APIs (Protected by Admin Roles)
      */
-    Route::get('admin/assignment-submissions', [AdminApiController::class, 'getAssignmentSubmissions']); // Get All Assignment Submissions (Admin)
-    Route::post('admin/assignment-submission', [AdminApiController::class, 'createAssignmentSubmission']); // Create Assignment Submission (Admin)
-    Route::get('admin/assignment-submission/{id}', [AdminApiController::class, 'getAssignmentSubmissionDetails']); // Get Assignment Submission Details (Admin)
-    Route::get('admin/assignment-submission', [AdminApiController::class, 'getAssignmentSubmissionDetails']); // Get Assignment Submission Details (Admin Query param)
-    Route::put('admin/assignment-submission', [AdminApiController::class, 'updateAssignmentSubmission']); // Update Assignment Submission Status (Admin)
-    Route::delete('admin/assignment-submission/{id}', [AdminApiController::class, 'deleteAssignmentSubmission']); // Delete Assignment Submission (Admin)
-    Route::put('admin/assignment-submissions/bulk-update', [
-        AdminApiController::class,
-        'bulkUpdateAssignmentSubmissions',
-    ]); // Bulk Update Assignment Submissions (Admin)
-    Route::get('admin/assignment-statistics', [AdminApiController::class, 'getAssignmentStatistics']); // Get Assignment Statistics (Admin)
-    Route::get('admin/assignments', [AdminApiController::class, 'getAssignments']); // Get Assignments (Admin)
-    Route::post('admin/assignments', [AdminApiController::class, 'createAssignment']); // Create Assignment (Admin)
-    Route::get('admin/assignments/{id}', [AdminApiController::class, 'getAssignmentDetails']); // Get Assignment Details (Admin)
-    Route::put('admin/assignments/{id}', [AdminApiController::class, 'updateAssignment']); // Update Assignment (Admin)
-    Route::delete('admin/assignments/{id}', [AdminApiController::class, 'deleteAssignment']); // Delete Assignment (Admin)
+    Route::middleware('role:Super Admin|Admin|Supervisor|Staff')->group(function (): void {
+        // Admin Assignment Management APIs
+        Route::get('admin/assignment-submissions', [AdminApiController::class, 'getAssignmentSubmissions']); // Get All Assignment Submissions (Admin)
+        Route::post('admin/assignment-submission', [AdminApiController::class, 'createAssignmentSubmission']); // Create Assignment Submission (Admin)
+        Route::get('admin/assignment-submission/{id}', [AdminApiController::class, 'getAssignmentSubmissionDetails']); // Get Assignment Submission Details (Admin)
+        Route::get('admin/assignment-submission', [AdminApiController::class, 'getAssignmentSubmissionDetails']); // Get Assignment Submission Details (Admin Query param)
+        Route::put('admin/assignment-submission', [AdminApiController::class, 'updateAssignmentSubmission']); // Update Assignment Submission Status (Admin)
+        Route::delete('admin/assignment-submission/{id}', [AdminApiController::class, 'deleteAssignmentSubmission']); // Delete Assignment Submission (Admin)
+        Route::put('admin/assignment-submissions/bulk-update', [
+            AdminApiController::class,
+            'bulkUpdateAssignmentSubmissions',
+        ]); // Bulk Update Assignment Submissions (Admin)
+        Route::get('admin/assignment-statistics', [AdminApiController::class, 'getAssignmentStatistics']); // Get Assignment Statistics (Admin)
+        Route::get('admin/assignments', [AdminApiController::class, 'getAssignments']); // Get Assignments (Admin)
+        Route::post('admin/assignments', [AdminApiController::class, 'createAssignment']); // Create Assignment (Admin)
+        Route::get('admin/assignments/{id}', [AdminApiController::class, 'getAssignmentDetails']); // Get Assignment Details (Admin)
+        Route::put('admin/assignments/{id}', [AdminApiController::class, 'updateAssignment']); // Update Assignment (Admin)
+        Route::delete('admin/assignments/{id}', [AdminApiController::class, 'deleteAssignment']); // Delete Assignment (Admin)
 
-    // Admin lecture attachments
-    Route::get('admin/lecture/{lectureId}/attachments', [LectureAttachmentController::class, 'index']);
-    Route::post('admin/lecture/{lectureId}/attachments', [LectureAttachmentController::class, 'store']);
-    Route::get('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'show']);
-    Route::put('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'update']);
-    Route::delete('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'destroy']);
+        // Admin lecture attachments
+        Route::get('admin/lecture/{lectureId}/attachments', [LectureAttachmentController::class, 'index']);
+        Route::post('admin/lecture/{lectureId}/attachments', [LectureAttachmentController::class, 'store']);
+        Route::get('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'show']);
+        Route::put('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'update']);
+        Route::delete('admin/lecture/{lectureId}/attachments/{attachmentId}', [LectureAttachmentController::class, 'destroy']);
 
-    // Admin subscription plan management (T018)
-    Route::prefix('admin/subscription-plans')->group(function (): void {
-        Route::get('/', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'index']);
-        Route::post('/', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'store']);
-        Route::put('/sort', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'updateSortOrder']);
-        Route::get('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'show']);
-        Route::put('/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
-        Route::patch('/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
-        Route::delete('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'destroy']);
-        Route::post('/{id}/restore', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'restore']);
-        Route::delete('/{id}/trash', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'trash']);
+        // Admin subscription plan management (T018)
+        Route::prefix('admin/subscription-plans')->group(function (): void {
+            Route::get('/', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'store']);
+            Route::put('/sort', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'updateSortOrder']);
+            Route::get('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'show']);
+            Route::put('/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
+            Route::patch('/{subscriptionPlan}', [\App\Http\Controllers\API\Admin\SubscriptionPlanAdminApiController::class, 'update']);
+            Route::delete('/{subscriptionPlan}', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'destroy']);
+            Route::post('/{id}/restore', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'restore']);
+            Route::delete('/{id}/trash', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'trash']);
+            Route::post('/{id}/toggle', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'toggleStatus']);
+        });
 
-        Route::post('/{id}/toggle', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'toggleStatus']);
-    });
-
-    // Admin approval management (T029) — legacy simple approve/reject
-    Route::prefix('admin/reviews')->group(function (): void {
-        Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingRatings']);
-        Route::post('/{id}/approve', [\App\Http\Controllers\Admin\ApprovalController::class, 'approveRating']);
-        Route::post('/{id}/reject', [\App\Http\Controllers\Admin\ApprovalController::class, 'rejectRating']);
+        // Admin approval management (T029) — legacy simple approve/reject
+        Route::prefix('admin/reviews')->group(function (): void {
+            Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingRatings']);
+            Route::post('/{id}/approve', [\App\Http\Controllers\Admin\ApprovalController::class, 'approveRating']);
+            Route::post('/{id}/reject', [\App\Http\Controllers\Admin\ApprovalController::class, 'rejectRating']);
+        });
     });
 
     // Admin Ratings CRUD API — used by Next.js dashboard (/api/admin/ratings)
@@ -791,6 +803,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('promo-codes', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'index']);
         Route::get('promo-codes/trashed', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'trashed']);
         Route::get('promo-codes/{id}', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'show']);
+        Route::get('promo-codes/{id}/usages', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'usages']);
         Route::post('promo-codes', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'store']);
         Route::put('promo-codes/{id}', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'update']);
         Route::delete('promo-codes/{id}', [\App\Http\Controllers\API\Admin\PromoCodeAdminApiController::class, 'destroy']);
@@ -1038,6 +1051,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::post('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'updateKnowledge']); // POST variant for file uploads
             Route::delete('/knowledge/{id}', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'destroyKnowledge']);
             Route::post('/knowledge/{id}/toggle', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'toggleKnowledge']);
+            Route::post('/knowledge/{id}/reindex', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'reindexKnowledge']);
 
             // Conversations
             Route::get('/conversations', [\App\Http\Controllers\API\Admin\ChatbotAdminApiController::class, 'indexConversations']);

@@ -30,15 +30,15 @@ final class FirebaseConfigApiTest extends TestCase
             'firebase_project_id' => 'demo-project',
             'firebase_app_id' => '1:123:web:abc',
         ] as $name => $value) {
-            Setting::create(['name' => $name, 'value' => $value, 'type' => 'string']);
+            Setting::updateOrCreate(['name' => $name], ['value' => $value, 'type' => 'string']);
         }
 
         $response = $this->getJson('/api/firebase-config');
 
         $response->assertOk()
             ->assertJsonPath('data.configured', true)
-            ->assertJsonPath('data.config.apiKey', 'test-api-key')
-            ->assertJsonPath('data.config.projectId', 'demo-project');
+            ->assertJsonPath('data.config.api_key', 'test-api-key')
+            ->assertJsonPath('data.config.project_id', 'demo-project');
     }
 
     public function test_admin_firebase_settings_requires_authentication(): void

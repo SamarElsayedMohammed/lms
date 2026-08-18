@@ -370,7 +370,7 @@ class HelpdeskApiController extends Controller
                     'author' => [
                         'id' => $question->user->id,
                         'name' => $question->user->name,
-                        'avatar' => $question->user->profile ? asset('storage/' . $question->user->profile) : null,
+                        'avatar' => $question->user->profile ?? null,
                         'email' => $question->user->email,
                     ],
                     'group' => [
@@ -388,7 +388,7 @@ class HelpdeskApiController extends Controller
                     'author' => [
                         'id' => $reply->user->id,
                         'name' => $reply->user->name,
-                        'avatar' => $reply->user->profile ? asset('storage/' . $reply->user->profile) : null,
+                        'avatar' => $reply->user->profile ?? null,
                     ],
                     'children' => $reply->children->map(static fn($child) => [
                         'id' => $child->id,
@@ -398,7 +398,7 @@ class HelpdeskApiController extends Controller
                         'author' => [
                             'id' => $child->user->id,
                             'name' => $child->user->name,
-                            'avatar' => $child->user->profile ? asset('storage/' . $child->user->profile) : null,
+                            'avatar' => $child->user->profile ?? null,
                         ],
                     ]),
                 ]),

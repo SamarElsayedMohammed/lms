@@ -21,6 +21,16 @@ class Setting extends Model
         'type',
     ];
 
+    protected static function booted()
+    {
+        static::saved(function () {
+            \App\Services\CachingService::removeCache(config('constants.CACHE.SETTINGS'));
+        });
+        static::deleted(function () {
+            \App\Services\CachingService::removeCache(config('constants.CACHE.SETTINGS'));
+        });
+    }
+
     /**
      * Get the value attribute with special handling for file types.
      *

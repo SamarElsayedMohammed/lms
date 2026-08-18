@@ -14,20 +14,17 @@ use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\ContentAccessService;
 use Carbon\Carbon;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 /**
- * SubscriptionCourseAccessTest
- *
- * Reproduces the reported bug: "subscribed students cannot access some courses".
- * Proves the fix by running all boundary scenarios through ContentAccessService.
- *
- * Uses DatabaseTransactions so every test rolls back without leaving dirty data.
+ * Validates course lecture access through the Subscription domain.
  */
 final class SubscriptionCourseAccessTest extends TestCase
 {
-    use DatabaseTransactions;
+    use RefreshDatabase;
 
     private ContentAccessService $service;
     private SubscriptionPlan $plan;
@@ -60,7 +57,7 @@ final class SubscriptionCourseAccessTest extends TestCase
             'is_active'     => true,
         ]);
 
-        $this->course = Course::create([
+        $this->course = Course::factory()->create([
             'title'           => 'Test Course ' . uniqid(),
             'slug'            => 'test-course-' . uniqid(),
             'user_id'         => $this->instructor->id,
@@ -68,6 +65,7 @@ final class SubscriptionCourseAccessTest extends TestCase
             'approval_status' => 'approved',
             'is_active'       => true,
             'course_type'     => 'paid',
+            'level'           => 'beginner',
             'price'           => 100.00,
         ]);
 
@@ -85,7 +83,7 @@ final class SubscriptionCourseAccessTest extends TestCase
             'course_chapter_id' => $this->chapter->id,
             'title'            => 'Lecture 1',
             'slug'             => 'lecture-1-' . uniqid(),
-            'type'             => 'video',
+            'type'             => 'url',
             'is_active'        => true,
             'free_preview'     => false,
             'is_free'          => false,
@@ -124,7 +122,7 @@ final class SubscriptionCourseAccessTest extends TestCase
     public function subscribed_user_can_access_a_course_they_never_visited(): void
     {
         // Create a second course that the subscriber has ZERO interaction with.
-        $coldCourse = Course::create([
+        $coldCourse = Course::factory()->create([
             'title'           => 'Cold Course ' . uniqid(),
             'slug'            => 'cold-course-' . uniqid(),
             'user_id'         => $this->instructor->id,
@@ -132,6 +130,7 @@ final class SubscriptionCourseAccessTest extends TestCase
             'approval_status' => 'approved',
             'is_active'       => true,
             'course_type'     => 'paid',
+            'level'           => 'beginner',
             'price'           => 200.00,
         ]);
         $coldChapter = CourseChapter::create([
@@ -147,7 +146,7 @@ final class SubscriptionCourseAccessTest extends TestCase
             'course_chapter_id' => $coldChapter->id,
             'title'             => 'Cold Lecture',
             'slug'              => 'cold-lecture-' . uniqid(),
-            'type'              => 'video',
+            'type'              => 'url',
             'is_active'         => true,
             'free_preview'      => false,
             'is_free'           => false,
@@ -197,6 +196,7 @@ final class SubscriptionCourseAccessTest extends TestCase
 
         // Create a completed order for the course.
         $order = Order::create([
+            'order_number'   => 'ORD-' . uniqid(),
             'user_id'        => $user->id,
             'status'         => 'completed',
             'payment_method' => 'wallet',
@@ -207,6 +207,7 @@ final class SubscriptionCourseAccessTest extends TestCase
             'order_id'  => $order->id,
             'course_id' => $this->course->id,
             'price'     => 100.00,
+            'tax_price' => 0.00,
         ]);
 
         ContentAccessService::flushRequestCache();
@@ -245,7 +246,7 @@ final class SubscriptionCourseAccessTest extends TestCase
             'course_chapter_id' => $this->chapter->id,
             'title'             => 'Free Preview Lecture',
             'slug'              => 'free-preview-' . uniqid(),
-            'type'              => 'video',
+            'type'              => 'url',
             'is_active'         => true,
             'free_preview'      => true,   // <-- free preview flag
             'is_free'           => false,

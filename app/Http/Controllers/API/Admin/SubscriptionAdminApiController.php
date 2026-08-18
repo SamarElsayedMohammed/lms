@@ -312,6 +312,19 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
             $payment->save();
 
+            // Durable Promo Consumption
+            if (!empty($payment->promo_code)) {
+                try {
+                    app(SubscriptionPromoService::class)->consumePromo($payment->id, $payment->promo_code);
+                } catch (\Throwable $e) {
+                    Log::error('SubscriptionAdminApiController: Promo consumption failed', [
+                        'payment_id' => $payment->id,
+                        'promo_code' => $payment->promo_code,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
             $startsAt = now();
             $status = Subscription::STATUS_ACTIVE;
             $parentSubscriptionId = null;
@@ -422,11 +435,27 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         }
 
         $receipt = $payment->getRawOriginal('receipt');
-        if (!\App\Services\FileService::checkPrivateFileExists($receipt)) {
-            return ApiResponseService::errorResponse('ملف الإيصال غير متاح في التخزين.', [], 404);
+        if (\App\Services\FileService::checkPrivateFileExists($receipt)) {
+            return response()->file(\App\Services\FileService::getPrivateFilePath($receipt));
         }
 
-        return response()->file(\App\Services\FileService::getPrivateFilePath($receipt));
+        if (\App\Services\FileService::checkFileExists($receipt)) {
+            return response()->file(\App\Services\FileService::getFilePath($receipt));
+        }
+
+        if (file_exists(storage_path('app/' . $receipt))) {
+            return response()->file(storage_path('app/' . $receipt));
+        }
+
+        if (file_exists(storage_path('app/private/' . $receipt))) {
+            return response()->file(storage_path('app/private/' . $receipt));
+        }
+
+        if (file_exists(public_path('storage/' . $receipt))) {
+            return response()->file(public_path('storage/' . $receipt));
+        }
+
+        return ApiResponseService::errorResponse('ملف الإيصال غير متاح في التخزين.', [], 404);
     }
 
     /**
@@ -485,9 +514,9 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             $payment->save();
 
             // Release promo code quota if applied (DEF-01)
-            if ($payment->promo_code) {
+            if (!empty($payment->promo_code)) {
                 try {
-                    app(\App\Services\SubscriptionPromoService::class)->releasePromo($payment->promo_code);
+                    app(\App\Services\SubscriptionPromoService::class)->releasePromo($payment->promo_code, $payment->id);
                 } catch (\Throwable $e) {
                     Log::warning('Failed to release promo code quota on subscription rejection: ' . $e->getMessage());
                 }

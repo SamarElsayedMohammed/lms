@@ -112,7 +112,7 @@ class AdminCourseProgressController extends AdminCrudApiController
             $details = $this->progressService->getDetailedProgress($userId, $courseId);
 
             // Add user info
-            $user = \App\Models\User::select(['id', 'name', 'email', 'phone', 'avatar'])->find($userId);
+            $user = \App\Models\User::select(['id', 'name', 'email', 'mobile', 'profile'])->find($userId);
             $details['user'] = $user;
 
             return ApiResponseService::successResponse('Student course details retrieved successfully.', $details);

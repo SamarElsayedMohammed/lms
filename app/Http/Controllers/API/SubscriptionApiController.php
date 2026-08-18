@@ -217,7 +217,10 @@ final class SubscriptionApiController extends Controller
 
                 $latestPayment = $subscription->payments()->latest()->first();
                 $paymentMethod = $latestPayment?->payment_method ?? 'manual';
-                $isStoreManaged = in_array($paymentMethod, ['google', 'apple', 'in_app_purchase', 'play_store', 'app_store'], true);
+                $amountPaid = (float) ($latestPayment?->final_amount ?? $subscription->locked_price ?? $nextPaymentAmount);
+                $originalAmount = (float) ($latestPayment?->original_amount ?? $subscription->locked_price ?? $nextPaymentAmount);
+                $discountAmount = (float) ($latestPayment?->discount_amount ?? 0);
+                $promoCodeUsed = $latestPayment?->promo_code;
 
                 return [
                     'id'                  => $subscription->id,
@@ -243,8 +246,14 @@ final class SubscriptionApiController extends Controller
                     'created_at'          => $subscription->created_at->format('Y-m-d H:i:s'),
                     'renewal_date'        => $subscription->ends_at?->format('Y-m-d H:i:s'),
                     'payment_method'      => $paymentMethod,
+                    'amount'              => $amountPaid,
+                    'paid_amount'         => $amountPaid,
+                    'original_amount'     => $originalAmount,
+                    'discount_amount'     => $discountAmount,
+                    'promo_code'          => $promoCodeUsed,
+                    'renewal_price'       => $nextPaymentAmount,
                     'next_payment_amount' => $nextPaymentAmount,
-                    'currency'            => $nextPaymentCurrency,
+                    'currency'            => $latestPayment?->currency_code ?? $nextPaymentCurrency,
                     'currency_symbol'     => $nextPaymentSymbol,
                     'receipt_url'         => $latestPayment?->getRawOriginal('receipt')
                         ? route('subscription.receipt', ['payment' => $latestPayment->id])
@@ -675,7 +684,7 @@ final class SubscriptionApiController extends Controller
                             'auto_renew' => true,
                         ]);
 
-                        \App\Models\SubscriptionPayment::create([
+                        $payment = \App\Models\SubscriptionPayment::create([
                             'subscription_id' => $subscription->id,
                             'user_id' => $user->id,
                             'amount' => $totalAmount,
@@ -700,6 +709,21 @@ final class SubscriptionApiController extends Controller
                             'paid_at' => null,
                             'tax' => 0,
                         ]);
+
+                        if (!empty($appliedPromoCode)) {
+                            \App\Models\PromoRedemption::where('user_id', $user->id)
+                                ->where(function ($q) use ($appliedPromoCode) {
+                                    $q->where('promo_code', $appliedPromoCode)
+                                      ->orWhereRaw('UPPER(promo_code) = ?', [strtoupper($appliedPromoCode)]);
+                                })
+                                ->where('status', \App\Models\PromoRedemption::STATUS_RESERVED)
+                                ->whereNull('subscription_payment_id')
+                                ->latest('id')
+                                ->update([
+                                    'subscription_id' => $subscription->id,
+                                    'subscription_payment_id' => $payment->id,
+                                ]);
+                        }
 
                         // Hold wallet amount if used
                         if ($walletAmount > 0) {
@@ -760,8 +784,8 @@ final class SubscriptionApiController extends Controller
                         ]
                     ]);
                 } catch (\Exception $e) {
-                    if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
-                        \Illuminate\Support\Facades\DB::rollBack();
+                    if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
+                        throw $e;
                     }
                     if ($receiptPath) {
                         try {
@@ -772,9 +796,6 @@ final class SubscriptionApiController extends Controller
                     }
                     if ($appliedPromoCode) {
                         $this->promoService->releasePromo($appliedPromoCode);
-                    }
-                    if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
-                        throw $e;
                     }
                     return ApiResponseService::errorResponse('فشل في إرسال طلب الاشتراك اليدوي: ' . $e->getMessage());
                 }
@@ -801,44 +822,54 @@ final class SubscriptionApiController extends Controller
 
             // Create durable pending subscription and pending SubscriptionPayment (DEF-02)
             try {
-                \Illuminate\Support\Facades\DB::beginTransaction();
+                [$pendingSub, $pendingPayment] = \Illuminate\Support\Facades\DB::transaction(function () use (
+                    $user,
+                    $plan,
+                    $totalAmount,
+                    $resolvedCurrency,
+                    $walletAmount,
+                    $gatewayAmount,
+                    $countryCode,
+                    $countryPricing,
+                    $appliedPromoCode,
+                    $originalAmount,
+                    $discountAmount,
+                    $checkout
+                ) {
+                    $pendingSub = Subscription::create([
+                        'user_id' => $user->id,
+                        'plan_id' => $plan->id,
+                        'locked_price' => $totalAmount,
+                        'locked_currency' => $resolvedCurrency,
+                        'starts_at' => now(),
+                        'ends_at' => null,
+                        'status' => Subscription::STATUS_PENDING,
+                        'auto_renew' => true,
+                    ]);
 
-                $pendingSub = Subscription::create([
-                    'user_id' => $user->id,
-                    'plan_id' => $plan->id,
-                    'locked_price' => $totalAmount,
-                    'locked_currency' => $resolvedCurrency,
-                    'starts_at' => now(),
-                    'ends_at' => null,
-                    'status' => Subscription::STATUS_PENDING,
-                    'auto_renew' => true,
-                ]);
+                    $pendingPayment = \App\Models\SubscriptionPayment::create([
+                        'subscription_id' => $pendingSub->id,
+                        'user_id' => $user->id,
+                        'amount' => $totalAmount,
+                        'wallet_amount' => $walletAmount,
+                        'gateway_amount' => $gatewayAmount,
+                        'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
+                        'payment_method' => 'kashier',
+                        'resolved_country' => $countryCode,
+                        'currency_code' => $resolvedCurrency,
+                        'price_source' => $countryPricing['price_source'] ?? 'default',
+                        'promo_code' => $appliedPromoCode,
+                        'original_amount' => $originalAmount,
+                        'discount_amount' => $discountAmount,
+                        'final_amount' => $totalAmount,
+                        'transaction_id' => $checkout['order_id'],
+                        'tax' => 0,
+                        'paid_at' => null,
+                    ]);
 
-                $pendingPayment = \App\Models\SubscriptionPayment::create([
-                    'subscription_id' => $pendingSub->id,
-                    'user_id' => $user->id,
-                    'amount' => $totalAmount,
-                    'wallet_amount' => $walletAmount,
-                    'gateway_amount' => $gatewayAmount,
-                    'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
-                    'payment_method' => 'kashier',
-                    'resolved_country' => $countryCode,
-                    'currency_code' => $resolvedCurrency,
-                    'price_source' => $countryPricing['price_source'] ?? 'default',
-                    'promo_code' => $appliedPromoCode,
-                    'original_amount' => $originalAmount,
-                    'discount_amount' => $discountAmount,
-                    'final_amount' => $totalAmount,
-                    'transaction_id' => $checkout['order_id'],
-                    'tax' => 0,
-                    'paid_at' => null,
-                ]);
-
-                \Illuminate\Support\Facades\DB::commit();
+                    return [$pendingSub, $pendingPayment];
+                });
             } catch (\Throwable $dbEx) {
-                if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
-                    \Illuminate\Support\Facades\DB::rollBack();
-                }
                 if ($appliedPromoCode) {
                     $this->promoService->releasePromo($appliedPromoCode);
                 }
@@ -868,14 +899,8 @@ final class SubscriptionApiController extends Controller
                 ],
             ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
-            if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
-                \Illuminate\Support\Facades\DB::rollBack();
-            }
             throw $e;
         } catch (\Throwable $e) {
-            if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
-                \Illuminate\Support\Facades\DB::rollBack();
-            }
             if (!empty($appliedPromoCode)) {
                 $this->promoService->releasePromo($appliedPromoCode);
             }
@@ -1047,45 +1072,57 @@ $totalAmount = (float) $countryPricing['price'];
                         'subscriptions/receipts'
                     );
 
-                    \Illuminate\Support\Facades\DB::beginTransaction();
+                    \Illuminate\Support\Facades\DB::transaction(function () use (
+                        $user,
+                        $plan,
+                        $totalAmount,
+                        $resolvedCurrency,
+                        $walletAmount,
+                        $gatewayAmount,
+                        $countryCode,
+                        $countryPricing,
+                        $request,
+                        $method,
+                        $receiptPath,
+                        $subscription,
+                        &$newSubscription
+                    ) {
+                        // For renewal via manual payment, create a NEW pending_approval subscription
+                        $newSubscription = Subscription::create([
+                            'user_id' => $user->id,
+                            'plan_id' => $plan->id,
+                            'locked_price' => $totalAmount,
+                            'locked_currency' => $resolvedCurrency,
+                            'starts_at' => now(), // Placeholder, updated on approval
+                            'ends_at' => null,    // Placeholder, updated on approval
+                            'status' => Subscription::STATUS_PENDING_APPROVAL,
+                            'auto_renew' => true,
+                            'parent_subscription_id' => $subscription->id, // Link to previous sub
+                        ]);
 
-                    // For renewal via manual payment, create a NEW pending_approval subscription
-                    $newSubscription = Subscription::create([
-                        'user_id' => $user->id,
-                        'plan_id' => $plan->id,
-                        'locked_price' => $totalAmount,
-                        'locked_currency' => $resolvedCurrency,
-                        'starts_at' => now(), // Placeholder, updated on approval
-                        'ends_at' => null,    // Placeholder, updated on approval
-                        'status' => Subscription::STATUS_PENDING_APPROVAL,
-                        'auto_renew' => true,
-                        'parent_subscription_id' => $subscription->id, // Link to previous sub
-                    ]);
-
-                    \App\Models\SubscriptionPayment::create([
-                        'subscription_id' => $newSubscription->id,
-                        'user_id' => $user->id,
-                        'amount' => $totalAmount,
-                        'wallet_amount' => $walletAmount,
-                        'gateway_amount' => $gatewayAmount,
-                        'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
-                        'payment_method' => 'manual',
-                        'resolved_country' => $countryCode,
-                        'currency_code' => $resolvedCurrency,
-                        'price_source' => $countryPricing['price_source'] ?? 'default',
-                        'payment_method_id' => $this->isManualDepositMethodId((string) $request->payment_method_id)
-                            ? null : (int) $request->payment_method_id,
-                        'manual_deposit_method_id' => $this->manualDepositMethodId((string) $request->payment_method_id),
-                        'method_snapshot' => $this->manualPaymentMethodSnapshot($method),
-                        'submitted_fields' => $this->submittedManualFields($request, $method),
-                        'receipt' => $receiptPath,
-                        'transaction_id' => $request->transaction_id,
-                        'paid_at' => null,
-                        'tax' => 0,
-                        'final_amount' => $totalAmount,
-                    ]);
-
-                    \Illuminate\Support\Facades\DB::commit();
+                        \App\Models\SubscriptionPayment::create([
+                            'subscription_id' => $newSubscription->id,
+                            'user_id' => $user->id,
+                            'amount' => $totalAmount,
+                            'wallet_amount' => $walletAmount,
+                            'gateway_amount' => $gatewayAmount,
+                            'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
+                            'payment_method' => 'manual',
+                            'resolved_country' => $countryCode,
+                            'currency_code' => $resolvedCurrency,
+                            'price_source' => $countryPricing['price_source'] ?? 'default',
+                            'payment_method_id' => $this->isManualDepositMethodId((string) $request->payment_method_id)
+                                ? null : (int) $request->payment_method_id,
+                            'manual_deposit_method_id' => $this->manualDepositMethodId((string) $request->payment_method_id),
+                            'method_snapshot' => $this->manualPaymentMethodSnapshot($method),
+                            'submitted_fields' => $this->submittedManualFields($request, $method),
+                            'receipt' => $receiptPath,
+                            'transaction_id' => $request->transaction_id,
+                            'paid_at' => null,
+                            'tax' => 0,
+                            'final_amount' => $totalAmount,
+                        ]);
+                    });
 
                     // Notify admins about the new manual renewal request
                     try {
@@ -1134,9 +1171,6 @@ $totalAmount = (float) $countryPricing['price'];
                         ]
                     ]);
                 } catch (\Exception $e) {
-                    if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
-                        \Illuminate\Support\Facades\DB::rollBack();
-                    }
                     if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
                         throw $e;
                     }
@@ -1677,13 +1711,30 @@ $totalAmount = (float) $countryPricing['price'];
 
     private function manualPaymentMethodSnapshot(PaymentMethod $method): array
     {
+        $instructions = $method->instructions;
+        if (is_string($instructions) && str_starts_with(trim($instructions), '{') && str_ends_with(trim($instructions), '}')) {
+            $decoded = json_decode($instructions, true);
+            if (is_array($decoded)) {
+                $nonNull = array_filter($decoded, fn($v) => !empty($v));
+                $instructions = count($nonNull) > 0 ? ($decoded['instructions'] ?? null) : null;
+            }
+        }
+
+        $accountNumber = $method->account_number;
+        if (is_string($accountNumber) && str_starts_with(trim($accountNumber), '{') && str_ends_with(trim($accountNumber), '}')) {
+            $decoded = json_decode($accountNumber, true);
+            if (is_array($decoded)) {
+                $accountNumber = $decoded['account_number'] ?? $decoded['instapay_id'] ?? null;
+            }
+        }
+
         return [
             'id' => $method->id,
             'name' => $method->name,
             'type' => $method->type,
-            'instructions' => $method->instructions,
+            'instructions' => $instructions,
             'account_name' => $method->account_name,
-            'account_number' => $method->account_number,
+            'account_number' => $accountNumber,
             'instapay_id' => $method->instapay_id,
             'merchant_code' => $method->merchant_code,
             'dynamic_fields' => $method->dynamic_fields ?? [],

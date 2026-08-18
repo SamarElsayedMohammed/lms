@@ -11,10 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('taxes', function (Blueprint $table) {
-            $table->boolean('is_default')->default(false)->after('country_code');
-            $table->index('is_default');
-        });
+        if (!Schema::hasColumn('taxes', 'is_default')) {
+            Schema::table('taxes', function (Blueprint $table) {
+                $table->boolean('is_default')->default(false)->after('country_code');
+                $table->index('is_default');
+            });
+        }
     }
 
     /**

@@ -431,9 +431,10 @@ class RefundApiController extends Controller
 
                     foreach ($certificates as $certificate) {
                         $certData = [
-                            'status' => 'revoked',
-                            'revoked_at' => Carbon::now(),
+                            'status'         => 'revoked',
+                            'revoked_at'     => Carbon::now(),
                             'revoked_reason' => 'Course refunded',
+                            'revoked_by'     => $admin?->id,
                         ];
                         if (\Illuminate\Support\Facades\Schema::hasColumn('course_certificates', 'is_valid')) {
                             $certData['is_valid'] = false;

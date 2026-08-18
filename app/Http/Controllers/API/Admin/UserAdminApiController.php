@@ -32,7 +32,7 @@ class UserAdminApiController extends AdminCrudApiController
         $withTrashed = $request->boolean('with_trashed');
         $role = $request->input('role');
 
-        $query = User::select(['id', 'name', 'email', 'mobile', 'country_calling_code', 'country_code', 'slug', 'is_active', 'created_at', 'deleted_at'])
+        $query = User::select(['id', 'name', 'email', 'mobile', 'country_calling_code', 'country_code', 'profile', 'slug', 'is_active', 'created_at', 'deleted_at'])
             ->with(['instructor_details:id,user_id,status', 'activeSubscription.plan:id,billing_cycle,name', 'roles:id,name'])
             ->when($role, function ($q) use ($role) {
                 RoleManager::applyRoleFilter($q, $role);

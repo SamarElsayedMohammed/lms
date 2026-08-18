@@ -16,9 +16,13 @@ use Illuminate\Support\Facades\Validator;
 
 class WishlistApiController extends Controller
 {
+    private readonly PricingCalculationService $pricingService;
+
     public function __construct(
-        private readonly PricingCalculationService $pricingService,
-    ) {}
+        ?PricingCalculationService $pricingService = null,
+    ) {
+        $this->pricingService = $pricingService ?? app(PricingCalculationService::class);
+    }
 
     /**
      * Get user's wishlist with DB-level pagination and batch-loaded access states
@@ -232,6 +236,18 @@ class WishlistApiController extends Controller
             ApiResponseService::logErrorResponse($e, 'Failed to update wishlist');
             return ApiResponseService::errorResponse('Failed to update wishlist');
         }
+    }
+
+    public function addToWishlist(Request $request)
+    {
+        $request->merge(['status' => 1]);
+        return $this->addUpdateWishlist($request);
+    }
+
+    public function removeFromWishlist(Request $request)
+    {
+        $request->merge(['status' => 0]);
+        return $this->addUpdateWishlist($request);
     }
 }
 

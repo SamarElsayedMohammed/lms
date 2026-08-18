@@ -30,7 +30,6 @@ class SubscriptionReportApiTest extends TestCase
         $this->admin->assignRole($role);
 
         $this->user = User::factory()->create([
-            'role' => 'user',
             'email' => 'student@skillso.test',
         ]);
     }

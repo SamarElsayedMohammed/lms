@@ -29,9 +29,12 @@ final class PricingService
      *
      * @return array{price: int, old_price: int|null, currency_code: string, currency_symbol: string, price_source: string, can_subscribe: boolean}
      */
-    public function getPriceForCountry(SubscriptionPlan $plan, string $countryCode): array
+    public function getPriceForCountry(SubscriptionPlan $plan, ?string $countryCode = null): array
     {
-        $countryCode = strtoupper(trim($countryCode));
+        $countryCode = strtoupper(trim((string) ($countryCode ?? 'EG')));
+        if ($countryCode === '') {
+            $countryCode = 'EG';
+        }
 
         // 1. Check for specific country override
         if (!empty($countryCode)) {
@@ -80,18 +83,29 @@ final class PricingService
         }
 
         // 2. USD fallback for non-Egypt countries when usd_price is configured
-        if (!empty($countryCode) && $countryCode !== 'EG' && $plan->usd_price !== null && (float) $plan->usd_price > 0) {
+        if (!empty($countryCode) && $countryCode !== 'EG') {
+            if ($plan->usd_price !== null && (float) $plan->usd_price > 0) {
+                return [
+                    'price' => $this->roundUpForDisplay((float) $plan->usd_price),
+                    'old_price' => null,
+                    'currency_code' => 'USD',
+                    'currency_symbol' => '$',
+                    'price_source' => 'default',
+                    'can_subscribe' => true,
+                ];
+            }
+
             return [
-                'price' => $this->roundUpForDisplay((float) $plan->usd_price),
+                'price' => 0,
                 'old_price' => null,
                 'currency_code' => 'USD',
                 'currency_symbol' => '$',
-                'price_source' => 'default_usd',
-                'can_subscribe' => true,
+                'price_source' => 'default',
+                'can_subscribe' => false,
             ];
         }
 
-        // 3. Global Fallback: base price in EGP
+        // 3. Egypt / Global Fallback: base price in EGP
         return [
             'price' => $this->roundUpForDisplay((float) $plan->price),
             'old_price' => !empty($plan->old_price) ? $this->roundUpForDisplay((float) $plan->old_price) : null,

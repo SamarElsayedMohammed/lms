@@ -54,11 +54,14 @@ class ChatbotAvailabilityTest extends TestCase
             'ai_processing_status' => 'ready',
         ]);
 
-        // Attach student enrollment
-        $course->students()->attach($user->id, [
-            'status' => 'active',
-            'created_at' => now(),
-            'updated_at' => now(),
+        // Attach student enrollment via UserCourseProgress
+        \App\Models\UserCourseProgress::create([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'completed_items' => 1,
+            'total_items' => 10,
+            'progress_percentage' => 10,
+            'status' => 'in_progress',
         ]);
 
         $response = $this->actingAs($user, 'sanctum')

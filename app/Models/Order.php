@@ -26,7 +26,7 @@ class Order extends Model
                     }
                 }
 
-                // 2. Decrement Promo Code Usage Limits safely
+                // 2. Record Promo Code Consumption in PromoRedemption (DEF-LEGACY-01)
                 try {
                     $promoCodeIds = $order->orderCourses()->whereNotNull('promo_code_id')->pluck('promo_code_id')->unique();
                     
@@ -36,12 +36,27 @@ class Order extends Model
 
                     foreach ($promoCodeIds as $promoId) {
                         $promo = \App\Models\PromoCode::find($promoId);
-                        if ($promo && $promo->no_of_users !== null) {
-                            $promo->decrement('no_of_users');
+                        if ($promo) {
+                            \App\Models\PromoRedemption::firstOrCreate([
+                                'order_id' => $order->id,
+                                'promo_code_id' => $promo->id,
+                            ], [
+                                'promo_code' => $promo->promo_code,
+                                'user_id' => $order->user_id,
+                                'status' => \App\Models\PromoRedemption::STATUS_CONSUMED,
+                                'currency' => 'EGP',
+                                'original_amount' => (float) ($order->total_price ?? 0),
+                                'discount_amount' => (float) ($order->discount_amount ?? 0),
+                                'final_amount' => (float) ($order->final_price ?? 0),
+                                'discount_type_snapshot' => $promo->discount_type,
+                                'discount_value_snapshot' => $promo->discount,
+                                'reserved_at' => $order->created_at ?? now(),
+                                'consumed_at' => now(),
+                            ]);
                         }
                     }
                 } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::error('Decrement Promo Code Usage Error: ' . $e->getMessage());
+                    \Illuminate\Support\Facades\Log::error('Order Promo Redemption Error: ' . $e->getMessage());
                 }
             }
         });

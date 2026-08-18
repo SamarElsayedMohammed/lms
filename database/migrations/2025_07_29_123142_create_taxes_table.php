@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('name');                        // e.g., "GST", "Digital Service Tax"
             $table->decimal('percentage', 5, 2);           // e.g., 1.00, 2.00
             $table->boolean('is_active')->default(1);   // tax can be turned on/off
+            $table->boolean('is_inclusive')->default(false);
             $table->softDeletes();
             $table->timestamps();
         });
