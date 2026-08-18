@@ -217,7 +217,7 @@ final class CourseChapterLecture extends Model
         // File type lectures
         if ($this->type === 'file') {
             // Check if HLS is available
-            if ($this->hasHls() && !$this->free_preview) {
+            if ($this->hasHls()) {
                 return 'hls';
             }
 
@@ -248,13 +248,13 @@ final class CourseChapterLecture extends Model
 
         // File type lectures
         if ($this->type === 'file') {
-            // Check if HLS is available
-            if ($this->hasHls() && !$this->free_preview) {
-                // Return API endpoint for HLS streaming (requires authentication)
+            // Check if HLS is available or is a video file
+            if ($this->hasHls() || in_array(strtolower($this->file_extension ?? ''), ['mp4', 'avi', 'mov', 'webm', 'mkv', 'flv', 'wmv', 'm4v', '3gp', '3g2'], true)) {
+                // Return API endpoint for video/HLS streaming
                 return url("/api/video/{$this->id}/stream");
             }
 
-            // Return direct file URL
+            // Return direct file URL for documents
             return $this->file;
         }
 

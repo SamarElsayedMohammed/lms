@@ -164,6 +164,7 @@ final class VideoStreamController extends Controller
             'file_type'    => 'video',
             'video_url'    => url("/api/video-direct/{$uuid}"),
             'file_url'     => url("/api/video-direct/{$uuid}"),
+            'token'        => $uuid,
             'lecture_id'   => $lecture->id,
             'lecture_title'=> $lecture->title,
             'duration'     => $lecture->duration,

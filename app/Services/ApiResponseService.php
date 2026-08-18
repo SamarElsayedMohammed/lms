@@ -228,6 +228,11 @@ final class ApiResponseService
         self::errorResponse($message, $data, exception: $e);
     }
 
+    public static function forbidden(string $message = 'Forbidden.', mixed $data = null): void
+    {
+        self::errorResponse($message, $data, 403);
+    }
+
     public static function unauthorizedResponse(string $message = 'Unauthorized.'): JsonResponse
     {
         return response()->json([

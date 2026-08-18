@@ -1786,19 +1786,37 @@ class CourseChapterApiController extends Controller
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
-            $userId = $request->user_id ?? Auth::id();
-            $courseId = $request->course_id;
-            $chapterId = $request->chapter_id;
-
-            // Check if user is authenticated
-            if (!$userId) {
-                return ApiResponseService::errorResponse('User authentication required.');
+            $authUser = Auth::guard('sanctum')->user() ?: Auth::user();
+            if (!$authUser) {
+                return ApiResponseService::errorResponse('User authentication required.', [], 401);
             }
 
-            // Get user details
-            $user = \App\Models\User::find($userId);
+            $courseId = (int) $request->course_id;
+            $chapterId = $request->chapter_id ? (int) $request->chapter_id : null;
+
+            $course = Course::find($courseId);
+            if (!$course) {
+                return ApiResponseService::errorResponse('Course not found.', [], 404);
+            }
+
+            $targetUserId = (int) ($request->user_id ?? $authUser->id);
+
+            $isInstructorOrAdmin = (int) $course->user_id === (int) $authUser->id
+                || (bool) ($authUser->is_admin ?? false)
+                || (method_exists($authUser, 'hasRole') && $authUser->hasRole(['Super Admin', 'Admin', 'Supervisor', 'Staff']));
+
+            if ($targetUserId !== (int) $authUser->id && !$isInstructorOrAdmin) {
+                return ApiResponseService::forbidden('Unauthorized to view assignment submissions of another user.');
+            }
+
+            if (!$isInstructorOrAdmin && !app(\App\Services\ContentAccessService::class)->canAccessCourse($authUser, $course)) {
+                return ApiResponseService::forbidden('Course access required.');
+            }
+
+            $userId = $targetUserId;
+            $user = ($targetUserId === (int) $authUser->id) ? $authUser : \App\Models\User::find($userId);
             if (!$user) {
-                return ApiResponseService::errorResponse('User not found.');
+                return ApiResponseService::errorResponse('User not found.', [], 404);
             }
 
             // If chapter_id is provided, validate it belongs to the course
