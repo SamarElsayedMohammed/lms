@@ -49,7 +49,7 @@ use Illuminate\Support\Facades\Route;
  |
  */
 
-// ─── Healthcheck (no auth — required by Docker HEALTHCHECK / Coolify) ─────────
+// ─── Healthcheck & Observability (no auth — required by Docker / Coolify) ────
 Route::get('health', static function () {
     try {
         DB::connection()->getPdo();
@@ -63,6 +63,33 @@ Route::get('health', static function () {
         'db'     => $db,
         'ts'     => now()->toIso8601String(),
     ], 200);
+});
+
+Route::get('health/live', static function () {
+    return response()->json([
+        'status' => 'alive',
+        'app'    => config('app.name', 'Skillso'),
+        'ts'     => now()->toIso8601String(),
+    ], 200);
+});
+
+Route::get('health/ready', static function () {
+    $db = false;
+    try {
+        DB::connection()->getPdo();
+        $db = true;
+    } catch (\Throwable) {
+        $db = false;
+    }
+
+    $ready = $db;
+    $status = $ready ? 200 : 503;
+
+    return response()->json([
+        'status' => $ready ? 'ready' : 'not_ready',
+        'db'     => $db,
+        'ts'     => now()->toIso8601String(),
+    ], $status);
 });
 
 /**

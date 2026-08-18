@@ -127,12 +127,42 @@ class IncidentForensicRegressionTest extends TestCase
     }
 
     /**
-     * Test 7: MySQL config has explicit PDO connection timeout to prevent process hangs.
+     * Test 7: Liveness endpoint returns HTTP 200 with status alive.
+     */
+    public function test_liveness_endpoint_returns_200_alive(): void
+    {
+        $response = $this->getJson('/api/health/live');
+        $response->assertStatus(200)
+            ->assertJsonStructure(['status', 'app', 'ts'])
+            ->assertJsonFragment(['status' => 'alive']);
+    }
+
+    /**
+     * Test 8: Readiness endpoint returns JSON payload with db key.
+     */
+    public function test_readiness_endpoint_structure(): void
+    {
+        $response = $this->getJson('/api/health/ready');
+        $this->assertContains($response->getStatusCode(), [200, 503]);
+        $response->assertJsonStructure(['status', 'db', 'ts']);
+    }
+
+    /**
+     * Test 9: MySQL config has explicit PDO connection timeout to prevent process hangs.
      */
     public function test_mysql_database_has_pdo_timeout(): void
     {
         $mysqlConfig = config('database.connections.mysql');
         $this->assertIsArray($mysqlConfig);
         $this->assertArrayHasKey('options', $mysqlConfig);
+    }
+
+    /**
+     * Test 10: Runtime snapshot console command executes successfully.
+     */
+    public function test_runtime_snapshot_command_executes(): void
+    {
+        $this->artisan('skillso:runtime-snapshot')
+            ->assertExitCode(0);
     }
 }

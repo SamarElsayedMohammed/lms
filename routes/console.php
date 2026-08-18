@@ -24,15 +24,15 @@ Artisan::command('inspire', function (): void {
  | Scheduled Tasks (T090)
  |--------------------------------------------------------------------------
  */
-Schedule::command('affiliate:release-commissions')->daily()->withoutOverlapping()->runInBackground();
-Schedule::command('subscriptions:send-expiry-notifications')->daily()->withoutOverlapping()->runInBackground();
-Schedule::command('subscriptions:handle-expired')->everyFiveMinutes()->withoutOverlapping()->runInBackground();
-Schedule::command('subscriptions:activate-queued')->everyFiveMinutes()->withoutOverlapping()->runInBackground();
+Schedule::command('affiliate:release-commissions')->daily()->withoutOverlapping();
+Schedule::command('subscriptions:send-expiry-notifications')->daily()->withoutOverlapping();
+Schedule::command('subscriptions:handle-expired')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('subscriptions:activate-queued')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('currencies:update-rates')->everyFourHours()->withoutOverlapping()->runInBackground();
-Schedule::command('webinar:remind')->everyFifteenMinutes()->withoutOverlapping()->runInBackground();
+Schedule::command('webinar:remind')->everyFifteenMinutes()->withoutOverlapping();
 
 // Telescope data pruning - keeps last 48 hours only
-Schedule::command('telescope:prune --hours=48')->daily()->withoutOverlapping()->runInBackground();
+Schedule::command('telescope:prune --hours=48')->daily()->withoutOverlapping();
 
 // Feature sections analytics
 Schedule::job(new \App\Jobs\FlushFeatureSectionAnalyticsJob)->everyFiveMinutes()->withoutOverlapping();
