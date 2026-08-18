@@ -184,7 +184,7 @@ final class SubscriptionPromoLifecycleTest extends TestCase
             'end_date' => now()->addDays(5),
         ]);
 
-        $receipt = UploadedFile::fake()->image('receipt.jpg');
+        $receipt = UploadedFile::fake()->create('receipt.jpg', 100, 'image/jpeg');
         $response = $this->actingAs($user, 'sanctum')
             ->withHeader('Idempotency-Key', 'manual-sub-1')
             ->post('/api/subscription/subscribe', [

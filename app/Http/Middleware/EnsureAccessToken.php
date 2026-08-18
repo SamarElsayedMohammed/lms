@@ -21,6 +21,15 @@ class EnsureAccessToken
         $user = $request->user();
 
         if ($user !== null) {
+            if (!(bool) $user->is_active) {
+                return response()->json([
+                    'status'  => false,
+                    'success' => false,
+                    'message' => 'Account is suspended or deactivated.',
+                    'code'    => 403,
+                ], 403);
+            }
+
             $token = $user->currentAccessToken();
 
             if ($token !== null) {

@@ -65,7 +65,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
         ]);
 
         // 2. Submit subscription request
-        $receipt = UploadedFile::fake()->image('receipt.jpg');
+        $receipt = UploadedFile::fake()->create('receipt.jpg', 100, 'image/jpeg');
         $response = $this->actingAs($user, 'sanctum')->withHeader('Idempotency-Key', 'manual-submit-unique-' . uniqid())->post('/api/subscription/subscribe', [
             'plan_id' => $plan->id,
             'payment_method' => 'manual',

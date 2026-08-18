@@ -5445,6 +5445,15 @@ class CourseApiController extends Controller
                 return ApiResponseService::validationError("Course not found");
             }
 
+            $user = Auth::guard('sanctum')->user() ?: Auth::user();
+            if (!$user) {
+                return ApiResponseService::errorResponse("Authentication required to access resources.", [], 401);
+            }
+
+            if (!app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $course)) {
+                return ApiResponseService::errorResponse("You must be enrolled in or subscribed to this course to access resources.", [], 403);
+            }
+
             // Get all resources for the course
             $allResources = $this->getAllResources($course->id);
 
@@ -7049,25 +7058,16 @@ class CourseApiController extends Controller
                 );
             }
 
-            if ($course->course_type === "paid") {
-                // Check if user has purchased the course or has an active subscription
-                $purchased = UserCourseTrack::where("user_id", $userId)
-                    ->where("course_id", $courseId)
-                    ->whereNull("deleted_at")
-                    ->exists();
+            if (!$user) {
+                return ApiResponseService::errorResponse("Authentication required.", [], 401);
+            }
 
-                if (!$purchased) {
-                    $user = \App\Models\User::find($userId);
-                    if ($user && $user->activeSubscription()->exists()) {
-                        $purchased = true;
-                    }
-                }
-
-                if (!$purchased) {
-                    ApiResponseService::validationError(
-                        "You must purchase this course before tracking progress.",
-                    );
-                }
+            if (!app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $course)) {
+                return ApiResponseService::errorResponse(
+                    "You must have active access to this course before tracking progress.",
+                    [],
+                    403,
+                );
             }
 
             $track = UserCourseTrack::updateOrCreate(

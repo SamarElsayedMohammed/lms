@@ -40,18 +40,29 @@ class ContentAccessService
      */
     public function canAccessLecture(User $user, CourseChapterLecture $lecture): bool
     {
-        // Blocked / banned users are denied immediately, regardless of subscription.
+        // Blocked / banned / inactive users are denied immediately.
         if (!(bool) $user->is_active) {
             return false;
-        }
-
-        if ($lecture->is_free || $lecture->free_preview) {
-            return true;
         }
 
         $course = $lecture->chapter?->course;
         if ($course === null) {
             return false;
+        }
+
+        // Course publication boundary: unpublished/draft/unapproved courses only accessible by owner or admin.
+        if (!$this->isCoursePubliclyAccessible($course) && !$this->canBypassPublication($user, $course)) {
+            return false;
+        }
+
+        // Inactive lectures are only accessible by owner or admin.
+        if (!(bool) $lecture->is_active && !$this->canBypassPublication($user, $course)) {
+            return false;
+        }
+
+        // Free preview / free lecture within a valid course is accessible to active users.
+        if ($lecture->is_free || $lecture->free_preview) {
+            return true;
         }
 
         // Per-request memoisation key
@@ -68,20 +79,25 @@ class ContentAccessService
     }
 
     /**
-     * Check if user can access a course (used by listing pages).
+     * Check if user can access a course (used by listing pages, curriculum, resources).
      */
     public function canAccessCourse(User $user, Course $course): bool
     {
-        // Blocked / banned users are denied immediately.
+        // Blocked / banned / inactive users are denied immediately.
         if (!(bool) $user->is_active) {
             return false;
         }
 
-        if ($course->isFreeNow()) {
+        // Course publication boundary: unpublished/draft/unapproved courses only accessible by owner or admin.
+        if (!$this->isCoursePubliclyAccessible($course) && !$this->canBypassPublication($user, $course)) {
+            return false;
+        }
+
+        if ($this->canBypassPublication($user, $course)) {
             return true;
         }
 
-        if ((int) $course->user_id === (int) $user->id) {
+        if ($course->isFreeNow()) {
             return true;
         }
 
@@ -105,13 +121,29 @@ class ContentAccessService
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private function resolveAccess(User $user, Course $course, CourseChapterLecture $lecture): bool
+    private function isCoursePubliclyAccessible(Course $course): bool
     {
-        if ($course->isFreeNow()) {
+        return (bool) $course->is_active
+            && $course->status === 'publish'
+            && $course->approval_status === 'approved';
+    }
+
+    private function canBypassPublication(User $user, Course $course): bool
+    {
+        if ((int) $course->user_id === (int) $user->id) {
             return true;
         }
 
-        if ((int) $course->user_id === (int) $user->id) {
+        return (bool) ($user->is_admin ?? false) || (method_exists($user, 'hasRole') && $user->hasRole(['Super Admin', 'Admin', 'Supervisor', 'Staff']));
+    }
+
+    private function resolveAccess(User $user, Course $course, CourseChapterLecture $lecture): bool
+    {
+        if ($this->canBypassPublication($user, $course)) {
+            return true;
+        }
+
+        if ($course->isFreeNow()) {
             return true;
         }
 

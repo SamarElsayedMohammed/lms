@@ -761,8 +761,22 @@ class CourseChapterApiController extends Controller
         }
 
         try {
-            $userId = Auth::user()?->id;
-            $courseId = $request->course_id;
+            $user = Auth::guard('sanctum')->user() ?: Auth::user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('User authentication required.', [], 401);
+            }
+
+            $courseId = (int) $request->course_id;
+            $course = Course::find($courseId);
+            if (!$course) {
+                return ApiResponseService::errorResponse('Course not found.', [], 404);
+            }
+
+            if (!app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $course)) {
+                return ApiResponseService::forbidden('You must have active access to this course.');
+            }
+
+            $userId = $user->id;
 
             // Get all chapters for the course
             $chapters = CourseChapter::where('course_id', $courseId)
@@ -891,13 +905,18 @@ class CourseChapterApiController extends Controller
         }
 
         try {
-            $userId = Auth::user()?->id;
-            $chapterId = $request->course_chapter_id;
+            $user = Auth::guard('sanctum')->user() ?: Auth::user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('User authentication required.', [], 401);
+            }
+
+            $chapterId = (int) $request->course_chapter_id;
 
             // Get chapter with all content
             $chapter = CourseChapter::where('id', $chapterId)
                 ->where('is_active', true)
                 ->with([
+                    'course',
                     'lectures' => static function ($query): void {
                         $query->where('is_active', true)->orderBy('chapter_order');
                     },
@@ -913,9 +932,15 @@ class CourseChapterApiController extends Controller
                 ])
                 ->first();
 
-            if (!$chapter) {
+            if (!$chapter || !$chapter->course) {
                 return ApiResponseService::validationError('Chapter not found or not active');
             }
+
+            if (!app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $chapter->course)) {
+                return ApiResponseService::forbidden('You must have active access to this course.');
+            }
+
+            $userId = $user->id;
 
             // Get user tracking for this chapter
             $tracking = UserCourseChapterTrack::where('user_id', $userId)
@@ -1088,9 +1113,13 @@ class CourseChapterApiController extends Controller
         }
 
         try {
-            $userId = Auth::user()?->id;
-            $chapterId = $request->course_chapter_id;
-            $modelId = $request->model_id;
+            $user = Auth::guard('sanctum')->user() ?: Auth::user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('User authentication required.', [], 401);
+            }
+
+            $chapterId = (int) $request->course_chapter_id;
+            $modelId = (int) $request->model_id;
             $modelTypeKey = $request->model_type;
 
             // Map short model_type to full class
@@ -1107,9 +1136,15 @@ class CourseChapterApiController extends Controller
             $chapter = CourseChapter::with(['lectures', 'quizzes', 'assignments', 'resources', 'course'])->find(
                 $chapterId,
             );
-            if (!$chapter) {
+            if (!$chapter || !$chapter->course) {
                 return ApiResponseService::validationError('Chapter not found');
             }
+
+            if (!app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $chapter->course)) {
+                return ApiResponseService::forbidden('You must have active access to this course to complete curriculum items.');
+            }
+
+            $userId = $user->id;
 
             $itemData = [];
             $itemExists = false;

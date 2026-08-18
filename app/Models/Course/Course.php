@@ -453,27 +453,6 @@ class Course extends Model
             return false;
         }
 
-        // Admin / Super-admin bypass
-        if ($user->getIsAdminAttribute() || $user->hasRole(['admin', 'super-admin', 'Super Admin', 'Admin'])) {
-            return true;
-        }
-
-        // Instructor ownership
-        if ($this->instructor_id && $user->id === (int) $this->instructor_id) {
-            return true;
-        }
-
-        // Free course
-        if ($this->isFreeNow()) {
-            return true;
-        }
-
-        // Active subscription
-        if ($user->activeSubscription()->exists()) {
-            return true;
-        }
-
-        // Direct purchase or manual/admin enrollment
-        return $this->getActiveStudentsQuery()->where('users.id', $user->id)->exists();
+        return app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $this);
     }
 }
