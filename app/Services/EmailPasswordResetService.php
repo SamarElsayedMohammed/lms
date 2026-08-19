@@ -69,7 +69,7 @@ final class EmailPasswordResetService
         }
 
         $appName = HelperService::systemSettings('app_name') ?? config('app.name');
-        $subject = __('Password reset code') . ' - ' . $appName;
+        $subject = 'رمز إعادة تعيين كلمة المرور - ' . $appName;
         $html = View::make('emails.reset-password', [
             'user' => $user,
             'otp' => $otp,
@@ -118,8 +118,8 @@ final class EmailPasswordResetService
      */
     private function sendViaSmtp(User $user, string $otp, array $from, string $subject, string $mailDriver): void
     {
-        Mail::to($user->email, (string) ($user->name ?? ""))
-            ->queue(new ResetPasswordOtpMail(
+                Mail::to($user->email, (string) ($user->name ?? ""))
+            ->send(new ResetPasswordOtpMail(
                 $user,
                 $otp,
                 $from['name'],
@@ -128,7 +128,7 @@ final class EmailPasswordResetService
                 $subject,
             ));
 
-        Log::info('Password reset OTP email queued via SMTP', [
+        Log::info('Password reset OTP email sent via SMTP', [
             'user_id' => $user->id,
             'to' => $this->maskEmail((string) $user->email),
             'from' => $from['address'],

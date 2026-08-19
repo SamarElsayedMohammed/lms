@@ -117,13 +117,13 @@ final class PricingService
     }
 
     /**
-     * Detect user's country from request (IP geolocation or user profile).
+     * Detect user's country from the request.
+     * Same resolver as subscription plans/subscribe so list → checkout → wallet stay aligned.
+     * Unknown country falls back to EG (config app.default_country).
      */
     public function detectUserCountry(Request $request): string
     {
-        $countryCode = $this->geoLocationService->getCountryCodeFromRequest($request);
-
-        return $countryCode ?? '';
+        return app(CountryDetectionService::class)->detect($request);
     }
 
     /**

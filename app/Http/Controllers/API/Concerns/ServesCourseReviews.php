@@ -359,34 +359,18 @@ trait ServesCourseReviews
                 );
             }
 
-            // Build query for ratings — ONLY approved reviews are shown publicly
-            $query = Rating::with(["user", "rateable"])
+            // Public list: approved reviews only. Do not hide 1–3 star reviews.
+            $query = Rating::with(["user:id,name,profile", "rateable"])
                 ->where("rateable_type", Course::class)
                 ->where("status", "approved");
 
-            // Filter by specific course if provided
             if ($isSpecificCourse) {
                 $query->where("rateable_id", $course->id);
             } else {
-                // If no course specified, get from all active courses
-                $activeCourseIds = Course::where("is_active", true)->pluck(
-                    "id",
-                );
+                $activeCourseIds = Course::where("is_active", true)->pluck("id");
                 $query->whereIn("rateable_id", $activeCourseIds);
             }
 
-            // Check if any optional filter parameters are passed (sort_by, per_page, page)
-            $hasFilters =
-                $request->filled("sort_by") ||
-                $request->filled("per_page") ||
-                $request->filled("page");
-
-            // If no optional filters passed, default to latest 4-star and 5-star reviews
-            if (!$hasFilters) {
-                $query->whereIn("rating", [4, 5]);
-            }
-
-            // Apply sorting
             $sortBy = $request->sort_by ?? "newest";
             match ($sortBy) {
                 "oldest" => $query->orderBy("created_at", "asc"),
@@ -399,74 +383,13 @@ trait ServesCourseReviews
                 default => $query->orderBy("created_at", "desc"),
             };
 
-            // Statistics MUST only count approved reviews — pending/rejected must not affect the average
             if ($isSpecificCourse) {
-                $allRatings = Rating::where("rateable_type", Course::class)
-                    ->where("rateable_id", $course->id)
-                    ->where("status", "approved") // ← approved only
-                    ->get();
-
-                // Calculate statistics
-                $totalReviews = $allRatings->count();
-                $averageRating =
-                    $totalReviews > 0
-                        ? round($allRatings->avg("rating"), 2)
-                        : 0;
-
-                // Calculate rating breakdown
-                $ratingBreakdown = [
-                    "5_stars" => $allRatings->where("rating", 5)->count(),
-                    "4_stars" => $allRatings->where("rating", 4)->count(),
-                    "3_stars" => $allRatings->where("rating", 3)->count(),
-                    "2_stars" => $allRatings->where("rating", 2)->count(),
-                    "1_star" => $allRatings->where("rating", 1)->count(),
-                ];
-
-                // Calculate percentage breakdown
-                $percentageBreakdown = [
-                    "5_stars" =>
-                        $totalReviews > 0
-                            ? round(
-                                ($ratingBreakdown["5_stars"] / $totalReviews) *
-                                    100,
-                                1,
-                            )
-                            : 0,
-                    "4_stars" =>
-                        $totalReviews > 0
-                            ? round(
-                                ($ratingBreakdown["4_stars"] / $totalReviews) *
-                                    100,
-                                1,
-                            )
-                            : 0,
-                    "3_stars" =>
-                        $totalReviews > 0
-                            ? round(
-                                ($ratingBreakdown["3_stars"] / $totalReviews) *
-                                    100,
-                                1,
-                            )
-                            : 0,
-                    "2_stars" =>
-                        $totalReviews > 0
-                            ? round(
-                                ($ratingBreakdown["2_stars"] / $totalReviews) *
-                                    100,
-                                1,
-                            )
-                            : 0,
-                    "1_star" =>
-                        $totalReviews > 0
-                            ? round(
-                                ($ratingBreakdown["1_star"] / $totalReviews) *
-                                    100,
-                                1,
-                            )
-                            : 0,
-                ];
+                $stats = Rating::approvedStatistics(Course::class, $course->id);
+                $totalReviews = $stats["total_reviews"];
+                $averageRating = $stats["average_rating"];
+                $ratingBreakdown = $stats["rating_breakdown"];
+                $percentageBreakdown = $stats["percentage_breakdown"];
             } else {
-                // For all courses, return empty statistics
                 $totalReviews = 0;
                 $averageRating = 0;
                 $ratingBreakdown = [
@@ -485,48 +408,12 @@ trait ServesCourseReviews
                 ];
             }
 
-            // Paginate results
             $perPage = $request->per_page ?? 15;
             $ratings = $query->paginate($perPage);
 
-            // Format reviews
-            $reviews = $ratings->map(function ($rating) use (
-                $isSpecificCourse,
-            ) {
-                $reviewData = [
-                    "id" => $rating->id,
-                    "rating" => $rating->rating,
-                    "review" => $rating->review,
-                    "user" => [
-                        "id" => $rating->user->id ?? null,
-                        "name" => $rating->user->name ?? "Anonymous User",
-                        "avatar" =>
-                            $rating->user->profile ??
-                            "https://via.placeholder.com/40x40/" .
-                                substr(
-                                    md5($rating->user->name ?? "user"),
-                                    0,
-                                    6,
-                                ) .
-                                "/000000?text=" .
-                                substr($rating->user->name ?? "U", 0, 1),
-                    ],
-                    "created_at" => $rating->created_at->format("M d, Y"),
-                    "timestamp" => $rating->created_at->toIso8601String(),
-                    "time_ago" => $this->getTimeAgo($rating->created_at),
-                ];
-
-                // Include course info if fetching from all courses
-                if (!$isSpecificCourse && $rating->rateable) {
-                    $reviewData["course"] = [
-                        "id" => $rating->rateable->id ?? null,
-                        "title" => $rating->rateable->title ?? null,
-                        "slug" => $rating->rateable->slug ?? null,
-                    ];
-                }
-
-                return $reviewData;
-            });
+            $reviews = $ratings->map(
+                fn($rating) => $rating->toPublicArray(!$isSpecificCourse),
+            );
 
             // Get user's review if logged in (only for specific course)
             $myReview = null;
@@ -537,20 +424,10 @@ trait ServesCourseReviews
                     ->first();
 
                 if ($userRating) {
-                    $myReview = [
-                        "id" => $userRating->id,
-                        "rating" => $userRating->rating,
-                        "review" => $userRating->review,
+                    $myReview = array_merge($userRating->toPublicArray(), [
                         "status" => $userRating->status ?? "pending",
-                        "created_at" => $userRating->created_at->format(
-                            "M d, Y",
-                        ),
-                        "timestamp" => $userRating->created_at->toIso8601String(),
-                        "time_ago" => $this->getTimeAgo(
-                            $userRating->created_at,
-                        ),
                         "can_edit" => true,
-                    ];
+                    ]);
                 }
             }
 
@@ -647,107 +524,26 @@ trait ServesCourseReviews
             $user = Auth::user();
 
             // Build query for ratings — only approved reviews are shown publicly
-            $query = Rating::with(["user"])
+            $query = Rating::with(["user:id,name,profile"])
                 ->where("rateable_type", Instructor::class)
                 ->where("rateable_id", $instructor->id)
                 ->where("status", "approved");
 
-            // Apply sorting
             $sortBy = $request->sort_by ?? "newest";
             $this->applySorting($query, $sortBy);
 
-            // Get pagination parameters
             $perPage = $request->per_page ?? 15;
             $page = $request->page ?? 1;
 
-            // Get all approved ratings for statistics (before pagination)
-            $allRatings = Rating::where("rateable_type", Instructor::class)
-                ->where("rateable_id", $instructor->id)
-                ->where("status", "approved")
-                ->get();
+            $stats = Rating::approvedStatistics(Instructor::class, $instructor->id);
+            $totalReviews = $stats["total_reviews"];
+            $averageRating = $stats["average_rating"];
+            $ratingBreakdown = $stats["rating_breakdown"];
+            $percentageBreakdown = $stats["percentage_breakdown"];
 
-            $totalReviews = $allRatings->count();
-            $averageRating =
-                $totalReviews > 0 ? round($allRatings->avg("rating"), 1) : 0;
-
-            // Calculate rating breakdown
-            $ratingBreakdown = [
-                "5_stars" => $allRatings->where("rating", 5)->count(),
-                "4_stars" => $allRatings->where("rating", 4)->count(),
-                "3_stars" => $allRatings->where("rating", 3)->count(),
-                "2_stars" => $allRatings->where("rating", 2)->count(),
-                "1_star" => $allRatings->where("rating", 1)->count(),
-            ];
-
-            // Calculate percentage breakdown
-            $percentageBreakdown = [
-                "5_stars" =>
-                    $totalReviews > 0
-                        ? round(
-                            ($ratingBreakdown["5_stars"] / $totalReviews) * 100,
-                            1,
-                        )
-                        : 0,
-                "4_stars" =>
-                    $totalReviews > 0
-                        ? round(
-                            ($ratingBreakdown["4_stars"] / $totalReviews) * 100,
-                            1,
-                        )
-                        : 0,
-                "3_stars" =>
-                    $totalReviews > 0
-                        ? round(
-                            ($ratingBreakdown["3_stars"] / $totalReviews) * 100,
-                            1,
-                        )
-                        : 0,
-                "2_stars" =>
-                    $totalReviews > 0
-                        ? round(
-                            ($ratingBreakdown["2_stars"] / $totalReviews) * 100,
-                            1,
-                        )
-                        : 0,
-                "1_star" =>
-                    $totalReviews > 0
-                        ? round(
-                            ($ratingBreakdown["1_star"] / $totalReviews) * 100,
-                            1,
-                        )
-                        : 0,
-            ];
-
-            // Get paginated ratings
             $ratings = $query->paginate($perPage, ["*"], "page", $page);
+            $reviews = $ratings->map(fn($rating) => $rating->toPublicArray());
 
-            // Format reviews (same format as getCourseReviews)
-            $reviews = $ratings->map(
-                fn($rating) => [
-                    "id" => $rating->id,
-                    "rating" => $rating->rating,
-                    "review" => $rating->review,
-                    "user" => [
-                        "id" => $rating->user->id ?? null,
-                        "name" => $rating->user->name ?? "Anonymous User",
-                        "avatar" =>
-                            $rating->user->profile ??
-                            "https://via.placeholder.com/40x40/" .
-                                substr(
-                                    md5($rating->user->name ?? "user"),
-                                    0,
-                                    6,
-                                ) .
-                                "/000000?text=" .
-                                substr($rating->user->name ?? "U", 0, 1),
-                    ],
-                    "created_at" => $rating->created_at->format("M d, Y"),
-                    "timestamp" => $rating->created_at->toIso8601String(),
-                    "time_ago" => $this->getTimeAgo($rating->created_at),
-                ],
-            );
-
-            // Get user's own review if authenticated
             $myReview = null;
             if ($user) {
                 $userRating = Rating::where("rateable_type", Instructor::class)
@@ -756,35 +552,23 @@ trait ServesCourseReviews
                     ->first();
 
                 if ($userRating) {
-                    $myReview = [
-                        "id" => $userRating->id,
-                        "rating" => $userRating->rating,
-                        "review" => $userRating->review,
+                    $myReview = array_merge($userRating->toPublicArray(), [
                         "status" => $userRating->status ?? "pending",
-                        "created_at" => $userRating->created_at->format(
-                            "M d, Y",
-                        ),
-                        "timestamp" => $userRating->created_at->toIso8601String(),
-                        "time_ago" => $this->getTimeAgo(
-                            $userRating->created_at,
-                        ),
                         "can_edit" => true,
-                    ];
+                    ]);
                 }
             }
 
-            // Update pagination data with formatted reviews
             $ratings->setCollection($reviews);
 
-            // Get instructor user for displaying info
             $instructorUser = User::find($instructor->user_id);
 
             $response = [
                 "instructor" => [
                     "id" => $instructor->id,
-                    "name" => $instructorUser->name ?? "Unknown",
-                    "slug" => $instructorUser->slug ?? null,
-                    "profile" => $instructorUser->profile ?? null,
+                    "name" => $instructorUser?->name ?? "مدرب",
+                    "slug" => $instructorUser?->slug,
+                    "profile" => $instructorUser?->profile,
                 ],
                 "statistics" => [
                     "total_reviews" => $totalReviews,
@@ -809,7 +593,7 @@ trait ServesCourseReviews
             );
 
             return ApiResponseService::errorResponse(
-                "Failed to retrieve instructor reviews" . $e->getMessage(),
+                "Failed to retrieve instructor reviews",
             );
         }
     }
@@ -1045,31 +829,7 @@ trait ServesCourseReviews
             $ratings = $query->paginate($perPage);
 
             // Format reviews
-            $reviews = $ratings->map(
-                fn($rating) => [
-                    "id" => $rating->id,
-                    "rating" => $rating->rating,
-                    "review" => $rating->review,
-                    "user" => [
-                        "id" => $rating->user->id ?? null,
-                        "name" => $rating->user->name ?? "Anonymous User",
-                        "avatar" =>
-                            $rating->user->profile ??
-                            "https://via.placeholder.com/40x40/" .
-                                substr(
-                                    md5($rating->user->name ?? "user"),
-                                    0,
-                                    6,
-                                ) .
-                                "/000000?text=" .
-                                substr($rating->user->name ?? "U", 0, 1),
-                        "email" => $rating->user->email ?? null,
-                    ],
-                    "created_at" => $rating->created_at->format("M d, Y"),
-                    "timestamp" => $rating->created_at->toIso8601String(),
-                    "time_ago" => $this->getTimeAgo($rating->created_at),
-                ],
-            );
+            $reviews = $ratings->map(fn($rating) => $rating->toPublicArray(true));
 
             // Update pagination data with formatted reviews
             $ratings->setCollection($reviews);
@@ -1202,31 +962,7 @@ trait ServesCourseReviews
             $ratings = $query->paginate($perPage);
 
             // Format reviews
-            $reviews = $ratings->map(
-                fn($rating) => [
-                    "id" => $rating->id,
-                    "rating" => $rating->rating,
-                    "review" => $rating->review,
-                    "user" => [
-                        "id" => $rating->user->id ?? null,
-                        "name" => $rating->user->name ?? "Anonymous User",
-                        "avatar" =>
-                            $rating->user->profile ??
-                            "https://via.placeholder.com/40x40/" .
-                                substr(
-                                    md5($rating->user->name ?? "user"),
-                                    0,
-                                    6,
-                                ) .
-                                "/000000?text=" .
-                                substr($rating->user->name ?? "U", 0, 1),
-                        "email" => $rating->user->email ?? null,
-                    ],
-                    "created_at" => $rating->created_at->format("M d, Y"),
-                    "timestamp" => $rating->created_at->toIso8601String(),
-                    "time_ago" => $this->getTimeAgo($rating->created_at),
-                ],
-            );
+            $reviews = $ratings->map(fn($rating) => $rating->toPublicArray());
 
             // Update pagination data with formatted reviews
             $ratings->setCollection($reviews);

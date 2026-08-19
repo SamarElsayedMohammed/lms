@@ -7,6 +7,7 @@ use App\Models\HelpdeskGroup;
 use App\Models\HelpdeskGroupRequest;
 use App\Models\HelpdeskQuestion;
 use App\Models\HelpdeskReply;
+use App\Models\User;
 use App\Services\ApiResponseService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -253,9 +254,7 @@ class HelpdeskApiController extends Controller
             $questions = $query->latest()->paginate($perPage, ['*'], 'page', $currentPage);
 
             // Format questions data
-            $formattedQuestions = $questions->map(static function ($question) {
-                $user = $question->user;
-                $group = $question->group;
+            $formattedQuestions = $questions->map(function ($question) {
                 $createdAt = $question->created_at;
 
                 return [
@@ -268,16 +267,8 @@ class HelpdeskApiController extends Controller
                     'created_at_formatted' => $createdAt ? $createdAt->format('Y-m-d H:i:s') : null,
                     'time_ago' => $createdAt ? $createdAt->diffForHumans() : null,
                     'updated_at' => $question->updated_at,
-                    'author' => [
-                        'id' => $user->id ?? null,
-                        'name' => $user->name ?? null,
-                        'avatar' => $user->profile ?? null,
-                    ],
-                    'group' => [
-                        'id' => $group->id ?? null,
-                        'name' => $group->name ?? null,
-                        'slug' => $group->slug ?? null,
-                    ],
+                    'author' => $this->formatHelpdeskAuthor($question->user),
+                    'group' => $this->formatHelpdeskGroup($question->group),
                     'replies_count' => $question->replies ? $question->replies->count() : 0,
                     'views_count' => 0, // Add views count if you have this field
                 ];
@@ -367,39 +358,22 @@ class HelpdeskApiController extends Controller
                     'created_at' => $question->created_at,
                     'updated_at' => $question->updated_at,
                     'time_ago' => $question->created_at->diffForHumans(),
-                    'author' => [
-                        'id' => $question->user->id,
-                        'name' => $question->user->name,
-                        'avatar' => $question->user->profile ?? null,
-                        'email' => $question->user->email,
-                    ],
-                    'group' => [
-                        'id' => $question->group->id,
-                        'name' => $question->group->name,
-                        'slug' => $question->group->slug,
-                    ],
+                    'author' => $this->formatHelpdeskAuthor($question->user, true),
+                    'group' => $this->formatHelpdeskGroup($question->group),
                     'replies_count' => $question->replies()->count(),
                 ],
-                'replies' => $replies->map(static fn($reply) => [
+                'replies' => $replies->map(fn($reply) => [
                     'id' => $reply->id,
                     'reply' => $reply->reply,
                     'created_at' => $reply->created_at,
                     'time_ago' => $reply->created_at->diffForHumans(),
-                    'author' => [
-                        'id' => $reply->user->id,
-                        'name' => $reply->user->name,
-                        'avatar' => $reply->user->profile ?? null,
-                    ],
-                    'children' => $reply->children->map(static fn($child) => [
+                    'author' => $this->formatHelpdeskAuthor($reply->user),
+                    'children' => $reply->children->map(fn($child) => [
                         'id' => $child->id,
                         'reply' => $child->reply,
                         'created_at' => $child->created_at,
                         'time_ago' => $child->created_at->diffForHumans(),
-                        'author' => [
-                            'id' => $child->user->id,
-                            'name' => $child->user->name,
-                            'avatar' => $child->user->profile ?? null,
-                        ],
+                        'author' => $this->formatHelpdeskAuthor($child->user),
                     ]),
                 ]),
                 'current_page' => $replies->currentPage(),
@@ -761,5 +735,35 @@ class HelpdeskApiController extends Controller
             ApiResponseService::logErrorResponse($e, 'API Controller -> search method');
             return ApiResponseService::errorResponse();
         }
+    }
+
+    /**
+     * @return array{id: int, name: string, avatar: string|null, email?: string|null}
+     */
+    private function formatHelpdeskAuthor(?User $user, bool $includeEmail = false): array
+    {
+        $author = [
+            'id' => (int) ($user?->id ?? 0),
+            'name' => $user?->name ?: 'مستخدم محذوف',
+            'avatar' => $user?->profile ?? null,
+        ];
+
+        if ($includeEmail) {
+            $author['email'] = $user?->email;
+        }
+
+        return $author;
+    }
+
+    /**
+     * @return array{id: int, name: string, slug: string}
+     */
+    private function formatHelpdeskGroup($group): array
+    {
+        return [
+            'id' => (int) ($group?->id ?? 0),
+            'name' => $group?->name ?: '',
+            'slug' => $group?->slug ?: '',
+        ];
     }
 }

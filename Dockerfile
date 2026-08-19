@@ -87,9 +87,10 @@ COPY docker/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 COPY docker/start.sh /usr/local/bin/start.sh
 RUN chmod +x /usr/local/bin/start.sh
 
-# ─── Health check ─────────────────────────────────────────────────────────────
+# Liveness only — never /api/health/ready (503 on DB blip restarts the container).
+# Do not append `|| exit 0`; a failed probe must fail the HEALTHCHECK.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost/up 2>/dev/null || curl -f http://localhost/api/health/live 2>/dev/null || curl -f http://localhost/api/health 2>/dev/null || curl -f http://localhost/ 2>/dev/null || exit 0
+    CMD curl -fsS http://localhost/api/health/live || curl -fsS http://localhost/up
 
 EXPOSE 80
 

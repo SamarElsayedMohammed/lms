@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Exception;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Routing\Redirector;
 use Illuminate\Support\Facades\Auth;
@@ -27,7 +28,7 @@ class ResponseService
                 ->withErrors([
                     'message' => trans("You Don't have enough permissions"),
                 ])
-                ->send();
+                ;
         }
         return true;
     }
@@ -60,7 +61,7 @@ class ResponseService
                 ->withErrors([
                     'message' => trans("You Don't have enough permissions"),
                 ])
-                ->send();
+                ;
         }
         return true;
     }
@@ -80,7 +81,7 @@ class ResponseService
                 ->withErrors([
                     'message' => trans("You Don't have enough permissions"),
                 ])
-                ->send();
+                ;
         }
         return true;
     }
@@ -101,7 +102,7 @@ class ResponseService
                 ->withErrors([
                     'message' => trans("You Don't have enough permissions"),
                 ])
-                ->send();
+                ;
         }
         return true;
     }
@@ -113,7 +114,7 @@ class ResponseService
      */
     public static function noAnyPermissionThenSendJson(array $permissions)
     {
-        if (!Auth::user()->canany($permissions)) {
+        if (!Auth::user() || !Auth::user()->canany($permissions)) {
             self::errorResponse("You Don't have enough permissions");
         }
         return true;
@@ -169,8 +170,8 @@ class ResponseService
             $response['meta'] = $meta;
         }
 
-        response()->json($response)->send();
-        exit();
+        // HttpResponseException lets Laravel finish terminate middleware. send()+exit() kills the FPM worker.
+        throw new HttpResponseException(response()->json($response, 200));
     }
 
     /**
@@ -183,13 +184,12 @@ class ResponseService
         return isset($url)
             ? redirect($url)->with([
                 'success' => trans($message),
-            ])->send()
+            ])
             : redirect()
                 ->back()
                 ->with([
                     'success' => trans($message),
-                ])
-                ->send();
+                ]);
     }
 
     /**
@@ -202,6 +202,15 @@ class ResponseService
      */
     public static function errorResponse(string $message = 'Error Occurred', $data = null, $exception = null)
     {
+        $httpStatus = 400;
+        if (is_int($exception) || (is_numeric($exception) && !is_object($exception))) {
+            $httpStatus = (int) $exception;
+            $exception = null;
+        }
+        if ($httpStatus < 400 || $httpStatus > 599) {
+            $httpStatus = 400;
+        }
+
         $response = [
             'success' => false,
             'error' => true,
@@ -221,8 +230,8 @@ class ResponseService
                 'trace' => $exception->getTrace(),
             ];
         }
-        response()->json($response)->send();
-        exit();
+
+        throw new HttpResponseException(response()->json($response, $httpStatus));
     }
 
     /**
@@ -254,14 +263,13 @@ class ResponseService
      */
     public static function warningResponse(string $message = 'Error Occurred', $data = null, $code = null): never
     {
-        response()->json([
+        throw new HttpResponseException(response()->json([
             'error' => false,
             'warning' => true,
             'code' => $code,
             'message' => trans($message),
             'data' => $data,
-        ])->send();
-        exit();
+        ], 200));
     }
 
     /**
@@ -280,8 +288,9 @@ class ResponseService
      */
     public static function validationErrorRedirect(string $message = 'Error Occurred'): never
     {
-        self::errorRedirectResponse(route('custom-fields.create'), $message);
-        exit();
+        throw new HttpResponseException(
+            redirect(route('custom-fields.create'))->with(['errors' => trans($message)]),
+        );
     }
 
     /**

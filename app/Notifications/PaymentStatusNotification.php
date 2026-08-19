@@ -30,7 +30,7 @@ class PaymentStatusNotification extends Notification implements ShouldQueue
         $message = (new MailMessage);
 
         if ($this->isSuccess) {
-            $message->subject("تم الدفع بنجاح | Payment Successful")
+            $message->subject("تم الدفع بنجاح")
                 ->view('emails.payment-success', [
                     'userName' => $notifiable->name,
                     'itemName' => $this->itemName,
@@ -40,7 +40,7 @@ class PaymentStatusNotification extends Notification implements ShouldQueue
                     'invoiceUrl' => $this->invoiceUrl ?: url('/'),
                 ]);
         } else {
-            $message->subject("فشلت عملية الدفع | Payment Failed")
+            $message->subject("فشلت عملية الدفع")
                 ->view('emails.payment-failed', [
                     'userName' => $notifiable->name,
                     'failReason' => $this->failReason ?? 'حدث خطأ أثناء معالجة الدفع.',

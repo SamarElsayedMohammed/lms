@@ -129,4 +129,55 @@ class Webinar extends Model
     {
         return $this->belongsToMany(User::class, 'webinar_registrations');
     }
+
+    public function endsAt(): ?\Carbon\CarbonInterface
+    {
+        if (!$this->start_at) {
+            return null;
+        }
+
+        return $this->start_at->copy()->addMinutes(max(1, (int) $this->duration));
+    }
+
+    /**
+     * Move scheduled → live → completed from start_at + duration.
+     * Cancelled webinars are never auto-changed.
+     */
+    public function syncLifecycleStatus(): bool
+    {
+        if ($this->status === 'cancelled' || !$this->start_at) {
+            return false;
+        }
+
+        $now = now();
+        $endsAt = $this->endsAt();
+        $next = $this->status;
+
+        if ($endsAt && $endsAt->lte($now)) {
+            $next = 'completed';
+        } elseif ($this->start_at->lte($now) && $this->status !== 'completed') {
+            $next = 'live';
+        }
+
+        if ($next === $this->status) {
+            return false;
+        }
+
+        $this->status = $next;
+
+        return $this->save();
+    }
+
+    public static function syncPublishedLifecycleStatuses(): void
+    {
+        static::query()
+            ->whereIn('status', ['scheduled', 'live'])
+            ->whereNotNull('start_at')
+            ->orderBy('id')
+            ->chunkById(100, function ($webinars): void {
+                foreach ($webinars as $webinar) {
+                    $webinar->syncLifecycleStatus();
+                }
+            });
+    }
 }

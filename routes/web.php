@@ -20,7 +20,9 @@ Route::get('storage/{path}', [Controller::class, 'serveStorage'])->where('path',
 // Other Common Routes
 Route::group(['prefix' => 'common'], static function (): void {
     Route::get('/js/lang', [Controller::class , 'readLanguageFile'])->name('common.language.read');
-    Route::put('/change-status', [Controller::class , 'changeStatus'])->name('common.change-status');
+    Route::middleware('auth')->group(static function (): void {
+        Route::put('/change-status', [Controller::class , 'changeStatus'])->name('common.change-status');
+    });
 });
 /***************************************************************************************************** */
 
@@ -79,3 +81,9 @@ if (app()->isLocal()) {
         Route::get('logs', [\Rap2hpoutre\LaravelLogViewer\LogViewerController::class, 'index']);
     }
 }
+
+// Production safety guard: /logs returns 404 in non-local environments
+if (!app()->isLocal()) {
+    Route::any('logs', static fn() => response()->json(['error' => true, 'message' => 'Not found.'], 404));
+}
+

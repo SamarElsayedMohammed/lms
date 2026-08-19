@@ -56,8 +56,8 @@ class WishlistApiController extends Controller
                                 'taxes',
                                 'ratings.user',
                             ])
-                            ->withAvg('ratings', 'rating')
-                            ->withCount('ratings')
+                            ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+                            ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }])
                             ->withTrashed();
                     },
                 ])

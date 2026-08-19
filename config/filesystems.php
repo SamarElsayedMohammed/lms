@@ -86,4 +86,10 @@ return [
     'links' => [
         public_path('storage') => storage_path('app/public'),
     ],
+
+    // PHP authenticates; nginx serves bytes. Off in local `artisan serve` (no nginx).
+    'x_accel_redirect' => filter_var(
+        env('USE_X_ACCEL_REDIRECT', env('APP_ENV', 'production') === 'local' ? 'false' : 'true'),
+        FILTER_VALIDATE_BOOLEAN,
+    ),
 ];

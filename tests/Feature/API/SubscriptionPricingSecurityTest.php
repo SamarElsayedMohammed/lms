@@ -65,13 +65,11 @@ class SubscriptionPricingSecurityTest extends TestCase
     public function test_valid_signed_proxy_header_resolves_country()
     {
         $timestamp = time();
-        $secret = config('app.proxy_secret', config('app.key'));
-        $signature = hash_hmac('sha256', 'SA' . $timestamp, $secret);
+        $secret = (string) (config('app.proxy_secret') ?: config('app.key'));
+        $signature = hash_hmac('sha256', 'SA.' . $timestamp, $secret);
 
         $response = $this->withHeaders([
-            'X-Skillso-Resolved-Country' => 'SA',
-            'X-Skillso-Country-Timestamp' => (string) $timestamp,
-            'X-Skillso-Country-Signature' => $signature,
+            'X-Skillso-Resolved-Country' => 'SA.' . $timestamp . '.' . $signature,
         ])->getJson('/api/v1/subscription/plans');
 
         $response->assertStatus(200);
@@ -83,13 +81,11 @@ class SubscriptionPricingSecurityTest extends TestCase
     public function test_expired_signature_is_ignored()
     {
         $timestamp = time() - 400; // Older than 5 minutes
-        $secret = config('app.proxy_secret', config('app.key'));
-        $signature = hash_hmac('sha256', 'SA' . $timestamp, $secret);
+        $secret = (string) (config('app.proxy_secret') ?: config('app.key'));
+        $signature = hash_hmac('sha256', 'SA.' . $timestamp, $secret);
 
         $response = $this->withHeaders([
-            'X-Skillso-Resolved-Country' => 'SA',
-            'X-Skillso-Country-Timestamp' => (string) $timestamp,
-            'X-Skillso-Country-Signature' => $signature,
+            'X-Skillso-Resolved-Country' => 'SA.' . $timestamp . '.' . $signature,
         ])->getJson('/api/v1/subscription/plans');
 
         $response->assertStatus(200);
@@ -99,13 +95,11 @@ class SubscriptionPricingSecurityTest extends TestCase
     public function test_inactive_override_marks_can_subscribe_false()
     {
         $timestamp = time();
-        $secret = config('app.proxy_secret', config('app.key'));
-        $signature = hash_hmac('sha256', 'AE' . $timestamp, $secret);
+        $secret = (string) (config('app.proxy_secret') ?: config('app.key'));
+        $signature = hash_hmac('sha256', 'AE.' . $timestamp, $secret);
 
         $response = $this->withHeaders([
-            'X-Skillso-Resolved-Country' => 'AE',
-            'X-Skillso-Country-Timestamp' => (string) $timestamp,
-            'X-Skillso-Country-Signature' => $signature,
+            'X-Skillso-Resolved-Country' => 'AE.' . $timestamp . '.' . $signature,
         ])->getJson('/api/v1/subscription/plans');
 
         $response->assertStatus(200);
@@ -119,13 +113,11 @@ class SubscriptionPricingSecurityTest extends TestCase
         $user = User::factory()->create();
         
         $timestamp = time();
-        $secret = config('app.proxy_secret', config('app.key'));
-        $signature = hash_hmac('sha256', 'SA' . $timestamp, $secret);
+        $secret = (string) (config('app.proxy_secret') ?: config('app.key'));
+        $signature = hash_hmac('sha256', 'SA.' . $timestamp, $secret);
 
         $response = $this->actingAs($user)->withHeaders([
-            'X-Skillso-Resolved-Country' => 'SA',
-            'X-Skillso-Country-Timestamp' => (string) $timestamp,
-            'X-Skillso-Country-Signature' => $signature,
+            'X-Skillso-Resolved-Country' => 'SA.' . $timestamp . '.' . $signature,
         ])->postJson('/api/v1/subscription/subscribe', [
             'plan_id' => $this->plan->id,
             'payment_method' => 'wallet',
@@ -150,71 +142,17 @@ class SubscriptionPricingSecurityTest extends TestCase
         $this->assertEquals('EG', $response->json('data.detected_country'));
     }
 
-    public function test_vercel_ip_country_header_resolves_country(): void
+    public function test_unsigned_ip_and_edge_headers_cannot_spoof_pricing(): void
     {
-        // Create a country price for KW
-        \App\Models\SubscriptionPlanPrice::create([
-            'plan_id' => $this->plan->id,
-            'country_code' => 'KW',
-            'currency_code' => 'KWD',
-            'price' => 10,
-            'is_active' => true,
-            'can_subscribe' => true,
-        ]);
-
         $response = $this->withHeaders([
             'X-Vercel-IP-Country' => 'KW',
-        ])->getJson('/api/v1/subscription/plans');
-
-        $response->assertStatus(200);
-        $this->assertEquals('KW', $response->json('data.detected_country'));
-    }
-
-    public function test_x_country_header_resolves_country(): void
-    {
-        $response = $this->withHeaders([
             'X-Country' => 'SA',
-        ])->getJson('/api/v1/subscription/plans');
-
-        $response->assertStatus(200);
-        $this->assertEquals('SA', $response->json('data.detected_country'));
-        $this->assertEquals(150, $response->json('data.plans.0.display_price'));
-    }
-
-    public function test_cloudflare_takes_priority_over_vercel(): void
-    {
-        // When both CF-IPCountry (with CF-Connecting-IP) and X-Vercel-IP-Country are present,
-        // Cloudflare should win
-        $response = $this->withHeaders([
             'CF-IPCountry' => 'SA',
             'CF-Connecting-IP' => '1.2.3.4',
-            'X-Vercel-IP-Country' => 'AE',
+            'X-Forwarded-For' => '8.8.8.8',
         ])->getJson('/api/v1/subscription/plans');
 
         $response->assertStatus(200);
-        $this->assertEquals('SA', $response->json('data.detected_country'));
-    }
-
-    public function test_vercel_used_when_cloudflare_incomplete(): void
-    {
-        // When CF-IPCountry is present but CF-Connecting-IP is missing,
-        // fall through to Vercel
-        \App\Models\SubscriptionPlanPrice::create([
-            'plan_id' => $this->plan->id,
-            'country_code' => 'AE',
-            'currency_code' => 'AED',
-            'price' => 200,
-            'is_active' => true,
-            'can_subscribe' => true,
-        ]);
-
-        $response = $this->withHeaders([
-            'CF-IPCountry' => 'SA',
-            'X-Vercel-IP-Country' => 'AE',
-        ])->getJson('/api/v1/subscription/plans');
-
-        $response->assertStatus(200);
-        // AE because CF-IPCountry is not trusted without CF-Connecting-IP
-        $this->assertEquals('AE', $response->json('data.detected_country'));
+        $this->assertEquals('EG', $response->json('data.detected_country'));
     }
 }

@@ -25,11 +25,11 @@ class NewCourseNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-            ->subject('تم إضافة كورس جديد | New Course Available')
+            ->subject('تم إضافة كورس جديد')
             ->view('emails.general-notification', [
                 'notificationTitle' => 'تم إضافة كورس جديد!',
                 'greeting' => "مرحباً {$notifiable->name}،",
-                'notificationContent' => "نود إعلامك بأنه تم نشر كورس جديد على المنصة بعنوان: <strong>{$this->course->title}</strong>.<br><br>لا تفوت فرصة الاستفادة من هذا المحتوى الرائع وبادر بالتسجيل الآن!",
+                'notificationContent' => "نود إعلامك بأنه تم نشر كورس جديد على المنصة بعنوان: {$this->course->title}. لا تفوت فرصة الاستفادة من هذا المحتوى وبادر بالتسجيل الآن!",
                 'actionUrl' => url('/courses/' . $this->course->slug),
                 'actionText' => 'عرض تفاصيل الكورس',
             ]);

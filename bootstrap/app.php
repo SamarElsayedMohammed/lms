@@ -21,6 +21,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
+            'audit.admin' => \App\Http\Middleware\LogAdminMutationMiddleware::class,
+            'geo.signed' => \App\Http\Middleware\ForceSignedProxyCountry::class,
         ]);
 
         // Trust proxies (Traefik/Caddy/Coolify) so Laravel detects correct scheme (HTTPS) and host
@@ -53,6 +55,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         
         $middleware->api(append: [
+            \App\Http\Middleware\ForceSignedProxyCountry::class,
             \App\Http\Middleware\EnsureAccessToken::class,
             \App\Http\Middleware\ForceJsonResponseToSnakeCase::class,
             \App\Http\Middleware\DemoModeMiddleware::class,

@@ -6,8 +6,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course\CourseDiscussion;
+use App\Models\Instructor;
 use App\Models\Rating;
-use App\Services\ResponseService;
+use App\Notifications\ReviewStatusNotification;
+use App\Services\ApiResponseService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -15,31 +17,35 @@ final class ApprovalController extends Controller
 {
     public function pendingRatings(Request $request)
     {
-        ResponseService::noAnyPermissionThenRedirect(['ratings-list', 'approve_ratings']);
+        $perPage = min(100, max(1, (int) $request->input('per_page', 20)));
 
-        $ratings = Rating::with(['user:id,name,email', 'rateable'])
+        $paginated = Rating::with([
+            'user:id,name,profile',
+            'rateable' => function ($morphTo): void {
+                $morphTo->morphWith([
+                    Instructor::class => ['user:id,name'],
+                ]);
+            },
+        ])
             ->where('status', 'pending')
             ->orderByDesc('created_at')
-            ->paginate(20);
+            ->paginate($perPage);
 
-        return response()->json([
-            'ratings' => $ratings->items(),
-            'pagination' => [
-                'current_page' => $ratings->currentPage(),
-                'last_page' => $ratings->lastPage(),
-                'per_page' => $ratings->perPage(),
-                'total' => $ratings->total(),
-            ],
-        ]);
+        $paginated->setCollection(
+            $paginated->getCollection()->map(fn (Rating $r) => $r->toAdminArray())
+        );
+
+        return ApiResponseService::successResponse('Pending ratings retrieved successfully', $paginated);
     }
 
     public function approveRating(int $id)
     {
-        ResponseService::noAnyPermissionThenRedirect(['ratings-list', 'approve_ratings']);
-
-        $rating = Rating::findOrFail($id);
+        $rating = Rating::find($id);
+        if (!$rating) {
+            return ApiResponseService::errorResponse('Rating not found.', null, 404);
+        }
         if ($rating->status !== 'pending') {
-            ResponseService::errorResponse('Rating is not pending.');
+            return ApiResponseService::errorResponse('Rating is not pending.');
         }
 
         $rating->update([
@@ -48,20 +54,19 @@ final class ApprovalController extends Controller
             'reviewed_at' => now(),
         ]);
 
-        if ($rating->user) {
-            $rating->user->notify(new \App\Notifications\ReviewStatusNotification($rating, 'rating', 'approved'));
-        }
+        $this->notifyAuthor($rating, 'approved');
 
-        ResponseService::successResponse('Rating approved successfully.');
+        return ApiResponseService::successResponse('Rating approved successfully.');
     }
 
     public function rejectRating(int $id)
     {
-        ResponseService::noAnyPermissionThenRedirect(['ratings-list', 'approve_ratings']);
-
-        $rating = Rating::findOrFail($id);
+        $rating = Rating::find($id);
+        if (!$rating) {
+            return ApiResponseService::errorResponse('Rating not found.', null, 404);
+        }
         if ($rating->status !== 'pending') {
-            ResponseService::errorResponse('Rating is not pending.');
+            return ApiResponseService::errorResponse('Rating is not pending.');
         }
 
         $rating->update([
@@ -70,41 +75,55 @@ final class ApprovalController extends Controller
             'reviewed_at' => now(),
         ]);
 
-        if ($rating->user) {
-            $rating->user->notify(new \App\Notifications\ReviewStatusNotification($rating, 'rating', 'rejected'));
-        }
+        $this->notifyAuthor($rating, 'rejected');
 
-        ResponseService::successResponse('Rating rejected.');
+        return ApiResponseService::successResponse('Rating rejected.');
     }
 
     public function pendingComments(Request $request)
     {
-        ResponseService::noAnyPermissionThenRedirect(['ratings-list', 'approve_comments']);
+        $perPage = min(100, max(1, (int) $request->input('per_page', 20)));
 
-        $comments = CourseDiscussion::with(['user:id,name,email', 'course:id,name'])
+        $paginated = CourseDiscussion::with(['user:id,name,profile', 'course:id,title'])
             ->where('status', 'pending')
             ->whereNull('parent_id')
             ->orderByDesc('created_at')
-            ->paginate(20);
+            ->paginate($perPage);
 
-        return response()->json([
-            'comments' => $comments->items(),
-            'pagination' => [
-                'current_page' => $comments->currentPage(),
-                'last_page' => $comments->lastPage(),
-                'per_page' => $comments->perPage(),
-                'total' => $comments->total(),
-            ],
-        ]);
+        $paginated->setCollection(
+            $paginated->getCollection()->map(function (CourseDiscussion $comment) {
+                $title = $comment->course?->title;
+
+                return [
+                    'id' => $comment->id,
+                    'rating' => 0,
+                    'review' => $comment->message,
+                    'comment' => $comment->message,
+                    'user' => [
+                        'id' => $comment->user?->id,
+                        'name' => $comment->user?->name ?: 'مستخدم',
+                        'image' => $comment->user?->profile,
+                    ],
+                    'user_name' => $comment->user?->name ?: 'مستخدم',
+                    'course' => $title ? ['title' => $title] : null,
+                    'course_title' => $title,
+                    'status' => $comment->status ?? 'pending',
+                    'created_at' => $comment->created_at?->toIso8601String(),
+                ];
+            })
+        );
+
+        return ApiResponseService::successResponse('Pending comments retrieved successfully', $paginated);
     }
 
     public function approveComment(int $id)
     {
-        ResponseService::noAnyPermissionThenRedirect(['ratings-list', 'approve_comments']);
-
-        $comment = CourseDiscussion::findOrFail($id);
+        $comment = CourseDiscussion::find($id);
+        if (!$comment) {
+            return ApiResponseService::errorResponse('Comment not found.', null, 404);
+        }
         if ($comment->status !== 'pending') {
-            ResponseService::errorResponse('Comment is not pending.');
+            return ApiResponseService::errorResponse('Comment is not pending.');
         }
 
         $comment->update([
@@ -114,19 +133,23 @@ final class ApprovalController extends Controller
         ]);
 
         if ($comment->user) {
-            $comment->user->notify(new \App\Notifications\ReviewStatusNotification($comment, 'comment', 'approved'));
+            try {
+                $comment->user->notify(new ReviewStatusNotification($comment, 'comment', 'approved'));
+            } catch (\Throwable) {
+            }
         }
 
-        ResponseService::successResponse('Comment approved successfully.');
+        return ApiResponseService::successResponse('Comment approved successfully.');
     }
 
     public function rejectComment(int $id)
     {
-        ResponseService::noAnyPermissionThenRedirect(['ratings-list', 'approve_comments']);
-
-        $comment = CourseDiscussion::findOrFail($id);
+        $comment = CourseDiscussion::find($id);
+        if (!$comment) {
+            return ApiResponseService::errorResponse('Comment not found.', null, 404);
+        }
         if ($comment->status !== 'pending') {
-            ResponseService::errorResponse('Comment is not pending.');
+            return ApiResponseService::errorResponse('Comment is not pending.');
         }
 
         $comment->update([
@@ -136,9 +159,24 @@ final class ApprovalController extends Controller
         ]);
 
         if ($comment->user) {
-            $comment->user->notify(new \App\Notifications\ReviewStatusNotification($comment, 'comment', 'rejected'));
+            try {
+                $comment->user->notify(new ReviewStatusNotification($comment, 'comment', 'rejected'));
+            } catch (\Throwable) {
+            }
         }
 
-        ResponseService::successResponse('Comment rejected.');
+        return ApiResponseService::successResponse('Comment rejected.');
+    }
+
+    private function notifyAuthor(Rating $rating, string $status): void
+    {
+        if (!$rating->user) {
+            return;
+        }
+
+        try {
+            $rating->user->notify(new ReviewStatusNotification($rating, 'rating', $status));
+        } catch (\Throwable) {
+        }
     }
 }

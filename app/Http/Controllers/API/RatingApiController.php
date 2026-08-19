@@ -112,8 +112,12 @@ class RatingApiController extends Controller
                 }
             }
 
-            // Determine initial moderation status
-            $applyApproval = app(FeatureFlagService::class)->isEnabled('comments_require_approval');
+            // Ratings use their own flag; fall back to comments_require_approval if the ratings flag is absent.
+            $featureFlags = app(FeatureFlagService::class);
+            $applyApproval = $featureFlags->isEnabled(
+                'ratings_require_approval',
+                $featureFlags->isEnabled('comments_require_approval'),
+            );
             $status = $applyApproval ? 'pending' : 'approved';
 
             // Clean review text
@@ -130,16 +134,15 @@ class RatingApiController extends Controller
                 'rating' => (int) $request->rating,
                 'review' => $cleanReview,
                 'status' => $status,
+                'reviewed_by' => null,
+                'reviewed_at' => null,
             ];
 
             $rating = Rating::updateOrCreate($attributes, $values);
 
             // Notify admins when review is pending moderation
             if ($rating->status === 'pending') {
-                $admins = User::role(['Super Admin', 'Admin'])->get();
-                if ($admins->isNotEmpty()) {
-                    Notification::send($admins, new AdminNewReviewNotification($rating, 'rating'));
-                }
+                $this->notifyAdminsOfPendingReview($rating);
             }
 
             $successMsg = $rating->status === 'pending'
@@ -205,8 +208,11 @@ class RatingApiController extends Controller
                 return ApiResponseService::errorResponse('Review not found or you do not have permission to edit it.', null, 404);
             }
 
-            // Re-evaluate moderation status for edits
-            $applyApproval = app(FeatureFlagService::class)->isEnabled('comments_require_approval');
+            $featureFlags = app(FeatureFlagService::class);
+            $applyApproval = $featureFlags->isEnabled(
+                'ratings_require_approval',
+                $featureFlags->isEnabled('comments_require_approval'),
+            );
             $status = $applyApproval ? 'pending' : 'approved';
 
             $cleanReview = $request->filled('review') ? strip_tags(trim((string) $request->review)) : null;
@@ -216,14 +222,13 @@ class RatingApiController extends Controller
                 'rating' => (int) $request->rating,
                 'review' => $cleanReview,
                 'status' => $status,
+                'reviewed_by' => null,
+                'reviewed_at' => null,
             ]);
 
             // Notify admins if edited review entered pending moderation
             if ($rating->status === 'pending') {
-                $admins = User::role(['Super Admin', 'Admin'])->get();
-                if ($admins->isNotEmpty()) {
-                    Notification::send($admins, new AdminNewReviewNotification($rating, 'rating'));
-                }
+                $this->notifyAdminsOfPendingReview($rating);
             }
 
             $successMsg = $rating->status === 'pending'
@@ -298,6 +303,18 @@ class RatingApiController extends Controller
         } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to delete review');
             return ApiResponseService::errorResponse('Failed to delete review.');
+        }
+    }
+
+    private function notifyAdminsOfPendingReview(Rating $rating): void
+    {
+        try {
+            $admins = User::role(['Super Admin', 'Admin', 'Supervisor', 'Staff'])->get();
+            if ($admins->isNotEmpty()) {
+                Notification::send($admins, new AdminNewReviewNotification($rating, 'rating'));
+            }
+        } catch (\Throwable) {
+            // Notification failure must not roll back the saved review.
         }
     }
 }

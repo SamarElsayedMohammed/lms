@@ -34,7 +34,7 @@ class CertificateNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-            ->subject('إصدار شهادة جديدة | Certificate Issued')
+            ->subject('إصدار شهادة جديدة')
             ->view('emails.general-notification', [
                 'notificationTitle' => 'إصدار شهادة جديدة',
                 'greeting' => "مرحباً {$notifiable->name}،",
@@ -53,8 +53,11 @@ class CertificateNotification extends Notification implements ShouldQueue
     {
         return [
             'type' => 'certificate_issued',
-            'title' => 'Certificate Issued',
-            'message' => 'Congratulations! You have received a new certificate.',
+            'title' => 'تم إصدار شهادة جديدة',
+            'title_ar' => 'تم إصدار شهادة جديدة',
+            'message' => 'تهانينا! حصلت على شهادة جديدة بعد إتمام الدورة.',
+            'message_ar' => 'تهانينا! حصلت على شهادة جديدة بعد إتمام الدورة.',
+            'action_url' => '/my-certificates',
         ];
     }
 
@@ -63,8 +66,8 @@ class CertificateNotification extends Notification implements ShouldQueue
         $data = $this->toArray($notifiable);
 
         $this->sendFcmNotification($notifiable, [
-            'title' => $data['title'],
-            'body' => $data['message'],
+            'title' => $data['title_ar'] ?? $data['title'],
+            'body' => $data['message_ar'] ?? $data['message'],
             'type' => $data['type'],
         ]);
         

@@ -61,7 +61,10 @@ return [
     |
     */
 
-    'enabled' => env('TELESCOPE_ENABLED', true),
+    'enabled' => filter_var(
+        env('TELESCOPE_ENABLED', env('APP_ENV', 'production') === 'local' ? 'true' : 'false'),
+        FILTER_VALIDATE_BOOLEAN,
+    ),
 
     'allowed_emails' => env('TELESCOPE_ALLOWED_EMAILS', ''),
 

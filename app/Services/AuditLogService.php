@@ -28,6 +28,7 @@ class AuditLogService
         'cvv',
         'private_key',
         'api_key',
+        'app_key',
         'signature',
     ];
 
@@ -41,7 +42,7 @@ class AuditLogService
         array $details = [],
         ?User $actor = null
     ): AdminAuditLog {
-        $user = $actor ?? Auth::user();
+        $user = $actor ?? Auth::guard('sanctum')->user() ?? Auth::user();
 
         $sanitizedDetails = self::redactSensitiveData($details);
 

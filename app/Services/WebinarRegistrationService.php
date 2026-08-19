@@ -102,13 +102,20 @@ class WebinarRegistrationService
                 return $existing;
             }
 
-            return WebinarRegistration::create([
-                'user_id' => $user->id,
-                'webinar_id' => $lockedWebinar->id,
-                'payment_status' => $paymentStatus,
-                'paid_amount' => $paidAmount,
-                'expires_at' => $expiresAt,
-            ]);
+            try {
+                return WebinarRegistration::create([
+                    'user_id' => $user->id,
+                    'webinar_id' => $lockedWebinar->id,
+                    'payment_status' => $paymentStatus,
+                    'paid_amount' => $paidAmount,
+                    'expires_at' => $expiresAt,
+                ]);
+            } catch (\Illuminate\Database\QueryException $e) {
+                if ((string) $e->getCode() === '23000') {
+                    throw new Exception('You are already registered for this webinar.', 409);
+                }
+                throw $e;
+            }
         });
 
         // Dispatch confirmation event only when registration is confirmed (not pending)

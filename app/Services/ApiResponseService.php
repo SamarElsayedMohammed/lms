@@ -22,7 +22,7 @@ final class ApiResponseService
         if (!$user instanceof User || !$user->can($permission)) {
             return redirect(route('home'))->withErrors([
                 'message' => trans("You Don't have enough permissions"),
-            ])->send();
+            ]);
         }
 
         return true;
@@ -90,6 +90,9 @@ final class ApiResponseService
                 'per_page' => $data['per_page'] ?? null,
                 'total' => $data['total'] ?? null,
             ];
+            if (array_key_exists('unread_count', $data)) {
+                $meta['unread_count'] = $data['unread_count'];
+            }
             $data = $data['data'];
         }
 
@@ -117,16 +120,7 @@ final class ApiResponseService
             $jsonResponse->header($headerName, $headerValue);
         }
 
-        // Preserve CORS headers when raising the response from a service.
-        try {
-            $origin = request()->header('Origin');
-            if ($origin !== null && $origin !== '') {
-                $jsonResponse->header('Access-Control-Allow-Origin', $origin);
-                $jsonResponse->header('Access-Control-Allow-Credentials', 'true');
-            }
-        } catch (Throwable) {
-            // Ignore CORS header errors - don't break the response
-        }
+        self::applySafeCorsHeaders($jsonResponse);
 
         throw new HttpResponseException($jsonResponse);
     }
@@ -175,16 +169,7 @@ final class ApiResponseService
 
         $jsonResponse = response()->json($response, $code);
 
-        // Preserve CORS headers when raising the response from a service.
-        try {
-            $origin = request()->header('Origin');
-            if ($origin !== null && $origin !== '') {
-                $jsonResponse->header('Access-Control-Allow-Origin', $origin);
-                $jsonResponse->header('Access-Control-Allow-Credentials', 'true');
-            }
-        } catch (Throwable) {
-            // Ignore CORS header errors - don't break the response
-        }
+        self::applySafeCorsHeaders($jsonResponse);
 
         throw new HttpResponseException($jsonResponse);
     }
@@ -239,5 +224,30 @@ final class ApiResponseService
             'status' => false,
             'message' => $message,
         ], 403);
+    }
+
+    private static function applySafeCorsHeaders($jsonResponse): void
+    {
+        try {
+            $origin = request()->header('Origin');
+            if ($origin === null || $origin === '') {
+                return;
+            }
+
+            $allowed = config('cors.allowed_origins', []);
+            if (!is_array($allowed) || $allowed === []) {
+                return;
+            }
+
+            if (in_array('*', $allowed, true) || in_array($origin, $allowed, true)) {
+                $allowAny = in_array('*', $allowed, true);
+                $jsonResponse->header('Access-Control-Allow-Origin', $allowAny ? '*' : $origin);
+                if (!$allowAny) {
+                    $jsonResponse->header('Access-Control-Allow-Credentials', 'true');
+                }
+            }
+        } catch (Throwable) {
+            // Ignore CORS header errors - don't break the response
+        }
     }
 }

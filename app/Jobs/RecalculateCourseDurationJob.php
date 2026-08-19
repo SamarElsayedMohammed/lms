@@ -21,7 +21,7 @@ class RecalculateCourseDurationJob implements ShouldQueue
     public function __construct(int $courseId)
     {
         $this->courseId = $courseId;
-        $this->onQueue('low'); // low priority queue
+        $this->onQueue('default');
     }
 
     /**

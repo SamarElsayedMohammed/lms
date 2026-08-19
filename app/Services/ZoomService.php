@@ -16,9 +16,9 @@ class ZoomService
 
     public function __construct()
     {
-        $this->accountId = env('ZOOM_ACCOUNT_ID');
-        $this->clientId = env('ZOOM_CLIENT_ID');
-        $this->clientSecret = env('ZOOM_CLIENT_SECRET');
+        $this->accountId = (string) config('services.zoom.account_id');
+        $this->clientId = (string) config('services.zoom.client_id');
+        $this->clientSecret = (string) config('services.zoom.client_secret');
     }
 
     private function generateToken()

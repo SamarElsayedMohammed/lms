@@ -27,7 +27,7 @@ class OrderAdminApiController extends AdminCrudApiController
         $this->checkPermission('orders-list');
 
         // 1. Query course orders
-        $ordersQuery = Order::with(['user', 'orderCourses.course', 'promoCode'])
+        $ordersQuery = Order::query()
             ->when($request->status, fn ($q) => $q->where('status', $request->status))
             ->when($request->payment_method, fn ($q) => $q->where('payment_method', $request->payment_method))
             ->when($request->date_from, fn ($q) => $q->whereDate('created_at', '>=', $request->date_from))
@@ -45,7 +45,7 @@ class OrderAdminApiController extends AdminCrudApiController
             $subStatus = 'failed';
         }
         
-        $subQuery = SubscriptionPayment::with(['user', 'subscription.plan'])
+        $subQuery = SubscriptionPayment::query()
             ->when($subStatus, fn ($q) => $q->where('status', $subStatus))
             ->when($request->payment_method, fn ($q) => $q->where('payment_method', $request->payment_method))
             ->when($request->date_from, fn ($q) => $q->whereDate('created_at', '>=', $request->date_from))
@@ -57,23 +57,52 @@ class OrderAdminApiController extends AdminCrudApiController
                     ->orWhereHas('user', fn ($uq) => $uq->where('name', 'like', "%{$s}%")->orWhere('email', 'like', "%{$s}%"));
             }));
 
-        $orders = $ordersQuery->get();
-        $subPayments = $subQuery->get();
-
-        // Map subscription payments to look like orders
-        $mappedSubs = $subPayments->map(fn($p) => $this->mapSubscriptionPaymentToOrder($p));
-
-        // Combine and sort by created_at desc
-        $combined = $orders->concat($mappedSubs)->sortByDesc('created_at')->values();
-
-        // Paginate manually
         $perPage = min((int) $request->input('per_page', 15), 100);
-        $currentPage = \Illuminate\Pagination\LengthAwarePaginator::resolveCurrentPage();
-        $currentItems = $combined->slice(($currentPage - 1) * $perPage, $perPage)->all();
+        $currentPage = max(1, (int) $request->input('page', \Illuminate\Pagination\LengthAwarePaginator::resolveCurrentPage()));
+        $offset = ($currentPage - 1) * $perPage;
+
+        $total = (clone $ordersQuery)->count() + (clone $subQuery)->count();
+
+        $union = (clone $ordersQuery)
+            ->selectRaw("orders.id as record_id, orders.created_at as created_at, 'order' as source")
+            ->toBase()
+            ->unionAll(
+                (clone $subQuery)
+                    ->selectRaw("subscription_payments.id as record_id, subscription_payments.created_at as created_at, 'sub' as source")
+                    ->toBase(),
+            );
+
+        $pageRows = DB::query()
+            ->fromSub($union, 'combined_orders')
+            ->orderByDesc('created_at')
+            ->offset($offset)
+            ->limit($perPage)
+            ->get();
+
+        $orderIds = $pageRows->where('source', 'order')->pluck('record_id');
+        $subIds = $pageRows->where('source', 'sub')->pluck('record_id');
+
+        $ordersById = Order::with(['user', 'orderCourses.course', 'promoCode'])
+            ->whereIn('id', $orderIds)
+            ->get()
+            ->keyBy('id');
+        $subsById = SubscriptionPayment::with(['user', 'subscription.plan'])
+            ->whereIn('id', $subIds)
+            ->get()
+            ->keyBy('id');
+
+        $currentItems = $pageRows->map(function ($row) use ($ordersById, $subsById) {
+            if ($row->source === 'order') {
+                return $ordersById->get($row->record_id);
+            }
+            $payment = $subsById->get($row->record_id);
+
+            return $payment ? $this->mapSubscriptionPaymentToOrder($payment) : null;
+        })->filter()->values();
 
         $paginated = new \Illuminate\Pagination\LengthAwarePaginator(
             $currentItems,
-            $combined->count(),
+            $total,
             $perPage,
             $currentPage,
             ['path' => \Illuminate\Pagination\LengthAwarePaginator::resolveCurrentPath()]

@@ -92,9 +92,9 @@ final class ZeroTrustSecurityReconciliationTest extends TestCase
             'country' => 'EG',
         ]);
 
-        // When header X-User-Country=SA is present, it takes SA
+        // When header X-User-Country=SA is present, it is ignored (unsigned / spoofable)
         $request->headers->set('X-User-Country', 'SA');
-        $this->assertSame('SA', $this->countryDetectionService->detect($request));
+        $this->assertSame('EG', $this->countryDetectionService->detect($request));
 
         // When no headers are sent, query params cannot override default (EG)
         $requestNoHeaders = Request::create('/api/v1/subscription/plans?country_code=US', 'GET');
@@ -107,15 +107,17 @@ final class ZeroTrustSecurityReconciliationTest extends TestCase
     }
 
     /**
-     * ZT-04: Cloudflare header CF-IPCountry takes priority over proxy header X-User-Country.
+     * ZT-04: Unsigned Cloudflare / IP headers cannot set pricing country.
      */
     public function test_cloudflare_cf_ipcountry_takes_priority(): void
     {
         $request = Request::create('/api/v1/subscription/plans', 'GET');
         $request->headers->set('CF-IPCountry', 'KW');
+        $request->headers->set('CF-Connecting-IP', '8.8.8.8');
+        $request->headers->set('X-Forwarded-For', '8.8.8.8');
         $request->headers->set('X-User-Country', 'SA');
 
-        $this->assertSame('KW', $this->countryDetectionService->detect($request));
+        $this->assertSame('EG', $this->countryDetectionService->detect($request));
     }
 
     public function test_zt04_cloudflare_cf_ipcountry_takes_priority(): void
@@ -296,6 +298,7 @@ final class ZeroTrustSecurityReconciliationTest extends TestCase
         $service = new \App\Services\CountryDetectionService();
         $request = \Illuminate\Http\Request::create('/api/pricing', 'GET');
         $request->headers->set('CF-IPCountry', 'SA');
+        $request->headers->set('CF-Connecting-IP', '203.0.113.10');
         $request->headers->set('X-User-Country', 'AE');
         $request->headers->set('X-Vercel-IP-Country', 'KW');
 

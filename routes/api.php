@@ -9,6 +9,7 @@ use App\Http\Controllers\API\BillingDetailsApiController;
 use App\Http\Controllers\API\CartApiController;
 use App\Http\Controllers\API\CourseApiController;
 use App\Http\Controllers\API\CourseChapterApiController;
+use App\Http\Controllers\API\CourseCurriculumApiController;
 use App\Http\Controllers\API\CourseDiscussionApiController;
 use App\Http\Controllers\API\FinanceApiController;
 use App\Http\Controllers\API\FirebaseConfigApiController;
@@ -180,6 +181,7 @@ Route::get('certificates/public/{certificate_number}/download', [CertificateCont
 Route::get('webinars', [\App\Http\Controllers\API\PublicWebinarController::class, 'index']);
 Route::get('webinars/{webinar:slug}', [\App\Http\Controllers\API\PublicWebinarController::class, 'show']);
 Route::get('webinars/{webinar:slug}/join', [\App\Http\Controllers\API\PublicWebinarController::class, 'join'])->middleware('auth:sanctum');
+Route::get('webinars/{webinar:slug}/recording', [\App\Http\Controllers\API\PublicWebinarController::class, 'recording'])->middleware('auth:sanctum');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'register'])
@@ -192,7 +194,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Wallet registration
     Route::post('user/wallet/webinars/{webinar:slug}/register', [\App\Http\Controllers\API\User\WalletRegistrationController::class, 'register'])
-        ->middleware([\App\Http\Middleware\IdempotencyMiddleware::class]);
+        ->middleware([\App\Http\Middleware\IdempotencyMiddleware::class.':conflict']);
 });
 
 Route::prefix('helpdesk')->group(function (): void {
@@ -336,6 +338,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // Lecture attachments (user-facing, gated by feature flag)
     Route::get('/lecture/{lectureId}/attachments', [CourseChapterApiController::class, 'getLectureAttachments']);
+    Route::get('courses/{slug}/curriculum', [CourseCurriculumApiController::class, 'showBySlug']);
 
     // Timestamped Video Notes
     Route::get('/lecture/{lectureId}/notes', [\App\Http\Controllers\API\LectureNoteApiController::class, 'index']);
@@ -365,6 +368,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('notifications', [ApiController::class, 'getUserNotifications']); // Get User Notifications
     Route::post('notifications/mark-read', [ApiController::class, 'markNotificationAsRead']); // Mark Notification as Read
     Route::post('notifications/mark-all-read', [ApiController::class, 'markAllNotificationsAsRead']); // Mark All Notifications as Read
+    Route::delete('notifications/{id}', [ApiController::class, 'deleteUserNotification']);
+    Route::post('user/fcm-token', [ApiController::class, 'registerFcmToken']);
     Route::post('delete-account', [ApiController::class, 'deleteAccount']); // Delete User Account
     Route::post('user/delete-account', [ApiController::class, 'deleteAccount']); // Backward-compatible alias
         // Support Center APIs
@@ -404,7 +409,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // Notification Settings
     Route::get('user/notification-settings', [ApiController::class, 'getNotificationSettings']);
-    Route::post('user/notification-settings', [ApiController::class, 'updateNotificationSettings']);
+    Route::match(['post', 'put', 'patch'], 'user/notification-settings', [ApiController::class, 'updateNotificationSettings']);
 
     // Countries (SPA بدون admin/ — نفس المتحكم؛ القائمة: GET countries فقط)
     Route::get('countries', [\App\Http\Controllers\API\Admin\CountryAdminApiController::class, 'index']);
@@ -537,7 +542,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('update-course-chapter', [CourseChaptersController::class, 'update']);
         Route::get('get-added-course-chapters', [CourseChapterApiController::class, 'getAddedCourseChapters']);
         Route::delete('delete-course-chapter', [CourseChapterApiController::class, 'deleteCourseChapter']);
-        // Route removed: update-curriculum does not exist
+        Route::post('update-curriculum', [CourseChaptersController::class, 'curriculumStore']);
         Route::put('/common/change-status', [Controller::class, 'changeStatus']);
 
         // Instructor Earnings APIs
@@ -638,7 +643,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     /**
      * Admin Management APIs (Protected by Admin Roles)
      */
-    Route::middleware('role:Super Admin|Admin|Supervisor|Staff')->group(function (): void {
+    Route::middleware(['role:Super Admin|Admin|Supervisor|Staff', 'audit.admin'])->group(function (): void {
         // Admin Assignment Management APIs
         Route::get('admin/assignment-submissions', [AdminApiController::class, 'getAssignmentSubmissions']); // Get All Assignment Submissions (Admin)
         Route::post('admin/assignment-submission', [AdminApiController::class, 'createAssignmentSubmission']); // Create Assignment Submission (Admin)
@@ -687,19 +692,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
     });
 
     // Admin Ratings CRUD API — used by Next.js dashboard (/api/admin/ratings)
-    Route::prefix('admin/ratings')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
+    Route::prefix('admin/ratings')->middleware(['role:Super Admin|Admin|Supervisor|Staff', 'audit.admin'])->group(function (): void {
         Route::get('/',     [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'index']);   // List all (paginated, searchable)
         Route::put('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'update']);  // Approve / edit
         Route::delete('/{id}', [\App\Http\Controllers\API\Admin\RatingAdminApiController::class, 'destroy']); // Delete
     });
-    Route::prefix('admin/comments')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
+    Route::prefix('admin/comments')->middleware(['role:Super Admin|Admin|Supervisor|Staff', 'audit.admin'])->group(function (): void {
         Route::get('/pending', [\App\Http\Controllers\Admin\ApprovalController::class, 'pendingComments']);
         Route::post('/{id}/approve', [\App\Http\Controllers\Admin\ApprovalController::class, 'approveComment']);
         Route::post('/{id}/reject', [\App\Http\Controllers\Admin\ApprovalController::class, 'rejectComment']);
     });
 
     // Admin affiliate management
-    Route::prefix('admin/affiliate')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
+    Route::prefix('admin/affiliate')->middleware(['role:Super Admin|Supervisor|Staff', 'audit.admin'])->group(function (): void {
         Route::get('settings', [AffiliateController::class, 'settings']);
         Route::put('settings', [AffiliateController::class, 'updateSettings']);
         Route::get('withdrawals/pending', [AffiliateController::class, 'pendingWithdrawals']);
@@ -723,7 +728,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     /**
      * Admin Dashboard CRUD APIs
      */
-    Route::prefix('admin')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
+    Route::prefix('admin')->middleware(['role:Super Admin|Supervisor|Staff', 'audit.admin'])->group(function (): void {
         // System Settings
         Route::get('app-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'getAppSettings']);
         Route::post('app-settings', [\App\Http\Controllers\API\Admin\SystemSettingsAdminApiController::class, 'updateAppSettings']);
@@ -796,7 +801,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Student Tracking (Next.js admin dashboard)
         Route::get('tracking', [\App\Http\Controllers\API\Admin\AdminTrackingApiController::class, 'index']);
-        Route::get('audit-logs', [\App\Http\Controllers\API\Admin\AdminAuditLogApiController::class, 'index']);
+        Route::get('audit-logs', [\App\Http\Controllers\API\Admin\AdminAuditLogApiController::class, 'index'])
+            ->middleware('role:Super Admin|Supervisor');
 
         // FAQs
         Route::get('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'index']);
@@ -988,6 +994,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
                 ->whereNumber('planId');
         });
 
+        // Canonical admin aliases for the reports pages used by the frontend.
+        Route::prefix('reports')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
+            Route::get('filters', [ReportsApiController::class, 'getReportFilters']);
+            Route::get('sales', [ReportsApiController::class, 'getSalesReport']);
+            Route::get('commission', [ReportsApiController::class, 'getCommissionReport']);
+            Route::get('course', [ReportsApiController::class, 'getCourseReport']);
+            Route::get('instructor', [ReportsApiController::class, 'getInstructorReport']);
+            Route::get('enrollment', [ReportsApiController::class, 'getEnrollmentReport']);
+            Route::get('students/completion-stats', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'completionStats']);
+            Route::get('students/{id}', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'show']);
+            Route::get('students', [\App\Http\Controllers\API\Admin\StudentReportAdminApiController::class, 'index']);
+        });
+
         // Refunds Management (Admin)
         Route::prefix('refunds')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\RefundApiController::class, 'getAllRefunds']);
@@ -1009,6 +1028,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
             // Actions
             Route::post('{webinar:slug}/change-status', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'changeWebinarStatus']);
             Route::post('{webinar:slug}/toggle-publish', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'togglePublish']);
+            Route::post('{webinar:slug}/cancel', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'cancel']);
             Route::post('{webinar:slug}/set-default', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'setDefault']);
             Route::put('{slug}/restore', [\App\Http\Controllers\API\Admin\AdminWebinarActionController::class, 'restore']); // No model binding since it's soft deleted
             
@@ -1078,7 +1098,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     });
 
 // Wallet Funding Suite (Admin Contract - v1) — must stay INSIDE auth:sanctum group
-Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function (): void {
+Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
     Route::get('/deposit-requests', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'indexDeposits']);
     Route::get('/withdrawal-requests', [FinanceApiController::class, 'getAdminWithdrawalRequests']);
     Route::put('/deposit-requests/{id}/status', [\App\Http\Controllers\API\Admin\ManualDepositAdminApiController::class, 'updateDepositStatus']);
@@ -1105,34 +1125,32 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->group(function ():
     });
     
 
-    // Finance Management APIs (Admin/Instructor)
+    // Finance Management APIs
     Route::prefix('finance')->group(function (): void {
-        Route::get('dashboard', [FinanceApiController::class, 'getFinanceDashboard']); // Admin only
-        Route::get('commissions', [FinanceApiController::class, 'getCommissions']); // Admin only
-        Route::get('instructor-earnings', [FinanceApiController::class, 'getInstructorEarnings']); // Admin only
-        Route::get('wallet-transactions', [FinanceApiController::class, 'getWalletTransactions']); // Admin/User
-        Route::post('process-commission', [FinanceApiController::class, 'processCommission']); // Admin only
-        Route::get('reports', [FinanceApiController::class, 'getFinanceReports']); // Admin only
+        Route::middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
+            Route::get('dashboard', [FinanceApiController::class, 'getFinanceDashboard']);
+            Route::get('commissions', [FinanceApiController::class, 'getCommissions']);
+            Route::get('instructor-earnings', [FinanceApiController::class, 'getInstructorEarnings']);
+            Route::post('process-commission', [FinanceApiController::class, 'processCommission']);
+            Route::get('reports', [FinanceApiController::class, 'getFinanceReports']);
+            Route::get('admin/withdrawal-requests', [FinanceApiController::class, 'getAdminWithdrawalRequests']);
+            Route::post('admin/withdrawal-request/update-status', [
+                FinanceApiController::class,
+                'updateWithdrawalRequestStatus',
+            ]);
+            Route::get('admin/withdrawal-request/details', [FinanceApiController::class, 'getWithdrawalRequestDetails']);
+            Route::get('admin/wallet/withdrawal-methods', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'index']);
+            Route::post('admin/wallet/withdrawal-methods', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'store']);
+            Route::put('admin/wallet/withdrawal-methods/{id}', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'update']);
+            Route::put('admin/wallet/withdrawal-methods/{id}/toggle', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'toggle']);
+            Route::post('admin/wallet/withdrawal-methods/{id}/archive', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'archive']);
+            Route::patch('admin/wallet/withdrawal-methods/{id}/archive', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'archive']);
+        });
 
-        // Instructor Wallet APIs
-        Route::get('wallet-summary', [FinanceApiController::class, 'getWalletSummary']); // Instructor
-        Route::post('withdrawal-request', [FinanceApiController::class, 'createWithdrawalRequest']); // Instructor
-        Route::get('withdrawal-requests', [FinanceApiController::class, 'getWithdrawalRequests']); // Instructor
-
-        // Admin Withdrawal Management APIs
-        Route::get('admin/wallet/withdrawal-methods', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'index']);
-        Route::post('admin/wallet/withdrawal-methods', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'store']);
-        Route::put('admin/wallet/withdrawal-methods/{id}', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'update']);
-        Route::put('admin/wallet/withdrawal-methods/{id}/toggle', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'toggle']);
-        Route::post('admin/wallet/withdrawal-methods/{id}/archive', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'archive']);
-        Route::patch('admin/wallet/withdrawal-methods/{id}/archive', [\App\Http\Controllers\API\Admin\WithdrawalMethodAdminApiController::class, 'archive']);
-
-        Route::get('admin/withdrawal-requests', [FinanceApiController::class, 'getAdminWithdrawalRequests']); // Admin
-        Route::post('admin/withdrawal-request/update-status', [
-            FinanceApiController::class,
-            'updateWithdrawalRequestStatus',
-        ]); // Admin
-        Route::get('admin/withdrawal-request/details', [FinanceApiController::class, 'getWithdrawalRequestDetails']); // Admin
+        Route::get('wallet-transactions', [FinanceApiController::class, 'getWalletTransactions']);
+        Route::get('wallet-summary', [FinanceApiController::class, 'getWalletSummary']);
+        Route::post('withdrawal-request', [FinanceApiController::class, 'createWithdrawalRequest']);
+        Route::get('withdrawal-requests', [FinanceApiController::class, 'getWithdrawalRequests']);
     });
 
     // Reports APIs (Admin)
@@ -1191,10 +1209,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
 });
 
 /**
- * For Development Purposes
+ * Destructive leftover. Local Super Admin only — never unauthenticated in production.
  */
-
-Route::delete('remove-user', [ApiController::class, 'removeUser']); // Remove User
+Route::delete('remove-user', [ApiController::class, 'removeUser'])->middleware('auth:sanctum');
 
 /********************************************************************************************* */
 Route::match(['get', 'post'], 'webhooks/kashier', [\App\Http\Controllers\KashierController::class, 'handleWebhook'])->name('webhooks.kashier');

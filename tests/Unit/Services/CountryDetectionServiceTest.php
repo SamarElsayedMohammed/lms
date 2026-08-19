@@ -47,6 +47,7 @@ final class CountryDetectionServiceTest extends TestCase
     {
         $request = Request::create('/', 'GET');
         $request->headers->set('CF-IPCountry', 'US');
+        $request->headers->set('CF-Connecting-IP', '203.0.113.10');
 
         $this->assertSame('US', $this->service->detect($request));
     }
@@ -55,8 +56,17 @@ final class CountryDetectionServiceTest extends TestCase
     {
         $request = Request::create('/', 'GET');
         $request->headers->set('CF-IPCountry', 'EG');
+        $request->headers->set('CF-Connecting-IP', '203.0.113.10');
         $request->headers->set('X-User-Country', 'SA');
         $request->headers->set('X-Vercel-IP-Country', 'AE');
+
+        $this->assertSame('EG', $this->service->detect($request));
+    }
+
+    public function test_unsigned_cf_ipcountry_without_connecting_ip_is_ignored(): void
+    {
+        $request = Request::create('/', 'GET');
+        $request->headers->set('CF-IPCountry', 'SA');
 
         $this->assertSame('EG', $this->service->detect($request));
     }
@@ -65,6 +75,7 @@ final class CountryDetectionServiceTest extends TestCase
     {
         $request = Request::create('/?country_code=US', 'GET', ['country_code' => 'US']);
         $request->headers->set('CF-IPCountry', 'SA');
+        $request->headers->set('CF-Connecting-IP', '203.0.113.10');
 
         $this->assertSame('SA', $this->service->detect($request));
 

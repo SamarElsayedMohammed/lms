@@ -195,18 +195,25 @@ class ContactMessageAdminApiController extends AdminCrudApiController
 
             // 2️⃣ Send email reply
             if (in_array('mail', NotificationSettingsService::getChannelsFor('ContactReplyNotification', ['mail', 'database']), true)) {
-                Mail::send(
-                'emails.contact-reply',
-                [
-                    'contactMessage' => $message,
-                    'appName'        => $appName,
-                    'replyMessage'   => $replyMessage,
-                ],
-                function ($mail) use ($message, $appName) {
-                    $mail->to($message->email)
-                        ->subject("Reply to your inquiry - {$appName}");
+                try {
+                    Mail::send(
+                    'emails.contact-reply',
+                    [
+                        'contactMessage' => $message,
+                        'appName'        => $appName,
+                        'replyMessage'   => $replyMessage,
+                    ],
+                    function ($mail) use ($message, $appName) {
+                        $mail->to($message->email)
+                            ->subject("رد على استفسارك - {$appName}");
+                    }
+                    );
+                } catch (\Throwable $mailError) {
+                    \Illuminate\Support\Facades\Log::error('Contact reply email failed', [
+                        'contact_message_id' => $message->id,
+                        'error' => $mailError->getMessage(),
+                    ]);
                 }
-            );
             }
 
             // 3️⃣ Send in-app + FCM notification to the user (only if logged-in user sent the message)
@@ -249,7 +256,7 @@ class ContactMessageAdminApiController extends AdminCrudApiController
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            return $this->jsonError(__('Failed to send reply: ') . $e->getMessage(), 500);
+            return $this->jsonError('تعذر إرسال الرد حالياً.', 500);
         }
     }
 }

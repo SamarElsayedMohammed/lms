@@ -6,11 +6,10 @@ namespace App\Mail;
 
 use App\Models\User;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 
-final class ResetPasswordOtpMail extends Mailable implements ShouldQueue
+final class ResetPasswordOtpMail extends Mailable
 {
     use Queueable;
     use SerializesModels;

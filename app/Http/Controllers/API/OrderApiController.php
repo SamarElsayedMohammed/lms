@@ -1121,7 +1121,11 @@ class OrderApiController extends Controller
             // Final price (base price + tax)
             $finalPrice = $pricing['total'];
 
-            // Update order totals
+            $orderExchangeRate = (float) ($pricing['exchange_rate'] ?? 1);
+            if ($orderExchangeRate <= 0) $orderExchangeRate = 1;
+            $orderAmountEgp = round($finalPrice * $orderExchangeRate, 2);
+
+            // Update order totals + reporting normalization fields
             $order->update([
                 'total_price' => $pricing['subtotal'],
                 'tax_price' => $pricing['tax_amount'],
@@ -1129,6 +1133,10 @@ class OrderApiController extends Controller
                 'promo_code_id' => $promoCode?->id,
                 'discount_amount' => $pricing['promo_discount'],
                 'promo_code' => $promoCode?->promo_code,
+                'amount_egp' => $orderAmountEgp,
+                'currency_code' => $pricing['currency_code'] ?? 'EGP',
+                'exchange_rate_snapshot' => $orderExchangeRate,
+                'resolved_country' => $countryCode ? strtoupper((string) $countryCode) : null,
             ]);
 
             // If free course, complete the order directly
@@ -1417,6 +1425,8 @@ class OrderApiController extends Controller
             $totalDiscountAmount = 0;
             $hasFreeCourses = false;
             $appliedPromoCodes = [];
+            $orderExchangeRate = 1.0;
+            $orderCurrencyCode = 'EGP';
 
             // 1. Get Localization & Tax Info
             $countryCode = $this->pricingService->getCountryCodeFromRequest($request);
@@ -1475,6 +1485,13 @@ class OrderApiController extends Controller
                 $total += $isFree ? 0 : $pricing['subtotal'];
                 $totalTax += $isFree ? 0 : $pricing['tax_amount'];
                 $totalDiscountAmount += $isFree ? 0 : $pricing['promo_discount'];
+                $candidateRate = (float) ($pricing['exchange_rate'] ?? 1);
+                if ($candidateRate > 0) {
+                    $orderExchangeRate = $candidateRate;
+                }
+                if (!empty($pricing['currency_code'])) {
+                    $orderCurrencyCode = (string) $pricing['currency_code'];
+                }
 
                 if ($promoCode) {
                     $appliedPromoCodes[] = [
@@ -1498,10 +1515,15 @@ class OrderApiController extends Controller
             // Final price = base price + tax
             $finalPrice = $total + $totalTax;
 
+            $orderAmountEgp = round($finalPrice * $orderExchangeRate, 2);
             $order->update([
                 'total_price' => $total,
                 'tax_price' => $totalTax,
                 'final_price' => $finalPrice,
+                'amount_egp' => $orderAmountEgp,
+                'currency_code' => $orderCurrencyCode,
+                'exchange_rate_snapshot' => $orderExchangeRate,
+                'resolved_country' => $countryCode ? strtoupper((string) $countryCode) : null,
             ]);
 
             // 8. If all courses are free, complete order directly
@@ -1871,9 +1893,15 @@ class OrderApiController extends Controller
             $certificateFee = $course->certificate_fee;
             // Get tax info for free courses
             $pricingService = app(PricingCalculationService::class);
+            $countryCode = $pricingService->getCountryCodeFromRequest($request) ?? 'EG';
+            $currencyMeta = $pricingService->resolveDisplayCurrency($countryCode);
+            $currencyCode = (string) ($currencyMeta['code'] ?? 'EGP');
+            $exchangeRate = app(\App\Services\CurrencyConversionService::class)->getExchangeRateToEgp($currencyCode);
+            if ($exchangeRate <= 0) $exchangeRate = 1.0;
             $certificateTaxPercentage = $pricingService->getTaxPercentageFromRequest($request);
             $certificateTaxAmount = round(($certificateFee * $certificateTaxPercentage) / 100, 2);
             $certificateFinalPrice = round($certificateFee + $certificateTaxAmount, 2);
+            $certificateAmountEgp = round($certificateFinalPrice * $exchangeRate, 2);
 
             try {
                 // Create order for certificate
@@ -1888,6 +1916,10 @@ class OrderApiController extends Controller
                     'discount_amount' => 0,
                     'promo_code' => null,
                     'status' => 'pending',
+                    'amount_egp' => $certificateAmountEgp,
+                    'currency_code' => $currencyCode,
+                    'exchange_rate_snapshot' => $exchangeRate,
+                    'resolved_country' => strtoupper((string) $countryCode),
                 ]);
 
                 // Create an order course with a certificate purchase flag

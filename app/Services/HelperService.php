@@ -28,37 +28,54 @@ class HelperService
 {
     public static function changeEnv($updateData = []): bool
     {
-        if (count($updateData) > 0) {
-            // Read .env-file
-            $env = file_get_contents(base_path() . '/.env');
-            // Split string on every " " and write into array
-            $env = preg_split('/\r\n|\r|\n/', $env);
-            $env_array = [];
-            foreach ($env as $env_value) {
-                if (empty($env_value)) {
-                    // Add and Empty Line
-                    $env_array[] = '';
-
-                    continue;
-                }
-
-                $entry = explode('=', $env_value, 2);
-                $env_array[$entry[0]] = $entry[0] . '="' . str_replace('"', '', $entry[1]) . '"';
-            }
-
-            foreach ($updateData as $key => $value) {
-                $env_array[$key] = $key . '="' . str_replace('"', '', $value) . '"';
-            }
-            // Turn the array back to a String
-            $env = implode("\n", $env_array);
-
-            // And overwrite the .env with the new data
-            file_put_contents(base_path() . '/.env', $env);
-
-            return true;
+        if (count($updateData) === 0) {
+            return false;
         }
 
-        return false;
+        $blockedKeys = ['APP_KEY', 'APP_ENV', 'DB_PASSWORD', 'DB_USERNAME'];
+        foreach (array_keys($updateData) as $key) {
+            if (in_array((string) $key, $blockedKeys, true)) {
+                Log::warning('HelperService::changeEnv refused to rewrite a protected env key', [
+                    'key' => $key,
+                ]);
+                unset($updateData[$key]);
+            }
+        }
+
+        if (count($updateData) === 0) {
+            return false;
+        }
+
+        $envPath = base_path() . '/.env';
+        $env = file_get_contents($envPath);
+        if ($env === false) {
+            return false;
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', $env);
+        $env_array = [];
+        foreach ($lines as $env_value) {
+            if ($env_value === '') {
+                $env_array[] = '';
+                continue;
+            }
+
+            if (!str_contains($env_value, '=')) {
+                $env_array[] = $env_value;
+                continue;
+            }
+
+            $entry = explode('=', $env_value, 2);
+            $env_array[$entry[0]] = $entry[0] . '="' . str_replace('"', '', $entry[1]) . '"';
+        }
+
+        foreach ($updateData as $key => $value) {
+            $env_array[$key] = $key . '="' . str_replace('"', '', $value) . '"';
+        }
+
+        file_put_contents($envPath, implode("\n", $env_array));
+
+        return true;
     }
 
     /**
@@ -245,7 +262,7 @@ class HelperService
             } elseif (!empty($file) && file_exists($file)) {
                 $factory = $factory->withServiceAccount($file);
             } else {
-                ApiResponseService::errorResponse('Firebase Configuration Error');
+                ApiResponseService::errorResponse('إعدادات Firebase غير مكتملة على الخادم.');
             }
 
             $firebase = $factory->createAuth();

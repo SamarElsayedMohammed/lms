@@ -5,55 +5,66 @@ namespace App\Helpers;
 use App\Models\Setting;
 use App\Models\UserFcmToken;
 use Google\Client;
+use GuzzleHttp\Client as GuzzleClient;
 use Illuminate\Support\Facades\Log;
 
 class FirebaseHelper
 {
-    public static function send($platform, $registration_ids, $fcm_msg, $notification)
+    /**
+     * @param string $platform
+     * @param string $registration_ids FCM device token
+     * @param array<string, mixed> $fcm_msg
+     * @param mixed $notification unused legacy argument
+     */
+    public static function send($platform, $registration_ids, $fcm_msg, $notification = null)
     {
-        if ($platform == 'android' || $platform == 'web') {
-            $fields = [
-                'message' => [
-                    'token' => $registration_ids,
-                    'data' => $fcm_msg,
+        $dataPayload = self::stringifyData($fcm_msg);
+        $title = (string) ($dataPayload['title'] ?? '');
+        $body = (string) ($dataPayload['body'] ?? '');
+
+        $message = [
+            'token' => $registration_ids,
+            'data' => $dataPayload,
+        ];
+
+        $platformKey = strtolower((string) $platform);
+
+        // Visible system tray on iOS and web; Android uses data + client display.
+        if ($platformKey !== 'android') {
+            $message['notification'] = [
+                'title' => $title,
+                'body' => $body,
+            ];
+        }
+
+        if ($platformKey === 'ios') {
+            $message['apns'] = [
+                'payload' => [
+                    'aps' => [
+                        'sound' => isset($dataPayload['type'])
+                            && ($dataPayload['type'] == 'new_order' || $dataPayload['type'] == 'assign_order')
+                            ? 'order_sound.aiff'
+                            : 'default',
+                    ],
                 ],
             ];
-        } elseif ($platform == 'ios') {
-            $fields = [
-                'message' => [
-                    'token' => $registration_ids,
-                    'data' => $fcm_msg,
-                    'notification' => [
-                        'title' => $fcm_msg['title'] ?? '',
-                        'body' => $fcm_msg['body'] ?? '',
-                    ],
-                    'apns' => [
-                        'payload' => [
-                            'aps' => [
-                                'sound' => isset($fcm_msg['type'])
-                                && ($fcm_msg['type'] == 'new_order' || $fcm_msg['type'] == 'assign_order')
-                                    ? 'order_sound.aiff'
-                                    : 'default',
-                            ],
-                        ],
-                    ],
-                ],
-            ];
-        } else {
+        } elseif (!in_array($platformKey, ['android', 'web', 'ios'], true)) {
             Log::error('Invalid platform specified for Firebase push notification.');
             return false;
         }
 
-        return self::sendPushNotification($fields);
+        return self::sendPushNotification(['message' => $message]);
     }
 
+    /**
+     * @param array<string, mixed> $fields
+     */
     public static function sendPushNotification($fields)
     {
         $data1 = json_encode($fields);
 
         $access_token = self::getAccessToken();
 
-        // If Firebase is not configured, return false without error
         if ($access_token === null) {
             Log::info('Firebase not configured - skipping push notification');
             return false;
@@ -94,18 +105,54 @@ class FirebaseHelper
 
         curl_close($ch);
 
-        $response = json_decode($result, true);
+        $response = is_string($result) ? json_decode($result, true) : null;
+        $token = $fields['message']['token'] ?? null;
+        $errorCode = is_array($response) ? ($response['error']['code'] ?? null) : null;
+        $errorStatus = is_array($response) ? (string) ($response['error']['status'] ?? '') : '';
 
-        if (isset($response['error']['code']) && in_array($response['error']['code'], [404])) {
-            $token = $fields['message']['token'];
+        $isInvalidToken = $errorCode === 404
+            || in_array($errorStatus, ['NOT_FOUND', 'UNREGISTERED', 'INVALID_ARGUMENT'], true);
+
+        if ($isInvalidToken && is_string($token) && $token !== '') {
             UserFcmToken::where('fcm_token', $token)->delete();
-
-            Log::warning('Deleted expired FCM token: ' . $token);
+            Log::warning('Deleted expired FCM token', [
+                'token_prefix' => substr($token, 0, 12),
+            ]);
         }
 
-        Log::info('Firebase Push Notification Sent', ['response' => $response]);
+        if (is_array($response) && isset($response['error'])) {
+            Log::warning('Firebase push rejected', [
+                'status' => $errorStatus,
+                'code' => $errorCode,
+            ]);
+        }
 
         return $response;
+    }
+
+    /**
+     * FCM data payload values must be strings.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, string>
+     */
+    public static function stringifyData(array $data): array
+    {
+        $out = [];
+        foreach ($data as $key => $value) {
+            if (is_array($value) || is_object($value)) {
+                continue;
+            }
+            if (is_bool($value)) {
+                $out[(string) $key] = $value ? '1' : '0';
+            } elseif ($value === null) {
+                $out[(string) $key] = '';
+            } else {
+                $out[(string) $key] = (string) $value;
+            }
+        }
+
+        return $out;
     }
 
     private static function getAccessToken()
@@ -113,15 +160,16 @@ class FirebaseHelper
         $filePath = app(\App\Services\FirebaseConfigService::class)->getCredentialsPath();
 
         if ($filePath === null || !file_exists($filePath)) {
-            Log::warning('Firebase service account file not found - Firebase notifications disabled', [
-                'file_path' => $filePath ?? 'not set',
-            ]);
+            Log::warning('Firebase service account file not found - Firebase notifications disabled');
 
             return null;
         }
 
         $client = new Client();
-
+        $client->setHttpClient(new GuzzleClient([
+            'timeout' => 10,
+            'connect_timeout' => 5,
+        ]));
         $client->setAuthConfig($filePath);
         $client->setScopes(['https://www.googleapis.com/auth/firebase.messaging']);
 

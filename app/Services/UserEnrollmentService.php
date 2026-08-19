@@ -81,6 +81,7 @@ final class UserEnrollmentService
         if ($user->activeSubscription()->exists()) {
             Course::query()
                 ->where('status', 'publish')
+                ->where('approval_status', 'approved')
                 ->where('is_active', true)
                 ->pluck('id')
                 ->each(function ($courseId) use ($enrolled): void {
@@ -124,6 +125,7 @@ final class UserEnrollmentService
                 if ($course === null
                     || !$course->is_active
                     || $course->status !== 'publish'
+                    || $course->approval_status !== 'approved'
                     || !$course->hasContent()
                 ) {
                     return null;
@@ -162,8 +164,8 @@ final class UserEnrollmentService
                         ]);
                 },
             ])
-            ->withAvg('ratings', 'rating')
-            ->withCount('ratings')
+            ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+            ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }])
             ->where('status', 'publish')
             ->where('approval_status', 'approved')
             ->where('is_active', true);

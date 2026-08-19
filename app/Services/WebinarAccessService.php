@@ -176,7 +176,18 @@ class WebinarAccessService
             ];
         }
 
-        if (!$this->isUserEntitled($webinar, $user)) {
+        if ($webinar->status === 'completed') {
+            return [
+                'allowed' => false,
+                'reason' => 'This webinar has already ended.',
+                'error_code' => 'webinar_completed',
+                'code' => 403,
+            ];
+        }
+
+        $isHostOrStaff = $this->isHostOrStaff($webinar, $user);
+
+        if (!$isHostOrStaff && !$this->isUserEntitled($webinar, $user)) {
             return [
                 'allowed' => false,
                 'reason' => 'You must complete registration and payment for this webinar first.',
@@ -185,8 +196,13 @@ class WebinarAccessService
             ];
         }
 
-        // Time gate: allow joining up to 15 minutes prior to start time
-        if ($webinar->status === 'scheduled' && $webinar->start_at && $webinar->start_at->gt(now()->addMinutes(15))) {
+        // Hosts/staff may open the room early; attendees join from 15 minutes before start.
+        if (
+            !$isHostOrStaff
+            && $webinar->status === 'scheduled'
+            && $webinar->start_at
+            && $webinar->start_at->gt(now()->addMinutes(15))
+        ) {
             return [
                 'allowed' => false,
                 'reason' => 'The webinar session is not open yet. Please check back 15 minutes before the start time.',
@@ -237,7 +253,7 @@ class WebinarAccessService
             ];
         }
 
-        if (!$this->isUserEntitled($webinar, $user)) {
+        if (!$this->isHostOrStaff($webinar, $user) && !$this->isUserEntitled($webinar, $user)) {
             return [
                 'allowed' => false,
                 'reason' => 'You do not have access to this recording.',
@@ -264,31 +280,32 @@ class WebinarAccessService
         // Never expose raw registrations collection to public response
         $webinar->makeHidden(['registrations']);
 
-        $entitled = $this->isUserEntitled($webinar, $user);
+        $entitled = $this->isUserEntitled($webinar, $user) || $this->isHostOrStaff($webinar, $user);
 
-        if (!$entitled) {
-            // Hide all live meeting credentials and replay URLs
-            $webinar->makeHidden([
-                'join_url',
-                'meeting_id',
-                'meeting_password',
-                'recording_url',
-            ]);
-        } else {
-            // Entitled user: if recording is not ready or webinar not completed, hide recording_url
-            if ($webinar->status !== 'completed' || empty($webinar->recording_url)) {
-                $webinar->makeHidden(['recording_url']);
-            }
-            // If webinar is cancelled, hide live meeting credentials
-            if ($webinar->status === 'cancelled') {
-                $webinar->makeHidden([
-                    'join_url',
-                    'meeting_id',
-                    'meeting_password',
-                ]);
-            }
+        // Live credentials are only returned from GET /webinars/{slug}/join.
+        $webinar->makeHidden([
+            'join_url',
+            'meeting_id',
+            'meeting_password',
+        ]);
+
+        if (!$entitled || $webinar->status !== 'completed' || empty($webinar->recording_url)) {
+            $webinar->makeHidden(['recording_url']);
         }
 
         return $webinar;
+    }
+
+    public function isHostOrStaff(Webinar $webinar, ?User $user = null): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        if ($user->hasRole('Super Admin') || $user->hasRole('Supervisor') || $user->hasRole('Staff')) {
+            return true;
+        }
+
+        return $user->hasRole('Instructor') && (int) $webinar->instructor_id === (int) $user->id;
     }
 }

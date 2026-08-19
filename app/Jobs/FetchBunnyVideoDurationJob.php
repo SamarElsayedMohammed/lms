@@ -50,10 +50,21 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
 
         $url = "https://video.bunnycdn.com/library/{$this->libraryId}/videos/{$this->videoGuid}";
 
-        $response = Http::withHeaders([
-            'AccessKey' => $apiKey,
-            'Accept'    => 'application/json',
-        ])->get($url);
+        try {
+            $response = Http::timeout(15)
+                ->connectTimeout(5)
+                ->withHeaders([
+                    'AccessKey' => $apiKey,
+                    'Accept'    => 'application/json',
+                ])->get($url);
+        } catch (\Throwable $e) {
+            Log::error('Bunny duration request failed', [
+                'lecture_id' => $this->lectureId,
+                'error' => $e->getMessage(),
+            ]);
+            $this->releaseWithBackoff();
+            return;
+        }
 
         if (!$response->successful()) {
             Log::error('Failed to fetch Bunny video details', [
@@ -63,7 +74,7 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
             ]);
             
             if ($response->status() >= 500 || $response->status() === 429) {
-                $this->release();
+                $this->releaseWithBackoff();
             }
             return;
         }
@@ -74,7 +85,7 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
         // If the video is still processing, duration might be 0
         if ($durationSeconds <= 0 && in_array($data['status'] ?? -1, [0, 1, 2, 3])) { // 0: Created, 1: Uploaded, 2: Processing, 3: Transcoding
             Log::info('Bunny video is still processing. Retrying later.', ['lecture_id' => $this->lectureId]);
-            $this->release();
+            $this->releaseWithBackoff();
             return;
         }
 
@@ -89,7 +100,7 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
         $minutes = floor(($durationSeconds % 3600) / 60);
         $seconds = $durationSeconds % 60;
 
-        $lecture->update([
+        $lecture->updateQuietly([
             'duration_seconds' => $durationSeconds,
             'hours'            => $hours,
             'minutes'          => $minutes,
@@ -112,7 +123,18 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
         ->where('is_active', 1)
         ->sum('duration_seconds');
 
-        $course->update(['duration_seconds' => $totalSeconds]);
+        $course->updateQuietly(['duration_seconds' => $totalSeconds]);
+    }
+
+    /**
+     * Manual release() ignores backoff() unless a delay is passed — delay 0 busy-loops the worker.
+     */
+    private function releaseWithBackoff(): void
+    {
+        $delays = $this->backoff();
+        $attempt = max(1, $this->attempts());
+        $delay = $delays[min($attempt - 1, count($delays) - 1)];
+        $this->release($delay);
     }
 
     /**

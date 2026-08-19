@@ -15,7 +15,7 @@ class IdempotencyMiddleware
      * @param  \Closure  $next
      * @return mixed
      */
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, Closure $next, string $onReplay = 'replay')
     {
         $idempotencyKey = $request->header('Idempotency-Key') ?? $request->header('X-Idempotency-Key');
 
@@ -40,13 +40,54 @@ class IdempotencyMiddleware
             $idempotencyKey,
         ]));
 
-        if (!Cache::add($cacheKey, ['state' => 'processing'], now()->addHours(24))) {
+        $existing = Cache::get($cacheKey);
+        if (is_array($existing) && ($existing['state'] ?? null) === 'completed') {
+            if ($onReplay === 'conflict') {
+                return response()->json([
+                    'success' => false,
+                    'status' => false,
+                    'message' => 'طلب مكرر: تم تسجيل هذا الويبنار مسبقاً.',
+                    'reason' => 'IDEMPOTENCY_CONFLICT',
+                ], 409)->header('Idempotent-Replay', 'true');
+            }
+
+            return response($existing['content'] ?? '', (int) ($existing['status'] ?? 200))
+                ->header('Content-Type', $existing['headers']['Content-Type'] ?? 'application/json')
+                ->header('Idempotent-Replay', 'true');
+        }
+
+        if (is_array($existing) && ($existing['state'] ?? null) === 'processing') {
             return response()->json([
                 'success' => false,
                 'status' => false,
                 'message' => 'Duplicate request detected with the same Idempotency-Key.',
                 'reason' => 'IDEMPOTENCY_CONFLICT',
-            ], 409); // Conflict from duplicate middleware
+            ], 409);
+        }
+
+        if (!Cache::add($cacheKey, ['state' => 'processing'], now()->addHours(24))) {
+            $race = Cache::get($cacheKey);
+            if (is_array($race) && ($race['state'] ?? null) === 'completed') {
+                if ($onReplay === 'conflict') {
+                    return response()->json([
+                        'success' => false,
+                        'status' => false,
+                        'message' => 'طلب مكرر: تم تسجيل هذا الويبنار مسبقاً.',
+                        'reason' => 'IDEMPOTENCY_CONFLICT',
+                    ], 409)->header('Idempotent-Replay', 'true');
+                }
+
+                return response($race['content'] ?? '', (int) ($race['status'] ?? 200))
+                    ->header('Content-Type', $race['headers']['Content-Type'] ?? 'application/json')
+                    ->header('Idempotent-Replay', 'true');
+            }
+
+            return response()->json([
+                'success' => false,
+                'status' => false,
+                'message' => 'Duplicate request detected with the same Idempotency-Key.',
+                'reason' => 'IDEMPOTENCY_CONFLICT',
+            ], 409);
         }
 
         $response = $next($request);

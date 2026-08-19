@@ -25,6 +25,10 @@ class AppServiceProvider extends ServiceProvider
         Model::preventLazyLoading(! $this->app->isProduction());
 
         \Illuminate\Support\Facades\Gate::before(function ($user, $ability) {
+            if ($user === null) {
+                return null;
+            }
+
             return $user->hasRole('Super Admin') ? true : null;
         });
 

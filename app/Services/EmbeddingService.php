@@ -95,7 +95,10 @@ class EmbeddingService
             $chunksQuery->whereNull('course_id');
         }
 
-        $chunks = $chunksQuery->get();
+        $chunks = $chunksQuery
+            ->select(['id', 'title', 'chunk_text', 'embedding'])
+            ->limit(1000) // Hard cap: hydrating every embedding OOMs FPM (SB-MEM-01)
+            ->get();
         if ($chunks->isEmpty()) {
             return [];
         }

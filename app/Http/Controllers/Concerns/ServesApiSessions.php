@@ -325,7 +325,7 @@ trait ServesApiSessions
     {
         $user = Auth::user();
         if (!$user) {
-            return ApiResponseService::errorResponse('Unauthenticated', 401);
+            return ApiResponseService::errorResponse('يجب تسجيل الدخول.', null, 401);
         }
 
         $perPage = (int) $request->input('per_page', 15);
@@ -352,7 +352,7 @@ trait ServesApiSessions
     {
         $user = Auth::user();
         if (!$user) {
-            return ApiResponseService::errorResponse('Unauthenticated', 401);
+            return ApiResponseService::errorResponse('يجب تسجيل الدخول.', null, 401);
         }
 
         $count = \App\Models\UserNotification::where('user_id', $user->id)
@@ -362,7 +362,8 @@ trait ServesApiSessions
         return response()->json([
             'success' => true,
             'data' => [
-                'unread_count' => $count
+                'unread_count' => $count,
+                'count' => $count,
             ]
         ]);
     }
@@ -374,7 +375,7 @@ trait ServesApiSessions
     {
         $user = Auth::user();
         if (!$user) {
-            return ApiResponseService::errorResponse('Unauthenticated', 401);
+            return ApiResponseService::errorResponse('يجب تسجيل الدخول.', null, 401);
         }
 
         $notification = \App\Models\UserNotification::where('id', $id)
@@ -395,7 +396,7 @@ trait ServesApiSessions
     {
         $user = Auth::user();
         if (!$user) {
-            return ApiResponseService::errorResponse('Unauthenticated', 401);
+            return ApiResponseService::errorResponse('يجب تسجيل الدخول.', null, 401);
         }
 
         \App\Models\UserNotification::where('user_id', $user->id)

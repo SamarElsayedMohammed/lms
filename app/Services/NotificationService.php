@@ -47,7 +47,7 @@ class NotificationService
     {
         try {
             $file_name = Setting::select('value')->where('name', 'service_file')->first();
-            if (empty($file_name)) {
+            if ($file_name === null || empty($file_name->value)) {
                 return [
                     'error' => true,
                     'message' => 'FCM Configuration not found',
@@ -63,6 +63,10 @@ class NotificationService
                 ];
             }
             $client = new Client();
+            $client->setHttpClient(new \GuzzleHttp\Client([
+                'timeout' => 10,
+                'connect_timeout' => 5,
+            ]));
             $client->setAuthConfig($file_path);
             $client->setScopes(['https://www.googleapis.com/auth/firebase.messaging']);
 

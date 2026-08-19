@@ -15,6 +15,8 @@ use Illuminate\Support\Str;
 
 class AdminWebinarController extends AdminCrudApiController
 {
+    use Concerns\AuthorizesWebinarManagement;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -26,9 +28,9 @@ class AdminWebinarController extends AdminCrudApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
-        $isInstructor = Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'));
+        $isInstructor = $this->isInstructorScoped();
 
         $query = Webinar::with([
             'instructor:id,name',
@@ -39,15 +41,16 @@ class AdminWebinarController extends AdminCrudApiController
         }
 
         // Filters
-        if ($search = $request->input('search')) {
+        if ($search = $request->input('search', $request->input('q'))) {
             $query->where(fn ($q) => $q->where('title', 'like', "%{$search}%")
-                ->orWhere('description', 'like', "%{$search}%"));
+                ->orWhere('description', 'like', "%{$search}%")
+                ->orWhere('slug', 'like', "%{$search}%"));
         }
         if ($status = $request->input('status')) {
             $query->where('status', $status);
         }
 
-        $perPage = min((int) $request->input('per_page', 15), 50);
+        $perPage = min((int) $request->input('per_page', $request->input('limit', 15)), 50);
         $webinars = $query->latest()->paginate($perPage);
 
         // Stats
@@ -58,7 +61,10 @@ class AdminWebinarController extends AdminCrudApiController
 
         $stats = $statsQuery->selectRaw("
             COUNT(*) as total,
-            COUNT(CASE WHEN status IN ('scheduled','live') THEN 1 END) as published,
+            COUNT(CASE WHEN is_published = 1 THEN 1 END) as published,
+            COUNT(CASE WHEN status = 'scheduled' THEN 1 END) as scheduled,
+            COUNT(CASE WHEN status = 'live' THEN 1 END) as live,
+            COUNT(CASE WHEN status IN ('scheduled','live') THEN 1 END) as active,
             COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
             COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled
         ")->first();
@@ -67,6 +73,9 @@ class AdminWebinarController extends AdminCrudApiController
         $data['stats'] = [
             'total'     => (int) $stats->total,
             'published' => (int) $stats->published,
+            'scheduled' => (int) $stats->scheduled,
+            'live'      => (int) $stats->live,
+            'active'    => (int) $stats->active,
             'completed' => (int) $stats->completed,
             'cancelled' => (int) $stats->cancelled,
         ];
@@ -80,7 +89,7 @@ class AdminWebinarController extends AdminCrudApiController
      */
     public function show(Webinar $webinar): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
         $webinar->load([
             'instructor:id,name,email',
@@ -88,10 +97,9 @@ class AdminWebinarController extends AdminCrudApiController
             'registrations',
         ]);
 
-        // Instructor ownership check
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && (int) $webinar->instructor_id !== (int) Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $data = $webinar->toArray();
@@ -108,7 +116,7 @@ class AdminWebinarController extends AdminCrudApiController
      */
     public function store(Request $request): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
         $validator = Validator::make($request->all(), [
             'title'         => 'required|string|max:255',
@@ -210,7 +218,10 @@ class AdminWebinarController extends AdminCrudApiController
                 }
             }
 
-            $webinar = Webinar::create($data);
+            $webinar = Webinar::create(array_merge($data, [
+                'status' => 'scheduled',
+                'is_published' => false,
+            ]));
 
             return $this->jsonSuccess('Webinar created successfully', $webinar->fresh('instructor'), 201);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -226,11 +237,11 @@ class AdminWebinarController extends AdminCrudApiController
      */
     public function update(Request $request, Webinar $webinar): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && (int) $webinar->instructor_id !== (int) Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $validator = Validator::make($request->all(), [
@@ -311,11 +322,11 @@ class AdminWebinarController extends AdminCrudApiController
      */
     public function destroy(Webinar $webinar): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && (int) $webinar->instructor_id !== (int) Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $webinar->delete();
@@ -329,11 +340,11 @@ class AdminWebinarController extends AdminCrudApiController
      */
     public function registrants(Request $request, Webinar $webinar): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && (int) $webinar->instructor_id !== (int) Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $registrations = WebinarRegistration::with('user:id,name,email,mobile')
@@ -343,9 +354,9 @@ class AdminWebinarController extends AdminCrudApiController
             ->map(fn ($reg) => [
                 'id'             => $reg->id,
                 'user_id'        => $reg->user_id,
-                'name'           => $reg->user->name  ?? 'N/A',
-                'email'          => $reg->user->email ?? 'N/A',
-                'phone'          => $reg->user->mobile ?? 'N/A',
+                'name'           => $reg->user?->name  ?? 'N/A',
+                'email'          => $reg->user?->email ?? 'N/A',
+                'phone'          => $reg->user?->mobile ?? 'N/A',
                 'payment_status' => $reg->payment_status,
                 'paid_amount'    => $reg->paid_amount,
                 'attended'       => (bool) $reg->attended,
@@ -367,11 +378,11 @@ class AdminWebinarController extends AdminCrudApiController
      */
     public function exportRegistrants(Webinar $webinar): \Symfony\Component\HttpFoundation\StreamedResponse|JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && (int) $webinar->instructor_id !== (int) Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $registrations = WebinarRegistration::with('user:id,name,email,mobile')
@@ -415,9 +426,9 @@ class AdminWebinarController extends AdminCrudApiController
             foreach ($registrations as $index => $reg) {
                 fputcsv($handle, [
                     $index + 1,
-                    $reg->user->name    ?? 'N/A',
-                    $reg->user->email   ?? 'N/A',
-                    $reg->user->mobile  ?? 'N/A',
+                    $reg->user?->name    ?? 'N/A',
+                    $reg->user?->email   ?? 'N/A',
+                    $reg->user?->mobile  ?? 'N/A',
                     $reg->payment_status,
                     $reg->paid_amount   ?? '0.00',
                     $reg->attended ? 'Yes' : 'No',

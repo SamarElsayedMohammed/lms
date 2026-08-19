@@ -172,6 +172,39 @@ class WebinarSystemTest extends TestCase
         $response2->assertStatus(409); // Conflict from duplicate middleware
     }
 
+    public function test_paid_wallet_register_twice_with_new_keys_returns_409(): void
+    {
+        $user = User::factory()->create(['wallet_balance' => 200]);
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Paid Duplicate Webinar',
+            'slug' => 'paid-dup-webinar',
+            'start_at' => now()->addDays(1),
+            'duration' => 60,
+            'is_free' => false,
+            'price' => 40,
+            'provider' => 'zoom',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $first = $this->actingAs($user)->postJson("/api/user/wallet/webinars/{$webinar->slug}/register", [
+            'use_wallet' => true,
+        ], [
+            'Idempotency-Key' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
+        $first->assertStatus(200);
+
+        $second = $this->actingAs($user)->postJson("/api/user/wallet/webinars/{$webinar->slug}/register", [
+            'use_wallet' => true,
+        ], [
+            'Idempotency-Key' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
+        $second->assertStatus(409);
+        $this->assertEquals(1, WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->count());
+        $this->assertEquals(160, $user->fresh()->wallet_balance);
+    }
+
     public function test_public_endpoint_hides_pii_data_and_credentials()
     {
         $webinar = Webinar::create([
@@ -266,5 +299,97 @@ class WebinarSystemTest extends TestCase
         $this->assertTrue($response->json('success'));
         $this->assertCount(1, $response->json('data.items'));
         $this->assertEquals($webinar->title, $response->json('data.items.0.title'));
+    }
+
+    public function test_public_show_hides_join_url_even_for_registered_users()
+    {
+        $user = User::factory()->create();
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Secret Join',
+            'slug' => 'secret-join',
+            'start_at' => now()->addDays(1),
+            'duration' => 60,
+            'is_free' => true,
+            'price' => 0,
+            'provider' => 'zoom',
+            'join_url' => 'https://zoom.us/j/secret_join',
+            'meeting_id' => 'hidden-id',
+            'meeting_password' => 'hidden-pass',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        WebinarRegistration::create([
+            'webinar_id' => $webinar->id,
+            'user_id' => $user->id,
+            'payment_status' => 'free',
+            'paid_amount' => 0,
+        ]);
+
+        $response = $this->actingAs($user)->getJson("/api/webinars/{$webinar->slug}");
+        $response->assertStatus(200);
+        $data = $response->json('data.webinar');
+        $this->assertArrayNotHasKey('join_url', $data);
+        $this->assertArrayNotHasKey('meeting_id', $data);
+        $this->assertArrayNotHasKey('meeting_password', $data);
+    }
+
+    public function test_unpublished_webinar_is_hidden_from_public_show()
+    {
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Draft Webinar',
+            'slug' => 'draft-hidden',
+            'start_at' => now()->addDays(1),
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => false,
+        ]);
+
+        $this->getJson("/api/webinars/{$webinar->slug}")->assertStatus(404);
+    }
+
+    public function test_lifecycle_status_moves_scheduled_to_live()
+    {
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Going Live',
+            'slug' => 'going-live',
+            'start_at' => now()->subMinutes(10),
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'join_url' => 'https://meet.jit.si/going-live',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $this->getJson("/api/webinars/{$webinar->slug}")
+            ->assertStatus(200)
+            ->assertJsonPath('data.webinar.status', 'live');
+    }
+
+    public function test_paid_register_requires_wallet_instead_of_gateway()
+    {
+        $user = User::factory()->create();
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Paid No Gateway',
+            'slug' => 'paid-no-gateway',
+            'start_at' => now()->addDays(1),
+            'duration' => 60,
+            'is_free' => false,
+            'price' => 80,
+            'provider' => 'zoom',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $response = $this->actingAs($user)->postJson("/api/webinars/{$webinar->slug}/register");
+        $response->assertStatus(400);
+        $this->assertEquals('wallet_required', $response->json('data.error_code') ?? $response->json('errors.error_code'));
     }
 }

@@ -48,40 +48,87 @@ class SocialLoginApiController extends ApiController
         $provider = strtolower(trim($provider));
 
         if (!in_array($provider, self::SUPPORTED_PROVIDERS, true)) {
-            return ApiResponseService::validationError('Unsupported social provider.');
+            return ApiResponseService::validationError('مزود تسجيل الدخول الاجتماعي غير مدعوم.');
         }
 
-        $firebaseToken = $request->input('firebase_token');
-        $accessToken   = $request->input('access_token')
+        $firebaseToken = trim((string) $request->input('firebase_token', ''));
+        $rawAccessToken = trim((string) (
+            $request->input('access_token')
             ?? $request->input('provider_token')
-            ?? $request->input('token');
+            ?? $request->input('token')
+            ?? ''
+        ));
 
-        if (empty($firebaseToken) && empty($accessToken)) {
-            return ApiResponseService::validationError('Either firebase_token or access_token is required.');
+        // Google OAuth access tokens (ya29…) are distinct from Firebase JWT ID tokens.
+        $googleAccessToken = $this->isGoogleAccessToken($rawAccessToken) ? $rawAccessToken : '';
+
+        if ($firebaseToken === '' && $rawAccessToken === '') {
+            return ApiResponseService::validationError('مطلوب رمز Firebase أو رمز دخول Google.');
         }
 
         try {
-            // ── Flow A: Firebase ID Token ─────────────────────────────────
-            if (!empty($firebaseToken)) {
-                return $this->handleFirebaseTokenLogin($request, $provider, $firebaseToken);
+            // Flow A: Firebase ID token. If Admin SDK is missing/misconfigured,
+            // fall back to Socialite using the Google access token — never treat a JWT as an access token.
+            if ($firebaseToken !== '') {
+                $firebaseReady = $this->firebaseIdTokenLooksVerifiable($firebaseToken);
+                if ($firebaseReady) {
+                    return $this->handleFirebaseTokenLogin($request, $provider, $firebaseToken);
+                }
+                if ($googleAccessToken !== '') {
+                    return $this->handleSocialiteTokenLogin($request, $provider, $googleAccessToken);
+                }
+                return ApiResponseService::validationError(
+                    'تعذر التحقق من حساب Google. تأكد من إعدادات Firebase أو أعد المحاولة.',
+                );
             }
 
-            // ── Flow B: Socialite Access Token ───────────────────────────
-            return $this->handleSocialiteTokenLogin($request, $provider, $accessToken);
+            $socialiteToken = $googleAccessToken !== '' ? $googleAccessToken : $rawAccessToken;
+            return $this->handleSocialiteTokenLogin($request, $provider, $socialiteToken);
 
         } catch (ClientException $e) {
-            // Guzzle 4xx errors (e.g. 401 Unauthorized from Google userinfo endpoint)
-            // means the access_token is expired or invalid — return a clean 401.
             $statusCode = $e->getResponse() ? $e->getResponse()->getStatusCode() : 401;
             return response()->json([
                 'status'  => false,
-                'message' => 'The provided token is invalid or has expired. Please sign in again.',
+                'success' => false,
+                'error'   => true,
+                'message' => 'رمز Google غير صالح أو منتهٍ. يرجى تسجيل الدخول مرة أخرى.',
             ], $statusCode >= 400 && $statusCode < 500 ? 401 : 500);
 
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $e) {
             ApiResponseService::errorResponse(exception: $e);
+        }
+    }
+
+    private function isGoogleAccessToken(string $token): bool
+    {
+        if ($token === '') {
+            return false;
+        }
+        if (substr_count($token, '.') === 2) {
+            return false;
+        }
+
+        return str_starts_with($token, 'ya29');
+    }
+
+    /**
+     * Probe Firebase Admin without consuming the login response.
+     * Missing credentials or a non-Firebase JWT returns false so Socialite can run.
+     */
+    private function firebaseIdTokenLooksVerifiable(#[\SensitiveParameter] string $token): bool
+    {
+        try {
+            $verified = \App\Services\HelperService::verifyToken($token);
+
+            return !empty($verified);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            $status = $e->getResponse()?->getStatusCode() ?? 500;
+
+            return $status >= 200 && $status < 300;
+        } catch (Throwable) {
+            return false;
         }
     }
 
@@ -112,7 +159,7 @@ class SocialLoginApiController extends ApiController
 
         // email is the primary identifier; bail early if Firebase didn't include it
         if (empty($email)) {
-            return ApiResponseService::validationError('Email address could not be retrieved from the Firebase token.');
+            return ApiResponseService::validationError('تعذر الحصول على البريد الإلكتروني من حساب Google.');
         }
 
         $user = DB::transaction(function () use ($firebaseUid, $email, $name, $avatar, $provider) {
@@ -124,7 +171,7 @@ class SocialLoginApiController extends ApiController
 
             if ($socialLogin && $socialLogin->user) {
                 if ($socialLogin->user->trashed() || (isset($socialLogin->user->is_active) && !$socialLogin->user->is_active)) {
-                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                    ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
                 }
                 return $socialLogin->user;
             }
@@ -134,7 +181,7 @@ class SocialLoginApiController extends ApiController
 
             if ($user) {
                 if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
-                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                    ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
                 }
             } else {
                 // ── 3. Create new user ────────────────────────────────────
@@ -161,7 +208,7 @@ class SocialLoginApiController extends ApiController
                 ->first();
 
             if ($otherSocialLogin && $otherSocialLogin->user_id !== $user->id) {
-                ApiResponseService::validationError('This social account is already linked to another user.');
+                ApiResponseService::validationError('حساب Google هذا مرتبط بمستخدم آخر.');
             }
 
             SocialLogin::updateOrCreate(
@@ -174,11 +221,11 @@ class SocialLoginApiController extends ApiController
 
         // ── Guard checks ─────────────────────────────────────────────────
         if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
-            return ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+            return ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
         }
 
         if (!$user->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
-            return ApiResponseService::validationError('Invalid Login Credentials');
+            return ApiResponseService::validationError('بيانات الدخول غير صحيحة.');
         }
 
         if (!empty($request->fcm_id)) {
@@ -220,7 +267,7 @@ class SocialLoginApiController extends ApiController
         $email = $rawEmail ? strtolower(trim((string) $rawEmail)) : null;
 
         if (empty($email)) {
-            return ApiResponseService::validationError('Email address could not be retrieved from ' . ucfirst($provider) . '.');
+            return ApiResponseService::validationError('تعذر الحصول على البريد الإلكتروني من حساب Google.');
         }
 
         $user = DB::transaction(function () use ($socialUser, $provider, $email) {
@@ -232,9 +279,9 @@ class SocialLoginApiController extends ApiController
 
             if ($socialAccount && $socialAccount->user) {
                 if ($socialAccount->user->trashed() || (isset($socialAccount->user->is_active) && !$socialAccount->user->is_active)) {
-                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                    ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
                 }
-                $socialAccount->update(['token' => $socialUser->token]);
+                $socialAccount->update(['token' => null]);
                 return $socialAccount->user;
             }
 
@@ -243,7 +290,7 @@ class SocialLoginApiController extends ApiController
 
             if ($user) {
                 if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
-                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                    ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
                 }
             } else {
                 $name   = $socialUser->getName() ?? $socialUser->getNickname() ?? explode('@', $email)[0];
@@ -271,12 +318,12 @@ class SocialLoginApiController extends ApiController
                 ->first();
 
             if ($otherAccount && $otherAccount->user_id !== $user->id) {
-                ApiResponseService::validationError('This social account is already linked to another user.');
+                ApiResponseService::validationError('حساب Google هذا مرتبط بمستخدم آخر.');
             }
 
             UserSocialAccount::updateOrCreate(
                 ['provider' => $provider, 'provider_id' => $socialUser->getId()],
-                ['user_id' => $user->id, 'token' => $socialUser->token],
+                ['user_id' => $user->id, 'token' => null],
             );
 
             return $user;
@@ -284,11 +331,11 @@ class SocialLoginApiController extends ApiController
 
         // ── Guard checks ─────────────────────────────────────────────────
         if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
-            return ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+            return ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
         }
 
         if (!$user->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
-            return ApiResponseService::validationError('Invalid Login Credentials');
+            return ApiResponseService::validationError('بيانات الدخول غير صحيحة.');
         }
 
         if (!empty($request->fcm_id)) {

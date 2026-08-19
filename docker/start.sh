@@ -34,7 +34,7 @@ php artisan config:cache   2>/dev/null || true
 php artisan route:cache    2>/dev/null || true
 
 # Run pending migrations (safe in staging — remove in strict production)
-php artisan migrate --force 2>/dev/null || true
+php artisan migrate --force >> /var/log/supervisor/migrate.log 2>&1 || echo "migrate failed; see /var/log/supervisor/migrate.log"
 
 # ── Re-apply ownership & permissions AFTER artisan commands create/touch files ──
 touch /var/www/html/storage/logs/laravel.log 2>/dev/null || true

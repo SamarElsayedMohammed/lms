@@ -28,10 +28,11 @@ class PublicWebinarController extends Controller
         try {
             $user = Auth::guard('sanctum')->user();
 
+            Webinar::syncPublishedLifecycleStatuses();
+
             $query = Webinar::with(['instructor:id,name', 'course:id,title'])
                 ->where('is_published', true)
-                ->whereIn('status', ['scheduled', 'live'])
-                ->where('start_at', '>=', now()->subHours(2));
+                ->whereIn('status', ['scheduled', 'live']);
 
             if ($user) {
                 $query->withExists(['registrations as is_registered' => function ($q) use ($user) {
@@ -79,6 +80,8 @@ class PublicWebinarController extends Controller
         try {
             $user = Auth::guard('sanctum')->user();
 
+            $webinar->syncLifecycleStatus();
+
             // Access check: unpublished webinars require administrative/instructor preview privileges
             if (!$this->accessService->canViewWebinar($webinar, $user)) {
                 return ApiResponseService::errorResponse('Webinar not found', [], 404);
@@ -117,6 +120,8 @@ class PublicWebinarController extends Controller
         try {
             $user = Auth::guard('sanctum')->user();
 
+            $webinar->syncLifecycleStatus();
+
             $joinCheck = $this->accessService->canJoinLive($webinar, $user);
             if (!$joinCheck['allowed']) {
                 return ApiResponseService::errorResponse(
@@ -142,6 +147,35 @@ class PublicWebinarController extends Controller
             throw $e;
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to join webinar: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Recording URL for entitled attendees after the event ends.
+     * GET /api/webinars/{slug}/recording
+     */
+    public function recording(Webinar $webinar)
+    {
+        try {
+            $user = Auth::guard('sanctum')->user();
+            $webinar->syncLifecycleStatus();
+
+            $check = $this->accessService->canViewRecording($webinar, $user);
+            if (!$check['allowed']) {
+                return ApiResponseService::errorResponse(
+                    $check['reason'],
+                    ['error_code' => $check['error_code']],
+                    $check['code']
+                );
+            }
+
+            return ApiResponseService::successResponse('Recording retrieved', [
+                'recording_url' => $check['recording_url'],
+            ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return ApiResponseService::errorResponse('Failed to retrieve recording: ' . $e->getMessage());
         }
     }
 }

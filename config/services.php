@@ -56,4 +56,15 @@ return [
         'api_key' => env('BUNNY_API_KEY'), // Used to fetch duration
         'webhook_secret' => env('BUNNY_WEBHOOK_SECRET'), // Used to verify webhook
     ],
+
+    'zoom' => [
+        'account_id' => env('ZOOM_ACCOUNT_ID'),
+        'client_id' => env('ZOOM_CLIENT_ID'),
+        'client_secret' => env('ZOOM_CLIENT_SECRET'),
+    ],
+
+    'google_meet' => [
+        'credentials_base64' => env('GOOGLE_MEET_CREDENTIALS_BASE64'),
+        'calendar_id' => env('GOOGLE_CALENDAR_ID', 'primary'),
+    ],
 ];

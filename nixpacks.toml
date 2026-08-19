@@ -106,7 +106,7 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 serverurl=unix:///tmp/supervisor.sock
 
 [include]
-files = /etc/supervisor/conf.d/*.conf /assets/worker-*.conf
+files = /etc/supervisor/conf.d/*.conf
 '''
 
 "worker-phpfpm.conf" = '''
@@ -260,6 +260,13 @@ http {
         location = /robots.txt  { access_log off; log_not_found off; }
 
         error_page 404 /index.php;
+
+        location /internal-media/ {
+            internal;
+            alias /app/storage/app/;
+            gzip off;
+            add_header X-Content-Type-Options "nosniff" always;
+        }
 
         location ~ \.php$ {
             fastcgi_pass 127.0.0.1:9000;

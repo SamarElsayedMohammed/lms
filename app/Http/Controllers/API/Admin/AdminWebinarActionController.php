@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Validator;
 
 class AdminWebinarActionController extends AdminCrudApiController
 {
+    use Concerns\AuthorizesWebinarManagement;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -24,11 +26,11 @@ class AdminWebinarActionController extends AdminCrudApiController
      */
     public function changeWebinarStatus(Request $request, Webinar $webinar): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && (int) $webinar->instructor_id !== (int) Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $validator = Validator::make($request->all(), [
@@ -71,11 +73,11 @@ class AdminWebinarActionController extends AdminCrudApiController
      */
     public function togglePublish(Webinar $webinar): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && (int) $webinar->instructor_id !== (int) Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $newValue = ! ((bool) $webinar->is_published);
@@ -96,7 +98,7 @@ class AdminWebinarActionController extends AdminCrudApiController
      */
     public function setDefault(Webinar $webinar): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
         // Unset all others
         Webinar::where('id', '!=', $webinar->id)->update(['is_featured' => false]);
@@ -111,12 +113,38 @@ class AdminWebinarActionController extends AdminCrudApiController
     }
 
     /**
+     * Cancel a webinar
+     * POST /api/admin/webinars/{slug}/cancel
+     */
+    public function cancel(Webinar $webinar): JsonResponse
+    {
+        $this->ensureWebinarManager();
+
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
+        }
+
+        if ($webinar->status === 'cancelled') {
+            return $this->jsonError('Webinar is already cancelled', 422);
+        }
+
+        $webinar->update(['status' => 'cancelled']);
+
+        if (class_exists(WebinarCancelled::class)) {
+            event(new WebinarCancelled($webinar));
+        }
+
+        return $this->jsonSuccess('Webinar cancelled successfully', $webinar->fresh());
+    }
+
+    /**
      * Restore a soft deleted webinar
      * PUT /api/admin/webinars/{slug}/restore
      */
     public function restore($slug): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
         $webinar = Webinar::withTrashed()->where('slug', $slug)->first();
 
@@ -124,9 +152,9 @@ class AdminWebinarActionController extends AdminCrudApiController
             return $this->jsonError('Webinar not found', 404);
         }
 
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && (int) $webinar->instructor_id !== (int) Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $webinar->restore();

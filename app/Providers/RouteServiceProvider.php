@@ -6,7 +6,6 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Route;
 
 class RouteServiceProvider extends ServiceProvider
 {
@@ -26,7 +25,7 @@ class RouteServiceProvider extends ServiceProvider
     public function boot(): void
     {
         RateLimiter::for('api', static fn(Request $request) => Limit::perMinute(300)->by(
-            $request->user()->id ?: $request->ip(),
+            $request->user()?->id ?: $request->ip(),
         ));
 
         RateLimiter::for("forgot-password", static function (Request $request) {
@@ -35,10 +34,7 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinutes(15, 5)->by($email !== "" ? $email : $request->ip());
         });
 
-        $this->routes(static function (): void {
-            Route::middleware('api')->prefix('api')->group(base_path('routes/api.php'));
-
-            Route::middleware('web')->group(base_path('routes/web.php'));
-        });
+        // Laravel 12 loads web/api via bootstrap/app.php withRouting.
+        // Do not call $this->routes() here — duplicate registration fatals `artisan optimize`.
     }
 }

@@ -76,23 +76,24 @@ class ViewServiceProvider extends ServiceProvider
             $isRTL = $isAdminPanel || session('rtl', false);
 
             try {
-                // Get all available languages first
                 $languages = \App\Services\CachingService::getLanguages();
 
-                // Get current language from session
                 $currentLanguage = session('language');
+                $currentCode = null;
+                if (is_object($currentLanguage) && isset($currentLanguage->code)) {
+                    $currentCode = is_string($currentLanguage->code) ? $currentLanguage->code : null;
+                } elseif (is_string($currentLanguage) && $currentLanguage !== '') {
+                    $currentCode = $currentLanguage;
+                    $currentLanguage = $languages->firstWhere('code', $currentCode);
+                }
 
-                // If no current language or it's not in available languages, use the default language
-                if (!$currentLanguage || !$languages->contains('code', $currentLanguage->code)) {
-                    // Get the default language from database
+                if (!$currentCode || !$languages->contains('code', $currentCode)) {
                     $currentLanguage = \App\Models\Language::getDefault();
 
-                    // If no default language is set, fallback to English
                     if (!$currentLanguage) {
                         $currentLanguage = $languages->where('code', 'en')->first();
                     }
 
-                    // If English is not available, use the first available language
                     if (!$currentLanguage && $languages->count() > 0) {
                         $currentLanguage = $languages->first();
                     }
@@ -106,7 +107,7 @@ class ViewServiceProvider extends ServiceProvider
                 $view->with('currentLanguage', $currentLanguage);
                 $view->with('languages', $languages);
                 $view->with('isRTL', $isRTL);
-            } catch (\Exception) {
+            } catch (\Throwable) {
                 // If languages table doesn't exist or query fails, provide empty data
                 $view->with('currentLanguage', $isAdminPanel ? (object) ['code' => 'ar', 'name' => 'العربية'] : null);
                 $view->with('languages', collect([]));

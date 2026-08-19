@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Course\Course;
-use App\Models\Course\CourseCountryPrice;
 use App\Models\SupportedCurrency;
 use App\Models\PromoCode;
 use App\Models\Tax;
@@ -27,31 +26,16 @@ final class PricingCalculationService
     ) {}
 
     /**
-     * Resolve the display currency for the user.
-     * Logic:
-     * 1. Authenticated user's country
-     * 2. IP detection
-     * 3. Fallback to EG
-     * 4. Find country and its currency
+     * Resolve the display currency for the visitor.
+     * Country comes from the same detector as subscriptions (CDN/IP → EG).
+     * Do not prefer the authenticated profile country — staff/instructor
+     * profiles must not leak into student catalog prices.
      *
      * @return array{code: string, symbol: string, exchange_rate: float, country_code: string}
      */
     public function resolveDisplayCurrency(?User $user, Request $request): array
     {
-        $countryCode = null;
-
-        if ($user && !empty($user->country_code)) {
-            $countryCode = $user->country_code;
-        }
-
-        if (!$countryCode) {
-            $countryCode = $this->geoLocationService->getCountryCodeFromRequest($request);
-        }
-
-        if (!$countryCode) {
-            $countryCode = 'US'; // Default to US (USD) instead of EG
-        }
-
+        $countryCode = app(CountryDetectionService::class)->detect($request);
         $countryCode = strtoupper($countryCode);
 
         $country = Country::where('iso_code', $countryCode)
@@ -104,15 +88,17 @@ final class PricingCalculationService
      */
     public function getLocalizedPrice(Course $course, null|string $countryCode): array
     {
+        $pricing = $this->calculateCoursePricing($course, countryCode: $countryCode);
+
         return [
-            'price_egp'           => 0,
-            'discount_price_egp'  => null,
-            'price_local'         => 0,
-            'discount_price_local'=> null,
-            'currency_code'       => 'EGP',
-            'currency_symbol'     => 'ج.م',
-            'exchange_rate'       => 1,
-            'is_country_specific' => false,
+            'price_egp'           => (float) ($pricing['price_egp'] ?? 0),
+            'discount_price_egp'  => $pricing['discount_price_egp'] ?? null,
+            'price_local'         => (float) ($pricing['original_price'] ?? 0),
+            'discount_price_local'=> isset($pricing['subtotal']) ? (float) $pricing['subtotal'] : null,
+            'currency_code'       => (string) ($pricing['currency_code'] ?? 'EGP'),
+            'currency_symbol'     => (string) ($pricing['display_symbol'] ?? 'ج.م'),
+            'exchange_rate'       => (float) ($pricing['exchange_rate'] ?? 1),
+            'is_country_specific' => (bool) ($pricing['is_country_specific'] ?? false),
         ];
     }
 
@@ -144,49 +130,39 @@ final class PricingCalculationService
         null|string $countryCode = null,
         ?User $user = null,
     ): array {
-        // Base prices are now in USD
-        $baseOriginalPrice = (float) ($course->price ?? 0);
-        $baseDiscountPrice = (float) ($course->discount_price ?? 0);
+        // Catalog amounts are stored in EGP (same ledger base as wallet / subscriptions).
+        $baseOriginalPriceEgp = (float) ($course->price ?? 0);
+        $baseDiscountPriceEgp = (float) ($course->discount_price ?? 0);
 
-        if ($course->course_type !== 'free' && $baseOriginalPrice <= 0) {
+        if ($course->course_type !== 'free' && $baseOriginalPriceEgp <= 0) {
             Log::warning('Pricing error: Paid course has no price configured. Course ID: ' . $course->id);
-            $baseOriginalPrice = 0;
+            $baseOriginalPriceEgp = 0;
         }
 
-        // Determine target currency based on country code
-        $currencyCode = 'USD';
-        $currencySymbol = '$';
-        
-        // Find currency for the given country
-        if ($countryCode) {
-            $countryCode = strtoupper($countryCode);
-            if (!array_key_exists($countryCode, self::$countryCache)) {
-                self::$countryCache[$countryCode] = \App\Models\Country::where('iso_code', $countryCode)->where('status', 1)->first();
-            }
-            $country = self::$countryCache[$countryCode];
-            if ($country && $country->currency_code) {
-                $currencyCode = strtoupper($country->currency_code);
-            }
+        if (!$countryCode) {
+            $countryCode = app(CountryDetectionService::class)->detect(request());
         }
-        
+        $countryCode = strtoupper($countryCode);
+
+        $currencyCode = 'EGP';
+        $currencySymbol = 'ج.م';
+
+        if (!array_key_exists($countryCode, self::$countryCache)) {
+            self::$countryCache[$countryCode] = Country::where('iso_code', $countryCode)->where('status', 1)->first();
+        }
+        $country = self::$countryCache[$countryCode];
+        if ($country && $country->currency_code) {
+            $currencyCode = strtoupper($country->currency_code);
+        }
+
         $supportedCurrency = $this->currencyConversionService->getCurrency($currencyCode);
         if ($supportedCurrency) {
-            $currencySymbol = $supportedCurrency->currency_symbol;
+            $currencySymbol = $supportedCurrency->currency_symbol ?: $currencySymbol;
         }
 
-        // Convert base prices (USD) to EGP first, since EGP is our system currency base for aggregations.
-        // Or wait, if base prices are USD, how do we get them to local?
-        // EGP is the central hub.
-        // baseOriginalPrice is in USD.
-        // LocalAmount = (Amount in USD) -> convert to EGP -> convert to LocalAmount?
-        // Actually, CurrencyConversionService convertFromEgp takes EGP.
-        
-        // EGP value: USD amount * (USD->EGP rate)
-        $usdToEgpRate = $this->currencyConversionService->getExchangeRateToEgp('USD');
-        $originalPriceEgp = $baseOriginalPrice * $usdToEgpRate;
-        $discountPriceEgp = $baseDiscountPrice > 0 ? $baseDiscountPrice * $usdToEgpRate : 0;
-        
-        // Local value: EGP amount / (Local->EGP rate)
+        $originalPriceEgp = $baseOriginalPriceEgp;
+        $discountPriceEgp = $baseDiscountPriceEgp > 0 ? $baseDiscountPriceEgp : 0;
+
         $originalPrice = $this->currencyConversionService->convertFromEgp($originalPriceEgp, $currencyCode);
         $discountPrice = $discountPriceEgp > 0 ? $this->currencyConversionService->convertFromEgp($discountPriceEgp, $currencyCode) : 0;
 
@@ -327,7 +303,7 @@ final class PricingCalculationService
      */
     public function getTaxPercentageFromRequest(Request $request): float
     {
-        $countryCode = $this->geoLocationService->getCountryCodeFromRequest($request);
+        $countryCode = app(CountryDetectionService::class)->detect($request);
 
         return Tax::getTotalTaxPercentageByCountry($countryCode);
     }
@@ -337,7 +313,7 @@ final class PricingCalculationService
      */
     public function getCountryCodeFromRequest(Request $request): null|string
     {
-        return $this->geoLocationService->getCountryCodeFromRequest($request);
+        return app(CountryDetectionService::class)->detect($request);
     }
 
     /**
@@ -369,9 +345,9 @@ final class PricingCalculationService
             'tax_percentage' => $pricing['tax_percentage'] ?? 0,
             'tax_amount' => $pricing['tax_amount'] ?? 0,
             'total' => $pricing['total'] ?? 0,
-            'currency_code' => $pricing['currency_code'] ?? 'USD',
-            'display_currency' => $pricing['display_currency'] ?? 'USD',
-            'display_symbol' => $pricing['display_symbol'] ?? '$',
+            'currency_code' => $pricing['currency_code'] ?? 'EGP',
+            'display_currency' => $pricing['display_currency'] ?? 'EGP',
+            'display_symbol' => $pricing['display_symbol'] ?? 'ج.م',
             'display_price' => $pricing['display_price'] ?? 0,
             'formatted_price' => $pricing['formatted_price'] ?? '0 $',
             'price_egp' => $pricing['price_egp'] ?? 0,
@@ -415,8 +391,8 @@ final class PricingCalculationService
         $taxableAmount = max(0, $subtotal - $promoDiscount);
         $total = $taxableAmount + $taxAmount;
 
-        $currencyCode = 'USD';
-        $currencySymbol = '$';
+        $currencyCode = 'EGP';
+        $currencySymbol = 'ج.م';
         
         if ($coursePricingData->isNotEmpty()) {
             $firstPricing = $coursePricingData->first()['pricing'];
@@ -448,15 +424,16 @@ final class PricingCalculationService
      */
     public function buildEmptyPricingResponse(float $taxPercentage = 0, null|string $countryCode = null): array
     {
-        $currencyCode = 'USD';
-        $currencySymbol = '$';
+        $currencyCode = 'EGP';
+        $currencySymbol = 'ج.م';
 
-        if ($countryCode) {
-            $countryCode = strtoupper($countryCode);
-            $country = \App\Models\Country::where('iso_code', $countryCode)->where('status', 1)->first();
-            if ($country && $country->currency_code) {
-                $currencyCode = strtoupper($country->currency_code);
-            }
+        if (!$countryCode) {
+            $countryCode = app(CountryDetectionService::class)->detect(request());
+        }
+        $countryCode = strtoupper($countryCode);
+        $country = Country::where('iso_code', $countryCode)->where('status', 1)->first();
+        if ($country && $country->currency_code) {
+            $currencyCode = strtoupper($country->currency_code);
         }
         
         $supportedCurrency = $this->currencyConversionService->getCurrency($currencyCode);

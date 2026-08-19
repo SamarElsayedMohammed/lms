@@ -117,7 +117,7 @@ class DemoModeMiddleware
                 ], 200);
             } else {
                 // For web routes, redirect back with success message
-                return redirect()->back()->with('success', 'Not allow any operation in demo mode.')->send();
+                return redirect()->back()->with('success', 'Not allow any operation in demo mode.');
             }
         }
 

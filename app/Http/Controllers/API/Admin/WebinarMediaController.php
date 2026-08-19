@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Storage;
 
 class WebinarMediaController extends AdminCrudApiController
 {
+    use Concerns\AuthorizesWebinarManagement;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -22,7 +24,7 @@ class WebinarMediaController extends AdminCrudApiController
      */
     public function upload(Request $request): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
         $validator = Validator::make($request->all(), [
             'image' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:2048',

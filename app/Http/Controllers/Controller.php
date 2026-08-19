@@ -28,6 +28,12 @@ class Controller extends BaseController
                 'table' => 'required|string',
                 'column' => 'nullable',
             ]);
+
+            $allowedTables = $this->mutableStatusTables();
+            if (!isset($allowedTables[$request->table])) {
+                ResponseService::errorResponse('الجدول غير مسموح.', null, 403);
+            }
+
             $column = $request->column ?? 'sequence';
 
             $data = [];
@@ -57,26 +63,13 @@ class Controller extends BaseController
                 'column' => 'nullable',
             ]);
 
-            // Table-to-permission mapping for status changes
-            $tablePermissions = [
-                'categories' => 'categories-edit',
-                'users' => 'users-edit',
-                'courses' => 'courses-edit',
-                'sliders' => 'sliders-edit',
-                'faqs' => 'faqs-edit',
-                'pages' => 'pages-edit',
-                'taxes' => 'taxes-edit',
-                'promo_codes' => 'promo-codes-edit',
-                'feature_sections' => 'feature-sections-edit',
-                'course_languages' => 'course-languages-edit',
-                'course_tags' => 'course-tags-edit',
-                'notifications' => 'notifications-edit',
-            ];
+            $tablePermissions = $this->mutableStatusTables();
 
-            // Check if this table requires permission and validate
-            if (isset($tablePermissions[$request->table])) {
-                ResponseService::noPermissionThenSendJson($tablePermissions[$request->table]);
+            if (!isset($tablePermissions[$request->table])) {
+                ResponseService::errorResponse('الجدول غير مسموح.', null, 403);
             }
+
+            ResponseService::noPermissionThenSendJson($tablePermissions[$request->table]);
 
             $column = $request->column ?? 'status';
 
@@ -122,21 +115,58 @@ class Controller extends BaseController
     public function readLanguageFile()
     {
         try {
-            header('Content-Type: text/javascript');
-
             $lang = Session::get('language');
+            $code = 'en';
+            if (is_object($lang) && isset($lang->code) && is_string($lang->code) && $lang->code !== '') {
+                $code = $lang->code;
+            } elseif (is_string($lang) && $lang !== '') {
+                $code = $lang;
+            }
 
-            $test = $lang->code ?? 'en';
-            $files = resource_path('lang/' . $test . '.json');
+            $code = preg_replace('/[^a-zA-Z0-9_\-]/', '', $code) ?: 'en';
+            $file = resource_path('lang/' . $code . '.json');
+            if (!File::isReadable($file)) {
+                $file = resource_path('lang/en.json');
+            }
 
-            echo 'window.languageLabels = ' . File::get($files);
+            $labels = File::isReadable($file) ? File::get($file) : '{}';
 
-            exit();
+            return response('window.languageLabels = ' . $labels, 200, [
+                'Content-Type' => 'text/javascript; charset=UTF-8',
+            ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            ResponseService::errorResponse($th);
+            ResponseService::errorResponse();
         }
+    }
+
+    /**
+     * Tables allowed for generic status/order mutations. Unknown tables must 403.
+     *
+     * @return array<string, string>
+     */
+    private function mutableStatusTables(): array
+    {
+        return [
+            'categories' => 'categories-edit',
+            'users' => 'users-edit',
+            'courses' => 'courses-edit',
+            'sliders' => 'sliders-edit',
+            'faqs' => 'faqs-edit',
+            'pages' => 'pages-edit',
+            'taxes' => 'taxes-edit',
+            'promo_codes' => 'promo-codes-edit',
+            'feature_sections' => 'feature-sections-edit',
+            'course_languages' => 'course-languages-edit',
+            'course_tags' => 'course-tags-edit',
+            'notifications' => 'notifications-edit',
+            'course_chapters' => 'courses-edit',
+            'course_chapter_lectures' => 'courses-edit',
+            'course_chapter_quizzes' => 'courses-edit',
+            'course_chapter_assignments' => 'courses-edit',
+            'course_chapter_resources' => 'courses-edit',
+        ];
     }
 
     public function serveStorage(string $path)

@@ -136,11 +136,13 @@ final class Subscription extends Model
      */
     public function scopeExpired(Builder $query): Builder
     {
-        return $query->where('status', self::STATUS_EXPIRED)
-            ->orWhere(function ($q) {
-                $q->whereNotNull('ends_at')
-                    ->where('ends_at', '<=', now());
-            });
+        return $query->where(function ($outer) {
+            $outer->where('status', self::STATUS_EXPIRED)
+                ->orWhere(function ($q) {
+                    $q->whereNotNull('ends_at')
+                        ->where('ends_at', '<=', now());
+                });
+        });
     }
 
     /**
@@ -222,9 +224,13 @@ final class Subscription extends Model
 
         $baseDate = $this->ends_at->isPast() ? now() : $this->ends_at;
         $this->ends_at = $baseDate->copy()->addDays($days);
-        
-        if ($this->status !== self::STATUS_PENDING) {
-            $this->status = self::STATUS_ACTIVE;
+
+        // Only reactivate a still-current subscription. Cancelled/expired rows
+        // must not be resurrected by an extend() side effect.
+        if (in_array($this->status, [self::STATUS_ACTIVE, self::STATUS_PENDING], true)) {
+            if ($this->status !== self::STATUS_PENDING) {
+                $this->status = self::STATUS_ACTIVE;
+            }
         }
 
         return $this->save();

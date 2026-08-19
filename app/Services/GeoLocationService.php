@@ -119,44 +119,13 @@ final class GeoLocationService
             return strtoupper($request->query('test_country'));
         }
 
-        // 2. We deliberately DO NOT read X-User-Country here because it can be 
-        // spoofed by clients directly hitting the API.
+        // 2–7. Unsigned country and IP headers are client-spoofable (trustProxies=*).
+        // Pricing uses the HMAC-signed proxy header only.
 
-        // 3. CF-IPCountry - Cloudflare (trusted from frontend proxy, requires CF-Connecting-IP)
-        $country = $this->getCloudflareCountry($request);
-        if ($country) {
-            $this->logCountryDetection($request, $country, 'cloudflare');
-            return $country;
-        }
-
-        // 4. X-Vercel-IP-Country - Vercel
-        $country = $this->getVercelCountry($request);
-        if ($country) {
-            $this->logCountryDetection($request, $country, 'vercel');
-            return $country;
-        }
-
-        // 5. We deliberately DO NOT read X-Country here because it can be spoofed.
-
-        // 6. Signed internal proxy (X-Skillso-Resolved-Country)
+        // Signed internal proxy (X-Skillso-Resolved-Country)
         $country = $this->getSignedProxyCountry($request);
         if ($country) {
             $this->logCountryDetection($request, $country, 'signed_proxy');
-            return $country;
-        }
-
-        // 7. IP-based geolocation (fallback)
-        $country = $this->getCountryFromIp($request);
-        if ($country) {
-            $this->logCountryDetection($request, $country, 'ip_lookup');
-            return $country;
-        }
-
-        // 8. Authenticated user's country_code
-        $authUser = auth('sanctum')->user();
-        if ($authUser?->country_code) {
-            $country = strtoupper($authUser->country_code);
-            $this->logCountryDetection($request, $country, 'user_profile');
             return $country;
         }
 
@@ -236,7 +205,7 @@ final class GeoLocationService
             return null;
         }
 
-        $secret = config('app.proxy_secret', config('app.key')); // Fallback to app key if no specific secret
+        $secret = (string) (config('app.proxy_secret') ?: config('app.key'));
         $expectedSignature = hash_hmac('sha256', $country . '.' . $timestamp, $secret);
 
         if (!hash_equals($expectedSignature, $signature)) {

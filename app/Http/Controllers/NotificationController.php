@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Helpers\FirebaseHelper;
 use App\Models\Notification;
 use App\Models\UserFcmToken;
 use App\Services\BootstrapTableService;
@@ -72,31 +71,27 @@ class NotificationController extends Controller
             'date_sent' => now(),
         ]);
 
-        /**
-         * 🔔 Send push notifications
-         */
-        $tokens = UserFcmToken::select('fcm_token', 'platform_type')->get();
+        $tokens = UserFcmToken::query()
+            ->whereNotNull('fcm_token')
+            ->pluck('fcm_token')
+            ->filter()
+            ->unique()
+            ->values();
 
-        foreach ($tokens as $token) {
-            $fcmMsg = [
-                'title' => $notification->title,
-                'body' => $notification->message,
-                'type' => $notification->type,
-                'id' => (string) $notification->type_id,
-                'link' => $notification->type_link,
-            ];
+        $customBody = [
+            'type' => $notification->type,
+            'id' => (string) $notification->type_id,
+            'link' => $notification->type_link,
+        ];
 
-            // Map DB value to helper expected format
-            $platform = match (strtolower((string) $token->platform_type)) {
-                'ios' => 'ios',
-                'android' => 'android',
-                default => 'web', // null or unknown → treat as web
-            };
-
-            FirebaseHelper::send($platform, $token->fcm_token, $fcmMsg, [
-                'title' => $notification->title,
-                'body' => $notification->message,
-            ]);
+        foreach ($tokens->chunk(50) as $chunk) {
+            \App\Jobs\SendFcmNotificationJob::dispatch(
+                $chunk->all(),
+                $notification->title,
+                $notification->message,
+                $notification->type,
+                $customBody,
+            );
         }
 
         return ResponseService::successResponse('Notification created & sent successfully');

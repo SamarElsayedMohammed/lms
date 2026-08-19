@@ -56,32 +56,32 @@ class WebinarRegistrationNotification extends Notification implements ShouldQueu
         $formattedTime = $this->formatStartTime($notifiable);
 
         if ($this->isCancelled) {
-            $subject = 'إلغاء ويبينار | Webinar Cancelled: ' . $this->webinar->title;
+            $subject = 'إلغاء ويبينار: ' . $this->webinar->title;
             $title = 'تم إلغاء الويبينار';
-            $message = "نحيطك علماً بأنه قد تم إلغاء الويبينار: <strong>{$this->webinar->title}</strong>.";
+            $message = "نحيطك علماً بأنه قد تم إلغاء الويبينار: {$this->webinar->title}.";
             if ($formattedTime) {
-                $message .= "<br><br>الموعد الملغي كان: " . $formattedTime;
+                $message .= " الموعد الملغي كان: " . $formattedTime;
             }
             $actionText = 'تصفح الويبنارات المتاحة';
             $actionUrl = url('/webinars');
         } elseif ($this->isReminder) {
-            $subject = 'تذكير: ويبينار قادم | Webinar Reminder: ' . $this->webinar->title;
+            $subject = 'تذكير: ويبينار قادم — ' . $this->webinar->title;
             $title = 'موعد الويبينار اقترب!';
-            $message = "نود تذكيرك بأن الويبينار <strong>{$this->webinar->title}</strong> سيبدأ قريباً.";
+            $message = "نود تذكيرك بأن الويبينار {$this->webinar->title} سيبدأ قريباً.";
             if ($formattedTime) {
-                $message .= "<br><br>وقت البدء: " . $formattedTime;
+                $message .= " وقت البدء: " . $formattedTime;
             }
             $actionText = 'عرض تفاصيل الويبينار';
-            $actionUrl = url('/webinars/' . $this->webinar->slug);
+            $actionUrl = url('/webinar/' . $this->webinar->slug);
         } else {
             $subject = 'تأكيد التسجيل: ' . $this->webinar->title;
             $title = 'تم تأكيد تسجيلك بنجاح';
-            $message = "لقد قمت بالتسجيل بنجاح في الويبينار: <strong>{$this->webinar->title}</strong>.";
+            $message = "لقد قمت بالتسجيل بنجاح في الويبينار: {$this->webinar->title}.";
             if ($formattedTime) {
-                $message .= "<br><br>وقت البدء: " . $formattedTime;
+                $message .= " وقت البدء: " . $formattedTime;
             }
             $actionText = 'عرض تفاصيل الويبينار';
-            $actionUrl = url('/webinars/' . $this->webinar->slug);
+            $actionUrl = url('/webinar/' . $this->webinar->slug);
         }
 
         return (new MailMessage)
@@ -104,24 +104,27 @@ class WebinarRegistrationNotification extends Notification implements ShouldQueu
     {
         if ($this->isCancelled) {
             $type = 'webinar_cancelled';
-            $title = 'Webinar Cancelled';
-            $message = 'The webinar has been cancelled: ' . $this->webinar->title;
+            $title = 'تم إلغاء الندوة';
+            $message = 'تم إلغاء الندوة: ' . $this->webinar->title;
         } elseif ($this->isReminder) {
             $type = 'webinar_reminder';
-            $title = 'Webinar Reminder';
-            $message = 'Starting soon: ' . $this->webinar->title;
+            $title = 'تذكير بندوة قادمة';
+            $message = 'ستبدأ الندوة قريباً: ' . $this->webinar->title;
         } else {
             $type = 'webinar_registration';
-            $title = 'Webinar Registration Confirmed';
-            $message = 'You are successfully registered for: ' . $this->webinar->title;
+            $title = 'تم تأكيد تسجيلك في الندوة';
+            $message = 'تم تسجيلك بنجاح في: ' . $this->webinar->title;
         }
 
         return [
             'type' => $type,
             'webinar_id' => $this->webinar->id,
             'title' => $title,
+            'title_ar' => $title,
             'message' => $message,
+            'message_ar' => $message,
             'start_at' => $this->webinar->start_at ? $this->webinar->start_at->toIso8601String() : null,
+            'action_url' => '/webinars/' . ($this->webinar->slug ?? ''),
         ];
     }
 
@@ -130,8 +133,8 @@ class WebinarRegistrationNotification extends Notification implements ShouldQueu
         $data = $this->toArray($notifiable);
 
         $this->sendFcmNotification($notifiable, [
-            'title' => $data['title'],
-            'body' => $data['message'],
+            'title' => $data['title_ar'] ?? $data['title'],
+            'body' => $data['message_ar'] ?? $data['message'],
             'type' => $data['type'],
         ]);
         

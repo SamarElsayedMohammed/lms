@@ -27,6 +27,8 @@ class WebinarReminderCommand extends Command
      */
     public function handle()
     {
+        Webinar::syncPublishedLifecycleStatuses();
+
         // Query all published, scheduled webinars starting within the next 60 minutes that have not been reminded yet
         $dueWebinars = Webinar::where('status', 'scheduled')
             ->where('is_published', true)

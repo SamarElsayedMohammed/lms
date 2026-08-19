@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
+use App\Services\AuditLogService;
 use App\Services\CachingService;
 use App\Services\FileService;
 use App\Services\HelperService;
@@ -105,6 +106,12 @@ class SystemSettingsAdminApiController extends AdminCrudApiController
                     // Ignore timezone errors
                 }
             }
+
+            AuditLogService::log(
+                action: 'settings_updated',
+                summary: 'Updated app settings',
+                details: ['group' => 'app', 'keys' => array_values(array_unique(array_column($settingsData, 'name')))]
+            );
         }
 
         return $this->jsonSuccess('App Settings updated successfully');
@@ -224,6 +231,14 @@ class SystemSettingsAdminApiController extends AdminCrudApiController
             }
         }
 
+        if (!empty($settingsData)) {
+            AuditLogService::log(
+                action: 'settings_updated',
+                summary: 'Updated web settings',
+                details: ['group' => 'web', 'keys' => array_values(array_unique(array_column($settingsData, 'name')))]
+            );
+        }
+
         return $this->jsonSuccess('Web Settings updated successfully');
     }
 
@@ -270,6 +285,12 @@ class SystemSettingsAdminApiController extends AdminCrudApiController
         if (!empty($settingsData)) {
             Setting::upsert($settingsData, ['name']);
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
+
+            AuditLogService::log(
+                action: 'settings_updated',
+                summary: 'Updated SEO settings',
+                details: ['group' => 'seo', 'keys' => array_values(array_unique(array_column($settingsData, 'name')))]
+            );
         }
 
         return $this->jsonSuccess('SEO Settings updated successfully');

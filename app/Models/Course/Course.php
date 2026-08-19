@@ -302,7 +302,7 @@ class Course extends Model
 
     public function averageRating()
     {
-        return $this->reviews()->avg('rating');
+        return $this->ratings()->where('status', 'approved')->avg('rating');
     }
 
     public function promoCodes()

@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Auth;
 
 class WebinarRegistrantController extends AdminCrudApiController
 {
+    use Concerns\AuthorizesWebinarManagement;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -23,11 +25,11 @@ class WebinarRegistrantController extends AdminCrudApiController
      */
     public function destroy(Request $request, Webinar $webinar): JsonResponse
     {
-        $this->ensureAdmin();
+        $this->ensureWebinarManager();
 
-        if (Auth::user()->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'))
-            && $webinar->instructor_id !== Auth::id()) {
-            return $this->jsonError('Unauthorized', 403);
+        $denied = $this->ensureCanManageWebinar($webinar);
+        if ($denied) {
+            return $denied;
         }
 
         $id = $request->query('id');

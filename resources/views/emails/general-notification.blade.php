@@ -16,7 +16,7 @@
         @endif
 
         <div style="color: #425466; font-size: 16px; line-height: 24px; margin-bottom: 24px;">
-            {!! $notificationContent !!}
+            {!! nl2br(e($notificationContent)) !!}
         </div>
 
         @if(isset($actionUrl))

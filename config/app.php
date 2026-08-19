@@ -74,7 +74,7 @@ return [
      |
      */
 
-    'proxy_secret' => env('GEO_HMAC_SECRET'),
+    'proxy_secret' => env('GEO_HMAC_SECRET') ?: env('APP_KEY'),
 
     /*
      |--------------------------------------------------------------------------

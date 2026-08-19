@@ -11,12 +11,13 @@ use Illuminate\Support\Facades\Log;
 /**
  * CountryDetectionService - Robust, spoof-resistant country detection
  *
- * This service detects the user's country from trusted sources with the following priority:
- * 1. CF-IPCountry (Cloudflare edge header - highest priority)
- * 2. X-User-Country / X-Country (Edge proxy headers)
- * 3. X-Vercel-IP-Country (Vercel automatic geo header)
- * 4. GeoIP lookup using client IP from $request->ip()
- * 5. System default fallback country (EG)
+ * Priority:
+ * 0. HMAC-signed X-Skillso-Resolved-Country (Next.js proxy)
+ * 1. CF-IPCountry + CF-Connecting-IP (real Cloudflare)
+ * 2. X-User-Country / X-Country (Next.js proxy when HMAC is unset)
+ * 3. X-Vercel-IP-Country
+ * 4. GeoIP lookup
+ * 5. Default EG (config app.default_country)
  *
  * Security Considerations:
  * - Query and body parameter tampering (e.g. ?country_code=XX) is strictly ignored.
@@ -42,12 +43,13 @@ final class CountryDetectionService
     /**
      * Detect user's country from the request
      *
-     * Priority order:
-     * 1. CF-IPCountry (Cloudflare)
-     * 2. X-User-Country / X-Country (Edge proxy header)
-     * 3. X-Vercel-IP-Country (Vercel edge)
-     * 4. GeoIP lookup using client IP
-     * 5. System default fallback country (EG)
+     * Priority order (unknown country → EG):
+     * 0. Signed proxy header
+     * 1. CF-IPCountry with CF-Connecting-IP
+     * 2. X-User-Country / X-Country
+     * 3. X-Vercel-IP-Country
+     * 4. GeoIP
+     * 5. Default EG
      *
      * @param Request $request The incoming HTTP request
      * @return string ISO 3166-1 alpha-2 country code (uppercase)
@@ -59,49 +61,102 @@ final class CountryDetectionService
             return $this->getTestCountry($request);
         }
 
-        // Priority 1: Cloudflare CF-IPCountry header
-        $country = $this->getCloudflareCountry($request);
+        $verified = $request->attributes->get('verified_country_code');
+        if (is_string($verified)) {
+            $normalizedVerified = $this->validateAndNormalize($verified);
+            if ($normalizedVerified !== null) {
+                $this->logDetection($request, $normalizedVerified, 'signed_proxy');
+                return $normalizedVerified;
+            }
+        }
+
+        // Priority 0: HMAC-signed proxy country (Next.js → Laravel). Authoritative when present.
+        $country = $this->getSignedProxyCountry($request);
         if ($country !== null) {
-            $this->logDetection($request, $country, 'cloudflare_cf_ipcountry');
+            $this->logDetection($request, $country, 'signed_proxy');
             return $country;
         }
 
-        // Priority 2: X-User-Country / X-Country from trusted edge proxy
-        $country = $this->getCustomProxyCountry($request);
-        if ($country !== null) {
-            $this->logDetection($request, $country, 'edge_x_user_country');
-            return $country;
-        }
+        // Unsigned CF / X-User-Country / X-Vercel / X-Forwarded-For are client-spoofable
+        // when trustProxies=* or the API is hit directly. Ignore them.
+        // Country for pricing comes from the signed proxy or EG.
 
-        // Priority 3: X-Vercel-IP-Country from Vercel edge
-        $country = $this->getVercelCountry($request);
-        if ($country !== null) {
-            $this->logDetection($request, $country, 'vercel_x_vercel_ip_country');
-            return $country;
-        }
-
-        // Priority 4: Direct GeoIP lookup using client IP
-        $country = $this->getCountryFromGeoIP($request);
-        if ($country !== null) {
-            $this->logDetection($request, $country, 'geoip_lookup');
-            return $country;
-        }
-
-        // Priority 5: System default fallback country (EG)
+        // Priority 1: System default fallback country (EG)
         $default = $this->getDefaultCountry();
         $this->logDetection($request, $default, 'fallback_default');
         return $default;
     }
 
     /**
-     * Get country from Cloudflare's CF-IPCountry header
+     * Get country from Cloudflare's CF-IPCountry header.
+     * Require CF-Connecting-IP so a bare CF-IPCountry cannot be forged by a client.
      */
     private function getCloudflareCountry(Request $request): ?string
     {
+        $connectingIp = $request->header('CF-Connecting-IP')
+            ?? $request->server('HTTP_CF_CONNECTING_IP');
+        if (!$connectingIp) {
+            return null;
+        }
+
         $country = $request->header('CF-IPCountry')
             ?? $request->server('HTTP_CF_IPCOUNTRY');
 
         return $this->validateAndNormalize($country);
+    }
+
+    /**
+     * Accept either combined `CC.timestamp.signature` or separate Skillso proxy headers.
+     */
+    private function getSignedProxyCountry(Request $request): ?string
+    {
+        $headerValue = $request->header('X-Skillso-Resolved-Country');
+        if (!$headerValue) {
+            return null;
+        }
+
+        $parts = explode('.', $headerValue);
+        if (count($parts) === 3) {
+            [$country, $timestamp, $signature] = $parts;
+            if ($this->verifyProxySignature($country, $timestamp, $signature, $country . '.' . $timestamp)) {
+                return $this->validateAndNormalize($country);
+            }
+        }
+
+        $timestamp = $request->header('X-Skillso-Country-Timestamp');
+        $signature = $request->header('X-Skillso-Country-Signature');
+        if ($timestamp && $signature) {
+            $payloadWithDot = $headerValue . '.' . $timestamp;
+            $payloadNoDot = $headerValue . $timestamp;
+            if (
+                $this->verifyProxySignature($headerValue, $timestamp, $signature, $payloadWithDot)
+                || $this->verifyProxySignature($headerValue, $timestamp, $signature, $payloadNoDot)
+            ) {
+                return $this->validateAndNormalize($headerValue);
+            }
+        }
+
+        return null;
+    }
+
+    private function verifyProxySignature(string $country, string $timestamp, string $signature, string $payload): bool
+    {
+        if ($this->validateAndNormalize($country) === null) {
+            return false;
+        }
+
+        if (!ctype_digit($timestamp) || abs(time() - (int) $timestamp) > 300) {
+            return false;
+        }
+
+        $secret = (string) (config('app.proxy_secret') ?: config('app.key'));
+        if ($secret === '') {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $payload, $secret);
+
+        return hash_equals($expected, $signature);
     }
 
     /**
@@ -359,11 +414,8 @@ final class CountryDetectionService
         return [
             'detected_country' => $this->detect($request),
             'detection_priority' => [
-                '1_cloudflare' => $this->getCloudflareCountry($request),
-                '2_x_user_country' => $this->getCustomProxyCountry($request),
-                '3_vercel' => $this->getVercelCountry($request),
-                '4_geoip' => $this->getCountryFromGeoIP($request),
-                '5_default' => $this->getDefaultCountry(),
+                '0_signed_proxy' => $this->getSignedProxyCountry($request),
+                '1_default' => $this->getDefaultCountry(),
             ],
             'headers' => [
                 'CF-IPCountry' => $request->header('CF-IPCountry'),

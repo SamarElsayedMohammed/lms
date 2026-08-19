@@ -33,6 +33,7 @@ class UserWebinarApiController extends Controller
 
             $query = WebinarRegistration::with(['webinar.instructor:id,name', 'webinar.course:id,title'])
                 ->where('user_id', $user->id)
+                ->whereIn('payment_status', ['paid', 'free'])
                 ->whereHas('webinar');
 
             $filter = $request->input('status', 'all');
@@ -62,6 +63,8 @@ class UserWebinarApiController extends Controller
                 if (!$webinar) {
                     return null;
                 }
+
+                $webinar->syncLifecycleStatus();
 
                 $isEntitled = $this->accessService->isUserEntitled($webinar, $user);
                 $sanitized = $this->accessService->sanitizeWebinarForResponse($webinar, $user);

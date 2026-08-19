@@ -25,7 +25,7 @@ class FinanceApiController extends Controller
     public function getFinanceDashboard(Request $request)
     {
         try {
-            // Total commissions summary
+            $this->ensureFinanceAdmin();
             $totalCommissions = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
                 ->sum(\Illuminate\Support\Facades\DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
             $totalInstructorCommissions = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
@@ -86,7 +86,7 @@ class FinanceApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve finance dashboard data: ' . $e->getMessage() . ' at line ' . $e->getLine());
+            return ApiResponseService::errorResponse('Failed to retrieve finance dashboard data');
         }
     }
 
@@ -96,6 +96,8 @@ class FinanceApiController extends Controller
     public function getCommissions(Request $request)
     {
         try {
+            $this->ensureFinanceAdmin();
+
             $validator = Validator::make($request->all(), [
                 'status' => 'nullable|in:pending,paid,cancelled',
                 'instructor_id' => 'nullable|exists:users,id',
@@ -140,7 +142,7 @@ class FinanceApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve commissions: ' . $e->getMessage() . ' at line ' . $e->getLine());
+            return ApiResponseService::errorResponse('Failed to retrieve commissions');
         }
     }
 
@@ -150,6 +152,8 @@ class FinanceApiController extends Controller
     public function getInstructorEarnings(Request $request)
     {
         try {
+            $this->ensureFinanceAdmin();
+
             $validator = Validator::make($request->all(), [
                 'instructor_id' => 'nullable|exists:users,id',
                 'date_from' => 'nullable|date',
@@ -187,7 +191,7 @@ class FinanceApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve instructor earnings: ' . $e->getMessage() . ' at line ' . $e->getLine());
+            return ApiResponseService::errorResponse('Failed to retrieve instructor earnings');
         }
     }
 
@@ -211,10 +215,17 @@ class FinanceApiController extends Controller
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
+            $user = Auth::user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('Authentication required.', [], 401);
+            }
+
             $query = WalletHistory::with('user:id,name,email');
 
-            // Apply filters
-            if ($request->filled('user_id')) {
+            $isAdmin = $user->hasAnyRole(['Super Admin', 'Admin', 'Supervisor', 'Staff'], 'web');
+            if (!$isAdmin) {
+                $query->where('user_id', $user->id);
+            } elseif ($request->filled('user_id')) {
                 $query->where('user_id', $request->user_id);
             }
 
@@ -241,7 +252,7 @@ class FinanceApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve wallet transactions: ' . $e->getMessage() . ' at line ' . $e->getLine());
+            return ApiResponseService::errorResponse('Failed to retrieve wallet transactions');
         }
     }
 
@@ -251,6 +262,8 @@ class FinanceApiController extends Controller
     public function processCommission(Request $request)
     {
         try {
+            $this->ensureFinanceAdmin();
+
             $validator = Validator::make($request->all(), [
                 'commission_id' => 'required|exists:commissions,id',
                 'action' => 'required|in:approve,reject',
@@ -306,7 +319,7 @@ class FinanceApiController extends Controller
             throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
-            return ApiResponseService::errorResponse('Failed to process commission: ' . $e->getMessage() . ' at line ' . $e->getLine());
+            return ApiResponseService::errorResponse('Failed to process commission');
         }
     }
 
@@ -316,6 +329,8 @@ class FinanceApiController extends Controller
     public function getFinanceReports(Request $request)
     {
         try {
+            $this->ensureFinanceAdmin();
+
             $validator = Validator::make($request->all(), [
                 'report_type' => 'required|in:daily,weekly,monthly,yearly',
                 'date_from' => 'nullable|date',
@@ -982,8 +997,27 @@ class FinanceApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return ApiResponseService::errorResponse('Failed to retrieve withdrawal request details: '
-            . $e->getMessage());
+            return ApiResponseService::errorResponse('Failed to retrieve withdrawal request details');
+        }
+    }
+
+    private function ensureFinanceAdmin(): void
+    {
+        $user = Auth::user();
+        if (!$user) {
+            ApiResponseService::errorResponse('Authentication required.', [], 401);
+        }
+
+        $adminRoles = [
+            'Admin',
+            'Super Admin',
+            config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
+            config('constants.SYSTEM_ROLES.STAFF'),
+            config('constants.SYSTEM_ROLES.SUPERVISOR'),
+        ];
+
+        if (!$user->hasAnyRole($adminRoles, 'web')) {
+            ApiResponseService::errorResponse('Admin access required.', [], 403);
         }
     }
 }

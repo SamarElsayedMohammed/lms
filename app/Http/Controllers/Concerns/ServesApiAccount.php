@@ -757,6 +757,19 @@ trait ServesApiAccount
             }
 
             $notifications = collect();
+            Carbon::setLocale('ar');
+
+            $pickArabic = static function (array $data, string $enKey, string $arKey, string $fallback): string {
+                $ar = $data[$arKey] ?? null;
+                if (is_string($ar) && trim($ar) !== '') {
+                    return $ar;
+                }
+                $en = $data[$enKey] ?? null;
+                if (is_string($en) && trim($en) !== '' && $en !== 'Notification') {
+                    return $en;
+                }
+                return $fallback;
+            };
 
             $getNotificationIcon = static function ($type): string {
                 $type = is_string($type) ? $type : 'default';
@@ -813,6 +826,7 @@ trait ServesApiAccount
 
                 $globalNotifications = \App\Models\Notification::where('date_sent', '>=', $userRegistrationDate)
                     ->orderBy('date_sent', 'desc')
+                    ->limit(200)
                     ->get()
                     ->map(static function ($notification) use ($readNotificationIds, $user, $getNotificationIcon) {
                         $slug = null;
@@ -880,22 +894,12 @@ trait ServesApiAccount
                     $personalNotificationsQuery->whereNull('read_at');
                 }
 
-                $personalNotificationsRaw = $personalNotificationsQuery->get();
+                $personalNotificationsRaw = $personalNotificationsQuery
+                    ->orderByDesc('created_at')
+                    ->limit(200)
+                    ->get();
 
-                // Log for debugging
-                Log::info('Personal notifications query result', [
-                    'user_id' => $user->id,
-                    'count' => $personalNotificationsRaw->count(),
-                    'first_notification' => $personalNotificationsRaw->first()
-                        ? [
-                            'id' => $personalNotificationsRaw->first()?->id,
-                            'notifiable_type' => $personalNotificationsRaw->first()?->notifiable_type,
-                            'notifiable_id' => $personalNotificationsRaw->first()?->notifiable_id,
-                            'data_preview' => substr(json_encode($personalNotificationsRaw->first()?->data ?? []), 0, 100),
-                        ] : null,
-                ]);
-
-                $personalNotifications = $personalNotificationsRaw->map(static function ($notification) use ($getNotificationIcon) {
+                $personalNotifications = $personalNotificationsRaw->map(static function ($notification) use ($getNotificationIcon, $pickArabic) {
                     // Decode data if it's a string (JSON)
                     $data = is_string($notification->data)
                         ? json_decode($notification->data, true)
@@ -941,7 +945,6 @@ trait ServesApiAccount
                                 'instructor_id' => $teamMember->instructor_id,
                                 'user_id' => $teamMember->user_id,
                                 'status' => $teamMember->status,
-                                'invitation_token' => $teamMember->invitation_token ?? null,
                                 'created_at' => $teamMember->created_at
                                     ? $teamMember->created_at->format('Y-m-d H:i:s')
                                     : null,
@@ -971,11 +974,11 @@ trait ServesApiAccount
                     $response = [
                         'id'                => $notification->id,
                         'type'              => 'personal',
-                        'title'             => $data['title'] ?? 'Notification',
-                        'message'           => $data['message'] ?? $data['body'] ?? '',
+                        'title'             => $pickArabic($data, 'title', 'title_ar', 'إشعار'),
+                        'message'           => $pickArabic($data, 'message', 'message_ar', (string) ($data['body'] ?? '')),
                         'notification_type' => $notificationType,
                         'type_id'           => $typeId,
-                        'type_link'         => $data['type_link'] ?? $data['link'] ?? null,
+                        'type_link'         => $data['type_link'] ?? $data['link'] ?? $data['action_url'] ?? null,
                         'slug'              => $slug,
                         'image'             => $data['image'] ?? null,
                         'icon'              => $getNotificationIcon($notificationType),
@@ -998,49 +1001,15 @@ trait ServesApiAccount
                     return $response;
                 });
 
-                // Log before merge
-                \Illuminate\Support\Facades\Log::info('Before merge notifications', [
-                    'legacy_count' => $notifications->count(),
-                    'personal_count' => $personalNotifications->count(),
-                    'total_before_merge' => $notifications->count() + $personalNotifications->count(),
-                ]);
-
                 $notifications = $notifications->merge($personalNotifications);
-
-                // Log after merge
-                \Illuminate\Support\Facades\Log::info('After merge notifications', [
-                    'total_count' => $notifications->count(),
-                ]);
             }
 
             // Sort all notifications by date
             $notifications = $notifications->sortByDesc('date_sent');
 
-            // Log before pagination
-            \Illuminate\Support\Facades\Log::info('Before pagination', [
-                'total_count' => $notifications->count(),
-                'sample_notifications' => $notifications
-                    ->take(3)
-                    ->map(static fn($n) => [
-                        'id' => $n['id'] ?? null,
-                        'type' => $n['type'] ?? null,
-                        'title' => $n['title'] ?? null,
-                    ])
-                    ->toArray(),
-            ]);
-
             // Apply pagination
             $total = $notifications->count();
             $notifications = $notifications->forPage($page, $perPage)->values()->toArray();
-
-            // Log after pagination
-            \Illuminate\Support\Facades\Log::info('After pagination', [
-                'total' => $total,
-                'page' => $page,
-                'per_page' => $perPage,
-                'returned_count' => count($notifications),
-                'sample_returned' => array_slice($notifications, 0, 2),
-            ]);
 
             // Get unread count
             // Count personal unread notifications
@@ -1070,7 +1039,7 @@ trait ServesApiAccount
             $unreadCount = $personalUnreadCount + $globalUnreadCount;
 
             // Create pagination links
-            $lastPage = ceil($total / $perPage);
+            $lastPage = max(1, (int) ceil($total / max(1, (int) $perPage)));
             $baseUrl = request()->url();
             $path = str_replace(request()->root(), '', $baseUrl);
 
@@ -1131,7 +1100,9 @@ trait ServesApiAccount
                 'unread_count' => $unreadCount,
             ];
 
-            return ApiResponseService::successResponse('Notifications retrieved successfully', $responseData);
+            return ApiResponseService::successResponse('تم تحميل الإشعارات بنجاح', $responseData, [
+                'unread_count' => $unreadCount,
+            ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
@@ -1276,11 +1247,10 @@ trait ServesApiAccount
                         }
                     } else {
                         // Notification doesn't exist
-                        $errors[] = "Notification ID {$notificationIdInt} not found";
+                        $errors[] = "الإشعار رقم {$notificationIdInt} غير موجود";
                         \Illuminate\Support\Facades\Log::warning('Global notification not found', [
                             'notification_id' => $notificationIdInt,
                             'user_id' => $user->id,
-                            'all_notification_ids' => \App\Models\Notification::pluck('id')->toArray(),
                         ]);
                     }
                 } else {
@@ -1412,15 +1382,21 @@ trait ServesApiAccount
             $globalMarkedCount = 0;
 
             if (!empty($unreadGlobalIds)) {
-                // Bulk insert all unread global notifications
+                $now = now();
+                $rows = [];
                 foreach ($unreadGlobalIds as $notificationId) {
-                    // Use firstOrCreate to avoid duplicate key errors
-                    \App\Models\UserNotificationRead::firstOrCreate([
+                    $rows[] = [
                         'user_id' => $user->id,
                         'notification_id' => $notificationId,
-                    ], [
-                        'read_at' => now(),
-                    ]);
+                        'read_at' => $now,
+                    ];
+                }
+                foreach (array_chunk($rows, 100) as $chunk) {
+                    \App\Models\UserNotificationRead::upsert(
+                        $chunk,
+                        ['user_id', 'notification_id'],
+                        ['read_at']
+                    );
                 }
                 $globalMarkedCount = count($unreadGlobalIds);
             }
@@ -1440,6 +1416,88 @@ trait ServesApiAccount
             throw $e;
         } catch (Throwable $th) {
             return ApiResponseService::errorResponse(exception: $th);
+        }
+    }
+
+    /**
+     * Register or refresh the signed-in user's FCM device token.
+     */
+    public function registerFcmToken(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'fcm_token' => 'required|string|min:20|max:4096',
+                'platform_type' => 'nullable|string|in:web,android,ios',
+            ]);
+
+            if ($validator->fails()) {
+                return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            $user = Auth::user();
+            if (!$user) {
+                return ApiResponseService::unauthorizedResponse('يجب تسجيل الدخول.');
+            }
+
+            UserFcmToken::updateOrCreate(
+                ['fcm_token' => $request->input('fcm_token')],
+                [
+                    'user_id' => $user->id,
+                    'platform_type' => $request->input('platform_type', 'web'),
+                ]
+            );
+
+            return ApiResponseService::successResponse('تم تسجيل جهاز الإشعارات.');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Throwable $th) {
+            return ApiResponseService::errorResponse('تعذر تسجيل رمز الإشعارات.', null, 500, $th);
+        }
+    }
+
+    /**
+     * Delete a personal in-app notification, or hide a global one for this user.
+     */
+    public function deleteUserNotification(Request $request, $id)
+    {
+        try {
+            $user = User::where(['id' => Auth::id(), 'is_active' => 1])->first();
+            if (empty($user)) {
+                return ApiResponseService::validationError('المستخدم غير موجود');
+            }
+
+            $notificationIdStr = (string) $id;
+
+            if (is_numeric($notificationIdStr) && ctype_digit($notificationIdStr)) {
+                $notificationIdInt = (int) $notificationIdStr;
+                $global = \App\Models\Notification::find($notificationIdInt);
+                if (!$global) {
+                    return ApiResponseService::errorResponse('الإشعار غير موجود', null, 404);
+                }
+
+                \App\Models\UserNotificationRead::updateOrCreate(
+                    [
+                        'user_id' => $user->id,
+                        'notification_id' => $notificationIdInt,
+                    ],
+                    ['read_at' => now()]
+                );
+
+                return ApiResponseService::successResponse('تم إخفاء الإشعار');
+            }
+
+            $notification = $user->notifications()->find($notificationIdStr);
+            if (!$notification) {
+                return ApiResponseService::errorResponse('الإشعار غير موجود', null, 404);
+            }
+
+            $notification->delete();
+
+            return ApiResponseService::successResponse('تم حذف الإشعار');
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (Throwable $th) {
+            return ApiResponseService::errorResponse('تعذر حذف الإشعار.', null, 500, $th);
         }
     }
 

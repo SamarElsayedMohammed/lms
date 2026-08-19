@@ -20,12 +20,14 @@ class ApiService
         try {
             $verifiedToken = HelperService::verifyToken($token);
             if (empty($verifiedToken)) {
-                ApiResponseService::errorResponse('Invalid Firebase token');
+                ApiResponseService::errorResponse('رمز Firebase غير صالح.');
             }
             return $verifiedToken;
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('Firebase token error: ' . $e->getMessage());
-            ApiResponseService::errorResponse('Invalid Firebase token');
+            \Illuminate\Support\Facades\Log::warning('Firebase token verification failed', [
+                'exception' => $e::class,
+            ]);
+            ApiResponseService::errorResponse('رمز Firebase غير صالح.');
         }
     }
 

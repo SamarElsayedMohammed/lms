@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Traits;
 
 use App\Models\User;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
@@ -123,9 +124,9 @@ trait HasWebResponse
         $user = Auth::user();
 
         if (!$user instanceof User || !$user->can($permission)) {
-            redirect(route('home'))->withErrors(['message' => trans("You Don't have enough permissions")])->send();
-
-            exit();
+            throw new HttpResponseException(
+                redirect(route('home'))->withErrors(['message' => trans("You Don't have enough permissions")]),
+            );
         }
     }
 
@@ -137,14 +138,12 @@ trait HasWebResponse
         $user = Auth::user();
 
         if (!$user instanceof User || !$user->can($permission)) {
-            response()->json([
+            throw new HttpResponseException(response()->json([
                 'error' => true,
                 'message' => trans("You Don't have enough permissions"),
                 'data' => null,
                 'code' => 403,
-            ], 403)->send();
-
-            exit();
+            ], 403));
         }
     }
 
@@ -158,9 +157,9 @@ trait HasWebResponse
         $user = Auth::user();
 
         if (!$user instanceof User || !$user->canAny($permissions)) {
-            redirect(route('home'))->withErrors(['message' => trans("You Don't have enough permissions")])->send();
-
-            exit();
+            throw new HttpResponseException(
+                redirect(route('home'))->withErrors(['message' => trans("You Don't have enough permissions")]),
+            );
         }
     }
 
@@ -174,14 +173,12 @@ trait HasWebResponse
         $user = Auth::user();
 
         if (!$user instanceof User || !$user->canAny($permissions)) {
-            response()->json([
+            throw new HttpResponseException(response()->json([
                 'error' => true,
                 'message' => trans("You Don't have enough permissions"),
                 'data' => null,
                 'code' => 403,
-            ], 403)->send();
-
-            exit();
+            ], 403));
         }
     }
 

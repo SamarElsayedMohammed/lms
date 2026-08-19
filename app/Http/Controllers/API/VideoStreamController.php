@@ -15,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -311,7 +312,7 @@ final class VideoStreamController extends Controller
     /**
      * Serve HLS files (manifest, playlists, segments) with UUID validation
      */
-    public function serve(string $uuid, null|string $path = null): Response|StreamedResponse|JsonResponse
+    public function serve(string $uuid, null|string $path = null): Response|StreamedResponse|JsonResponse|\Symfony\Component\HttpFoundation\BinaryFileResponse
     {
         try {
             // 1. Validate origin to prevent unauthorized domain access
@@ -386,7 +387,7 @@ final class VideoStreamController extends Controller
     /**
      * Serve Direct video files with UUID validation
      */
-    public function serveDirect(string $uuid): Response|StreamedResponse|JsonResponse|\Illuminate\Http\RedirectResponse
+    public function serveDirect(string $uuid): Response|StreamedResponse|JsonResponse|\Illuminate\Http\RedirectResponse|\Symfony\Component\HttpFoundation\BinaryFileResponse
     {
         try {
             // 1. Validate UUID token
@@ -442,7 +443,7 @@ final class VideoStreamController extends Controller
     }
 
     /** Serve a direct local asset without exposing its storage/CDN URL. */
-    private function streamProtectedDirectFile(string $fileUrl): Response|StreamedResponse|JsonResponse
+    private function streamProtectedDirectFile(string $fileUrl): Response|StreamedResponse|JsonResponse|\Symfony\Component\HttpFoundation\BinaryFileResponse
     {
         $urlPath = parse_url($fileUrl, PHP_URL_PATH) ?: $fileUrl;
         $relativePath = ltrim($urlPath, '/');
@@ -465,27 +466,17 @@ final class VideoStreamController extends Controller
 
         $mimeType = mime_content_type($filePath) ?: 'video/mp4';
 
-        return response()->stream(
-            static function () use ($filePath): void {
-                $stream = fopen($filePath, 'rb');
-                fpassthru($stream);
-                fclose($stream);
-            },
-            200,
-            [
-                'Content-Type' => $mimeType,
-                'Content-Length' => (string) filesize($filePath),
-                'Cache-Control' => 'private, no-store',
-                'X-Content-Type-Options' => 'nosniff',
-            ],
-        );
+        return $this->serveDiskFile($filePath, $mimeType, [
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     private function streamLocalFile(
         CourseChapterLecture $lecture,
         string $path,
         string $uuid,
-    ): Response|StreamedResponse|JsonResponse {
+    ): Response|StreamedResponse|JsonResponse|\Symfony\Component\HttpFoundation\BinaryFileResponse {
         try {
             // Build file path (sanitize to prevent directory traversal)
             $sanitizedPath = str_replace(['..', '\\'], '', $path);
@@ -498,7 +489,7 @@ final class VideoStreamController extends Controller
             // 7. Determine MIME type
             $mimeType = $this->getMimeType($sanitizedPath);
 
-            // 8. For m3u8 files, rewrite paths to include UUID
+            // HLS playlists stay in PHP (path rewrite). Segments go through nginx X-Accel.
             if (str_ends_with($sanitizedPath, '.m3u8')) {
                 $content = file_get_contents($filePath);
                 $content = $this->rewriteManifestPaths($content, $uuid);
@@ -516,26 +507,15 @@ final class VideoStreamController extends Controller
                 ]);
             }
 
-            // 9. For other files (segments), stream directly
-            return response()->stream(
-                static function () use ($filePath): void {
-                    $stream = fopen($filePath, 'rb');
-                    fpassthru($stream);
-                    fclose($stream);
-                },
-                200,
-                [
-                    'Content-Type' => $mimeType,
-                    'Content-Length' => (string) filesize($filePath),
-                    'Cache-Control' => 'no-cache, no-store, must-revalidate',
-                    'Pragma' => 'no-cache',
-                    'Expires' => '0',
-                    'Access-Control-Allow-Origin' => request()->header('Origin') ?? '*',
-                    'Access-Control-Allow-Credentials' => 'true',
-                    'Access-Control-Allow-Methods' => 'GET, OPTIONS',
-                    'Access-Control-Allow-Headers' => 'Content-Type, Authorization',
-                ],
-            );
+            return $this->serveDiskFile($filePath, $mimeType, [
+                'Cache-Control' => 'no-cache, no-store, must-revalidate',
+                'Pragma' => 'no-cache',
+                'Expires' => '0',
+                'Access-Control-Allow-Origin' => request()->header('Origin') ?? '*',
+                'Access-Control-Allow-Credentials' => 'true',
+                'Access-Control-Allow-Methods' => 'GET, OPTIONS',
+                'Access-Control-Allow-Headers' => 'Content-Type, Authorization',
+            ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -626,15 +606,53 @@ final class VideoStreamController extends Controller
     }
 
     /**
+     * Serve a file via nginx X-Accel-Redirect (frees FPM) or Range-aware PHP fallback.
+     * Unreadable paths must not TypeError on fopen(false).
+     *
+     * @param array<string, string> $headers
+     */
+    private function serveDiskFile(string $filePath, string $mimeType, array $headers = []): Response|\Symfony\Component\HttpFoundation\BinaryFileResponse|JsonResponse
+    {
+        $realPath = realpath($filePath);
+        $storageRoot = realpath(storage_path('app'));
+        if ($realPath === false || $storageRoot === false || !str_starts_with($realPath, $storageRoot) || !is_readable($realPath)) {
+            return $this->notFound('الملف غير موجود');
+        }
+
+        $headers['Content-Type'] = $mimeType;
+        $headers['Accept-Ranges'] = 'bytes';
+        $headers['X-Content-Type-Options'] ??= 'nosniff';
+
+        $useXAccel = (bool) config('filesystems.x_accel_redirect');
+
+        if ($useXAccel) {
+            $relative = str_replace('\\', '/', substr($realPath, strlen($storageRoot)));
+            $relative = ltrim($relative, '/');
+
+            return response('', 200, [
+                ...$headers,
+                'X-Accel-Redirect' => '/internal-media/' . $relative,
+            ]);
+        }
+
+        return response()->file($realPath, $headers);
+    }
+
+    /**
      * Validate request origin against allowed CORS origins
      * Returns generic error to prevent information disclosure
      */
     private function validateOrigin(): JsonResponse|null
     {
-        $allowedOrigins = config('cors.allowed_origins', ['*']);
+        $allowedOrigins = config('cors.allowed_origins', []);
+        if (!is_array($allowedOrigins)) {
+            $allowedOrigins = [];
+        }
 
-        // Allow all origins if wildcard is configured
-        if (in_array('*', $allowedOrigins, true)) {
+        $allowedOrigins = array_values(array_filter($allowedOrigins, static fn ($origin): bool => is_string($origin) && $origin !== ''));
+
+        // Empty allowlist = origin lock not configured. Do not 403 every HLS request.
+        if ($allowedOrigins === [] || in_array('*', $allowedOrigins, true)) {
             return null;
         }
 
@@ -653,15 +671,12 @@ final class VideoStreamController extends Controller
             }
         }
 
-        // Block if no origin can be determined - don't tell them what's missing
         if ($origin === null) {
-            return $this->forbidden('Access denied');
+            return $this->forbidden('تم رفض الوصول');
         }
 
-        // Normalize origin (remove trailing slash)
         $origin = rtrim($origin, '/');
 
-        // Check if origin is in allowed list
         $isAllowed = false;
         foreach ($allowedOrigins as $allowedOrigin) {
             $allowedOrigin = rtrim($allowedOrigin, '/');
@@ -671,9 +686,8 @@ final class VideoStreamController extends Controller
             }
         }
 
-        // Return generic error - don't reveal it's an origin issue
         if (!$isAllowed) {
-            return $this->forbidden('Access denied');
+            return $this->forbidden('تم رفض الوصول');
         }
 
         return null;

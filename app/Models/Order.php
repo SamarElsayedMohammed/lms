@@ -74,7 +74,9 @@ class Order extends Model
         'promo_code',
         'status',
         'amount_egp',
+        'currency_code',
         'exchange_rate_snapshot',
+        'resolved_country',
     ];
 
     public function user()

@@ -30,72 +30,63 @@ class WalletApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.');
             }
 
-            // Get wallet balance
-            $walletBalance = $user->wallet_balance ?? 0;
+            // Get wallet balance (EGP ledger)
+            $walletBalance = (float) ($user->wallet_balance ?? 0);
 
-            // Get total credits (sum of all credit transactions)
-            $totalCredits = WalletHistory::where('user_id', $user->id)->where('type', 'credit')->sum('amount');
+            // Sum EGP ledger columns — `amount` is local currency and must not be FX'd again.
+            $creditEgp = (float) WalletHistory::where('user_id', $user->id)
+                ->where('type', 'credit')
+                ->selectRaw('SUM(COALESCE(amount_egp, amount)) as total')
+                ->value('total');
+            $debitEgp = (float) WalletHistory::where('user_id', $user->id)
+                ->where('type', 'debit')
+                ->selectRaw('SUM(COALESCE(amount_egp, amount)) as total')
+                ->value('total');
 
-            // Get total debits (sum of all debit transactions)
-            $totalDebits = WalletHistory::where('user_id', $user->id)->where('type', 'debit')->sum('amount');
-
-            // Get pending withdrawals
             $pendingWithdrawals = WithdrawalRequest::where('user_id', $user->id)->whereIn('status', [
                 'pending',
                 'processing',
             ])->sum('amount');
 
-            // Get total withdrawals (approved/completed)
             $totalWithdrawals = WithdrawalRequest::where('user_id', $user->id)->whereIn('status', [
                 'approved',
                 'completed',
             ])->sum('amount');
 
-            // Detect user country & resolve display currency
-            $countryCode     = $this->pricingService->detectUserCountry($request) ?: 'EG';
+            $countryCode     = $this->pricingService->detectUserCountry($request);
             $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
             $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
             $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
 
-            $availableForWithdrawal = (float) $walletBalance;
+            $availableForWithdrawal = $walletBalance;
+            $localBalance = $this->pricingService->convertFromEgp($walletBalance, $displayCurrency);
+            $localCredits = $this->pricingService->convertFromEgp($creditEgp, $displayCurrency);
+            $localDebits = $this->pricingService->convertFromEgp($debitEgp, $displayCurrency);
+            $localWithdrawals = $this->pricingService->convertFromEgp((float) $totalWithdrawals, $displayCurrency);
+            $localPending = $this->pricingService->convertFromEgp((float) $pendingWithdrawals, $displayCurrency);
 
-            // Get recent transactions (last 5)
             $recentTransactions = WalletHistory::where('user_id', $user->id)
                 ->orderBy('created_at', 'desc')
                 ->limit(5)
                 ->get()
-                ->map(fn($transaction) => [
-                    'id'                  => $transaction->id,
-                    'amount'              => (float) $transaction->amount,
-                    'local_amount'        => $this->pricingService->convertFromEgp((float) $transaction->amount, $displayCurrency),
-                    'type'                => $transaction->type,
-                    'transaction_type'    => $transaction->transaction_type,
-                    'description'         => $transaction->description,
-                    'balance_before'      => (float) $transaction->balance_before,
-                    'balance_after'       => (float) $transaction->balance_after,
-                    'local_balance_before' => $this->pricingService->convertFromEgp((float) $transaction->balance_before, $displayCurrency),
-                    'local_balance_after'  => $this->pricingService->convertFromEgp((float) $transaction->balance_after, $displayCurrency),
-                    'created_at'          => $transaction->created_at->toIso8601String(),
-                    'created_at_formatted' => $transaction->created_at->toIso8601String(),
-                    'time_ago'            => $transaction->created_at->diffForHumans(),
-                ]);
+                ->map(fn($transaction) => $this->formatHistoryItem($transaction, $displayCurrency, $displaySymbol));
 
             $summary = [
-                'wallet_balance'               => (float) $walletBalance,
-                'balance'                      => (float) $walletBalance,
-                'local_wallet_balance'         => $this->pricingService->convertFromEgp((float) $walletBalance, $displayCurrency),
+                'wallet_balance'               => $walletBalance,
+                'balance'                      => $localBalance,
+                'local_wallet_balance'         => $localBalance,
                 'currency'                     => $displayCurrency,
                 'currency_code'                => $displayCurrency,
                 'currency_symbol'              => $displaySymbol,
-                'total_credits'                => (float) $totalCredits,
-                'local_total_credits'          => $this->pricingService->convertFromEgp((float) $totalCredits, $displayCurrency),
-                'total_debits'                 => (float) $totalDebits,
-                'local_total_debits'           => $this->pricingService->convertFromEgp((float) $totalDebits, $displayCurrency),
-                'total_withdrawals'            => (float) $totalWithdrawals,
-                'local_total_withdrawals'      => $this->pricingService->convertFromEgp((float) $totalWithdrawals, $displayCurrency),
-                'pending_withdrawals'          => (float) $pendingWithdrawals,
-                'local_pending_withdrawals'    => $this->pricingService->convertFromEgp((float) $pendingWithdrawals, $displayCurrency),
-                'available_for_withdrawal'     => $availableForWithdrawal,
+                'total_credits'                => $localCredits,
+                'local_total_credits'          => $localCredits,
+                'total_debits'                 => $localDebits,
+                'local_total_debits'           => $localDebits,
+                'total_withdrawals'            => $localWithdrawals,
+                'local_total_withdrawals'      => $localWithdrawals,
+                'pending_withdrawals'          => $localPending,
+                'local_pending_withdrawals'    => $localPending,
+                'available_for_withdrawal'     => $this->pricingService->convertFromEgp($availableForWithdrawal, $displayCurrency),
                 'local_available_for_withdrawal' => $this->pricingService->convertFromEgp($availableForWithdrawal, $displayCurrency),
                 'is_withdrawal_request_pending' => $pendingWithdrawals > 0,
                 'recent_transactions'          => $recentTransactions,
@@ -159,7 +150,7 @@ class WalletApiController extends Controller
             }
 
             // Detect user country & resolve display currency
-            $countryCode     = $this->pricingService->detectUserCountry($request) ?: 'EG';
+            $countryCode     = $this->pricingService->detectUserCountry($request);
             $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
             $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
             $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
@@ -210,7 +201,7 @@ class WalletApiController extends Controller
 
             // Add all wallet histories
             foreach ($walletHistories as $history) {
-                $unifiedList->push($this->formatHistoryItem($history, $displayCurrency));
+                    $unifiedList->push($this->formatHistoryItem($history, $displayCurrency, $displaySymbol));
             }
 
             // Add pending Manual Deposits that don't have a ledger entry yet
@@ -218,10 +209,12 @@ class WalletApiController extends Controller
                 $refKey = \App\Models\ManualDeposit::class . ':' . $deposit->id;
                 if (!isset($recordedRefs[$refKey])) {
                     $amt = (float) $deposit->amount;
+                    $localAmt = $this->pricingService->convertFromEgp($amt, $displayCurrency);
                     $unifiedList->push([
                         'id'              => 'deposit-' . $deposit->id,
-                        'amount'          => $amt,
-                        'local_amount'    => $this->pricingService->convertFromEgp($amt, $displayCurrency),
+                        'amount'          => $localAmt,
+                        'amount_egp'      => $amt,
+                        'local_amount'    => $localAmt,
                         'currency'        => $displayCurrency,
                         'currency_symbol' => $displaySymbol,
                         'type'            => 'credit',
@@ -243,10 +236,12 @@ class WalletApiController extends Controller
                 $refKey = \App\Models\WithdrawalRequest::class . ':' . $withdrawal->id;
                 if (!isset($recordedRefs[$refKey])) {
                     $amt = (float) $withdrawal->amount;
+                    $localAmt = $this->pricingService->convertFromEgp($amt, $displayCurrency);
                     $unifiedList->push([
                         'id'              => 'withdrawal-' . $withdrawal->id,
-                        'amount'          => $amt,
-                        'local_amount'    => $this->pricingService->convertFromEgp($amt, $displayCurrency),
+                        'amount'          => $localAmt,
+                        'amount_egp'      => $amt,
+                        'local_amount'    => $localAmt,
                         'currency'        => $displayCurrency,
                         'currency_symbol' => $displaySymbol,
                         'type'            => 'debit',
@@ -291,10 +286,10 @@ class WalletApiController extends Controller
     /**
      * Helper to format WalletHistory item consistently
      */
-    private function formatHistoryItem($history, string $displayCurrency = 'EGP')
+    private function formatHistoryItem($history, string $displayCurrency = 'EGP', string $displaySymbol = 'ج.م')
     {
         $description = $history->description;
-        $status = 'approved'; // If it's in WalletHistory, it's usually processed
+        $status = 'approved';
         $paymentMethod = null;
         $transactionId = null;
 
@@ -313,18 +308,23 @@ class WalletApiController extends Controller
             }
         }
 
-        // Topup fallback
         if ($history->transaction_type === 'wallet_topup' && !$transactionId) {
             $transactionId = $history->reference_id;
             $paymentMethod = 'Kashier';
         }
 
-        $amt = (float) $history->amount;
+        $amountEgp = $history->amount_egp !== null
+            ? (float) $history->amount_egp
+            : (float) $history->amount;
+        $localAmount = $this->pricingService->convertFromEgp($amountEgp, $displayCurrency);
 
         return [
             'id'                  => $history->id,
-            'amount'              => $amt,
-            'local_amount'        => $this->pricingService->convertFromEgp($amt, $displayCurrency),
+            'amount'              => $localAmount,
+            'amount_egp'          => $amountEgp,
+            'local_amount'        => $localAmount,
+            'currency'            => $displayCurrency,
+            'currency_symbol'     => $displaySymbol,
             'type'                => $history->type,
             'transaction_type'    => $history->transaction_type,
             'description'         => $description,
@@ -550,7 +550,7 @@ class WalletApiController extends Controller
             }
 
             // Detect user country & resolve display currency
-            $countryCode     = $this->pricingService->detectUserCountry($request) ?: 'EG';
+            $countryCode     = $this->pricingService->detectUserCountry($request);
             $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
             $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
             $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
@@ -664,7 +664,7 @@ class WalletApiController extends Controller
             }
 
             // Detect user country & resolve display currency
-            $countryCode     = $this->pricingService->detectUserCountry($request) ?: 'EG';
+            $countryCode     = $this->pricingService->detectUserCountry($request);
             $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
             $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
             $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
@@ -677,8 +677,8 @@ class WalletApiController extends Controller
                 ->get()
                 ->map(fn($transaction) => [
                     'id'                  => $transaction->id,
-                    'amount'              => (float) $transaction->amount,
-                    'local_amount'        => $this->pricingService->convertFromEgp((float) $transaction->amount, $displayCurrency),
+                    'amount'              => (float) ($transaction->amount_egp ?? $transaction->amount),
+                    'local_amount'        => (float) $transaction->amount,
                     'type'                => $transaction->type,
                     'transaction_type'    => $transaction->transaction_type,
                     'description'         => $transaction->description,

@@ -9,10 +9,14 @@ use App\Models\Course\Course;
 use App\Models\UserCourseProgress;
 use App\Models\Instructor;
 use App\Models\Order;
+use App\Models\RefundRequest;
+use App\Models\SubscriptionPayment;
 use App\Models\User;
 use App\Services\ApiResponseService;
+use App\Services\Reports\ReportMoneySql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class ReportsApiController extends Controller
@@ -47,7 +51,7 @@ class ReportsApiController extends Controller
             $query = Order::with(['orderCourses.course.category', 'user']);
 
             // Apply filters
-            $this->applyDateFilter($query, $request);
+            $this->applyDateFilter($query, $request, 'orders.created_at');
             $this->applyCourseFilter($query, $request);
             $this->applyInstructorFilter($query, $request);
             $this->applyStatusFilter($query, $request);
@@ -324,13 +328,13 @@ class ReportsApiController extends Controller
 
     // Private helper methods for filtering and data processing
 
-    private function applyDateFilter($query, $request)
+    private function applyDateFilter($query, $request, string $column = 'created_at')
     {
         if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
+            $query->whereDate($column, '>=', $request->date_from);
         }
         if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
+            $query->whereDate($column, '<=', $request->date_to);
         }
     }
 
@@ -377,7 +381,7 @@ class ReportsApiController extends Controller
 
     private function applyCommissionFilters($query, $request)
     {
-        $this->applyDateFilter($query, $request);
+        $this->applyDateFilter($query, $request, 'commissions.created_at');
 
         if ($request->filled('course_id')) {
             $query->where('course_id', $request->course_id);
@@ -389,7 +393,7 @@ class ReportsApiController extends Controller
 
     private function applyCourseReportFilters($query, $request)
     {
-        $this->applyDateFilter($query, $request);
+        $this->applyDateFilter($query, $request, 'courses.created_at');
 
         if ($request->filled('course_id')) {
             $query->where('id', $request->course_id);
@@ -476,7 +480,7 @@ class ReportsApiController extends Controller
         $subscriptionRevenue = 0;
         
         if (!$request->filled('course_id') && !$request->filled('category_id')) {
-            $subQuery = \App\Models\SubscriptionPayment::query();
+            $subQuery = SubscriptionPayment::query();
             
             if ($request->filled('date_from')) {
                 $subQuery->whereDate('subscription_payments.created_at', '>=', $request->date_from);
@@ -489,20 +493,19 @@ class ReportsApiController extends Controller
             }
             if ($request->filled('status')) {
                 if ($request->status === 'completed') {
-                    $subQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED);
+                    $subQuery->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED);
                 } elseif ($request->status === 'pending') {
-                    $subQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_PENDING);
+                    $subQuery->where('subscription_payments.status', SubscriptionPayment::STATUS_PENDING);
                 } elseif ($request->status === 'cancelled' || $request->status === 'failed') {
-                    $subQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_FAILED);
+                    $subQuery->where('subscription_payments.status', SubscriptionPayment::STATUS_FAILED);
                 }
             }
 
             $subscriptionPayments = $subQuery->get();
             
             $completedSubsQuery = clone $subQuery;
-            $subscriptionRevenue = $completedSubsQuery->where('subscription_payments.status', \App\Models\SubscriptionPayment::STATUS_COMPLETED)
-                ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
-                ->select(\Illuminate\Support\Facades\DB::raw('SUM(subscription_payments.final_amount * COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)) as total_revenue'))
+            $subscriptionRevenue = $completedSubsQuery->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
+                ->select(DB::raw('SUM(' . ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments') . ') as total_revenue'))
                 ->value('total_revenue') ?? 0;
         }
 
@@ -513,8 +516,15 @@ class ReportsApiController extends Controller
         $failedSubs        = $subscriptionPayments->where('status', SubscriptionPayment::STATUS_FAILED);
 
         // Revenue from completed transactions only
-        $orderRevenue       = $completedOrders->sum(static fn($o) => $o->amount_egp ?? $o->final_price);
-        $totalRevenue       = $orderRevenue + $subscriptionRevenue;
+        $orderRevenue       = $completedOrders->sum(static fn($o) => $o->amount_egp ?? (($o->final_price ?? 0) * ($o->exchange_rate_snapshot ?? 1)));
+        $grossRevenue       = $orderRevenue + $subscriptionRevenue;
+        $refundsAmount = (float) RefundRequest::query()
+            ->when($request->filled('date_from'), fn($q) => $q->whereDate('created_at', '>=', $request->date_from))
+            ->when($request->filled('date_to'), fn($q) => $q->whereDate('created_at', '<=', $request->date_to))
+            ->where('status', 'approved')
+            ->select(DB::raw('SUM(' . ReportMoneySql::refundAmountEgpSql('refund_requests') . ') as total_refunds'))
+            ->value('total_refunds');
+        $totalRevenue       = max(0, $grossRevenue - $refundsAmount);
         // Average is calculated over completed transactions only to avoid skewing by failed/pending
         $completedCount     = $completedOrders->count() + $completedSubs->count();
         $avgOrderValue      = $completedCount > 0 ? round($totalRevenue / $completedCount, 2) : 0;
@@ -553,7 +563,10 @@ class ReportsApiController extends Controller
 
         return [
             'total_orders'         => $allOrdersCount,
+            'total_transactions'   => $allOrdersCount,
             'total_revenue'        => $totalRevenue,
+            'gross_revenue'        => $grossRevenue,
+            'total_refunds'        => $refundsAmount,
             'average_order_value'  => $avgOrderValue,
             'completed_orders'     => $completedOrders->count() + $completedSubs->count(),
             'pending_orders'       => $orders->where('status', 'pending')->count() + $pendingSubs->count(),
@@ -564,6 +577,8 @@ class ReportsApiController extends Controller
             'recent_subscriptions' => $recentSubscriptions,
             'subscription_revenue' => $subscriptionRevenue,
             'subscription_count'   => $subscriptionPayments->count(),
+            'top_courses'          => $this->getTopCoursesSales($completedOrders),
+            'revenue_by_country'   => $this->getRevenueByCountry($request),
         ];
     }
 
@@ -587,12 +602,50 @@ class ReportsApiController extends Controller
             default => '%Y-%m-%d',
         };
 
-        return $query->selectRaw("
+        $ordersChart = (clone $query)
+            ->where('status', 'completed')
+            ->selectRaw("
                 DATE_FORMAT(created_at, '{$format}') as period,
                 COUNT(*) as orders_count,
-                SUM(COALESCE(amount_egp, final_price)) as revenue,
-                AVG(COALESCE(amount_egp, final_price)) as avg_order_value
-            ")->groupBy('period')->orderBy('period')->get();
+                SUM(" . ReportMoneySql::orderRevenueEgpSql('orders') . ") as revenue,
+                AVG(" . ReportMoneySql::orderRevenueEgpSql('orders') . ") as avg_order_value
+            ")
+            ->groupBy('period')
+            ->orderBy('period')
+            ->get()
+            ->keyBy('period');
+
+        $subsChart = SubscriptionPayment::query()
+            ->where('status', SubscriptionPayment::STATUS_COMPLETED)
+            ->when($request->filled('date_from'), fn($q) => $q->whereDate('created_at', '>=', $request->date_from))
+            ->when($request->filled('date_to'), fn($q) => $q->whereDate('created_at', '<=', $request->date_to))
+            ->selectRaw("
+                DATE_FORMAT(created_at, '{$format}') as period,
+                COUNT(*) as subs_count,
+                SUM(" . ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments') . ") as subs_revenue
+            ")
+            ->groupBy('period')
+            ->orderBy('period')
+            ->get()
+            ->keyBy('period');
+
+        $periods = $ordersChart->keys()->merge($subsChart->keys())->unique()->sort()->values();
+
+        return $periods->map(function ($period) use ($ordersChart, $subsChart) {
+            $orderRow = $ordersChart->get($period);
+            $subRow = $subsChart->get($period);
+            $ordersCount = (int) ($orderRow->orders_count ?? 0);
+            $subsCount = (int) ($subRow->subs_count ?? 0);
+            $totalCount = $ordersCount + $subsCount;
+            $revenue = (float) ($orderRow->revenue ?? 0) + (float) ($subRow->subs_revenue ?? 0);
+
+            return [
+                'period' => $period,
+                'orders_count' => $totalCount,
+                'revenue' => round($revenue, 2),
+                'avg_order_value' => $totalCount > 0 ? round($revenue / $totalCount, 2) : 0,
+            ];
+        })->values();
     }
 
     private function getCommissionSummaryData($query, $request)
@@ -644,6 +697,8 @@ class ReportsApiController extends Controller
             'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')),
             'ratings',
         ])->withAvg('ratings', 'rating')->get();
+        $courseIds = $courses->pluck('id')->filter()->values();
+        $totalEnrollments = $courseIds->isEmpty() ? 0 : UserCourseProgress::whereIn('course_id', $courseIds)->count();
 
         return [
             'total_courses'        => $courses->count(),
@@ -651,7 +706,7 @@ class ReportsApiController extends Controller
             'free_courses'         => $courses->where('is_free', true)->count(),
             'paid_courses'         => $courses->where('is_free', false)->count(),
             'average_rating'       => round($courses->avg('ratings_avg_rating') ?? 0, 2),
-            'total_enrollments'    => $courses->sum('order_courses_count'),
+            'total_enrollments'    => $totalEnrollments,
             'courses_by_category'  => $this->getCoursesByCategory($courses),
             'courses_by_level'     => $courses->groupBy('level')->map->count(),
             'top_rated_courses'    => $courses->sortByDesc('ratings_avg_rating')->take(10)->values(),
@@ -718,6 +773,21 @@ class ReportsApiController extends Controller
     private function getInstructorSummaryData($query, $request)
     {
         $instructors = $query->with(['user.courses'])->get();
+        $instructorIds = $instructors
+            ->map(fn($instructor) => $instructor?->user?->id)
+            ->filter()
+            ->values()
+            ->all();
+        $totalRevenue = 0;
+        if ($instructorIds !== []) {
+            $totalRevenue = (float) DB::table('order_courses')
+                ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+                ->join('courses', 'order_courses.course_id', '=', 'courses.id')
+                ->whereIn('courses.user_id', $instructorIds)
+                ->where('orders.status', 'completed')
+                ->selectRaw('SUM(' . ReportMoneySql::orderRevenueEgpSql('orders') . ') as total_revenue')
+                ->value('total_revenue');
+        }
 
         return [
             'total_instructors' => $instructors->count(),
@@ -725,7 +795,8 @@ class ReportsApiController extends Controller
             'team_instructors' => $instructors->where('type', 'team')->count(),
             'approved_instructors' => $instructors->where('status', 'approved')->count(),
             'pending_instructors' => $instructors->where('status', 'pending')->count(),
-            'total_courses_created' => $instructors->sum(static fn($instructor) => $instructor->user->courses->count()),
+            'total_courses_created' => $instructors->sum(static fn($instructor) => $instructor->user?->courses?->count() ?? 0),
+            'total_revenue_egp' => round($totalRevenue, 2),
             'top_instructors_by_courses' => $this->getTopInstructorsByCourses($instructors),
         ];
     }
@@ -854,7 +925,7 @@ class ReportsApiController extends Controller
         return $instructors
             ->map(static fn($instructor) => [
                 'instructor' => $instructor,
-                'courses_count' => $instructor->user->courses->count(),
+                'courses_count' => $instructor->user?->courses?->count() ?? 0,
             ])
             ->sortByDesc('courses_count')
             ->take(10)
@@ -879,6 +950,7 @@ class ReportsApiController extends Controller
                 'completed_count' => $courseEnrollments->where('status', 'completed')->count(),
             ])
             ->sortByDesc('enrollment_count')
+            ->take(10)
             ->values();
     }
 
@@ -897,5 +969,58 @@ class ReportsApiController extends Controller
         }
 
         return round((($new - $old) / $old) * 100, 2);
+    }
+
+    private function getRevenueByCountry(Request $request)
+    {
+        $ordersByCountry = Order::query()
+            ->where('status', 'completed')
+            ->when($request->filled('date_from'), fn($q) => $q->whereDate('orders.created_at', '>=', $request->date_from))
+            ->when($request->filled('date_to'), fn($q) => $q->whereDate('orders.created_at', '<=', $request->date_to))
+            ->selectRaw("COALESCE(orders.resolved_country, users.country_code, 'NA') as country_code")
+            ->selectRaw('COALESCE(orders.currency_code, "EGP") as currency_code')
+            ->selectRaw('COUNT(*) as transactions_count')
+            ->selectRaw('SUM(' . ReportMoneySql::orderRevenueLocalSql('orders') . ') as revenue_local')
+            ->selectRaw('SUM(' . ReportMoneySql::orderRevenueEgpSql('orders') . ') as revenue_egp')
+            ->leftJoin('users', 'orders.user_id', '=', 'users.id')
+            ->groupBy('country_code', 'currency_code')
+            ->get();
+
+        $subsByCountry = SubscriptionPayment::query()
+            ->where('status', SubscriptionPayment::STATUS_COMPLETED)
+            ->when($request->filled('date_from'), fn($q) => $q->whereDate('subscription_payments.created_at', '>=', $request->date_from))
+            ->when($request->filled('date_to'), fn($q) => $q->whereDate('subscription_payments.created_at', '<=', $request->date_to))
+            ->selectRaw("COALESCE(subscription_payments.resolved_country, 'NA') as country_code")
+            ->selectRaw('COALESCE(subscription_payments.currency_code, "EGP") as currency_code')
+            ->selectRaw('COUNT(*) as transactions_count')
+            ->selectRaw('SUM(' . ReportMoneySql::subscriptionRevenueLocalSql('subscription_payments') . ') as revenue_local')
+            ->selectRaw('SUM(' . ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments') . ') as revenue_egp')
+            ->groupBy('country_code', 'currency_code')
+            ->get();
+
+        $merged = $ordersByCountry
+            ->concat($subsByCountry)
+            ->groupBy(fn($row) => strtoupper((string) $row->country_code) . '|' . strtoupper((string) $row->currency_code))
+            ->map(function ($rows) {
+                $first = $rows->first();
+                $revenueEgp = (float) $rows->sum('revenue_egp');
+
+                return [
+                    'country_code' => strtoupper((string) $first->country_code),
+                    'currency_code' => strtoupper((string) $first->currency_code),
+                    'transactions_count' => (int) $rows->sum('transactions_count'),
+                    'revenue_local' => round((float) $rows->sum('revenue_local'), 2),
+                    'revenue_egp' => round($revenueEgp, 2),
+                ];
+            })
+            ->sortByDesc('revenue_egp')
+            ->values();
+
+        $totalEgp = (float) $merged->sum('revenue_egp');
+
+        return $merged->map(function (array $row) use ($totalEgp) {
+            $row['share_percent'] = $totalEgp > 0 ? round(($row['revenue_egp'] / $totalEgp) * 100, 2) : 0;
+            return $row;
+        })->values();
     }
 }

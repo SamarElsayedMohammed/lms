@@ -102,15 +102,30 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
 
             $contentHash = $chunker->computeHash($normalizedText);
 
-            // Break into semantic chunks
             $chunks = $chunker->chunkText($normalizedText);
             if (empty($chunks)) {
                 throw new \RuntimeException("Could not create any chunks from knowledge text.");
             }
 
+            $preparedChunks = [];
+            foreach ($chunks as $c) {
+                $preparedChunks[] = [
+                    'bot_type' => $this->botType,
+                    'course_id' => $targetCourseId,
+                    'knowledge_base_id' => $this->knowledgeBaseId,
+                    'source_type' => $filePath ? 'file' : 'text',
+                    'title' => $title ?: ($courseModel ? $courseModel->title : 'Global Knowledge'),
+                    'chunk_index' => $c['index'],
+                    'chunk_text' => $c['text'],
+                    'embedding' => $embedder->generateEmbedding($c['text']),
+                    'token_count' => $c['token_count'],
+                    'content_hash' => $c['hash'],
+                    'is_active' => true,
+                ];
+            }
+
             DB::beginTransaction();
 
-            // Clear old chunks for this source/course to prevent stale vectors
             $deleteQuery = ChatbotVectorChunk::where('bot_type', $this->botType);
             if ($this->knowledgeBaseId) {
                 $deleteQuery->where('knowledge_base_id', $this->knowledgeBaseId);
@@ -119,24 +134,9 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
             }
             $deleteQuery->delete();
 
-            // Generate embeddings & store new vector chunks
             $chunkCount = 0;
-            foreach ($chunks as $c) {
-                $vector = $embedder->generateEmbedding($c['text']);
-
-                ChatbotVectorChunk::create([
-                    'bot_type' => $this->botType,
-                    'course_id' => $targetCourseId,
-                    'knowledge_base_id' => $this->knowledgeBaseId,
-                    'source_type' => $filePath ? 'file' : 'text',
-                    'title' => $title ?: ($courseModel ? $courseModel->title : 'Global Knowledge'),
-                    'chunk_index' => $c['index'],
-                    'chunk_text' => $c['text'],
-                    'embedding' => $vector,
-                    'token_count' => $c['token_count'],
-                    'content_hash' => $c['hash'],
-                    'is_active' => true,
-                ]);
+            foreach ($preparedChunks as $row) {
+                ChatbotVectorChunk::create($row);
                 $chunkCount++;
             }
 

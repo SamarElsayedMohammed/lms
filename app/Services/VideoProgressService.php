@@ -76,10 +76,10 @@ class VideoProgressService
         $previouslyWatched = $existing ? $existing->watched_seconds : 0;
         $reportedSeconds = max(0, $watchedSeconds - $previouslyWatched);
 
-        if ($reportedSeconds > 0) {
+        // View-only watching: anti-cheat is off unless explicitly enabled.
+        if ($this->isProgressEnforcementEnabled() && $reportedSeconds > 0) {
             if ($lastUpdate) {
                 $timePassed = $now - $lastUpdate;
-                // Allow up to 4x playback speed + 15s buffer for legacy tracking
                 if (($timePassed * 4) + 15 < $reportedSeconds) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported in legacy method', [
                         'user_id'       => $user->id,
@@ -87,12 +87,9 @@ class VideoProgressService
                         'reported_diff' => $reportedSeconds,
                         'time_passed'   => $timePassed,
                     ]);
-                    return $existing ?: new VideoProgress(); // Reject update and return current state
+                    return $this->persistBaselineProgress($user, $lecture, $existing);
                 }
             } else {
-                // Initial request or cache expired (user resumed after a break).
-                // Allow up to MAX_SEGMENTS_PER_REQUEST full segments + a small buffer.
-                // This is stricter than a live session but realistic for a resume scenario.
                 $initialAllowance = (self::MAX_SEGMENTS_PER_REQUEST * self::DEFAULT_SEGMENT_SIZE) + 15;
                 if ($reportedSeconds > $initialAllowance) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic initial watch time reported in legacy method', [
@@ -101,7 +98,7 @@ class VideoProgressService
                         'reported_diff'    => $reportedSeconds,
                         'initial_allowance'=> $initialAllowance,
                     ]);
-                    return $existing ?: new VideoProgress(); // Reject update and return current state
+                    return $this->persistBaselineProgress($user, $lecture, $existing);
                 }
             }
         }
@@ -206,7 +203,7 @@ class VideoProgressService
      */
     public function canAccessNextLesson(User $user, CourseChapterLecture $lecture): bool
     {
-        if (!$this->featureFlagService->isEnabled('video_progress_enforcement', true)) {
+        if (!$this->isProgressEnforcementEnabled()) {
             return true;
         }
 
@@ -364,7 +361,6 @@ class VideoProgressService
             return $progress;
         }
 
-        // Anti-Cheat: Validate realistic watch time
         $cacheKey = "progress_tracking_user_{$user->id}_lecture_{$lecture->id}";
         $lastUpdate = Cache::get($cacheKey);
         $now = now()->timestamp;
@@ -373,10 +369,9 @@ class VideoProgressService
             $newSegments,
         ));
 
-        if ($reportedSeconds > 0) {
+        if ($this->isProgressEnforcementEnabled() && $reportedSeconds > 0) {
             if ($lastUpdate) {
                 $timePassed = $now - $lastUpdate;
-                // Allow up to 4x playback speed + 15s buffer for segment tracking
                 if (($timePassed * 4) + 15 < $reportedSeconds) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic watch time reported', [
                         'user_id'          => $user->id,
@@ -384,11 +379,9 @@ class VideoProgressService
                         'reported_seconds' => $reportedSeconds,
                         'time_passed'      => $timePassed,
                     ]);
-                    return $progress; // Reject update and return current state
+                    return $progress;
                 }
             } else {
-                // Initial request or cache expired (user resumed after a break).
-                // Allow up to MAX_SEGMENTS_PER_REQUEST full segments + a small buffer.
                 $initialAllowance = (self::MAX_SEGMENTS_PER_REQUEST * self::DEFAULT_SEGMENT_SIZE) + 15;
                 if ($reportedSeconds > $initialAllowance) {
                     Log::warning('VideoProgressService Anti-Cheat: Unrealistic initial watch time reported', [
@@ -397,7 +390,7 @@ class VideoProgressService
                         'reported_seconds'  => $reportedSeconds,
                         'initial_allowance' => $initialAllowance,
                     ]);
-                    return $progress; // Reject update and return current state
+                    return $progress;
                 }
             }
         }
@@ -624,6 +617,35 @@ class VideoProgressService
     private function segmentEndPosition(int $segmentIndex, int $segmentSize, int $totalDuration): int
     {
         return min($totalDuration, max(0, ($segmentIndex + 1) * $segmentSize));
+    }
+
+    private function isProgressEnforcementEnabled(): bool
+    {
+        return $this->featureFlagService->isEnabled('video_progress_enforcement', false);
+    }
+
+    private function persistBaselineProgress(
+        User $user,
+        CourseChapterLecture $lecture,
+        ?VideoProgress $existing
+    ): VideoProgress {
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        return VideoProgress::firstOrCreate(
+            [
+                'user_id' => $user->id,
+                'lecture_id' => $lecture->id,
+            ],
+            [
+                'watched_seconds' => 0,
+                'total_seconds' => 0,
+                'last_position' => 0,
+                'watch_percentage' => 0,
+                'is_completed' => false,
+            ]
+        );
     }
 
     /**

@@ -16,7 +16,7 @@ class GoogleMeetService
         $this->client->setApplicationName('LMS Webinar System');
         $this->client->setScopes([\Google\Service\Calendar::CALENDAR_EVENTS]);
         
-        $base64Credentials = env('GOOGLE_MEET_CREDENTIALS_BASE64');
+        $base64Credentials = (string) config('services.google_meet.credentials_base64');
         $credentialsPath = storage_path('app/google-credentials.json');
 
         if (!empty($base64Credentials)) {
@@ -46,7 +46,7 @@ class GoogleMeetService
      */
     public function createMeeting(string $title, string $startAt, int $durationMinutes, string $timezone = 'UTC'): array
     {
-        $base64Credentials = env('GOOGLE_MEET_CREDENTIALS_BASE64');
+        $base64Credentials = (string) config('services.google_meet.credentials_base64');
         if (empty($base64Credentials) && !file_exists(storage_path('app/google-credentials.json'))) {
             return [
                 'success' => false,
@@ -82,12 +82,7 @@ class GoogleMeetService
                 ]
             ]);
 
-            $calendarId = 'primary'; // Usually the service account's primary calendar
-            
-            // Optional: If you want to use a specific calendar ID from .env
-            if (env('GOOGLE_CALENDAR_ID')) {
-                $calendarId = env('GOOGLE_CALENDAR_ID');
-            }
+            $calendarId = (string) (config('services.google_meet.calendar_id') ?: 'primary');
 
             $event = $service->events->insert($calendarId, $event, ['conferenceDataVersion' => 1]);
 

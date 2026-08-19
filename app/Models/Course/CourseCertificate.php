@@ -2,7 +2,6 @@
 
 namespace App\Models\Course;
 
-use App\Models\OrderCourse;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -71,28 +70,13 @@ class CourseCertificate extends Model
      */
     public static function userIsEnrolled(int $userId, int $courseId, ?User $user = null): bool
     {
-        // 1. Direct course purchase via OrderCourse
-        $hasOrder = OrderCourse::whereHas('order', fn ($q) => $q
-            ->where('user_id', $userId)
-            ->where('status', 'completed')
-        )
-            ->where('course_id', $courseId)
-            ->exists();
-
-        if ($hasOrder) {
-            return true;
-        }
-
-        // 2. Active Subscription or Authorized Content Access
         $userObj = $user ?? User::find($userId);
-        if ($userObj) {
-            $course = Course::find($courseId);
-            if ($course && app(\App\Services\ContentAccessService::class)->canAccessCourse($userObj, $course)) {
-                return true;
-            }
+        $course = Course::find($courseId);
+        if ($userObj === null || $course === null) {
+            return false;
         }
 
-        return false;
+        return app(\App\Services\ContentAccessService::class)->canAccessCourse($userObj, $course);
     }
 
     /**

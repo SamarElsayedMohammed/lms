@@ -2,19 +2,18 @@
 
 namespace App\Notifications;
 
+use App\Traits\PushesToFirebase;
 use Illuminate\Bus\Queueable;
-use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Notifications\Messages\DatabaseMessage;
-use Illuminate\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use App\Helpers\FirebaseHelper;
-use App\Models\UserFcmToken;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Notifications\Messages\DatabaseMessage;
+use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
 use App\Services\NotificationSettingsService;
 
 class ManualCustomNotification extends Notification implements ShouldQueue
 {
     use Queueable;
+    use PushesToFirebase;
 
     protected array $data;
 
@@ -55,29 +54,33 @@ class ManualCustomNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $message = (new MailMessage)
-            ->subject($this->data['title'])
+        $title = $this->data['title_ar'] ?? $this->data['title'] ?? 'إشعار';
+        $body = $this->data['message_ar'] ?? $this->data['message'] ?? '';
+
+        return (new MailMessage)
+            ->subject($title)
             ->view('emails.general-notification', [
-                'notificationTitle'   => $this->data['title'],
-                'greeting'            => "مرحباً {$notifiable->name}،",
-                'notificationContent' => $this->data['message'],
+                'notificationTitle'   => $title,
+                'greeting'            => 'مرحباً ' . ($notifiable->name ?? '') . '،',
+                'notificationContent' => $body,
                 'actionUrl'           => isset($this->data['action_url']) && $this->data['action_url'] !== '#'
                                             ? url($this->data['action_url'])
                                             : null,
                 'actionText'          => 'عرض التفاصيل',
                 'imageUrl'            => $this->data['image'] ?? null,
             ]);
-
-        return $message;
     }
 
     public function toArray(object $notifiable): array
     {
+        $titleAr = $this->data['title_ar'] ?? $this->data['title'] ?? 'إشعار';
+        $messageAr = $this->data['message_ar'] ?? $this->data['message'] ?? '';
+
         return [
-            'title'      => $this->data['title'],
-            'title_ar'   => $this->data['title_ar'] ?? $this->data['title'],
-            'message'    => $this->data['message'],
-            'message_ar' => $this->data['message_ar'] ?? $this->data['message'],
+            'title'      => $titleAr,
+            'title_ar'   => $titleAr,
+            'message'    => $messageAr,
+            'message_ar' => $messageAr,
             'action_url' => $this->data['action_url'] ?? '#',
             'image'      => $this->data['image'] ?? null,
             'icon'       => $this->data['icon'] ?? null,
@@ -88,55 +91,15 @@ class ManualCustomNotification extends Notification implements ShouldQueue
 
     public function toDatabase(object $notifiable): DatabaseMessage
     {
-        $this->sendFcmNotification($notifiable);
-        return new DatabaseMessage($this->toArray($notifiable));
-    }
+        $data = $this->toArray($notifiable);
 
-    private function sendFcmNotification($notifiable): void
-    {
-        try {
-            $fcmData = [
-                'title'      => $this->data['title'],
-                'body'       => $this->data['message'],
-                'type'       => $this->data['type'] ?? 'admin_manual',
-                'link'       => $this->data['action_url'] ?? '#',
-                'image'      => $this->data['image'] ?? null,
-                'icon'       => $this->data['icon'] ?? null,
-                'icon_color' => $this->data['icon_color'] ?? null,
-            ];
+        $this->sendFcmNotification($notifiable, [
+            'title' => $data['title_ar'],
+            'body'  => $data['message_ar'],
+            'type'  => $data['type'],
+            'link'  => $data['action_url'],
+        ]);
 
-            $tokens = UserFcmToken::where('user_id', $notifiable->id)
-                ->select('fcm_token', 'platform_type')
-                ->get();
-
-            if ($tokens->isEmpty()) {
-                return;
-            }
-
-            foreach ($tokens as $token) {
-                try {
-                    $platform = match (strtolower((string) $token->platform_type)) {
-                        'ios'     => 'ios',
-                        'android' => 'android',
-                        default   => 'web',
-                    };
-
-                    FirebaseHelper::send($platform, $token->fcm_token, $fcmData, [
-                        'title' => $this->data['title'],
-                        'body'  => $this->data['message'],
-                    ]);
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to send FCM bulk notification', [
-                        'user_id' => $notifiable->id,
-                        'error'   => $e->getMessage(),
-                    ]);
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::error('ManualCustomNotification FCM error', [
-                'user_id' => $notifiable->id ?? null,
-                'error'   => $e->getMessage(),
-            ]);
-        }
+        return new DatabaseMessage($data);
     }
 }

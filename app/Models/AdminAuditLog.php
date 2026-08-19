@@ -54,4 +54,14 @@ final class AdminAuditLog extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    protected static function booted(): void
+    {
+        static::updating(static function (): bool {
+            return false;
+        });
+        static::deleting(static function (): bool {
+            return false;
+        });
+    }
 }

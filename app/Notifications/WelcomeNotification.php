@@ -24,7 +24,7 @@ class WelcomeNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-            ->subject('مرحباً بك في منصة Skillso! | Welcome to Skillso!')
+            ->subject('مرحباً بك في منصة Skillso')
             ->view('emails.welcome', [
                 'userName' => $this->user->name,
                 'actionUrl' => url('/courses'),
@@ -34,9 +34,9 @@ class WelcomeNotification extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
-            'title' => 'Welcome to Skillso!',
+            'title' => 'أهلاً بك في سكيلسو!',
             'title_ar' => 'أهلاً بك في سكيلسو!',
-            'message' => 'Welcome to our platform! Start your learning journey today.',
+            'message' => 'أهلاً بك في منصتنا! ابدأ رحلتك التعليمية اليوم.',
             'message_ar' => 'أهلاً بك في منصتنا! ابدأ رحلتك التعليمية اليوم.',
             'action_url' => '/courses',
             'type' => 'welcome'

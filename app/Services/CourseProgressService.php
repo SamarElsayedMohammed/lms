@@ -26,14 +26,18 @@ class CourseProgressService
                 ['total_items' => $this->getTotalItemsForCourse($courseId)]
             );
         } catch (\Throwable $e) {
-            return new UserCourseProgress([
+            Log::error('CourseProgressService::getProgress failed: ' . $e->getMessage(), [
                 'user_id' => $userId,
                 'course_id' => $courseId,
-                'total_items' => $this->getTotalItemsForCourse($courseId),
-                'progress_percentage' => 0,
-                'completed_items' => 0,
-                'status' => 'not_started'
             ]);
+            $existing = UserCourseProgress::query()
+                ->where('user_id', $userId)
+                ->where('course_id', $courseId)
+                ->first();
+            if ($existing !== null) {
+                return $existing;
+            }
+            throw $e;
         }
     }
 

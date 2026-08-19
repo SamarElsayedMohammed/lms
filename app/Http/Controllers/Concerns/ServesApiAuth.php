@@ -22,6 +22,7 @@ use App\Models\User;
 use App\Models\UserDevice;
 use App\Models\UserFcmToken;
 use App\Services\ApiResponseService;
+use App\Services\AuditLogService;
 use App\Services\ApiService;
 use App\Services\FileService;
 use App\Services\HelperService;
@@ -87,6 +88,7 @@ trait ServesApiAuth
     public function userExists(Request $request)
     {
         try {
+            $this->normalizePhoneRequest($request);
             ApiService::validateRequest($request, [
                 'country_calling_code' => 'required_without:email|string',
                 'mobile' => 'required_without:email|numeric',
@@ -151,6 +153,7 @@ trait ServesApiAuth
     public function userSignup(Request $request)
     {
         try {
+            $this->aliasSocialAuthType($request);
             // Normalize email and confirmation aliases before validation
             if ($request->has('email') && !empty($request->email)) {
                 $request->merge(['email' => strtolower(trim((string) $request->email))]);
@@ -211,11 +214,11 @@ trait ServesApiAuth
                 if ($existingEmailUser) {
                     if ($existingEmailUser->trashed() || (isset($existingEmailUser->is_active) && !$existingEmailUser->is_active)) {
                         ApiResponseService::validationError(
-                            'This account has been deactivated. Please contact support.',
+                            'تم تعطيل هذا الحساب. يرجى التواصل مع الدعم.',
                         );
                     } else {
                         ApiResponseService::validationError(
-                            'An account with this email already exists. Please log in instead.',
+                            'يوجد حساب بهذا البريد الإلكتروني. يرجى تسجيل الدخول.',
                         );
                     }
                 }
@@ -230,7 +233,7 @@ trait ServesApiAuth
                     ?? $request->input('token');
 
                 if (empty($accessToken)) {
-                    ApiResponseService::validationError('access_token is required for web Google login.');
+                    ApiResponseService::validationError('رمز دخول Google مطلوب لتسجيل الدخول عبر الويب.');
                 }
 
                 try {
@@ -248,7 +251,7 @@ trait ServesApiAuth
                 } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                     throw $e;
                 } catch (\Throwable $e) {
-                    ApiResponseService::validationError('Invalid Google access token: ' . $e->getMessage());
+                    ApiResponseService::validationError('رمز دخول Google غير صالح. أعد المحاولة.');
                 }
             } elseif ($isEmailType) {
                 // already handled above — this branch is unreachable
@@ -271,7 +274,7 @@ trait ServesApiAuth
             }
 
             if (!$isEmailType && !empty($socialLogin?->user?->deleted_at)) {
-                ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
+                ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
             }
 
             $wasRecentlyCreated = false;
@@ -386,7 +389,7 @@ trait ServesApiAuth
                     }
                     if ($e->getCode() == 23000 || str_contains($e->getMessage(), '1062') || str_contains($e->getMessage(), 'users_email_unique')) {
                         ApiResponseService::validationError(
-                            'An account with this email already exists. Please log in instead.',
+                            'يوجد حساب بهذا البريد الإلكتروني. يرجى تسجيل الدخول.',
                         );
                     }
                     throw $e;
@@ -401,7 +404,7 @@ trait ServesApiAuth
             }
 
             if (!$auth->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
-                ApiResponseService::validationError('Invalid Login Credentials');
+                ApiResponseService::validationError('بيانات الدخول غير صحيحة.');
             }
 
             if (!empty($request->fcm_id)) {
@@ -421,7 +424,7 @@ trait ServesApiAuth
 
             $pair          = $this->createTokenPair($auth, $request->device_id ?? $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
-            ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
+            ApiResponseService::successResponse('تم تسجيل الدخول بنجاح', $formattedUser);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
@@ -492,6 +495,7 @@ trait ServesApiAuth
     public function userLogin(Request $request)
     {
         try {
+            $this->aliasSocialAuthType($request);
             if ($request->has('email') && !empty($request->email)) {
                 $request->merge(['email' => strtolower(trim((string) $request->email))]);
             }
@@ -525,15 +529,15 @@ trait ServesApiAuth
                     ->first();
 
                 if (!$user) {
-                    ApiResponseService::validationError('User not found. Please sign up first.');
+                    ApiResponseService::validationError('المستخدم غير موجود. يرجى إنشاء حساب أولاً.');
                 }
 
                 if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
-                    ApiResponseService::validationError('User is deactivated. Please contact the administrator.');
+                    ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
                 }
 
                 if (!Hash::check($request->password, $user->password ?? '')) {
-                    ApiResponseService::validationError('Invalid email or password.');
+                    ApiResponseService::validationError('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
                 }
 
                 $auth = $user;
@@ -548,7 +552,7 @@ trait ServesApiAuth
                         ?? $request->input('token');
 
                     if (empty($accessToken)) {
-                        ApiResponseService::validationError('access_token is required for web Google login.');
+                        ApiResponseService::validationError('رمز دخول Google مطلوب لتسجيل الدخول عبر الويب.');
                     }
 
                     try {
@@ -557,7 +561,7 @@ trait ServesApiAuth
                     } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                         throw $e;
                     } catch (\Throwable $e) {
-                        ApiResponseService::validationError('Invalid Google access token: ' . $e->getMessage());
+                        ApiResponseService::validationError('رمز دخول Google غير صالح. أعد المحاولة.');
                     }
                 } else {
                     $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
@@ -575,11 +579,11 @@ trait ServesApiAuth
                     ->first();
 
                 if (empty($socialLogin)) {
-                    ApiResponseService::validationError('User not found. Please sign up first.');
+                    ApiResponseService::validationError('المستخدم غير موجود. يرجى إنشاء حساب أولاً.');
                 }
 
                 if (!empty($socialLogin->user->deleted_at)) {
-                    ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
+                    ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
                 }
 
                 $auth = $socialLogin->user;
@@ -587,7 +591,7 @@ trait ServesApiAuth
 
             // ── Shared post-auth logic ───────────────────────────────────────
             if (!$auth->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
-                ApiResponseService::validationError('Invalid Login Credentials');
+                ApiResponseService::validationError('بيانات الدخول غير صحيحة.');
             }
 
             if (!empty($request->fcm_id)) {
@@ -606,7 +610,7 @@ trait ServesApiAuth
 
             $pair          = $this->createTokenPair($auth, $request->device_id ?? $auth->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($auth, $pair['access'], $pair['refresh']);
-            ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
+            ApiResponseService::successResponse('تم تسجيل الدخول بنجاح', $formattedUser);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
@@ -618,9 +622,7 @@ trait ServesApiAuth
     public function mobileLogin(Request $request)
     {
         try {
-            if ($request->has('mobile')) {
-                $request->merge(['mobile' => preg_replace('/\D+/', '', (string) $request->mobile)]);
-            }
+            $this->normalizePhoneRequest($request);
 
             ApiService::validateRequest($request, [
                 'mobile' => 'required|numeric',
@@ -659,15 +661,15 @@ trait ServesApiAuth
             )->first();
 
             if (!$user) {
-                ApiResponseService::validationError('User Not Found');
+                ApiResponseService::validationError('المستخدم غير موجود.');
             }
 
             if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
-                ApiResponseService::validationError('User is deactivated. Please contact the administrator');
+                ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
             }
 
             if (!Hash::check($request->password, $user->password ?? '')) {
-                ApiResponseService::validationError('Invalid password');
+                ApiResponseService::validationError('كلمة المرور غير صحيحة.');
             }
 
             // Update FCM token if provided
@@ -689,7 +691,7 @@ trait ServesApiAuth
             // Generate new token pair
             $pair          = $this->createTokenPair($user, $request->device_id ?? $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
-            ApiResponseService::successResponse('Login successful', $formattedUser);
+            ApiResponseService::successResponse('تم تسجيل الدخول بنجاح', $formattedUser);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
@@ -733,7 +735,7 @@ trait ServesApiAuth
 
             if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
                 $currentToken->delete();
-                return ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
+                return ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
             }
 
             // ── 2. Revoke old refresh token + issue new pair atomically ──
@@ -774,9 +776,7 @@ trait ServesApiAuth
     public function mobileRegistration(Request $request)
     {
         try {
-            if ($request->has('mobile')) {
-                $request->merge(['mobile' => preg_replace('/\D+/', '', (string) $request->mobile)]);
-            }
+            $this->normalizePhoneRequest($request);
             if ($request->filled('password_confirmation') && !$request->filled('confirm_password')) {
                 $request->merge(['confirm_password' => $request->input('password_confirmation')]);
             }
@@ -818,7 +818,7 @@ trait ServesApiAuth
             $verifiedPhone = $claims->get('phone_number');
 
             if (empty($firebaseId) || empty($verifiedPhone)) {
-                ApiResponseService::validationError('Firebase phone verification is required');
+                ApiResponseService::validationError('يجب تأكيد رقم الهاتف عبر رمز التحقق أولاً.');
             }
 
             if (!$this->phoneNumbersMatch(
@@ -827,7 +827,7 @@ trait ServesApiAuth
                 (string) $request->mobile,
             )) {
                 ApiResponseService::validationError(
-                    'The verified Firebase phone number does not match the submitted phone number',
+                    'رقم الهاتف المؤكد لا يطابق الرقم المُرسل.',
                 );
             }
 
@@ -856,9 +856,9 @@ trait ServesApiAuth
 
             if ($existingUser) {
                 if ($existingUser->trashed() || (isset($existingUser->is_active) && !$existingUser->is_active)) {
-                    ApiResponseService::validationError('This account has been deactivated. Please contact support.');
+                    ApiResponseService::validationError('تم تعطيل هذا الحساب. يرجى التواصل مع الدعم.');
                 } else {
-                    ApiResponseService::validationError('An account with this phone number already exists. Please log in instead.');
+                    ApiResponseService::validationError('يوجد حساب بهذا الرقم. يرجى تسجيل الدخول.');
                 }
             }
 
@@ -873,7 +873,7 @@ trait ServesApiAuth
                 'password' => Hash::make($request->password),
                 'country_calling_code' => $request->input('country_calling_code'),
                 'type' => 'mobile',
-                'email' => $request->input('email'),
+                'email' => $request->filled('email') ? strtolower(trim((string) $request->input('email'))) : null,
             ];
             $hasReferredBy = \Illuminate\Support\Facades\Cache::remember('schema_users_has_referred_by', 3600, function () {
                 return \Illuminate\Support\Facades\Schema::hasColumn('users', 'referred_by');
@@ -911,7 +911,7 @@ trait ServesApiAuth
 
             if ($firebaseAccount && $firebaseAccount->user_id !== $user->id) {
                 DB::rollBack();
-                ApiResponseService::validationError('This Firebase phone account is already linked to another user');
+                ApiResponseService::validationError('حساب الهاتف هذا مرتبط بمستخدم آخر.');
             }
 
             SocialLogin::updateOrCreate(
@@ -944,7 +944,7 @@ trait ServesApiAuth
             // Generate new token pair
             $pair          = $this->createTokenPair($user, $request->device_id ?? $user->name ?? '', $request);
             $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
-            ApiResponseService::successResponse('Registration successful', $formattedUser);
+            ApiResponseService::successResponse('تم إنشاء الحساب بنجاح', $formattedUser);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
@@ -956,6 +956,7 @@ trait ServesApiAuth
     public function mobileResetPassword(Request $request)
     {
         try {
+            $this->normalizePhoneRequest($request);
             ApiService::validateRequest($request, [
                 'firebase_token' => 'required|string',
                 'mobile' => 'required|numeric',
@@ -970,7 +971,7 @@ trait ServesApiAuth
             $verifiedPhone = $claims->get('phone_number');
 
             if (empty($firebaseId) || empty($verifiedPhone)) {
-                ApiResponseService::validationError('Firebase phone verification is required');
+                ApiResponseService::validationError('يجب تأكيد رقم الهاتف عبر رمز التحقق أولاً.');
             }
 
             $socialLogin = SocialLogin::where('firebase_id', $firebaseId)
@@ -979,19 +980,19 @@ trait ServesApiAuth
                 ->first();
 
             if (!$socialLogin || !$socialLogin->user) {
-                ApiResponseService::validationError('No user found associated with this verified phone number');
+                ApiResponseService::validationError('لا يوجد حساب مرتبط بهذا الرقم المؤكد.');
             }
 
             $user = $socialLogin->user;
 
             if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {
-                ApiResponseService::validationError('User is deactivated. Please contact the administrator');
+                ApiResponseService::validationError('تم تعطيل الحساب. يرجى التواصل مع الدعم.');
             }
 
             $user->password = Hash::make($request->password);
             $user->save();
 
-            ApiResponseService::successResponse('Password reset successfully');
+            ApiResponseService::successResponse('تم إعادة تعيين كلمة المرور بنجاح');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
@@ -1092,11 +1093,67 @@ trait ServesApiAuth
             $userData['token_type']    = 'Bearer';
             $userData['expires_in']    = config('sanctum.access_token_lifetime', 60) * 60; // seconds
 
-            ApiResponseService::successResponse(__('Login successful'), $userData);
+            try {
+                AuditLogService::log(
+                    action: 'admin_login',
+                    target: $user,
+                    summary: 'تسجيل دخول لوحة التحكم',
+                    details: [
+                        'device_type' => $request->input('device_type'),
+                        'device_id' => $request->input('device_id'),
+                    ],
+                    actor: $user,
+                );
+            } catch (\Throwable) {
+            }
+
+            ApiResponseService::successResponse(__('تم تسجيل الدخول بنجاح'), $userData);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
             ApiResponseService::errorResponse(exception: $th);
         }
+    }
+
+    /**
+     * Map type=social + provider=google|apple to the canonical type the validators expect.
+     */
+    protected function aliasSocialAuthType(Request $request): void
+    {
+        $type = strtolower(trim((string) $request->input('type', '')));
+        if ($type !== 'social') {
+            return;
+        }
+        $provider = strtolower(trim((string) $request->input('provider', 'google')));
+        if (in_array($provider, ['google', 'apple'], true)) {
+            $request->merge(['type' => $provider]);
+        }
+    }
+
+    /**
+     * Store EG-style local numbers without country code or leading zero.
+     * country_calling_code is always +digits (e.g. +20).
+     */
+    protected function normalizePhoneRequest(Request $request): void
+    {
+        if (!$request->has('mobile') && !$request->has('phone')) {
+            return;
+        }
+
+        $rawMobile = (string) ($request->input('mobile') ?? $request->input('phone') ?? '');
+        $rawCode = (string) $request->input('country_calling_code', '');
+        $codeDigits = preg_replace('/\D+/', '', $rawCode) ?? '';
+        $mobileDigits = preg_replace('/\D+/', '', $rawMobile) ?? '';
+
+        if ($codeDigits !== '' && str_starts_with($mobileDigits, $codeDigits)) {
+            $mobileDigits = substr($mobileDigits, strlen($codeDigits));
+        }
+        $mobileDigits = ltrim($mobileDigits, '0');
+
+        $merge = ['mobile' => $mobileDigits];
+        if ($codeDigits !== '') {
+            $merge['country_calling_code'] = '+' . $codeDigits;
+        }
+        $request->merge($merge);
     }
 }

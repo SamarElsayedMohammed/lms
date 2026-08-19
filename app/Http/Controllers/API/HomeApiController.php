@@ -212,7 +212,7 @@ class HomeApiController extends Controller
                     ->where('is_active', 1)
                     ;
             })
-                        ->withAvg('ratings', 'rating')
+                        ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
                         ->having('ratings_avg_rating', '>=', 4);
 
                     if ($request->filled('course_type')) {
@@ -237,8 +237,8 @@ class HomeApiController extends Controller
                     ;
             })
                         ->withCount('views')
-                        ->withAvg('ratings', 'rating')
-                        ->withCount('ratings');
+                        ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+                        ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }]);
 
                     if ($request->filled('course_type')) {
                         $query->whereIn('course_type', explode(',', $request->course_type));
@@ -281,8 +281,8 @@ class HomeApiController extends Controller
                 case 'top_rated_instructors':
                     $instructors = Instructor::with(['user', 'personal_details', 'ratings.user'])
                         ->where('status', 'approved')
-                        ->withAvg('ratings', 'rating')
-                        ->withCount('ratings')
+                        ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+                        ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }])
                         ->whereHas('user', static function ($query): void {
                             $query->where('is_active', 1);
                         })
@@ -576,8 +576,8 @@ class HomeApiController extends Controller
                                     $userQuery->where('is_active', 1);
                                 })
                                 ->whereIn('id', $recommendedCourseIds)
-                                ->withAvg('ratings', 'rating')
-                                ->withCount('ratings');
+                                ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+                                ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }]);
 
                             if ($request->filled('course_type')) {
                                 $query->whereIn('course_type', explode(',', $request->course_type));
@@ -597,8 +597,8 @@ class HomeApiController extends Controller
                                 ->whereHas('user', static function ($userQuery): void {
                                     $userQuery->where('is_active', 1);
                                 })
-                                ->withAvg('ratings', 'rating')
-                                ->withCount('ratings')
+                                ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+                                ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }])
                                 ->orderByDesc('ratings_avg_rating');
 
                             if ($request->filled('course_type')) {
@@ -620,8 +620,8 @@ class HomeApiController extends Controller
                             ->whereHas('user', static function ($userQuery): void {
                                 $userQuery->where('is_active', 1);
                             })
-                            ->withAvg('ratings', 'rating')
-                            ->withCount('ratings')
+                            ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+                            ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }])
                             ->orderByDesc('ratings_avg_rating');
 
                         if ($request->filled('course_type')) {
@@ -684,8 +684,8 @@ class HomeApiController extends Controller
                                             });
                                     }
                                 })
-                                ->withAvg('ratings', 'rating')
-                                ->withCount('ratings');
+                                ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+                                ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }]);
 
                             if (!empty($excludeCourseIds)) {
                                 $query->whereNotIn('id', $excludeCourseIds);
@@ -726,8 +726,8 @@ class HomeApiController extends Controller
                                         ->with(['lectures', 'quizzes', 'assignments', 'resources']);
                                 },
                             ])
-                            ->withAvg('ratings', 'rating')
-                            ->withCount('ratings')
+                            ->withAvg(['ratings' => static function ($q): void { $q->where('status', 'approved'); }], 'rating')
+                            ->withCount(['ratings' => static function ($q): void { $q->where('status', 'approved'); }])
                             ->where('is_active', 1)
                             ->where('status', 'publish');
                         });

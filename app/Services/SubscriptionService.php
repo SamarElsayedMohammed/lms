@@ -29,12 +29,15 @@ final class SubscriptionService
         ?float $gatewayAmount = null,
         array $discountMeta = []
     ): Subscription {
-        return DB::transaction(function () use ($user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta) {
+        $subscription = DB::transaction(function () use ($user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta) {
+            User::where('id', $user->id)->lockForUpdate()->first();
+
             // Get the last subscription (Active or Pending) to properly stack at the very end
             $lastSubscription = Subscription::forUser($user->id)
                 ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PENDING])
                 ->whereNotNull('ends_at')
                 ->orderByDesc('ends_at')
+                ->lockForUpdate()
                 ->first();
 
             $existingSubscription = $this->getActiveSubscription($user);
@@ -114,11 +117,20 @@ final class SubscriptionService
             // Create payment record
             $this->createPaymentRecord($subscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta);
 
-            // Deduct from wallet if applicable
+            // Deduct from wallet if applicable (ledger is always EGP)
             if ($walletAmount > 0) {
+                $debitEgp = isset($discountMeta['wallet_amount_egp'])
+                    ? (float) $discountMeta['wallet_amount_egp']
+                    : $walletAmount;
+                if (!empty($discountMeta['currency_code']) && !isset($discountMeta['wallet_amount_egp'])) {
+                    $debitEgp = app(CurrencyConversionService::class)->convertToEgp(
+                        $walletAmount,
+                        (string) $discountMeta['currency_code'],
+                    );
+                }
                 WalletService::debitWallet(
                     $user->id,
-                    $walletAmount,
+                    $debitEgp,
                     'subscription',
                     "Subscription payment for plan: {$plan->name}",
                     $subscription->id,
@@ -133,7 +145,6 @@ final class SubscriptionService
                 'subscription_id' => $subscription->id,
             ]);
 
-            // Process affiliate referral (wrapped in try-catch to prevent breaking subscription)
             try {
                 $this->affiliateService->processReferral($user, $subscription);
             } catch (\Throwable $e) {
@@ -144,20 +155,22 @@ final class SubscriptionService
                 ]);
             }
 
-            // Tracking must never roll back a paid subscription.
-            try {
-                $this->trackSubscriptionPurchase($user, $subscription, $plan);
-            } catch (\Throwable $e) {
-                Log::warning('SubscriptionService: purchase tracking failed after subscription creation', [
-                    'message' => $e->getMessage(),
-                    'user_id' => $user->id,
-                    'subscription_id' => $subscription->id,
-                    'plan_id' => $plan->id,
-                ]);
-            }
-
             return $subscription;
         });
+
+        // Outbound HTTP must not hold the DB transaction open (SB-DB-01).
+        try {
+            $this->trackSubscriptionPurchase($user, $subscription, $plan);
+        } catch (\Throwable $e) {
+            Log::warning('SubscriptionService: purchase tracking failed after subscription creation', [
+                'message' => $e->getMessage(),
+                'user_id' => $user->id,
+                'subscription_id' => $subscription->id,
+                'plan_id' => $plan->id,
+            ]);
+        }
+
+        return $subscription;
     }
 
     /**
@@ -260,7 +273,10 @@ final class SubscriptionService
         Subscription $subscription,
         ?string $paymentMethod = null,
         ?float $walletAmount = null,
-        ?float $gatewayAmount = null
+        ?float $gatewayAmount = null,
+        ?float $localAmount = null,
+        string $currencyCode = 'EGP',
+        ?float $walletAmountEgp = null,
     ): Subscription {
         $plan = $subscription->plan;
 
@@ -268,10 +284,11 @@ final class SubscriptionService
             throw new \InvalidArgumentException('الاشتراك لا ينتمي لهذا المستخدم.');
         }
 
-        return DB::transaction(function () use ($user, $subscription, $plan, $paymentMethod, $walletAmount, $gatewayAmount) {
-            $totalAmount = (float) $plan->price;
+        return DB::transaction(function () use ($user, $subscription, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $localAmount, $currencyCode, $walletAmountEgp) {
+            $totalAmount = $localAmount !== null ? (float) $localAmount : (float) $plan->price;
             $walletAmount = $walletAmount ?? 0;
             $gatewayAmount = $gatewayAmount ?? ($totalAmount - $walletAmount);
+            $currencyCode = strtoupper($currencyCode ?: 'EGP');
 
             SubscriptionPayment::create([
                 'subscription_id' => $subscription->id,
@@ -281,7 +298,7 @@ final class SubscriptionService
                 'gateway_amount' => $gatewayAmount,
                 'status' => SubscriptionPayment::STATUS_COMPLETED,
                 'payment_method' => $paymentMethod ?? 'wallet',
-                'currency_code' => 'EGP',
+                'currency_code' => $currencyCode,
                 'price_source' => 'default',
                 'tax' => 0,
                 'final_amount' => $totalAmount,
@@ -289,9 +306,10 @@ final class SubscriptionService
             ]);
 
             if ($walletAmount > 0) {
+                $debitEgp = $walletAmountEgp ?? app(CurrencyConversionService::class)->convertToEgp($walletAmount, $currencyCode);
                 WalletService::debitWallet(
                     $user->id,
-                    $walletAmount,
+                    $debitEgp,
                     'subscription',
                     "Subscription renewal payment for plan: " . ($subscription->plan ? $subscription->plan->name : 'plan'),
                     $subscription->id,
@@ -343,21 +361,30 @@ final class SubscriptionService
      * Calculate wallet vs gateway payment split for subscription.
      * Used when user pays with wallet + Kashier.
      *
-     * @return array{wallet_amount: float, gateway_amount: float}
+     * @return array{wallet_amount: float, gateway_amount: float, wallet_amount_egp: float, gateway_amount_egp: float}
      */
-    public function walletAndGatewayPayment(User $user, SubscriptionPlan $plan, float $totalAmount, bool $useWallet): array
+    public function walletAndGatewayPayment(User $user, SubscriptionPlan $plan, float $totalAmount, bool $useWallet, string $currencyCode = 'EGP'): array
     {
-        $walletAmount = 0.0;
-        $gatewayAmount = $totalAmount;
+        $currencyCode = strtoupper($currencyCode ?: 'EGP');
+        $conversion = app(CurrencyConversionService::class);
+        $totalEgp = $conversion->convertToEgp($totalAmount, $currencyCode);
+
+        $walletEgp = 0.0;
+        $gatewayEgp = $totalEgp;
 
         if ($useWallet && $user->wallet_balance > 0) {
-            $walletAmount = (float) min($user->wallet_balance, $totalAmount);
-            $gatewayAmount = $totalAmount - $walletAmount;
+            $walletEgp = (float) min($user->wallet_balance, $totalEgp);
+            $gatewayEgp = $totalEgp - $walletEgp;
         }
 
+        $walletLocal = $conversion->convertFromEgp($walletEgp, $currencyCode);
+        $gatewayLocal = round($totalAmount - $walletLocal, 2);
+
         return [
-            'wallet_amount' => round($walletAmount, 2),
-            'gateway_amount' => round($gatewayAmount, 2),
+            'wallet_amount' => round($walletLocal, 2),
+            'gateway_amount' => $gatewayLocal,
+            'wallet_amount_egp' => round($walletEgp, 2),
+            'gateway_amount_egp' => round($gatewayEgp, 2),
         ];
     }
 
@@ -414,17 +441,18 @@ final class SubscriptionService
                     ->exists();
 
                 if (!$hasQueued && $subscription->auto_renew && $subscription->plan) {
-                    $walletRenewalEnabled = app(\App\Services\AffiliateService::class)->isEnabled();
-                    $price = (float) $subscription->plan->price;
-                    
-                    if ($walletRenewalEnabled && $user->wallet_balance >= $price) {
+                    $localPrice = (float) ($subscription->locked_price ?? $subscription->plan->price);
+                    $currency = strtoupper((string) ($subscription->locked_currency ?? 'EGP'));
+                    $priceEgp = app(CurrencyConversionService::class)->convertToEgp($localPrice, $currency);
+
+                    if ($user->wallet_balance >= $priceEgp) {
                         try {
-                            $this->renewWithPayment($user, $subscription, 'wallet', $price, 0);
+                            $this->renewWithPayment($user, $subscription, 'wallet', $localPrice, 0, $localPrice, $currency, $priceEgp);
                             
                             Log::info('Subscription auto-renewed via wallet (Lazy Eval)', [
                                 'subscription_id' => $subscription->id,
                                 'user_id' => $user->id,
-                                'amount' => $price,
+                                'amount' => $localPrice,
                             ]);
                             continue; // successfully renewed, not expired
                         } catch (\Throwable $e) {
@@ -447,10 +475,20 @@ final class SubscriptionService
                 ->lockForUpdate()
                 ->get();
 
+            $hasOtherActive = Subscription::where('user_id', $user->id)
+                ->where('status', Subscription::STATUS_ACTIVE)
+                ->lockForUpdate()
+                ->exists();
+
             foreach ($pendingToActivate as $sub) {
+                if ($hasOtherActive) {
+                    break;
+                }
+
                 $sub->status = Subscription::STATUS_ACTIVE;
                 $sub->save();
-                
+                $hasOtherActive = true;
+
                 Log::info('Queued subscription activated (Lazy Eval)', [
                     'subscription_id' => $sub->id,
                     'user_id' => $user->id,
@@ -521,18 +559,18 @@ final class SubscriptionService
                 if ($lockedSub->auto_renew && $lockedSub->plan) {
                     $user = $lockedSub->user;
                     $plan = $lockedSub->plan;
-                    $price = (float) $plan->price;
+                    $localPrice = (float) ($lockedSub->locked_price ?? $plan->price);
+                    $currency = strtoupper((string) ($lockedSub->locked_currency ?? 'EGP'));
+                    $priceEgp = app(CurrencyConversionService::class)->convertToEgp($localPrice, $currency);
 
-                    $walletRenewalEnabled = app(\App\Services\AffiliateService::class)->isEnabled();
-
-                    if ($walletRenewalEnabled && $user && $user->wallet_balance >= $price) {
+                    if ($user && $user->wallet_balance >= $priceEgp) {
                         try {
-                            $this->renewWithPayment($user, $lockedSub, 'wallet', $price, 0);
+                            $this->renewWithPayment($user, $lockedSub, 'wallet', $localPrice, 0, $localPrice, $currency, $priceEgp);
 
                             Log::info('Subscription auto-renewed via wallet', [
                                 'subscription_id' => $lockedSub->id,
                                 'user_id' => $user->id,
-                                'amount' => $price,
+                                'amount' => $localPrice,
                             ]);
 
                             return;

@@ -5,17 +5,36 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\AdminAuditLog;
-use App\Services\ApiResponseService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 
 class AdminAuditLogApiController extends AdminCrudApiController
 {
     public function __construct()
     {
-        $this->middleware(['auth:sanctum', 'role:Super Admin|Admin|Supervisor']);
+        $this->middleware(['auth:sanctum', 'role:Super Admin|Supervisor']);
+    }
+
+    protected function ensureAdmin(): void
+    {
+        $user = Auth::user();
+        if (!$user) {
+            $this->unauthorized('Unauthenticated');
+        }
+
+        $allowed = [
+            'Super Admin',
+            'Supervisor',
+            config('constants.SYSTEM_ROLES.SUPER_ADMIN'),
+            config('constants.SYSTEM_ROLES.SUPERVISOR'),
+        ];
+
+        if (!$user->hasAnyRole($allowed, 'web')) {
+            $this->unauthorized('Admin access required');
+        }
     }
 
     /**
@@ -37,12 +56,12 @@ class AdminAuditLogApiController extends AdminCrudApiController
         ]);
 
         if ($validator->fails()) {
-            return ApiResponseService::validationError($validator->errors()->first());
+            return $this->jsonError($validator->errors()->first(), 422);
         }
 
         $perPage = (int) $request->input('per_page', 20);
 
-        $query = AdminAuditLog::query()->with('user:id,name,email,profile');
+        $query = AdminAuditLog::query()->with('user:id,name,email');
 
         if ($request->filled('action')) {
             $query->where('action', $request->action);
@@ -77,6 +96,6 @@ class AdminAuditLogApiController extends AdminCrudApiController
 
         $logs = $query->orderByDesc('id')->paginate($perPage);
 
-        return ApiResponseService::successResponse('Audit logs retrieved successfully', $logs);
+        return $this->jsonSuccess(__('Audit logs retrieved successfully'), $logs);
     }
 }

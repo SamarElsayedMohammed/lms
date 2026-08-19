@@ -217,6 +217,7 @@ final class SubscriptionApiController extends Controller
 
                 $latestPayment = $subscription->payments()->latest()->first();
                 $paymentMethod = $latestPayment?->payment_method ?? 'manual';
+                $isStoreManaged = in_array($paymentMethod, ['google', 'apple', 'in_app_purchase', 'play_store', 'app_store'], true);
                 $amountPaid = (float) ($latestPayment?->final_amount ?? $subscription->locked_price ?? $nextPaymentAmount);
                 $originalAmount = (float) ($latestPayment?->original_amount ?? $subscription->locked_price ?? $nextPaymentAmount);
                 $discountAmount = (float) ($latestPayment?->discount_amount ?? 0);
@@ -524,7 +525,8 @@ final class SubscriptionApiController extends Controller
                 $user,
                 $plan,
                 $totalAmount,
-                $request->boolean('use_wallet')
+                $request->boolean('use_wallet'),
+                $resolvedCurrency,
             );
             $walletAmount = $split['wallet_amount'];
             $gatewayAmount = $split['gateway_amount'];
@@ -561,6 +563,7 @@ final class SubscriptionApiController extends Controller
                         'currency_code' => $resolvedCurrency,
                         'resolved_country' => $countryCode,
                         'price_source' => $countryPricing['price_source'] ?? 'default',
+                        'wallet_amount_egp' => $split['wallet_amount_egp'] ?? null,
                     ];
 
                     $subscription = $this->subscriptionService->createSubscription(
@@ -671,7 +674,8 @@ final class SubscriptionApiController extends Controller
                         $receiptPath,
                         $appliedPromoCode,
                         $originalAmount,
-                        $discountAmount
+                        $discountAmount,
+                        $split
                     ) {
                         $subscription = Subscription::create([
                             'user_id' => $user->id,
@@ -729,7 +733,7 @@ final class SubscriptionApiController extends Controller
                         if ($walletAmount > 0) {
                             \App\Services\WalletService::debitWallet(
                                 $user->id,
-                                $walletAmount,
+                                (float) ($split['wallet_amount_egp'] ?? $walletAmount),
                                 'subscription',
                                 "Hold for manual subscription #{$subscription->id}",
                                 $subscription->id,
@@ -964,7 +968,8 @@ $totalAmount = (float) $countryPricing['price'];
                 $user,
                 $plan,
                 $totalAmount,
-                $request->boolean('use_wallet')
+                $request->boolean('use_wallet'),
+                $resolvedCurrency,
             );
             $walletAmount = $split['wallet_amount'];
             $gatewayAmount = $split['gateway_amount'];
@@ -991,7 +996,10 @@ $totalAmount = (float) $countryPricing['price'];
                     $subscription,
                     $request->payment_method ?? 'wallet',
                     $walletAmount,
-                    $gatewayAmount
+                    $gatewayAmount,
+                    $totalAmount,
+                    $resolvedCurrency,
+                    $split['wallet_amount_egp'] ?? null,
                 );
 
                 // Notify user and admins about successful renewal

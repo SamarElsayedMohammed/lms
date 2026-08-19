@@ -8,7 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\NotificationCampaign;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
-use App\Notifications\ManualCustomNotification;
+use App\Jobs\DispatchNotificationCampaignJob;
 use App\Services\ApiResponseService;
 use App\Services\AuditLogService;
 use App\Services\FileService;
@@ -35,7 +35,7 @@ class NotificationAdminApiController extends AdminCrudApiController
             ->orderBy('created_at', 'desc')
             ->paginate(15);
 
-        return ApiResponseService::successResponse('Notifications retrieved successfully', $campaigns);
+        return ApiResponseService::successResponse('تم تحميل الإشعارات بنجاح', $campaigns);
     }
 
     /**
@@ -67,21 +67,21 @@ class NotificationAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), $rules);
         if ($validator->fails()) {
-            return ApiResponseService::errorResponse('Validation failed', $validator->errors(), 422);
+            return ApiResponseService::errorResponse('بيانات الإشعار غير صالحة', $validator->errors(), 422);
         }
 
         // ── Double-click / Concurrency lock ───────────────────────────────────
         $lockKey = 'campaign_lock_' . md5($request->title . '_' . $request->target_type . '_' . ($request->plan_id ?? ''));
-        $lockAcquired = false;
+            $lockAcquired = false;
 
         try {
             $lockAcquired = Cache::add($lockKey, true, 10);
         } catch (\Throwable) {
-            $lockAcquired = true;
+            $lockAcquired = false;
         }
 
         if (!$lockAcquired) {
-            return ApiResponseService::errorResponse('A notification campaign with identical parameters is currently being dispatched. Please wait.', null, 429);
+            return ApiResponseService::errorResponse('يتم إرسال حملة مماثلة حالياً. انتظر قليلاً ثم أعد المحاولة.', null, 429);
         }
 
         try {
@@ -139,7 +139,7 @@ class NotificationAdminApiController extends AdminCrudApiController
 
             $count = $query->count();
             if ($count === 0) {
-                return ApiResponseService::errorResponse('No users found for the selected criteria');
+                return ApiResponseService::errorResponse('لا يوجد مستخدمون مطابقون للمعايير المحددة');
             }
 
             // ── Resolve channels ──────────────────────────────────────────────
@@ -209,15 +209,19 @@ class NotificationAdminApiController extends AdminCrudApiController
                 'type'       => 'admin_manual',
             ];
 
-            $query->chunk(200, function ($users) use ($notificationData, $internalChannels) {
-                \Illuminate\Support\Facades\Notification::send(
-                    $users,
-                    new ManualCustomNotification($notificationData, $internalChannels)
-                );
-            });
+            DispatchNotificationCampaignJob::dispatch(
+                (int) $campaign->id,
+                [
+                    'target_type' => $request->target_type,
+                    'plan_id'     => $request->plan_id,
+                    'plan_ids'    => $request->plan_ids,
+                ],
+                $notificationData,
+                $internalChannels,
+            );
 
             return ApiResponseService::successResponse(
-                "Notification sent successfully to {$count} users. Processing in background.",
+                "تم جدولة الإشعار لـ {$count} مستخدم. سيصل عبر الطابور في الخلفية.",
                 $campaign->load('plan:id,name')
             );
         } finally {
@@ -235,7 +239,7 @@ class NotificationAdminApiController extends AdminCrudApiController
         $campaign = NotificationCampaign::find($id);
 
         if (!$campaign) {
-            return ApiResponseService::errorResponse('Notification not found', null, 404);
+            return ApiResponseService::errorResponse('الإشعار غير موجود', null, 404);
         }
 
         $campaign->delete();
@@ -246,7 +250,7 @@ class NotificationAdminApiController extends AdminCrudApiController
             summary: "Deleted notification campaign #{$id}"
         );
 
-        return ApiResponseService::successResponse('Notification deleted successfully');
+        return ApiResponseService::successResponse('تم حذف الإشعار بنجاح');
     }
 
     /**

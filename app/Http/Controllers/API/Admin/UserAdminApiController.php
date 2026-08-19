@@ -6,6 +6,7 @@ namespace App\Http\Controllers\API\Admin;
 
 use App\Models\User;
 use App\Services\AdminStudentStatisticsService;
+use App\Services\AuditLogService;
 use App\Support\RoleManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -145,6 +146,15 @@ class UserAdminApiController extends AdminCrudApiController
 
         $user->is_active = !$user->is_active;
         $user->save();
+
+        AuditLogService::log(
+            action: 'user_status_toggled',
+            target: $user,
+            summary: $user->is_active
+                ? "Activated user #{$user->id} ({$user->email})"
+                : "Deactivated user #{$user->id} ({$user->email})",
+            details: ['is_active' => (bool) $user->is_active]
+        );
 
         return $this->jsonSuccess(__('User status updated'), ['is_active' => (bool) $user->is_active]);
     }

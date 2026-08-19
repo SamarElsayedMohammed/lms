@@ -383,7 +383,7 @@ class CertificateController extends Controller
     public function verifyApi(\Illuminate\Http\Request $request, ?string $code = null)
     {
         $token = trim((string) $request->input('token', ''));
-        $rawCode = trim((string) ($code ?: $request->input('code') ?: $request->input('certificate_number') ?: $request->input('number') ?: $request->input('certificate_id') ?: $request->input('id') ?: ''));
+        $rawCode = trim((string) ($code ?: $request->input('certificate_number') ?: $request->input('code') ?: $request->input('number') ?: $request->input('certificate_id') ?: $request->input('id') ?: ''));
         $normalizedCode = CourseCertificate::normalizeCertificateNumber($rawCode);
 
         if ($token === '' && $normalizedCode === '' && $rawCode === '') {

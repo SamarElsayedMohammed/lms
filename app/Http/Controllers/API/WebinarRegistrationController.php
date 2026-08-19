@@ -31,52 +31,13 @@ class WebinarRegistrationController extends Controller
                 return ApiResponseService::errorResponse('Unauthorized.', [], 401);
             }
 
-            // Paid webinar via Gateway flow
+            // Paid webinars use wallet only (no cart / no Kashier checkout from this endpoint).
             if (!$webinar->is_free && $webinar->price > 0) {
-                // Calculate localized pricing from server authority
-                $pricingService = app(\App\Services\PricingCalculationService::class);
-                $currencyInfo = $pricingService->resolveDisplayCurrency($user, $request);
-                $exchangeRate = $currencyInfo['exchange_rate'] ?? 1.0;
-                $currency = $currencyInfo['code'] ?? 'EGP';
-
-                $totalAmount = round($webinar->price * $exchangeRate, 2);
-                
-                try {
-                    $kashierService = app(\App\Services\Payment\KashierCheckoutService::class);
-                    $checkout = $kashierService->createWebinarCheckoutSession($webinar->id, $user, $totalAmount, $currency);
-                } catch (\RuntimeException $e) {
-                    return ApiResponseService::errorResponse('Payment gateway is not configured.', [], 503);
-                }
-
-                \Illuminate\Support\Facades\Cache::put('kashier_pending_' . $checkout['order_id'], [
-                    'wallet_amount' => 0,
-                    'webinar_id' => $webinar->id,
-                    'user_id' => $user->id,
-                    'expected_amount' => $totalAmount,
-                    'currency' => $currency,
-                    'created_at' => now()->toIso8601String(),
-                ], 3600); // 1 hour TTL
-
-                // Reserve temporary seat with 1 hour expiration
-                $this->registrationService->register(
-                    $webinar,
-                    $user,
-                    'pending',
-                    0.00,
-                    now()->addHour()
+                return ApiResponseService::errorResponse(
+                    'التسجيل في الويبنار المدفوع يتم عبر رصيد المحفظة فقط.',
+                    ['error_code' => 'wallet_required'],
+                    400
                 );
-
-                return ApiResponseService::successResponse('Please complete payment via Kashier.', [
-                    'requires_checkout' => true,
-                    'checkout_url' => $checkout['url'],
-                    'order_id' => $checkout['order_id'],
-                    'payment' => [
-                        'total_amount' => $totalAmount,
-                        'wallet_amount' => 0,
-                        'gateway_amount' => $totalAmount,
-                        'currency' => $currency,
-                    ],
-                ]);
             }
 
             // Free webinar registration
@@ -120,25 +81,6 @@ class WebinarRegistrationController extends Controller
                 return ApiResponseService::errorResponse('Not registered for this webinar.', [], 400);
             }
 
-            // Guard: If already refunded, return 400 Bad Request
-            if ($registration->payment_status === 'refunded') {
-                return ApiResponseService::errorResponse(
-                    'تم استرداد رسوم هذا التسجيل مسبقاً ولا يمكن إلغاؤه مرة أخرى.',
-                    ['error_code' => 'already_refunded'],
-                    400
-                );
-            }
-
-            // Guard: If already cancelled, return 400 Bad Request
-            if ($registration->payment_status === 'cancelled') {
-                return ApiResponseService::errorResponse(
-                    'التسجيل ملغى مسبقاً.',
-                    ['error_code' => 'already_cancelled'],
-                    400
-                );
-            }
-
-            // If paid registration: process atomic refund to wallet if webinar has not started
             if ($registration->payment_status === 'paid') {
                 if ($webinar->start_at && $webinar->start_at->isPast()) {
                     return ApiResponseService::errorResponse(
@@ -163,19 +105,14 @@ class WebinarRegistrationController extends Controller
                                 'user'
                             );
                         }
-                        $lockedReg->update([
-                            'payment_status' => 'refunded',
-                        ]);
+                        $lockedReg->delete();
                     }
                 });
 
                 return ApiResponseService::successResponse('تم إلغاء التسجيل واسترداد المبلغ إلى المحفظة بنجاح.');
             }
 
-            // For non-paid / free registrations, transition to cancelled to preserve audit history
-            $registration->update([
-                'payment_status' => 'cancelled',
-            ]);
+            $registration->delete();
 
             return ApiResponseService::successResponse('تم إلغاء التسجيل بنجاح.');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

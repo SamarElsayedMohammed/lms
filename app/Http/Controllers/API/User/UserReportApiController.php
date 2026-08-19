@@ -254,7 +254,7 @@ class UserReportApiController extends Controller
             // Only active records are valid issued certificates.
             $generatedCertificates = CourseCertificate::where('user_id', $user->id)
                 ->active()
-                ->with('course.category')
+                ->with(['course.category', 'course.user'])
                 ->latest('issued_date')
                 ->get()
                 ->keyBy('course_id');
@@ -278,6 +278,10 @@ class UserReportApiController extends Controller
                     'issuance_type'      => $eligibleByProgress ? 'automatic' : 'manual',
                     'eligible_by_progress' => $eligibleByProgress,
                     'course_id'          => $cert->course_id,
+                    'slug'               => $cert->course->slug ?? '',
+                    'title'              => $cert->course->title ?? 'N/A',
+                    'thumbnail'          => $cert->course->thumbnail ?? '',
+                    'author_name'        => $cert->instructor_name ?? ($cert->course->user->name ?? 'N/A'),
                     'course_title'       => $cert->course->title    ?? 'N/A',
                     'issued_at'          => optional($cert->created_at)->toIso8601String(),
                     'certificate_url'    => $cert->verification_url ?? url("/verify-certificate?code={$cert->certificate_number}"),
@@ -322,6 +326,10 @@ class UserReportApiController extends Controller
                         'issuance_type'      => 'pending',
                         'eligible_by_progress' => true,
                         'course_id'          => $course->id,
+                        'slug'               => $course->slug ?? '',
+                        'title'              => $course->title ?? 'N/A',
+                        'thumbnail'          => $course->thumbnail ?? '',
+                        'author_name'        => $course->user->name ?? 'N/A',
                         'course_title'       => $course->title ?? 'N/A',
                         'issued_at'          => null,
                         'certificate_url'    => null,

@@ -9,6 +9,7 @@ use App\Models\RefundRequest;
 use App\Models\Setting;
 use App\Models\Transaction;
 use App\Services\ApiResponseService;
+use App\Services\AuditLogService;
 use App\Services\FileService;
 use App\Services\WalletService;
 use Carbon\Carbon;
@@ -424,6 +425,14 @@ class RefundApiController extends Controller
                             ->delete();
                     }
 
+                    // Leftover order_courses must not keep granting access after refund.
+                    OrderCourse::where('course_id', $refundRequest->course_id)
+                        ->whereHas('order', static function ($q) use ($refundRequest): void {
+                            $q->where('user_id', $refundRequest->user_id)
+                                ->where('status', 'completed');
+                        })
+                        ->delete();
+
                     // 4. Mark certificates as revoked
                     $certificates = \App\Models\Course\CourseCertificate::where('user_id', $refundRequest->user_id)
                         ->where('course_id', $refundRequest->course_id)
@@ -456,6 +465,18 @@ class RefundApiController extends Controller
                         : null;
                     $refundRequest->admin_receipt_url = null;
 
+                    AuditLogService::log(
+                        action: 'refund_approved',
+                        target: $refundRequest,
+                        summary: "Approved refund request #{$refundRequest->id} for user #{$refundRequest->user_id}",
+                        details: [
+                            'refund_request_id' => $refundRequest->id,
+                            'user_id' => $refundRequest->user_id,
+                            'course_id' => $refundRequest->course_id,
+                            'amount' => $refundRequest->amount_egp ?? $refundRequest->refund_amount,
+                        ]
+                    );
+
                     return ApiResponseService::successResponse(
                         'Refund approved and processed successfully',
                         $refundRequest,
@@ -467,6 +488,17 @@ class RefundApiController extends Controller
                         'processed_at' => Carbon::now(),
                         'processed_by' => $admin?->id,
                     ]);
+
+                    AuditLogService::log(
+                        action: 'refund_rejected',
+                        target: $refundRequest,
+                        summary: "Rejected refund request #{$refundRequest->id} for user #{$refundRequest->user_id}",
+                        details: [
+                            'refund_request_id' => $refundRequest->id,
+                            'user_id' => $refundRequest->user_id,
+                            'course_id' => $refundRequest->course_id,
+                        ]
+                    );
 
                     return ApiResponseService::successResponse('Refund request rejected');
                 }
