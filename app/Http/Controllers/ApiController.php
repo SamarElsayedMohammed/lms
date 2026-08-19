@@ -363,8 +363,7 @@ class ApiController extends Controller
                         ]);
                     }
                     RoleManager::assignStudentRole($user);
-                    Auth::login($user);
-                    $auth = User::find($user->id);
+                    $auth = $user;
 
                     $deviceError = $this->verifyDeviceLimits($auth, $request);
                     if ($deviceError) {
@@ -405,8 +404,7 @@ class ApiController extends Controller
                     throw $th;
                 }
             } else {
-                Auth::login($socialLogin->user);
-                $auth = Auth::user();
+                $auth = $socialLogin->user;
             }
 
             if (!$auth->hasAnyRole(RoleManager::getCandidateRoleNames('user'))) {
@@ -591,8 +589,7 @@ class ApiController extends Controller
                     ApiResponseService::validationError('User is deactivated. Please Contact the administrator');
                 }
 
-                Auth::login($socialLogin->user);
-                $auth = Auth::user();
+                $auth = $socialLogin->user;
             }
 
             // ── Shared post-auth logic ───────────────────────────────────────
@@ -1114,8 +1111,13 @@ class ApiController extends Controller
     public function getUserDetails(Request $request)
     {
         try {
+            $authUser = $request->user();
+            if (!$authUser) {
+                return ApiResponseService::unauthorizedResponse();
+            }
+
             /** @var User */
-            $user = User::where(['id' => Auth::user()?->id, 'is_active' => 1])->with([
+            $user = User::where(['id' => $authUser->id, 'is_active' => 1])->with([
                 'instructor_details.personal_details',
                 'instructor_details.social_medias.social_media',
                 'instructor_details.other_details.custom_form_field',
@@ -1124,7 +1126,7 @@ class ApiController extends Controller
             ])->first();
 
             if (empty($user)) {
-                ApiResponseService::validationError('User not found');
+                return ApiResponseService::unauthorizedResponse();
             }
 
             // Refresh instructor_details relationship to get latest status
@@ -1171,14 +1173,14 @@ class ApiController extends Controller
     {
         try {
             // Check if user is authenticated
-            $user = Auth::user();
-            if (!$user) {
-                return ApiResponseService::errorResponse('User not authenticated', null, 401);
+            $authUser = $request->user();
+            if (!$authUser) {
+                return ApiResponseService::unauthorizedResponse();
             }
 
-            $user = User::where(['id' => Auth::id(), 'is_active' => 1])->first();
+            $user = User::where(['id' => $authUser->id, 'is_active' => 1])->first();
             if (empty($user)) {
-                return ApiResponseService::validationError('User not found');
+                return ApiResponseService::unauthorizedResponse();
             }
 
             // Check if user is instructor
@@ -4304,7 +4306,7 @@ class ApiController extends Controller
     public function userLogout(Request $request)
     {
         try {
-            $user = Auth::user();
+            $user = $request->user();
             if ($user) {
                 $currentToken = $user->currentAccessToken();
                 $tokenName = $currentToken?->name ?? '';
@@ -4346,6 +4348,10 @@ class ApiController extends Controller
                 }
 
                 DB::commit();
+
+                if (Auth::guard('web')->check()) {
+                    Auth::guard('web')->logout();
+                }
             }
 
             return ApiResponseService::successResponse('تم تسجيل الخروج بنجاح');
@@ -4362,7 +4368,7 @@ class ApiController extends Controller
     public function userLogoutOthers(Request $request)
     {
         try {
-            $user = Auth::user();
+            $user = $request->user();
             if (!$user) {
                 return ApiResponseService::unauthorizedResponse();
             }
@@ -4377,18 +4383,16 @@ class ApiController extends Controller
             DB::beginTransaction();
 
             // Revoke all tokens for this user EXCEPT current token and its paired refresh token
+            $baseName = str_replace('-refresh', '', $tokenName);
+            $tokensQuery = $user->tokens();
             if ($currentTokenId) {
-                $baseName = str_replace('-refresh', '', $tokenName);
-                $user->tokens()
-                    ->where('id', '!=', $currentTokenId)
-                    ->where(function ($q) use ($baseName) {
-                        if (!empty($baseName)) {
-                            $q->where('name', '!=', $baseName)
-                              ->where('name', '!=', $baseName . '-refresh');
-                        }
-                    })
-                    ->delete();
+                $tokensQuery->where('id', '!=', $currentTokenId);
             }
+            if (!empty($baseName)) {
+                $tokensQuery->where('name', '!=', $baseName)
+                            ->where('name', '!=', $baseName . '-refresh');
+            }
+            $tokensQuery->delete();
 
             // Delete all other user_devices EXCEPT current device
             if (!empty($currentDeviceId)) {

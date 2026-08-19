@@ -1244,18 +1244,19 @@ class CourseChaptersController extends Controller
         ResponseService::noPermissionThenSendJson('course-chapters-edit');
 
         $validator = Validator::make($request->all(), [
-            'ids' => 'required|array',
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'required|integer|distinct',
             'chapter_id' => 'nullable|exists:course_chapters,id',
         ]);
         if ($validator->fails()) {
-            return ResponseService::errorResponse($validator->errors()->first());
+            return response()->json(['error' => true, 'message' => $validator->errors()->first()], 422);
         }
 
         // Use route param if available, otherwise fallback to request->chapter_id
         $chapterId ??= $request->chapter_id;
 
         if (!$chapterId) {
-            return ResponseService::errorResponse('Chapter ID is required');
+            return response()->json(['error' => true, 'message' => 'Chapter ID is required'], 422);
         }
 
         // Get chapter and course for authorization check
@@ -1263,48 +1264,69 @@ class CourseChaptersController extends Controller
 
         // Authorization check: Only course owner or approved team members can reorder
         if (Auth::user()->cannot('modify', $chapter->course)) {
-            return ResponseService::validationError('You are not authorized to reorder curriculum items.');
+            return response()->json(['error' => true, 'message' => 'You are not authorized to reorder curriculum items.'], 403);
         }
 
         try {
             // Get all curriculum items for this chapter
-            $allCurriculum = $chapter->all_curriculum_data;
+            $allCurriculum = collect($chapter->all_curriculum_data);
+            $validIds = $allCurriculum->pluck('id')->map(fn($val) => (int) $val)->all();
 
-            foreach ($request->ids as $index => $id) {
-                // Find the curriculum item by ID
-                $curriculumItem = collect($allCurriculum)->firstWhere('id', $id);
-
-                if ($curriculumItem) {
-                    $model = null;
-
-                    switch ($curriculumItem['curriculum_type']) {
-                        case 'lecture':
-                            $model = CourseChapterLecture::class;
-                            break;
-                        case 'quiz':
-                            $model = CourseChapterQuiz::class;
-                            break;
-                        case 'assignment':
-                            $model = CourseChapterAssignment::class;
-                            break;
-                        case 'document':
-                            $model = CourseChapterResource::class;
-                            break;
-                    }
-
-                    if ($model) {
-                        $model::where('id', $id)
-                            ->where('course_chapter_id', $chapterId)
-                            ->update(['chapter_order' => $index + 1]);
-                    }
+            // Validate that every provided ID belongs to this chapter
+            foreach ($request->ids as $id) {
+                if (!in_array((int) $id, $validIds, true)) {
+                    return response()->json(['error' => true, 'message' => "Curriculum item #{$id} does not belong to this chapter."], 400);
                 }
             }
 
-            return ResponseService::successResponse('Curriculum items reordered successfully');
+            \Illuminate\Support\Facades\DB::transaction(function () use ($request, $allCurriculum, $chapterId) {
+                foreach ($request->ids as $index => $id) {
+                    $curriculumItem = $allCurriculum->firstWhere('id', $id);
+
+                    if ($curriculumItem) {
+                        $model = null;
+
+                        switch ($curriculumItem['curriculum_type'] ?? null) {
+                            case 'lecture':
+                            case config('constants.CURRICULUM_TYPES.LECTURE'):
+                                $model = CourseChapterLecture::class;
+                                break;
+                            case 'quiz':
+                            case config('constants.CURRICULUM_TYPES.QUIZ'):
+                                $model = CourseChapterQuiz::class;
+                                break;
+                            case 'assignment':
+                            case config('constants.CURRICULUM_TYPES.ASSIGNMENT'):
+                                $model = CourseChapterAssignment::class;
+                                break;
+                            case 'document':
+                            case 'resource':
+                            case config('constants.CURRICULUM_TYPES.RESOURCE'):
+                                $model = CourseChapterResource::class;
+                                break;
+                        }
+
+                        if ($model) {
+                            $model::where('id', $id)
+                                ->where('course_chapter_id', $chapterId)
+                                ->update(['chapter_order' => $index + 1]);
+                        }
+                    }
+                }
+            });
+
+            \App\Services\AuditLogService::log(
+                action: 'curriculum_reordered',
+                target: $chapter,
+                summary: "Reordered curriculum items for Chapter #{$chapter->id} ('{$chapter->title}')",
+                details: ['ids' => $request->ids, 'chapter_id' => $chapterId]
+            );
+
+            return response()->json(['error' => false, 'message' => 'Curriculum items reordered successfully'], 200);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Exception $e) {
-            return ResponseService::errorResponse($e->getMessage());
+            return response()->json(['error' => true, 'message' => $e->getMessage()], 500);
         }
     }
 

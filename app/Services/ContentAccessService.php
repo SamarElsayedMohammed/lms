@@ -18,6 +18,7 @@ class ContentAccessService
      * @var array<string, bool>
      */
     private static array $lectureAccessCache = [];
+    private static array $courseAccessCache = [];
 
     /**
      * Per-request subscription access cache: prevents syncQueuedSubscriptions()
@@ -66,7 +67,7 @@ class ContentAccessService
         }
 
         // Per-request memoisation key
-        $cacheKey = "{$user->id}:{$lecture->id}";
+        $cacheKey = "lecture:{$user->id}:{$lecture->id}";
         if (array_key_exists($cacheKey, self::$lectureAccessCache)) {
             return self::$lectureAccessCache[$cacheKey];
         }
@@ -113,7 +114,8 @@ class ContentAccessService
      */
     public static function flushRequestCache(): void
     {
-        self::$lectureAccessCache    = [];
+        self::$lectureAccessCache      = [];
+        self::$courseAccessCache       = [];
         self::$subscriptionAccessCache = [];
     }
 
@@ -176,5 +178,15 @@ class ContentAccessService
         $enrolledCourses   = $enrollmentService->resolveEnrolledCourses((int) $user->id);
 
         return $enrolledCourses->contains('course_id', $course->id);
+    }
+
+    /**
+     * Flush in-memory per-request static caches.
+     */
+    public static function flushStaticCache(): void
+    {
+        self::$lectureAccessCache = [];
+        self::$courseAccessCache = [];
+        self::$subscriptionAccessCache = [];
     }
 }

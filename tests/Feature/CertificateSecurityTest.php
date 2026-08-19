@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Models\Course;
+use App\Models\Course\Course;
+use App\Models\Course\CourseCertificate;
 use App\Models\User;
-use App\Models\CourseCertificate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -15,19 +15,23 @@ class CertificateSecurityTest extends TestCase
     /** @test */
     public function a_user_cannot_download_another_users_certificate()
     {
-        $owner = User::factory()->create();
-        $attacker = User::factory()->create();
-        $course = Course::factory()->create();
+        $owner = User::factory()->create(['is_active' => true]);
+        $attacker = User::factory()->create(['is_active' => true]);
+        $course = Course::factory()->create(['is_active' => true, 'status' => 'publish', 'approval_status' => 'approved']);
 
         // Create a certificate for the owner
-        $certificate = CourseCertificate::factory()->create([
-            'user_id' => $owner->id,
-            'course_id' => $course->id,
-            'certificate_number' => 'CERT-12345',
+        $certificate = CourseCertificate::create([
+            'user_id'            => $owner->id,
+            'course_id'          => $course->id,
+            'certificate_number' => '583104927641805273',
+            'student_name'       => $owner->name,
+            'arabic_title'       => $course->title,
+            'issued_date'        => now()->toDateString(),
+            'status'             => 'active',
         ]);
 
         // Attacker attempts to download the certificate using the course ID
-        $response = $this->actingAs($attacker)->postJson('/api/v1/certificate/course/download', [
+        $response = $this->actingAs($attacker, 'sanctum')->postJson('/api/certificate/course/download', [
             'course_id' => $course->id,
         ]);
 
@@ -38,13 +42,22 @@ class CertificateSecurityTest extends TestCase
     /** @test */
     public function a_revoked_certificate_is_not_publicly_downloadable(): void
     {
-        $certificate = CourseCertificate::factory()->create([
-            'certificate_number' => 'CERT-REVOKED-1',
-            'revoked_at' => now(),
+        $user = User::factory()->create(['is_active' => true]);
+        $course = Course::factory()->create(['is_active' => true, 'status' => 'publish', 'approval_status' => 'approved']);
+
+        $certificate = CourseCertificate::create([
+            'user_id'            => $user->id,
+            'course_id'          => $course->id,
+            'certificate_number' => '999988887777666655',
+            'student_name'       => $user->name,
+            'arabic_title'       => $course->title,
+            'issued_date'        => now()->toDateString(),
+            'status'             => 'revoked',
+            'revoked_at'         => now(),
         ]);
 
-        $response = $this->get("/api/certificate/public/{$certificate->certificate_number}/download");
+        $response = $this->getJson("/api/certificate/public/{$certificate->certificate_number}/download");
 
-        $response->assertStatus(404);
+        $response->assertStatus(403);
     }
 }

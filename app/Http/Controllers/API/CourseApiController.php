@@ -11501,22 +11501,15 @@ class CourseApiController extends Controller
                 );
             }
 
-            // Check enrollment (via subscription or individual purchase)
-            $hasActiveSubscription = $user->activeSubscription()->exists();
-            $isEnrolled =
-                $hasActiveSubscription ||
-                OrderCourse::whereHas("order", function ($q) use ($user) {
-                    $q->where("user_id", $user->id)->where(
-                        "status",
-                        "completed",
-                    );
-                })
-                    ->where("course_id", $courseId)
-                    ->exists();
+            $course = Course::find($courseId);
+            if (!$course) {
+                return ApiResponseService::errorResponse("Course not found.", [], 404);
+            }
 
-            if (!$isEnrolled) {
+            $contentAccessService = app(\App\Services\ContentAccessService::class);
+            if (!$contentAccessService->canAccessCourse($user, $course)) {
                 return ApiResponseService::errorResponse(
-                    "You are not enrolled in this course.",
+                    "You are not enrolled in this course or your subscription has expired.",
                     [],
                     403,
                 );

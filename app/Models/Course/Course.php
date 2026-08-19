@@ -378,6 +378,20 @@ class Course extends Model
 
     public function hasContent(): bool
     {
+        if ($this->relationLoaded('chapters')) {
+            foreach ($this->chapters as $chapter) {
+                if (!(bool) ($chapter->is_active ?? true)) {
+                    continue;
+                }
+                if ($chapter->relationLoaded('lectures') && $chapter->lectures->isNotEmpty()) {
+                    return true;
+                }
+                if ($chapter->relationLoaded('resources') && $chapter->resources->isNotEmpty()) {
+                    return true;
+                }
+            }
+        }
+
         return $this->chapters()
             ->where('is_active', true)
             ->where(static function ($chapterQuery): void {

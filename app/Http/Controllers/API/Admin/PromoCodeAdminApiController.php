@@ -188,6 +188,13 @@ class PromoCodeAdminApiController extends AdminCrudApiController
             $promoCode->subscriptionPlans()->sync($planIds);
         }
 
+        \App\Services\AuditLogService::log(
+            action: 'promo_code_created',
+            target: $promoCode,
+            summary: "Created promo code '{$promoCode->promo_code}' with {$promoCode->discount} {$promoCode->discount_type} discount",
+            details: ['code' => $promoCode->promo_code, 'discount' => $promoCode->discount, 'discount_type' => $promoCode->discount_type]
+        );
+
         return $this->jsonSuccess(__('Promo code created successfully'), $promoCode->load('subscriptionPlans'), 201);
     }
 
@@ -243,6 +250,13 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         $promoCode->update($data);
         $promoCode->subscriptionPlans()->sync($planIds);
 
+        \App\Services\AuditLogService::log(
+            action: 'promo_code_updated',
+            target: $promoCode,
+            summary: "Updated promo code #{$promoCode->id} ('{$promoCode->promo_code}')",
+            details: ['code' => $promoCode->promo_code, 'discount' => $promoCode->discount]
+        );
+
         return $this->jsonSuccess(__('Promo code updated successfully'), $promoCode->fresh(['subscriptionPlans']));
     }
 
@@ -257,6 +271,13 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         }
 
         $promoCode->delete();
+
+        \App\Services\AuditLogService::log(
+            action: 'promo_code_deleted',
+            target: $promoCode,
+            summary: "Soft deleted promo code #{$promoCode->id} ('{$promoCode->promo_code}')"
+        );
+
         return $this->jsonSuccess(__('Promo code deleted successfully'));
     }
 
@@ -271,6 +292,13 @@ class PromoCodeAdminApiController extends AdminCrudApiController
         }
 
         $promoCode->restore();
+
+        \App\Services\AuditLogService::log(
+            action: 'promo_code_restored',
+            target: $promoCode,
+            summary: "Restored promo code #{$promoCode->id} ('{$promoCode->promo_code}')"
+        );
+
         return $this->jsonSuccess(__('Promo code restored successfully'), $promoCode->fresh());
     }
 }

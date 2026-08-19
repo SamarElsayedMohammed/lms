@@ -886,7 +886,14 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Course not found'), 404);
         }
 
-        $course->update(['approval_status' => 'approved']);
+        $course->update(['approval_status' => 'approved', 'is_active' => 1]);
+
+        \App\Services\AuditLogService::log(
+            action: 'course_approved',
+            target: $course,
+            summary: "Approved course #{$course->id} ('{$course->title}')"
+        );
+
         return $this->jsonSuccess(__('Course approved'), $course->fresh());
     }
 
@@ -900,7 +907,14 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Course not found'), 404);
         }
 
-        $course->update(['approval_status' => 'rejected']);
+        $course->update(['approval_status' => 'rejected', 'is_active' => 0]);
+
+        \App\Services\AuditLogService::log(
+            action: 'course_rejected',
+            target: $course,
+            summary: "Rejected course #{$course->id} ('{$course->title}')"
+        );
+
         return $this->jsonSuccess(__('Course rejected'), $course->fresh());
     }
 
@@ -915,6 +929,13 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         $course->restore();
+
+        \App\Services\AuditLogService::log(
+            action: 'course_restored',
+            target: $course,
+            summary: "Restored course #{$course->id} ('{$course->title}')"
+        );
+
         return $this->jsonSuccess(__('Course restored'), $course->fresh());
     }
 
@@ -929,7 +950,71 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         $course->delete();
+
+        \App\Services\AuditLogService::log(
+            action: 'course_deleted',
+            target: $course,
+            summary: "Soft deleted course #{$course->id} ('{$course->title}')"
+        );
+
         return $this->jsonSuccess(__('Course deleted'));
+    }
+
+    /**
+     * Bulk update course publication and active status safely.
+     */
+    public function bulkUpdateStatus(Request $request): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('courses-edit');
+
+        $validator = Validator::make($request->all(), [
+            'ids'    => 'required|array|min:1|max:100',
+            'ids.*'  => 'required|integer|exists:courses,id',
+            'status' => 'required|in:publish,draft,pending,archive',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        $status = (string) $request->status;
+        $ids = (array) $request->ids;
+
+        $courses = Course::whereIn('id', $ids)->get();
+
+        DB::transaction(function () use ($courses, $status) {
+            foreach ($courses as $course) {
+                if ($status === 'publish') {
+                    $course->update([
+                        'status'          => 'publish',
+                        'approval_status' => 'approved',
+                        'is_active'       => 1,
+                    ]);
+                } elseif ($status === 'archive') {
+                    $course->update([
+                        'status'    => 'draft',
+                        'is_active' => 0,
+                    ]);
+                } else {
+                    $course->update([
+                        'status'    => $status,
+                        'is_active' => 0,
+                    ]);
+                }
+            }
+        });
+
+        \App\Services\AuditLogService::log(
+            action: 'courses_bulk_status_update',
+            summary: "Bulk updated status to '{$status}' for " . count($ids) . " courses",
+            details: ['ids' => $ids, 'status' => $status]
+        );
+
+        return $this->jsonSuccess(__('Courses bulk status updated successfully'), [
+            'updated_count' => count($ids),
+            'status'        => $status,
+        ]);
     }
 
     /**

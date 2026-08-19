@@ -59,11 +59,17 @@ final class LectureProgressApiController extends Controller
                 'current_position' => 'required|integer|min:0',
                 'newly_watched_segments' => 'required|array|max:' . VideoProgressService::MAX_SEGMENTS_PER_REQUEST,
                 'newly_watched_segments.*' => 'integer|min:0',
+                'total_duration' => 'nullable|integer|min:0',
             ]);
 
             $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
             if ($canonicalDuration <= 0) {
-                return $this->error('Lecture duration is not configured on the server', 422);
+                return $this->error('Lecture duration is not configured on the server', null, 422);
+            }
+
+            $reportedTotal = (int) ($validated['total_duration'] ?? $canonicalDuration);
+            if ($reportedTotal < $canonicalDuration) {
+                return $this->error('The reported video duration cannot shrink canonical lecture duration.', null, 422);
             }
 
             try {
@@ -71,12 +77,12 @@ final class LectureProgressApiController extends Controller
                     $user,
                     $lecture,
                     (int) $validated['current_position'],
-                    $canonicalDuration,
+                    $reportedTotal,
                     $validated['newly_watched_segments'],
                     $metadata
                 );
             } catch (\InvalidArgumentException $e) {
-                return $this->error($e->getMessage(), 422);
+                return $this->error($e->getMessage(), null, 422);
             }
 
             return $this->ok(

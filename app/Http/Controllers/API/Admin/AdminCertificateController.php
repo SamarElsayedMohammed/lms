@@ -145,6 +145,13 @@ class AdminCertificateController extends AdminCrudApiController
 
         \Illuminate\Support\Facades\Log::info("Certificate {$certificate->certificate_number} revoked by admin ID " . (\Illuminate\Support\Facades\Auth::id() ?? 0) . " reason: {$reason}");
 
+        \App\Services\AuditLogService::log(
+            action: 'certificate_revoked',
+            target: $certificate,
+            summary: "Revoked certificate #{$certificate->id} ({$certificate->certificate_number})",
+            details: ['reason' => $reason, 'certificate_number' => $certificate->certificate_number]
+        );
+
         // Delete all cached versions of this certificate
         $disk = \Illuminate\Support\Facades\Storage::disk('local');
         $allFiles = $disk->files('certificates');
@@ -197,6 +204,12 @@ class AdminCertificateController extends AdminCrudApiController
         ]);
 
         \Illuminate\Support\Facades\Log::info("Certificate {$certificate->certificate_number} restored by admin ID " . (\Illuminate\Support\Facades\Auth::id() ?? 0));
+
+        \App\Services\AuditLogService::log(
+            action: 'certificate_restored',
+            target: $certificate,
+            summary: "Restored certificate #{$certificate->id} ({$certificate->certificate_number})"
+        );
 
         return response()->json([
             'ok' => true,

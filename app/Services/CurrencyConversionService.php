@@ -9,6 +9,17 @@ use Illuminate\Support\Facades\Cache;
 
 final class CurrencyConversionService
 {
+    /** @var array<string, ?SupportedCurrency> */
+    private static array $currencyCache = [];
+
+    /**
+     * Flush in-memory static cache.
+     */
+    public static function flushStaticCache(): void
+    {
+        self::$currencyCache = [];
+    }
+
     /**
      * Convert an EGP base amount to a target currency using the live system rate.
      */
@@ -58,9 +69,17 @@ final class CurrencyConversionService
     {
         $currencyCode = strtoupper($currencyCode);
 
-        return Cache::remember("currency_{$currencyCode}", now()->addMinutes(30), function () use ($currencyCode) {
+        if (array_key_exists($currencyCode, self::$currencyCache)) {
+            return self::$currencyCache[$currencyCode];
+        }
+
+        $currency = Cache::remember("currency_{$currencyCode}", now()->addMinutes(30), function () use ($currencyCode) {
             return SupportedCurrency::where('currency_code', $currencyCode)->where('is_active', true)->first();
         });
+
+        self::$currencyCache[$currencyCode] = $currency;
+
+        return $currency;
     }
     
     /**

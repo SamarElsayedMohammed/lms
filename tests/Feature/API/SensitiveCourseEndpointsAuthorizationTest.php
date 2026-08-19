@@ -19,9 +19,16 @@ final class SensitiveCourseEndpointsAuthorizationTest extends TestCase
     }
 
     /** @test */
-    public function quiz_attempt_details_require_an_authenticated_user(): void
+    public function quiz_attempt_endpoints_are_unroutable_in_video_only_lms(): void
     {
         $this->getJson('/api/get-quiz-attempt-details?attempt_id=1')
+            ->assertNotFound();
+    }
+
+    /** @test */
+    public function user_details_require_an_authenticated_user(): void
+    {
+        $this->getJson('/api/get-user-details')
             ->assertUnauthorized();
     }
 }

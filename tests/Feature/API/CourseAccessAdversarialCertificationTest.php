@@ -292,14 +292,22 @@ final class CourseAccessAdversarialCertificationTest extends TestCase
             ->getJson("/api/video/{$this->paidLecture->id}/stream");
         $res->assertOk();
 
+        $transaction = \App\Models\Transaction::create([
+            'user_id'        => $this->student->id,
+            'order_id'       => $order->id,
+            'amount'         => 100.00,
+            'payment_method' => 'card',
+            'status'         => 'success',
+        ]);
+
         // Create approved refund
         RefundRequest::create([
             'user_id'        => $this->student->id,
             'course_id'      => $this->course->id,
             'order_id'       => $order->id,
-            'transaction_id' => 'TXN-' . uniqid(),
+            'transaction_id' => $transaction->id,
             'status'         => 'approved',
-            'amount'         => 100.00,
+            'refund_amount'  => 100.00,
             'reason'         => 'Accidental purchase',
         ]);
 
@@ -487,5 +495,75 @@ final class CourseAccessAdversarialCertificationTest extends TestCase
             ->getJson("/api/video/{$freeLecture->id}/stream");
 
         $res->assertOk();
+    }
+
+    // =========================================================================
+    // ATTACK-17 / INV-09: Admin Bypass Authorization
+    // =========================================================================
+    public function test_admin_and_super_admin_can_access_any_course_content(): void
+    {
+        $admin = User::factory()->create([
+            'name'      => 'Admin User',
+            'email'     => 'admin-' . uniqid() . '@example.com',
+            'is_active' => true,
+            'type'      => 'admin',
+        ]);
+        // Spatie role assignment if available or attribute
+        $admin->assignRole('Super Admin');
+
+        $res = $this->actingAs($admin, 'sanctum')
+            ->getJson("/api/video/{$this->paidLecture->id}/stream");
+
+        $res->assertOk();
+    }
+
+    // =========================================================================
+    // ATTACK-18 / INV-08: Stale Memoisation Cache Invalidation
+    // =========================================================================
+    public function test_cache_invalidation_flushes_per_request_memoisation(): void
+    {
+        $sub = Subscription::create([
+            'user_id'   => $this->student->id,
+            'plan_id'   => $this->plan->id,
+            'status'    => 'active',
+            'starts_at' => Carbon::now()->subDay(),
+            'ends_at'   => Carbon::now()->addDays(29),
+        ]);
+
+        $service = app(ContentAccessService::class);
+        $this->assertTrue($service->canAccessLecture($this->student, $this->paidLecture));
+
+        // Sub expires and cache is flushed
+        $sub->update(['ends_at' => Carbon::now()->subMinute()]);
+        ContentAccessService::flushRequestCache();
+
+        $this->assertFalse($service->canAccessLecture($this->student, $this->paidLecture));
+    }
+
+    // =========================================================================
+    // ATTACK-20: Stream Token Uniqueness Under Concurrency
+    // =========================================================================
+    public function test_stream_tokens_are_cryptographically_unique(): void
+    {
+        Subscription::create([
+            'user_id'   => $this->student->id,
+            'plan_id'   => $this->plan->id,
+            'status'    => 'active',
+            'starts_at' => Carbon::now()->subDay(),
+            'ends_at'   => Carbon::now()->addDays(29),
+        ]);
+
+        $tokens = [];
+        for ($i = 0; $i < 10; $i++) {
+            $res = $this->actingAs($this->student, 'sanctum')
+                ->getJson("/api/video/{$this->paidLecture->id}/stream");
+            $res->assertOk();
+            $token = $res->json('data.token');
+            $this->assertNotNull($token);
+            $this->assertNotContains($token, $tokens);
+            $tokens[] = $token;
+        }
+
+        $this->assertCount(10, array_unique($tokens));
     }
 }

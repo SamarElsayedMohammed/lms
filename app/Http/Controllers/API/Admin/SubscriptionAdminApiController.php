@@ -389,6 +389,19 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
+            \App\Services\AuditLogService::log(
+                action: 'manual_subscription_approved',
+                target: $subscription,
+                summary: "Approved manual subscription #{$subscription->id} for user #{$subscription->user_id}",
+                details: [
+                    'subscription_id' => $subscription->id,
+                    'user_id' => $subscription->user_id,
+                    'plan_id' => $subscription->plan_id,
+                    'starts_at' => $subscription->starts_at?->toDateTimeString(),
+                    'ends_at' => $subscription->ends_at?->toDateTimeString(),
+                ]
+            );
+
             try {
                 if ($subscription->parent_subscription_id && $existingSubscription && $existingSubscription->plan_id === $subscription->plan_id) {
                     if (class_exists(\App\Notifications\SubscriptionRenewedNotification::class)) {
@@ -554,6 +567,17 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             DB::commit();
 
+            \App\Services\AuditLogService::log(
+                action: 'manual_subscription_rejected',
+                target: $subscription,
+                summary: "Rejected manual subscription #{$subscription->id} for user #{$subscription->user_id}",
+                details: [
+                    'subscription_id' => $subscription->id,
+                    'user_id' => $subscription->user_id,
+                    'reason' => $reason,
+                ]
+            );
+
             try {
                 $subscription->user->notify(new ManualSubscriptionStatusNotification($subscription));
             } catch (\Exception $e) {
@@ -575,6 +599,68 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
             return ApiResponseService::errorResponse('فشل في إتمام عملية الرفض: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Send manual expiry/renewal reminder to an active subscriber.
+     */
+    public function remindExpiry(Request $request, int|string $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('finance-edit');
+
+        $subscription = Subscription::with(['user', 'plan'])->find($id);
+        if (!$subscription) {
+            return ApiResponseService::errorResponse('الاشتراك غير موجود.', [], 404);
+        }
+
+        if (!$subscription->is_active) {
+            return ApiResponseService::errorResponse('لا يمكن إرسال تذكير لاشتراك غير نشط.');
+        }
+
+        if ($subscription->ends_at === null) {
+            return $this->jsonError('هذا الاشتراك مدى الحياة ولا ينتهي.', 400);
+        }
+
+        // Check if user has already renewed or has an active queued subscription
+        $hasQueuedRenewal = Subscription::where('user_id', $subscription->user_id)
+            ->where('id', '!=', $subscription->id)
+            ->where(function ($q) {
+                $q->where('status', Subscription::STATUS_PENDING)
+                  ->orWhere('status', Subscription::STATUS_ACTIVE);
+            })
+            ->where('starts_at', '>=', now())
+            ->exists();
+
+        if ($hasQueuedRenewal) {
+            return $this->jsonError('المستخدم قام بالتجديد مسبقاً ولديه اشتراك مفعل/مجدول.', 400);
+        }
+
+        $days = max(1, (int) now()->diffInDays($subscription->ends_at));
+
+        try {
+            $subscription->user?->notify(
+                new \App\Notifications\SubscriptionExpiryNotification($subscription, $days)
+            );
+        } catch (\Throwable $e) {
+            Log::warning("Manual expiry notification failed for sub #{$subscription->id}: " . $e->getMessage());
+        }
+
+        \App\Services\AuditLogService::log(
+            action: 'subscription_manual_expiry_reminder_sent',
+            target: $subscription,
+            summary: "Manual renewal reminder sent for subscription #{$subscription->id} (expires in {$days} days)",
+            details: [
+                'subscription_id' => $subscription->id,
+                'user_id'         => $subscription->user_id,
+                'days_remaining'  => $days,
+            ]
+        );
+
+        return $this->jsonSuccess(
+            "تم إرسال تذكير التجديد للمستخدم بنجاح (المتبقي: {$days} يوم).",
+            ['subscription_id' => $subscription->id, 'days_remaining' => $days]
+        );
     }
 
     /**

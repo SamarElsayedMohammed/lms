@@ -51,18 +51,17 @@ class CourseProgressService
             $detailed = $this->getDetailedProgress($userId, $courseId);
             $completedItems = $detailed['summary']['completed_items'] ?? 0;
             $totalItems = $detailed['summary']['total_items'] ?? 0;
-            $percentage = $detailed['course']['progress_percentage'] ?? 0;
+            $percentage = (float) ($detailed['course']['progress_percentage'] ?? 0);
             
-            // Ensure it doesn't exceed 100
-            if ($percentage > 100) {
-                $percentage = 100;
+            // Invariant: Course is completed if and only if EVERY required item is 100% completed
+            $isCompleted = $totalItems > 0 && $completedItems === $totalItems;
+            if ($isCompleted) {
+                $percentage = 100.0;
+                $status = 'completed';
+            } else {
+                $percentage = min(99.9, max(0.0, $percentage));
+                $status = $completedItems === 0 && $percentage === 0.0 ? 'not_started' : 'in_progress';
             }
-            
-            $status = match(true) {
-                $percentage == 0 => 'not_started',
-                $percentage == 100 => 'completed',
-                default => 'in_progress',
-            };
 
             $attributes = [
                 'completed_items' => $completedItems,
@@ -84,7 +83,7 @@ class CourseProgressService
             // caused a 100% course to recursively calculate itself.
             Cache::put("user:{$userId}:course:{$courseId}:progress", $progress, self::CACHE_TTL);
 
-            if ($percentage == 100) {
+            if ($isCompleted) {
                 app(\App\Services\CertificateService::class)->autoGenerateCertificate($userId, $courseId);
             }
         } catch (\Throwable $e) {
@@ -301,15 +300,20 @@ class CourseProgressService
             ];
         }
 
+        $courseCompleted = $totalItems > 0 && $completedItems === $totalItems;
+        $calculatedPercentage = $totalItems > 0
+            ? ($courseCompleted
+                ? 100.0
+                : min(99.9, max(0.0, round(($rawProgressScore / $totalItems) * 100, 2))))
+            : 0;
+
         return [
             'course' => [
                 'id' => $course->id,
                 'name' => $course->name,
                 'thumbnail' => $course->thumbnail,
-                'progress_percentage' => $totalItems > 0
-                    ? min(100.0, max(0.0, round(($rawProgressScore / $totalItems) * 100, 2)))
-                    : 0,
-                'status' => $completedItems === 0 ? 'not_started' : ($completedItems === $totalItems ? 'completed' : 'in_progress'),
+                'progress_percentage' => $calculatedPercentage,
+                'status' => $completedItems === 0 ? 'not_started' : ($courseCompleted ? 'completed' : 'in_progress'),
             ],
             'chapters' => $chaptersData,
             'next_item' => $nextItem,

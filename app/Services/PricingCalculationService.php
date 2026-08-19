@@ -18,6 +18,9 @@ use Illuminate\Support\Facades\Log;
 
 final class PricingCalculationService
 {
+    /** @var array<string, ?Country> */
+    private static array $countryCache = [];
+
     public function __construct(
         private GeoLocationService $geoLocationService,
         private CurrencyConversionService $currencyConversionService,
@@ -157,7 +160,10 @@ final class PricingCalculationService
         // Find currency for the given country
         if ($countryCode) {
             $countryCode = strtoupper($countryCode);
-            $country = \App\Models\Country::where('iso_code', $countryCode)->where('status', 1)->first();
+            if (!array_key_exists($countryCode, self::$countryCache)) {
+                self::$countryCache[$countryCode] = \App\Models\Country::where('iso_code', $countryCode)->where('status', 1)->first();
+            }
+            $country = self::$countryCache[$countryCode];
             if ($country && $country->currency_code) {
                 $currencyCode = strtoupper($country->currency_code);
             }

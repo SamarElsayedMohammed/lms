@@ -23,7 +23,10 @@ class CertificateService
     public function checkCourseCompletionStatus(int $userId, int $courseId): bool
     {
         $progress = app(CourseProgressService::class)->getProgressWithCache($userId, $courseId);
-        return $progress->status === 'completed' || ($progress->total_items > 0 && $progress->completed_items === $progress->total_items) || (float) $progress->progress_percentage >= 100.0;
+        return $progress->total_items > 0
+            && $progress->completed_items === $progress->total_items
+            && (float) $progress->progress_percentage >= 100.0
+            && $progress->status === 'completed';
     }
 
     /**

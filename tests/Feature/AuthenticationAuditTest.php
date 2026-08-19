@@ -20,11 +20,13 @@ class AuthenticationAuditTest extends TestCase
         \Spatie\Permission\Models\Role::firstOrCreate(['name' => config('constants.SYSTEM_ROLES.SUPER_ADMIN')]);
     }
 
-    public function test_login_from_second_web_device_automatically_revokes_first_session_and_returns_200()
+    public function test_login_exceeding_device_limit_returns_403_and_clear_devices_resets_sessions()
     {
         $user = User::factory()->create([
             'email' => 'test@example.com',
             'password' => Hash::make('password123'),
+            'allowed_devices_count' => 1,
+            'is_active' => 1,
         ]);
         $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
 
@@ -40,7 +42,7 @@ class AuthenticationAuditTest extends TestCase
         $response1->assertStatus(200);
         $this->assertEquals(1, UserDevice::where('user_id', $user->id)->count());
 
-        // Login second device of SAME type
+        // Login second device without clear_devices -> blocked with 403
         $response2 = $this->postJson('/api/user-login', [
             'type' => 'email',
             'email' => 'test@example.com',
@@ -49,71 +51,55 @@ class AuthenticationAuditTest extends TestCase
             'device_id' => 'device-2',
             'device_name' => 'Chrome PC 2'
         ]);
-        $response2->assertStatus(200);
-        
+        $response2->assertStatus(403)
+            ->assertJsonPath('errors.error_code', 'DEVICE_LIMIT_EXCEEDED');
+
+        // Login with clear_devices = true -> clears previous devices and succeeds
+        $response3 = $this->postJson('/api/user-login', [
+            'type' => 'email',
+            'email' => 'test@example.com',
+            'password' => 'password123',
+            'device_type' => 'web',
+            'device_id' => 'device-2',
+            'device_name' => 'Chrome PC 2',
+            'clear_devices' => true,
+        ]);
+        $response3->assertStatus(200);
+
         // Assert device-1 was removed, and only device-2 exists
         $this->assertEquals(1, UserDevice::where('user_id', $user->id)->count());
         $this->assertDatabaseHas('user_devices', ['device_id' => 'device-2']);
         $this->assertDatabaseMissing('user_devices', ['device_id' => 'device-1']);
-
-        // Assert token1 is revoked
-        $this->assertDatabaseMissing('personal_access_tokens', [
-            'tokenable_id' => $user->id,
-            'name' => 'device-1'
-        ]);
-        $this->assertDatabaseHas('personal_access_tokens', [
-            'tokenable_id' => $user->id,
-            'name' => 'device-2'
-        ]);
     }
 
-    public function test_login_from_third_device_total_limit_automatically_revokes_oldest_session()
+    public function test_same_device_relogin_updates_metadata_without_consuming_new_slot()
     {
         $user = User::factory()->create([
             'email' => 'limit@example.com',
             'password' => Hash::make('password123'),
+            'allowed_devices_count' => 1,
+            'is_active' => 1,
         ]);
         $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
 
-        $user->allowed_devices_count = 3;
-        $user->save();
-
         $this->postJson('/api/user-login', [
             'type' => 'email', 'email' => 'limit@example.com', 'password' => 'password123',
-            'device_type' => 'web', 'device_id' => 'device-web-1'
+            'device_type' => 'web', 'device_id' => 'device-web-1', 'device_name' => 'Old Name'
         ])->assertStatus(200);
-        
-        sleep(1);
 
+        $this->assertEquals(1, UserDevice::where('user_id', $user->id)->count());
+
+        // Re-login with SAME device_id
         $this->postJson('/api/user-login', [
             'type' => 'email', 'email' => 'limit@example.com', 'password' => 'password123',
-            'device_type' => 'android', 'device_id' => 'device-android-1'
+            'device_type' => 'web', 'device_id' => 'device-web-1', 'device_name' => 'Updated Name'
         ])->assertStatus(200);
 
-        sleep(1);
-
-        $this->postJson('/api/user-login', [
-            'type' => 'email', 'email' => 'limit@example.com', 'password' => 'password123',
-            'device_type' => 'ios', 'device_id' => 'device-ios-1'
-        ])->assertStatus(200);
-
-        $this->assertEquals(3, UserDevice::where('user_id', $user->id)->count());
-        $this->assertDatabaseHas('personal_access_tokens', ['name' => 'device-web-1']);
-
-        // Login device 4 (desktop)
-        $response4 = $this->postJson('/api/user-login', [
-            'type' => 'email', 'email' => 'limit@example.com', 'password' => 'password123',
-            'device_type' => 'desktop', 'device_id' => 'device-desktop-1'
+        $this->assertEquals(1, UserDevice::where('user_id', $user->id)->count());
+        $this->assertDatabaseHas('user_devices', [
+            'device_id' => 'device-web-1',
+            'device_name' => 'Updated Name',
         ]);
-        
-        $response4->assertStatus(200);
-        $this->assertEquals(3, UserDevice::where('user_id', $user->id)->count());
-
-        $this->assertDatabaseMissing('user_devices', ['device_id' => 'device-web-1']);
-        $this->assertDatabaseMissing('personal_access_tokens', ['name' => 'device-web-1']);
-        
-        $this->assertDatabaseHas('user_devices', ['device_id' => 'device-desktop-1']);
-        $this->assertDatabaseHas('personal_access_tokens', ['name' => 'device-desktop-1']);
     }
 
     public function test_invalid_credentials_return_error()

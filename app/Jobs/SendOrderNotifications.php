@@ -93,9 +93,13 @@ class SendOrderNotifications implements ShouldQueue
                     ->with('course.user')
                     ->get()
                     ->pluck('course.user')
-                    ->unique();
+                    ->filter()
+                    ->unique('id');
                 Log::info('Instructors found', ['count' => $instructors->count()]);
                 foreach ($instructors as $instructor) {
+                    if (!$instructor || empty($instructor->id)) {
+                        continue;
+                    }
                     $tokens = UserFcmToken::where('user_id', $instructor->id)
                         ->select(['fcm_token', 'platform_type'])
                         ->get();

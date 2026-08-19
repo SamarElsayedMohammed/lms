@@ -337,6 +337,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Lecture attachments (user-facing, gated by feature flag)
     Route::get('/lecture/{lectureId}/attachments', [CourseChapterApiController::class, 'getLectureAttachments']);
 
+    // Timestamped Video Notes
+    Route::get('/lecture/{lectureId}/notes', [\App\Http\Controllers\API\LectureNoteApiController::class, 'index']);
+    Route::post('/lecture/{lectureId}/notes', [\App\Http\Controllers\API\LectureNoteApiController::class, 'store']);
+    Route::put('/lecture/notes/{noteId}', [\App\Http\Controllers\API\LectureNoteApiController::class, 'update']);
+    Route::delete('/lecture/notes/{noteId}', [\App\Http\Controllers\API\LectureNoteApiController::class, 'destroy']);
+
     Route::options('/video/{lectureId}/stream', [VideoStreamController::class, 'corsPreflight']);
 
     /**
@@ -564,6 +570,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::post('curriculum', [CourseChaptersController::class, 'curriculumStore']);
             Route::get('curriculum/list', [CourseChaptersController::class, 'getCurriculumDataList']);
             Route::put('/curriculum/update-order', [CourseChaptersController::class, 'updateRankOfCurriculum']);
+            Route::match(['post', 'put'], '{id}/curriculum/reorder', [CourseChaptersController::class, 'updateRankOfCurriculum']);
             //Route::put('{id}/curriculum/change-status', [CourseChaptersController::class, 'changeCurriculumStatus']);
             Route::get('particular-curriculum/details', [
                 CourseChaptersController::class,
@@ -789,6 +796,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
         // Student Tracking (Next.js admin dashboard)
         Route::get('tracking', [\App\Http\Controllers\API\Admin\AdminTrackingApiController::class, 'index']);
+        Route::get('audit-logs', [\App\Http\Controllers\API\Admin\AdminAuditLogApiController::class, 'index']);
 
         // FAQs
         Route::get('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'index']);
@@ -854,6 +862,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Courses
         Route::get('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'index']);
         Route::post('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'store']);
+        Route::post('courses/bulk-status', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'bulkUpdateStatus']);
         Route::post('courses/import-excel', [\App\Http\Controllers\API\Admin\CourseExcelImportApiController::class, 'store']);
         Route::post('courses/{id}/approve', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'approve']);
         Route::post('courses/{id}/reject', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'reject']);
@@ -961,6 +970,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Comprehensive Subscriptions (Admin)
         Route::prefix('subscriptions')->group(function (): void {
             Route::get('/', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'comprehensiveIndex']);
+            Route::post('{id}/remind-expiry', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'remindExpiry']);
             // تقرير المشتركين لكل باقة — للسوبر أدمن فقط
             Route::get('/plan-report', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'planReport']);
             Route::get('/plan-report/export', [\App\Http\Controllers\API\Admin\SubscriptionAdminApiController::class, 'exportReport']);
