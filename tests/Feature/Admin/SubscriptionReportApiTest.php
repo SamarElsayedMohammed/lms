@@ -398,4 +398,66 @@ class SubscriptionReportApiTest extends TestCase
             ->assertJsonPath('data.summary.comparisons.expired.direction', 'neutral')
             ->assertJsonPath('data.summary.comparisons.expired.is_new', false);
     }
+
+    public function test_distinct_subscribers_and_subscriptions_count_are_differentiated(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Distinct Multi Plan',
+            'slug' => 'distinct-multi-plan',
+            'price' => 200,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        // Same user has 2 subscriptions in the period
+        for ($i = 0; $i < 2; $i++) {
+            $sub = Subscription::create([
+                'user_id' => $this->user->id,
+                'plan_id' => $plan->id,
+                'status' => Subscription::STATUS_ACTIVE,
+                'starts_at' => now()->subDays(2),
+                'ends_at' => now()->addDays(28),
+            ]);
+
+            SubscriptionPayment::create([
+                'subscription_id' => $sub->id,
+                'user_id' => $this->user->id,
+                'amount' => 200,
+                'final_amount' => 200,
+                'currency_code' => 'EGP',
+                'amount_egp' => 200,
+                'exchange_rate_snapshot' => 1,
+                'status' => SubscriptionPayment::STATUS_COMPLETED,
+                'payment_method' => 'card',
+                'resolved_country' => 'EG',
+                'paid_at' => now(),
+            ]);
+        }
+
+        $overviewRes = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=30d');
+
+        $overviewRes->assertOk();
+        $this->assertSame(1, $overviewRes->json('data.summary.total_subscribers'));
+        $this->assertSame(2, $overviewRes->json('data.summary.subscriptions_count'));
+        $this->assertSame(400.0, (float) $overviewRes->json('data.summary.total_revenue_egp'));
+
+        $planRow = collect($overviewRes->json('data.plans'))->firstWhere('plan_id', $plan->id);
+        $this->assertNotNull($planRow);
+        $this->assertSame(1, $planRow['total_subscribers']);
+        $this->assertSame(2, $planRow['subscriptions_count']);
+        $this->assertSame(400.0, (float) $planRow['total_revenue_egp']);
+
+        // Check detail report matches overview numbers
+        $detailRes = $this->actingAs($this->admin, 'sanctum')
+            ->getJson("/api/admin/reports/subscriptions/{$plan->id}?preset=30d");
+
+        $detailRes->assertOk();
+        $this->assertSame(1, $detailRes->json('data.summary.total_students'));
+        $this->assertSame(1, $detailRes->json('data.summary.total_subscribers'));
+        $this->assertSame(2, $detailRes->json('data.summary.subscriptions_count'));
+        $this->assertSame(400.0, (float) $detailRes->json('data.summary.total_revenue_egp'));
+        $this->assertSame(1, $detailRes->json('data.summary.active_subscribers'));
+    }
 }

@@ -11,7 +11,9 @@ use App\Models\WithdrawalRequest;
 use App\Notifications\CommissionPaidNotification;
 use App\Services\ApiResponseService;
 use App\Services\HelperService;
+use App\Services\Reports\ReportMoneySql;
 use App\Services\WalletService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +21,25 @@ use Illuminate\Support\Facades\Validator;
 
 class FinanceApiController extends Controller
 {
+    private function applyDateFilter($query, Request $request, string $column = 'created_at'): void
+    {
+        $tz = config('app.timezone', 'Africa/Cairo');
+        $dateFrom = $request->date_from ?? $request->from_date;
+        $dateTo = $request->date_to ?? $request->to_date;
+
+        if (!empty($dateFrom) && !empty($dateTo)) {
+            $start = Carbon::parse($dateFrom, $tz)->startOfDay();
+            $end = Carbon::parse($dateTo, $tz)->endOfDay();
+            $query->whereBetween($column, [$start, $end]);
+        } elseif (!empty($dateFrom)) {
+            $start = Carbon::parse($dateFrom, $tz)->startOfDay();
+            $query->where($column, '>=', $start);
+        } elseif (!empty($dateTo)) {
+            $end = Carbon::parse($dateTo, $tz)->endOfDay();
+            $query->where($column, '<=', $end);
+        }
+    }
+
     /**
      * Get admin finance dashboard data
      */
@@ -26,26 +47,33 @@ class FinanceApiController extends Controller
     {
         try {
             $this->ensureFinanceAdmin();
-            $totalCommissions = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
-                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
-            $totalInstructorCommissions = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
-                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
-            $totalPaidCommissions = Commission::where('commissions.status', 'paid')
+            $adminEgpSql = ReportMoneySql::commissionAdminEgpSql('commissions', 'orders');
+            $instructorEgpSql = ReportMoneySql::commissionInstructorEgpSql('commissions', 'orders');
+
+            $totalCommissions = (float) Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->sum(DB::raw($adminEgpSql));
+            $totalInstructorCommissions = (float) Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+                ->sum(DB::raw($instructorEgpSql));
+            $totalPaidCommissions = (float) Commission::where('commissions.status', 'paid')
                 ->join('orders', 'commissions.order_id', '=', 'orders.id')
-                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
-            $totalPendingCommissions = Commission::where('commissions.status', 'pending')
+                ->sum(DB::raw($adminEgpSql));
+            $totalPendingCommissions = (float) Commission::where('commissions.status', 'pending')
                 ->join('orders', 'commissions.order_id', '=', 'orders.id')
-                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
+                ->sum(DB::raw($adminEgpSql));
 
             // Monthly data (last 12 months)
+            $driver = DB::connection()->getDriverName();
+            $yearSql = $driver === 'sqlite' ? "cast(strftime('%Y', commissions.created_at) as integer)" : "YEAR(commissions.created_at)";
+            $monthSql = $driver === 'sqlite' ? "cast(strftime('%m', commissions.created_at) as integer)" : "MONTH(commissions.created_at)";
+
             $monthlyData = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
-                ->selectRaw('
-                    YEAR(commissions.created_at) as year,
-                    MONTH(commissions.created_at) as month,
-                    SUM(commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as admin_total,
-                    SUM(commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as instructor_total,
+                ->selectRaw("
+                    {$yearSql} as year,
+                    {$monthSql} as month,
+                    SUM({$adminEgpSql}) as admin_total,
+                    SUM({$instructorEgpSql}) as instructor_total,
                     COUNT(*) as commission_count
-                ')
+                ")
                 ->where('commissions.created_at', '>=', now()->subMonths(12))
                 ->groupBy('year', 'month')
                 ->orderBy('year', 'desc')
@@ -55,7 +83,7 @@ class FinanceApiController extends Controller
             // Top earning instructors
             $topInstructors = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
                 ->select('commissions.instructor_id')
-                ->selectRaw('SUM(commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as total_earnings')
+                ->selectRaw("SUM({$instructorEgpSql}) as total_earnings")
                 ->with('instructor:id,name,email')
                 ->where('commissions.status', 'paid')
                 ->groupBy('commissions.instructor_id')
@@ -98,6 +126,11 @@ class FinanceApiController extends Controller
         try {
             $this->ensureFinanceAdmin();
 
+            $request->merge([
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to'   => $request->date_to ?? $request->to_date,
+            ]);
+
             $validator = Validator::make($request->all(), [
                 'status' => 'nullable|in:pending,paid,cancelled',
                 'instructor_id' => 'nullable|exists:users,id',
@@ -116,27 +149,21 @@ class FinanceApiController extends Controller
 
             // Apply filters
             if ($request->filled('status')) {
-                $query->where('status', $request->status);
+                $query->where('commissions.status', $request->status);
             }
 
             if ($request->filled('instructor_id')) {
-                $query->where('instructor_id', $request->instructor_id);
+                $query->where('commissions.instructor_id', $request->instructor_id);
             }
 
             if ($request->filled('course_id')) {
-                $query->where('course_id', $request->course_id);
+                $query->where('commissions.course_id', $request->course_id);
             }
 
-            if ($request->filled('date_from')) {
-                $query->whereDate('created_at', '>=', $request->date_from);
-            }
-
-            if ($request->filled('date_to')) {
-                $query->whereDate('created_at', '<=', $request->date_to);
-            }
+            $this->applyDateFilter($query, $request, 'commissions.created_at');
 
             $perPage = $request->per_page ?? 15;
-            $commissions = $query->orderBy('created_at', 'desc')->paginate($perPage);
+            $commissions = $query->orderBy('commissions.created_at', 'desc')->paginate($perPage);
 
             return ApiResponseService::successResponse('Commissions retrieved successfully', $commissions);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -154,6 +181,11 @@ class FinanceApiController extends Controller
         try {
             $this->ensureFinanceAdmin();
 
+            $request->merge([
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to'   => $request->date_to ?? $request->to_date,
+            ]);
+
             $validator = Validator::make($request->all(), [
                 'instructor_id' => 'nullable|exists:users,id',
                 'date_from' => 'nullable|date',
@@ -164,28 +196,22 @@ class FinanceApiController extends Controller
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
-            $query = Commission::select('instructor_id')
+            $query = Commission::select('commissions.instructor_id')
                 ->selectRaw('
-                    SUM(instructor_commission_amount) as total_earnings,
-                    SUM(CASE WHEN status = "paid" THEN instructor_commission_amount ELSE 0 END) as paid_earnings,
-                    SUM(CASE WHEN status = "pending" THEN instructor_commission_amount ELSE 0 END) as pending_earnings,
+                    SUM(commissions.instructor_commission_amount) as total_earnings,
+                    SUM(CASE WHEN commissions.status = "paid" THEN commissions.instructor_commission_amount ELSE 0 END) as paid_earnings,
+                    SUM(CASE WHEN commissions.status = "pending" THEN commissions.instructor_commission_amount ELSE 0 END) as pending_earnings,
                     COUNT(*) as total_commissions
                 ')
                 ->with('instructor:id,name,email,wallet_balance');
 
             if ($request->filled('instructor_id')) {
-                $query->where('instructor_id', $request->instructor_id);
+                $query->where('commissions.instructor_id', $request->instructor_id);
             }
 
-            if ($request->filled('date_from')) {
-                $query->whereDate('created_at', '>=', $request->date_from);
-            }
+            $this->applyDateFilter($query, $request, 'commissions.created_at');
 
-            if ($request->filled('date_to')) {
-                $query->whereDate('created_at', '<=', $request->date_to);
-            }
-
-            $earnings = $query->groupBy('instructor_id')->orderBy('total_earnings', 'desc')->get();
+            $earnings = $query->groupBy('commissions.instructor_id')->orderBy('total_earnings', 'desc')->get();
 
             return ApiResponseService::successResponse('Instructor earnings retrieved successfully', $earnings);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -201,6 +227,11 @@ class FinanceApiController extends Controller
     public function getWalletTransactions(Request $request)
     {
         try {
+            $request->merge([
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to'   => $request->date_to ?? $request->to_date,
+            ]);
+
             $validator = Validator::make($request->all(), [
                 'user_id' => 'nullable|exists:users,id',
                 'transaction_type' => 'nullable|in:refund,purchase,commission,withdrawal,adjustment',
@@ -237,16 +268,10 @@ class FinanceApiController extends Controller
                 $query->where('type', $request->type);
             }
 
-            if ($request->filled('date_from')) {
-                $query->whereDate('created_at', '>=', $request->date_from);
-            }
-
-            if ($request->filled('date_to')) {
-                $query->whereDate('created_at', '<=', $request->date_to);
-            }
+            $this->applyDateFilter($query, $request, 'wallet_histories.created_at');
 
             $perPage = $request->per_page ?? 15;
-            $transactions = $query->orderBy('created_at', 'desc')->paginate($perPage);
+            $transactions = $query->orderBy('wallet_histories.created_at', 'desc')->paginate($perPage);
 
             return ApiResponseService::successResponse('Wallet transactions retrieved successfully', $transactions);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -331,6 +356,11 @@ class FinanceApiController extends Controller
         try {
             $this->ensureFinanceAdmin();
 
+            $request->merge([
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to'   => $request->date_to ?? $request->to_date,
+            ]);
+
             $validator = Validator::make($request->all(), [
                 'report_type' => 'required|in:daily,weekly,monthly,yearly',
                 'date_from' => 'nullable|date',
@@ -342,21 +372,19 @@ class FinanceApiController extends Controller
             }
 
             $reportType = $request->report_type;
-            $dateFrom = $request->date_from ?? now()->subDays(30);
-            $dateTo = $request->date_to ?? now();
+            $tz = config('app.timezone', 'Africa/Cairo');
+            $dateFrom = $request->filled('date_from') ? Carbon::parse($request->date_from, $tz)->startOfDay() : now($tz)->subDays(30)->startOfDay();
+            $dateTo = $request->filled('date_to') ? Carbon::parse($request->date_to, $tz)->endOfDay() : now($tz)->endOfDay();
 
-            $format = match ($reportType) {
-                'daily' => '%Y-%m-%d',
-                'weekly' => '%Y-%u',
-                'monthly' => '%Y-%m',
-                'yearly' => '%Y',
-            };
+            $datePeriodSql = ReportMoneySql::dateFormatSql('commissions.created_at', $reportType);
+            $adminEgpSql = ReportMoneySql::commissionAdminEgpSql('commissions', 'orders');
+            $instructorEgpSql = ReportMoneySql::commissionInstructorEgpSql('commissions', 'orders');
 
             $report = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
                 ->selectRaw("
-                    DATE_FORMAT(commissions.created_at, '{$format}') as period,
-                    SUM(commissions.admin_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as admin_total,
-                    SUM(commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)) as instructor_total,
+                    {$datePeriodSql} as period,
+                    SUM({$adminEgpSql}) as admin_total,
+                    SUM({$instructorEgpSql}) as instructor_total,
                     COUNT(*) as commission_count,
                     COUNT(CASE WHEN commissions.status = 'paid' THEN 1 END) as paid_count,
                     COUNT(CASE WHEN commissions.status = 'pending' THEN 1 END) as pending_count
@@ -608,16 +636,17 @@ class FinanceApiController extends Controller
             $walletBalance = $user->wallet_balance;
 
             // Get total earnings
-            $totalEarnings = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+            $instructorEgpSql = ReportMoneySql::commissionInstructorEgpSql('commissions', 'orders');
+            $totalEarnings = (float) Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
                 ->where('commissions.instructor_id', $user->id)
                 ->where('commissions.status', 'paid')
-                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
+                ->sum(DB::raw($instructorEgpSql));
 
             // Get pending earnings
-            $pendingEarnings = Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
+            $pendingEarnings = (float) Commission::join('orders', 'commissions.order_id', '=', 'orders.id')
                 ->where('commissions.instructor_id', $user->id)
                 ->where('commissions.status', 'pending')
-                ->sum(\Illuminate\Support\Facades\DB::raw('commissions.instructor_commission_amount * COALESCE(orders.exchange_rate_snapshot, 1)'));
+                ->sum(DB::raw($instructorEgpSql));
 
             // Get total withdrawals
             $totalWithdrawals = WithdrawalRequest::where('user_id', $user->id)->whereIn('status', [
@@ -705,6 +734,11 @@ class FinanceApiController extends Controller
     public function getAdminWithdrawalRequests(Request $request)
     {
         try {
+            $request->merge([
+                'date_from' => $request->date_from ?? $request->from_date,
+                'date_to'   => $request->date_to ?? $request->to_date,
+            ]);
+
             $validator = Validator::make($request->all(), [
                 'status' => 'nullable|in:pending,approved,rejected,processing,completed',
                 'user_id' => 'nullable|exists:users,id',
@@ -736,13 +770,7 @@ class FinanceApiController extends Controller
                 $query->where('user_id', $request->user_id);
             }
 
-            if ($request->filled('date_from')) {
-                $query->whereDate('created_at', '>=', $request->date_from);
-            }
-
-            if ($request->filled('date_to')) {
-                $query->whereDate('created_at', '<=', $request->date_to);
-            }
+            $this->applyDateFilter($query, $request, 'withdrawal_requests.created_at');
 
             $perPage = $request->per_page ?? 15;
             $withdrawalRequests = $query->orderBy('created_at', 'desc')->paginate($perPage);
@@ -781,6 +809,7 @@ class FinanceApiController extends Controller
             ]);
 
             // Get summary statistics
+            $withdrawalAmountSql = ReportMoneySql::withdrawalAmountEgpSql('withdrawal_requests');
             $summary = [
                 'total_requests' => WithdrawalRequest::count(),
                 'pending_requests' => WithdrawalRequest::where('status', 'pending')->count(),
@@ -788,9 +817,9 @@ class FinanceApiController extends Controller
                 'rejected_requests' => WithdrawalRequest::where('status', 'rejected')->count(),
                 'processing_requests' => WithdrawalRequest::where('status', 'processing')->count(),
                 'completed_requests' => WithdrawalRequest::where('status', 'completed')->count(),
-                'total_amount_pending' => WithdrawalRequest::where('status', 'pending')->sum(DB::raw('COALESCE(amount_egp, amount)')),
-                'total_amount_approved' => WithdrawalRequest::where('status', 'approved')->sum(DB::raw('COALESCE(amount_egp, amount)')),
-                'total_amount_completed' => WithdrawalRequest::where('status', 'completed')->sum(DB::raw('COALESCE(amount_egp, amount)')),
+                'total_amount_pending' => (float) WithdrawalRequest::where('status', 'pending')->sum(DB::raw($withdrawalAmountSql)),
+                'total_amount_approved' => (float) WithdrawalRequest::where('status', 'approved')->sum(DB::raw($withdrawalAmountSql)),
+                'total_amount_completed' => (float) WithdrawalRequest::where('status', 'completed')->sum(DB::raw($withdrawalAmountSql)),
             ];
 
             return ApiResponseService::successResponse('Withdrawal requests retrieved successfully', [

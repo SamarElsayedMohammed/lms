@@ -135,21 +135,156 @@ final class AdminTrackingApiController extends AdminCrudApiController
         }
 
         $paginator = $query->orderByDesc('order_courses.id')->paginate($perPage);
+        $items = collect($paginator->items());
 
-        $rows = collect($paginator->items())->map(function ($row) {
-            $userId = $row->order->user_id ?? 0;
-            $metrics = $this->resolveEnrollmentMetrics((int) $userId, (int) $row->course_id);
+        if ($items->isEmpty()) {
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'current_page' => $paginator->currentPage(),
+                    'last_page'    => $paginator->lastPage(),
+                    'per_page'     => $paginator->perPage(),
+                    'total'        => $paginator->total(),
+                    'data'         => [],
+                ],
+            ]);
+        }
+
+        $userIds = $items->map(fn ($r) => (int) ($r->order->user_id ?? 0))->unique()->filter()->values()->all();
+        $courseIds = $items->map(fn ($r) => (int) $r->course_id)->unique()->filter()->values()->all();
+
+        // 1. Batch load cached UserCourseProgress (NO N+1)
+        $progressMap = UserCourseProgress::whereIn('user_id', $userIds)
+            ->whereIn('course_id', $courseIds)
+            ->get()
+            ->keyBy(fn ($p) => "{$p->user_id}_{$p->course_id}");
+
+        // 2. Batch load all lectures for the page courses
+        $lectures = CourseChapterLecture::join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+            ->whereIn('course_chapters.course_id', $courseIds)
+            ->select('course_chapter_lectures.id', 'course_chapter_lectures.title', 'course_chapters.course_id')
+            ->get();
+        $lectureMap = $lectures->keyBy('id');
+        $allLectureIds = $lectures->pluck('id')->all();
+
+        // 3. Batch load video progress for page users & lectures
+        $videoProgressByUser = collect();
+        if (!empty($allLectureIds) && !empty($userIds)) {
+            $videoProgressByUser = VideoProgress::whereIn('user_id', $userIds)
+                ->whereIn('lecture_id', $allLectureIds)
+                ->orderByDesc('updated_at')
+                ->get()
+                ->groupBy('user_id');
+        }
+
+        // 4. Batch load curriculum tracking for page users & courses
+        $trackingByUserCourse = UserCurriculumTracking::join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+            ->whereIn('user_curriculum_trackings.user_id', $userIds)
+            ->whereIn('course_chapters.course_id', $courseIds)
+            ->select('user_curriculum_trackings.*', 'course_chapters.course_id')
+            ->orderByDesc('user_curriculum_trackings.updated_at')
+            ->get()
+            ->groupBy(fn ($t) => "{$t->user_id}_{$t->course_id}");
+
+        // 5. Batch fallback item counts
+        $curriculumCounts = DB::table('course_chapter_lectures as ccl')
+            ->join('course_chapters as cc', 'ccl.course_chapter_id', '=', 'cc.id')
+            ->whereIn('cc.course_id', $courseIds)
+            ->where('ccl.is_active', 1)
+            ->selectRaw('cc.course_id, COUNT(*) as cnt')
+            ->groupBy('cc.course_id')
+            ->pluck('cnt', 'course_id');
+
+        $quizCounts = DB::table('course_chapter_quizzes as ccq')
+            ->join('course_chapters as cc', 'ccq.course_chapter_id', '=', 'cc.id')
+            ->whereIn('cc.course_id', $courseIds)
+            ->where('ccq.is_active', 1)
+            ->selectRaw('cc.course_id, COUNT(*) as cnt')
+            ->groupBy('cc.course_id')
+            ->pluck('cnt', 'course_id');
+
+        $rows = $items->map(function ($row) use (
+            $progressMap, $lectureMap, $videoProgressByUser, $trackingByUserCourse, $curriculumCounts, $quizCounts
+        ) {
+            $userId = (int) ($row->order->user_id ?? 0);
+            $courseId = (int) $row->course_id;
+            $pairKey = "{$userId}_{$courseId}";
+
+            $cached = $progressMap->get($pairKey);
+            if ($cached !== null) {
+                $progressFloat = (float) $cached->progress_percentage;
+            } else {
+                $totalItems = ($curriculumCounts[$courseId] ?? 0) + ($quizCounts[$courseId] ?? 0);
+                if ($totalItems > 0) {
+                    $trackings = $trackingByUserCourse->get($pairKey, collect());
+                    $completedCount = $trackings->where('status', 'completed')->count();
+                    $progressFloat = ($completedCount / $totalItems) * 100;
+                } else {
+                    $progressFloat = 0.0;
+                }
+            }
+
+            $progress = (int) round(min(100, max(0, $progressFloat)));
+            $status = 'not_started';
+            if ($progress >= 100) {
+                $status = 'completed';
+            } elseif ($progress > 0) {
+                $status = 'in_progress';
+            }
+
+            // Determine latest video and tracking for this student & course
+            $userVideos = $videoProgressByUser->get($userId, collect());
+            $courseVideos = $userVideos->filter(function ($vp) use ($lectureMap, $courseId) {
+                $lec = $lectureMap->get($vp->lecture_id);
+                return $lec && (int) $lec->course_id === $courseId;
+            });
+            $latestVideo = $courseVideos->first();
+
+            $courseTrackings = $trackingByUserCourse->get($pairKey, collect());
+            $latestTracking = $courseTrackings->first();
+
+            $currentLesson = null;
+            $lastActivity = null;
+
+            if ($latestVideo !== null) {
+                $lecture = $lectureMap->get($latestVideo->lecture_id);
+                $currentLesson = $lecture?->title;
+                $lastActivity = $latestVideo->updated_at;
+            }
+
+            if ($latestTracking !== null) {
+                if ($lastActivity === null || $latestTracking->updated_at > $lastActivity) {
+                    $lastActivity = $latestTracking->updated_at;
+                }
+
+                if ($latestTracking->model_type === CourseChapterLecture::class || str_ends_with((string) $latestTracking->model_type, 'CourseChapterLecture')) {
+                    $lecture = $lectureMap->get($latestTracking->model_id);
+                    if ($lecture !== null) {
+                        $currentLesson = $lecture->title;
+                    }
+                }
+            }
+
+            if ($cached?->last_accessed_at !== null) {
+                if ($lastActivity === null || $cached->last_accessed_at > $lastActivity) {
+                    $lastActivity = $cached->last_accessed_at;
+                }
+            }
+
+            if ($currentLesson === null && $status === 'not_started') {
+                $currentLesson = 'Not Started';
+            }
 
             return [
                 'id'             => (int) $row->id,
                 'student_name'   => $row->order->user->name ?? 'Unknown',
                 'email'          => $row->order->user->email ?? 'Unknown',
                 'course_name'    => $row->course->title ?? 'Unknown',
-                'course_id'      => (int) $row->course_id,
-                'current_lesson' => $metrics['current_lesson'],
-                'progress'       => $metrics['progress'],
-                'status'         => $metrics['status'],
-                'last_activity'  => $metrics['last_activity'],
+                'course_id'      => $courseId,
+                'current_lesson' => $currentLesson,
+                'progress'       => $progress,
+                'status'         => $status,
+                'last_activity'  => $lastActivity instanceof Carbon ? $lastActivity->toIso8601String() : ($lastActivity ? Carbon::parse($lastActivity)->toIso8601String() : null),
             ];
         });
 
@@ -163,113 +298,5 @@ final class AdminTrackingApiController extends AdminCrudApiController
                 'data'         => $rows,
             ],
         ]);
-    }
-
-    /**
-     * @return array{progress: int, status: string, current_lesson: string|null, last_activity: string|null}
-     */
-    private function resolveEnrollmentMetrics(int $userId, int $courseId): array
-    {
-        $cached = UserCourseProgress::where('user_id', $userId)
-            ->where('course_id', $courseId)
-            ->first();
-
-        $progressFloat = $cached !== null
-            ? (float) $cached->progress_percentage
-            : $this->calculateProgressFromCurriculum($userId, $courseId);
-
-        $progress = (int) round(min(100, max(0, $progressFloat)));
-
-        $status = 'not_started';
-        if ($progress >= 100) {
-            $status = 'completed';
-        } elseif ($progress > 0) {
-            $status = 'in_progress';
-        }
-
-        $lectureIds = CourseChapterLecture::query()
-            ->whereHas('chapter', static fn ($q) => $q->where('course_id', $courseId))
-            ->pluck('id');
-
-        $latestVideo = VideoProgress::query()
-            ->where('user_id', $userId)
-            ->whereIn('lecture_id', $lectureIds)
-            ->orderByDesc('updated_at')
-            ->first();
-
-        $latestTracking = UserCurriculumTracking::query()
-            ->where('user_id', $userId)
-            ->whereHas('chapter', static fn ($q) => $q->where('course_id', $courseId))
-            ->orderByDesc('updated_at')
-            ->first();
-
-        $currentLesson = null;
-        $lastActivity = null;
-
-        if ($latestVideo !== null) {
-            $lecture = CourseChapterLecture::find($latestVideo->lecture_id);
-            $currentLesson = $lecture?->title;
-            $lastActivity = $latestVideo->updated_at;
-        }
-
-        if ($latestTracking !== null) {
-            if ($lastActivity === null || $latestTracking->updated_at > $lastActivity) {
-                $lastActivity = $latestTracking->updated_at;
-            }
-
-            if ($latestTracking->model_type === CourseChapterLecture::class) {
-                $lecture = CourseChapterLecture::find($latestTracking->model_id);
-                if ($lecture !== null) {
-                    $currentLesson = $lecture->title;
-                }
-            }
-        }
-
-        if ($cached?->last_accessed_at !== null) {
-            if ($lastActivity === null || $cached->last_accessed_at > $lastActivity) {
-                $lastActivity = $cached->last_accessed_at;
-            }
-        }
-
-        if ($currentLesson === null && $status === 'not_started') {
-            $currentLesson = 'Not Started';
-        }
-
-        return [
-            'progress'       => $progress,
-            'status'         => $status,
-            'current_lesson' => $currentLesson,
-            'last_activity'  => $lastActivity?->toIso8601String(),
-        ];
-    }
-
-    private function calculateProgressFromCurriculum(int $userId, int $courseId): float
-    {
-        $chapterIds = CourseChapter::where('course_id', $courseId)->pluck('id');
-
-        if ($chapterIds->isEmpty()) {
-            return 0.0;
-        }
-
-        $totalItems = DB::table('course_chapter_lectures')
-            ->whereIn('course_chapter_id', $chapterIds)
-            ->where('is_active', 1)
-            ->count()
-            + DB::table('course_chapter_quizzes')
-                ->whereIn('course_chapter_id', $chapterIds)
-                ->where('is_active', 1)
-                ->count();
-
-        if ($totalItems === 0) {
-            return 0.0;
-        }
-
-        $completedItems = UserCurriculumTracking::query()
-            ->where('user_id', $userId)
-            ->whereIn('course_chapter_id', $chapterIds)
-            ->where('status', 'completed')
-            ->count();
-
-        return ($completedItems / $totalItems) * 100;
     }
 }

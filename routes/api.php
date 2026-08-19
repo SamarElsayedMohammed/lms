@@ -998,6 +998,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::prefix('reports')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
             Route::get('filters', [ReportsApiController::class, 'getReportFilters']);
             Route::get('sales', [ReportsApiController::class, 'getSalesReport']);
+            Route::get('revenue', [ReportsApiController::class, 'getRevenueReport']);
+            Route::get('credit-cards-revenue', [ReportsApiController::class, 'getCreditCardsRevenueReport']);
+            Route::get('comprehensive', [ReportsApiController::class, 'getComprehensiveReport']);
             Route::get('commission', [ReportsApiController::class, 'getCommissionReport']);
             Route::get('course', [ReportsApiController::class, 'getCourseReport']);
             Route::get('instructor', [ReportsApiController::class, 'getInstructorReport']);
@@ -1157,6 +1160,9 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->middleware('role:S
     Route::prefix('reports')->middleware('role:Super Admin|Supervisor|Staff')->group(function (): void {
         Route::get('filters', [ReportsApiController::class, 'getReportFilters']); // Get all filter options
         Route::get('sales', [ReportsApiController::class, 'getSalesReport']); // Sales reports
+        Route::get('revenue', [ReportsApiController::class, 'getRevenueReport']);
+        Route::get('credit-cards-revenue', [ReportsApiController::class, 'getCreditCardsRevenueReport']);
+        Route::get('comprehensive', [ReportsApiController::class, 'getComprehensiveReport']);
         Route::get('commission', [ReportsApiController::class, 'getCommissionReport']); // Commission reports
         Route::get('course', [ReportsApiController::class, 'getCourseReport']); // Course reports
         Route::get('instructor', [ReportsApiController::class, 'getInstructorReport']); // Instructor reports

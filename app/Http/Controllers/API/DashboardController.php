@@ -29,6 +29,7 @@ use App\Models\User;
 use App\Models\WalletHistory;
 use App\Models\Wishlist;
 use App\Services\HelperService;
+use App\Services\Reports\ReportMoneySql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -39,17 +40,17 @@ class DashboardController extends Controller
 {
     private function orderAmountSql(string $alias = 'orders'): string
     {
-        return "COALESCE(NULLIF({$alias}.amount_egp, 0), {$alias}.final_price, 0)";
+        return ReportMoneySql::orderRevenueEgpSql($alias);
     }
 
     private function subscriptionAmountSql(string $alias = 'subscription_payments'): string
     {
-        return "COALESCE(NULLIF({$alias}.amount_egp, 0), NULLIF({$alias}.final_amount, 0) * COALESCE(NULLIF({$alias}.exchange_rate_snapshot, 0), CASE WHEN supported_currencies.use_manual_rate = 1 THEN NULLIF(supported_currencies.manual_exchange_rate_to_egp, 0) ELSE NULLIF(supported_currencies.exchange_rate_to_egp, 0) END, 1), NULLIF({$alias}.amount, 0) * COALESCE(NULLIF({$alias}.exchange_rate_snapshot, 0), 1), 0)";
+        return ReportMoneySql::subscriptionRevenueEgpSql($alias);
     }
 
     private function refundAmountSql(string $alias = 'refund_requests'): string
     {
-        return "COALESCE(NULLIF({$alias}.amount_egp, 0), NULLIF({$alias}.refund_amount, 0) * COALESCE(NULLIF({$alias}.exchange_rate_snapshot, 0), 1), 0)";
+        return ReportMoneySql::refundAmountEgpSql($alias);
     }
 
     /**

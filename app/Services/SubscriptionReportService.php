@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
+use App\Services\Reports\ReportMoneySql;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -43,11 +44,12 @@ final class SubscriptionReportService
 
         // 1. Current Period Metrics
         $currentPaymentsQuery = $this->getBasePaymentsQuery($currentStart, $currentEnd, $paymentMethod, $country, $statusFilter);
-        $currentRevenueEgp = (float) (clone $currentPaymentsQuery)->sum(DB::raw($this->getEgpAmountSql()));
+        $currentRevenueEgp = (float) (clone $currentPaymentsQuery)->sum(DB::raw(ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments')));
         $currentOrdersCount = (int) (clone $currentPaymentsQuery)->count();
 
         $currentSubsQuery = $this->getBaseSubscriptionsQuery($currentStart, $currentEnd, $statusFilter, $paymentMethod, $country);
         $currentSubscribersCount = (int) (clone $currentSubsQuery)->distinct('user_id')->count('user_id');
+        $currentSubscriptionsCount = (int) (clone $currentSubsQuery)->count();
         $currentActiveCount = (int) (clone $currentSubsQuery)->where('status', Subscription::STATUS_ACTIVE)
             ->distinct('user_id')->count('user_id');
         $currentExpiredCount = (int) (clone $currentSubsQuery)->where('status', Subscription::STATUS_EXPIRED)
@@ -57,7 +59,7 @@ final class SubscriptionReportService
 
         // 2. Previous Period Metrics (for comparisons)
         $prevPaymentsQuery = $this->getBasePaymentsQuery($prevStart, $prevEnd, $paymentMethod, $country, $statusFilter);
-        $prevRevenueEgp = (float) (clone $prevPaymentsQuery)->sum(DB::raw($this->getEgpAmountSql()));
+        $prevRevenueEgp = (float) (clone $prevPaymentsQuery)->sum(DB::raw(ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments')));
         $prevOrdersCount = (int) (clone $prevPaymentsQuery)->count();
 
         $prevSubsQuery = $this->getBaseSubscriptionsQuery($prevStart, $prevEnd, $statusFilter, $paymentMethod, $country);
@@ -88,6 +90,7 @@ final class SubscriptionReportService
                 'total_revenue_egp' => round($currentRevenueEgp, 2),
                 'total_orders' => $currentOrdersCount,
                 'total_subscribers' => $currentSubscribersCount,
+                'subscriptions_count' => $currentSubscriptionsCount,
                 'total_active_subscribers' => $currentActiveCount,
                 'total_expired_subscribers' => $currentExpiredCount,
                 'total_cancelled_subscribers' => $currentCancelledCount,
@@ -149,11 +152,14 @@ final class SubscriptionReportService
         }
 
         $totalStudents = (int) (clone $currentPlanSubs)->distinct('user_id')->count('user_id');
+        $subscriptionsCount = (int) (clone $currentPlanSubs)->count();
         $activeSubs = (int) (clone $currentPlanSubs)->where('status', Subscription::STATUS_ACTIVE)
             ->distinct('user_id')->count('user_id');
         $expiredSubs = (int) (clone $currentPlanSubs)->where('status', Subscription::STATUS_EXPIRED)
             ->distinct('user_id')->count('user_id');
-        $totalRevenueEgp = (float) (clone $currentPlanPayments)->sum(DB::raw($this->getEgpAmountSql()));
+        $cancelledSubs = (int) (clone $currentPlanSubs)->where('status', Subscription::STATUS_CANCELLED)
+            ->distinct('user_id')->count('user_id');
+        $totalRevenueEgp = (float) (clone $currentPlanPayments)->sum(DB::raw(ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments')));
 
         // Previous plan metrics
         $prevPlanSubs = $this->getBaseSubscriptionsQuery($prevStart, $prevEnd, $statusFilter, $paymentMethod, $country)
@@ -179,7 +185,7 @@ final class SubscriptionReportService
             ->distinct('user_id')->count('user_id');
         $prevExpired = (int) (clone $prevPlanSubs)->where('status', Subscription::STATUS_EXPIRED)
             ->distinct('user_id')->count('user_id');
-        $prevRevenue = (float) (clone $prevPlanPayments)->sum(DB::raw($this->getEgpAmountSql()));
+        $prevRevenue = (float) (clone $prevPlanPayments)->sum(DB::raw(ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments')));
 
         $comparisons = [
             'students' => $this->buildComparisonMetric($totalStudents, $prevStudents),
@@ -203,8 +209,11 @@ final class SubscriptionReportService
             'status' => $plan->is_active ? 'active' : 'inactive',
             'summary' => [
                 'total_students' => $totalStudents,
+                'total_subscribers' => $totalStudents,
+                'subscriptions_count' => $subscriptionsCount,
                 'active_subscribers' => $activeSubs,
                 'expired_subscribers' => $expiredSubs,
+                'cancelled_subscribers' => $cancelledSubs,
                 'total_revenue_egp' => round($totalRevenueEgp, 2),
                 'comparisons' => $comparisons,
             ],
@@ -374,11 +383,7 @@ final class SubscriptionReportService
 
     private function getEgpAmountSql(): string
     {
-        return 'COALESCE('
-            . 'NULLIF(subscription_payments.amount_egp, 0), '
-            . 'COALESCE(NULLIF(subscription_payments.final_amount, 0), subscription_payments.amount, 0) '
-            . '* COALESCE(subscription_payments.exchange_rate_snapshot, 1), '
-            . '0)';
+        return ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments');
     }
 
     private function getPaymentDateSql(): string
@@ -516,10 +521,15 @@ final class SubscriptionReportService
             ->selectRaw('plan_id, COUNT(DISTINCT user_id) as aggregate_count')
             ->groupBy('plan_id')
             ->pluck('aggregate_count', 'plan_id');
+        $cancelledRows = $this->getBaseSubscriptionsQuery($start, $end, $status, $paymentMethod, $country)
+            ->where('status', Subscription::STATUS_CANCELLED)
+            ->selectRaw('plan_id, COUNT(DISTINCT user_id) as aggregate_count')
+            ->groupBy('plan_id')
+            ->pluck('aggregate_count', 'plan_id');
         $revenueRows = DB::table('subscription_payments')
             ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
             ->select('subscriptions.plan_id')
-            ->selectRaw('SUM(' . $this->getEgpAmountSql() . ') as total_revenue')
+            ->selectRaw('SUM(' . ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments') . ') as total_revenue')
             ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
             ->whereRaw($this->getPaymentDateSql() . ' BETWEEN ? AND ?', [$start, $end])
             ->when($paymentMethod, fn ($q) => $q->where('subscription_payments.payment_method', $paymentMethod))
@@ -534,6 +544,7 @@ final class SubscriptionReportService
             $subsCount = (int) ($subscriberRow->subscribers_count ?? 0);
             $activeCount = (int) ($activeRows->get($plan->id) ?? 0);
             $expiredCount = (int) ($expiredRows->get($plan->id) ?? 0);
+            $cancelledCount = (int) ($cancelledRows->get($plan->id) ?? 0);
             $revEgp = (float) ($revenueRows->get($plan->id) ?? 0);
 
             $variant = $this->resolveBadgeVariant($plan->name);
@@ -551,6 +562,7 @@ final class SubscriptionReportService
                 'subscriptions_count' => $subscriptionsCount,
                 'active_subscribers' => $activeCount,
                 'expired_subscribers' => $expiredCount,
+                'cancelled_subscribers' => $cancelledCount,
                 'total_revenue_egp' => round($revEgp, 2),
                 'price' => (float) $plan->price,
                 'is_active' => (bool) $plan->is_active,

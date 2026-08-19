@@ -10,6 +10,7 @@ use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
 use App\Services\ApiResponseService;
 use App\Services\AffiliateService;
+use App\Services\Reports\ReportMoneySql;
 use App\Services\SubscriptionPromoService;
 use App\Services\SubscriptionReportService;
 use App\Notifications\ManualSubscriptionStatusNotification;
@@ -46,9 +47,8 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         $activeSubscriptions = Subscription::where('status', Subscription::STATUS_ACTIVE)->count();
         
         // Total Revenue from completed payments (Converted to EGP)
-        $totalRevenue = SubscriptionPayment::where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
-            ->leftJoin('supported_currencies', 'subscription_payments.currency_code', '=', 'supported_currencies.currency_code')
-            ->sum(DB::raw('subscription_payments.final_amount * ' . $this->getEgpExchangeRateSql()));
+        $totalRevenue = (float) SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
+            ->sum(DB::raw(ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments')));
         
         // Split by payment method (manual vs others/auto)
         $manualPaymentsCount = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
@@ -713,10 +713,5 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             'Content-Type' => 'text/csv; charset=utf-8',
             'Content-Disposition' => 'attachment; filename="subscription-report.csv"',
         ]);
-    }
-
-    private function getEgpExchangeRateSql(): string
-    {
-        return 'COALESCE(IF(supported_currencies.use_manual_rate = 1 AND supported_currencies.manual_exchange_rate_to_egp > 0, supported_currencies.manual_exchange_rate_to_egp, supported_currencies.exchange_rate_to_egp), 1)';
     }
 }
