@@ -13,6 +13,10 @@ Route::get('admin/instructor-wallet-history', [\App\Http\Controllers\API\Finance
 // Certificate Verify (Public)
 Route::get('certificate/verify', [\App\Http\Controllers\CertificateController::class, 'verifyApi'])->middleware('throttle:10,1');
 
+Route::get('blog', [\App\Http\Controllers\API\PublicBlogController::class, 'index']);
+Route::get('blog/{slug}', [\App\Http\Controllers\API\PublicBlogController::class, 'show']);
+Route::get('article/{slug}', [\App\Http\Controllers\API\PublicBlogController::class, 'show']);
+
 // Webinar Contract
 Route::get('webinars', [\App\Http\Controllers\API\PublicWebinarController::class, 'index']);
 Route::get('webinars/{webinar:slug}', [\App\Http\Controllers\API\PublicWebinarController::class, 'show']);

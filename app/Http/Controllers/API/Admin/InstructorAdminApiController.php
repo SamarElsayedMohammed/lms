@@ -42,6 +42,23 @@ class InstructorAdminApiController extends AdminCrudApiController
 
         $perPage = min((int) $request->input('per_page', 15), 100);
         $instructors = $query->orderBy('id', 'desc')->paginate($perPage);
+        $metrics = \App\Services\Reports\InstructorCourseMetrics::countsForUsers(
+            $instructors->getCollection()->pluck('id')->map(static fn ($id) => (int) $id)->all()
+        );
+        $instructors->getCollection()->transform(function ($user) use ($metrics) {
+            $counts = $metrics[(int) $user->id] ?? [
+                'courses_count' => 0,
+                'owned_courses_count' => 0,
+                'assigned_courses_count' => 0,
+                'published_courses_count' => 0,
+            ];
+            $user->setAttribute('courses_count', $counts['courses_count']);
+            $user->setAttribute('owned_courses_count', $counts['owned_courses_count']);
+            $user->setAttribute('assigned_courses_count', $counts['assigned_courses_count']);
+            $user->setAttribute('published_courses_count', $counts['published_courses_count']);
+
+            return $user;
+        });
 
         return $this->jsonSuccess(__('Instructors retrieved'), $instructors);
     }

@@ -15,6 +15,9 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Mpdf\Mpdf;
 
+/**
+ * @deprecated Blade admin reporting. Canonical metrics live in ReportsApiController and SubscriptionReportService.
+ */
 class ReportsController extends Controller
 {
     /**

@@ -1,5 +1,12 @@
 #!/bin/sh
-# Liveness only. Coolify sets PORT at runtime — do not bake port 80 at image build.
-# Probe nginx's static /api/health/live so a full PHP-FPM pool cannot restart the container.
+# Liveness only. Try Coolify PORT first, then 80 — nginx may still be on 80.
+try_live() {
+    curl -fsS --max-time 2 "http://127.0.0.1:${1}/api/health/live"
+}
+
 port="${PORT:-80}"
-exec curl -fsS "http://127.0.0.1:${port}/api/health/live"
+try_live "$port" && exit 0
+if [ "$port" != "80" ]; then
+    try_live 80 && exit 0
+fi
+exit 1

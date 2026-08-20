@@ -30,6 +30,7 @@ use App\Models\WalletHistory;
 use App\Models\Wishlist;
 use App\Services\HelperService;
 use App\Services\Reports\ReportMoneySql;
+use App\Services\Reports\ReportingPeriodService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -82,52 +83,20 @@ class DashboardController extends Controller
      */
     private function resolvePeriodDates(DashboardReportRequest $request): array
     {
-        $period = (string) ($request->validated('period') ?? $request->validated('date_range') ?? '30_days');
-        $period = ['last_7_days' => '7_days', 'last_30_days' => '30_days'][$period] ?? $period;
-        $now = Carbon::now(config('app.timezone', 'Africa/Cairo'));
-
-        switch ($period) {
-            case '7_days':
-                $startDate = $now->copy()->subDays(6)->startOfDay();
-                $endDate = $now->copy()->endOfDay();
-                break;
-            case 'this_month':
-                $startDate = $now->copy()->startOfMonth();
-                $endDate = $now->copy()->endOfDay();
-                break;
-            case 'last_month':
-                $startDate = $now->copy()->subMonthNoOverflow()->startOfMonth();
-                $endDate = $now->copy()->subMonthNoOverflow()->endOfMonth();
-                break;
-            case 'this_year':
-                $startDate = $now->copy()->startOfYear();
-                $endDate = $now->copy()->endOfDay();
-                break;
-            case 'last_year':
-                $startDate = $now->copy()->subYear()->startOfYear();
-                $endDate = $now->copy()->subYear()->endOfYear();
-                break;
-            case 'custom':
-                $startDate = Carbon::createFromFormat('Y-m-d', (string) $request->validated('from'), $now->timezone)->startOfDay();
-                $endDate = Carbon::createFromFormat('Y-m-d', (string) $request->validated('to'), $now->timezone)->endOfDay();
-                break;
-            case '30_days':
-            default:
-                $startDate = $now->copy()->subDays(29)->startOfDay();
-                $endDate = $now->copy()->endOfDay();
-                break;
-        }
-
-        $durationSeconds = $startDate->diffInSeconds($endDate) + 1;
-        $prevEndDate = $startDate->copy()->subSecond();
-        $prevStartDate = $prevEndDate->copy()->subSeconds($durationSeconds - 1);
+        $rawPreset = (string) ($request->validated('period') ?? $request->validated('date_range') ?? '30_days');
+        $period = app(ReportingPeriodService::class)->resolve([
+            'preset' => $rawPreset,
+            'date_from' => $request->validated('from') ?? $request->validated('date_from'),
+            'date_to' => $request->validated('to') ?? $request->validated('date_to'),
+        ]);
 
         return [
-            'period' => $period,
-            'start' => $startDate,
-            'end' => $endDate,
-            'prev_start' => $prevStartDate,
-            'prev_end' => $prevEndDate,
+            'period' => $period->preset,
+            'start' => $period->start,
+            'end' => $period->end,
+            'prev_start' => $period->previousStart,
+            'prev_end' => $period->previousEnd,
+            'timezone' => $period->timezone,
         ];
     }
 

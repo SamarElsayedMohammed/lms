@@ -8,7 +8,11 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
 use App\Services\Reports\ReportMoneySql;
+use App\Services\Reports\ReportingPeriod;
+use App\Services\Reports\ReportingPeriodService;
+use App\Services\Reports\SubscriptionLifecycleQuery;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 final class SubscriptionReportService
@@ -25,6 +29,7 @@ final class SubscriptionReportService
         'OM' => ['name_ar' => 'عمان', 'name_en' => 'Oman', 'flag' => '🇴🇲', 'color' => '#ec4899'],
         'BH' => ['name_ar' => 'البحرين', 'name_en' => 'Bahrain', 'flag' => '🇧🇭', 'color' => '#06b6d4'],
         'JO' => ['name_ar' => 'الأردن', 'name_en' => 'Jordan', 'flag' => '🇯🇴', 'color' => '#84cc16'],
+        'UNASSIGNED' => ['name_ar' => 'غير محدد', 'name_en' => 'Unassigned', 'flag' => '🌐', 'color' => '#6b7280'],
     ];
 
     /**
@@ -32,11 +37,11 @@ final class SubscriptionReportService
      */
     public function getGlobalOverviewReport(array $filters): array
     {
-        $dates = $this->resolveFilterDates($filters);
-        $currentStart = $dates['current_start'];
-        $currentEnd = $dates['current_end'];
-        $prevStart = $dates['prev_start'];
-        $prevEnd = $dates['prev_end'];
+        $period = $this->resolvePeriod($filters);
+        $currentStart = $period->start;
+        $currentEnd = $period->end;
+        $prevStart = $period->previousStart;
+        $prevEnd = $period->previousEnd;
 
         $paymentMethod = $filters['payment_method'] ?? null;
         $country = isset($filters['country']) ? strtoupper((string) $filters['country']) : null;
@@ -47,15 +52,16 @@ final class SubscriptionReportService
         $currentRevenueEgp = (float) (clone $currentPaymentsQuery)->sum(DB::raw(ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments')));
         $currentOrdersCount = (int) (clone $currentPaymentsQuery)->count();
 
-        $currentSubsQuery = $this->getBaseSubscriptionsQuery($currentStart, $currentEnd, $statusFilter, $paymentMethod, $country);
-        $currentSubscribersCount = (int) (clone $currentSubsQuery)->distinct('user_id')->count('user_id');
-        $currentSubscriptionsCount = (int) (clone $currentSubsQuery)->count();
-        $currentActiveCount = (int) (clone $currentSubsQuery)->where('status', Subscription::STATUS_ACTIVE)
-            ->distinct('user_id')->count('user_id');
-        $currentExpiredCount = (int) (clone $currentSubsQuery)->where('status', Subscription::STATUS_EXPIRED)
-            ->distinct('user_id')->count('user_id');
-        $currentCancelledCount = (int) (clone $currentSubsQuery)->where('status', Subscription::STATUS_CANCELLED)
-            ->distinct('user_id')->count('user_id');
+        $lifecycle = $this->buildLifecycleMetrics($currentStart, $currentEnd, $statusFilter, $paymentMethod, $country);
+        $currentSubscribersCount = $lifecycle['new_unique_subscribers'];
+        $currentSubscriptionsCount = $lifecycle['subscription_records_started'];
+        $currentActiveCount = $lifecycle['active_at_period_end'];
+        $currentExpiredCount = $lifecycle['expired_events'];
+        $currentCancelledCount = $lifecycle['cancelled_events'];
+        $currentActiveRecords = $lifecycle['started_cohort_active_records'];
+        $currentExpiredRecords = $lifecycle['started_cohort_expired_records'];
+        $currentCancelledRecords = $lifecycle['started_cohort_cancelled_records'];
+        $currentPendingRecords = $lifecycle['started_cohort_pending_records'];
 
         // 2. Previous Period Metrics (for comparisons)
         $prevPaymentsQuery = $this->getBasePaymentsQuery($prevStart, $prevEnd, $paymentMethod, $country, $statusFilter);
@@ -63,9 +69,9 @@ final class SubscriptionReportService
         $prevOrdersCount = (int) (clone $prevPaymentsQuery)->count();
 
         $prevSubsQuery = $this->getBaseSubscriptionsQuery($prevStart, $prevEnd, $statusFilter, $paymentMethod, $country);
-        $prevSubscribersCount = (int) (clone $prevSubsQuery)->distinct('user_id')->count('user_id');
-        $prevExpiredCount = (int) (clone $prevSubsQuery)->where('status', Subscription::STATUS_EXPIRED)
-            ->distinct('user_id')->count('user_id');
+        $prevLifecycle = $this->buildLifecycleMetrics($prevStart, $prevEnd, $statusFilter, $paymentMethod, $country);
+        $prevSubscribersCount = $prevLifecycle['new_unique_subscribers'];
+        $prevExpiredCount = $prevLifecycle['expired_events'];
 
         // 3. Comparisons Calculation
         $comparisons = [
@@ -89,11 +95,26 @@ final class SubscriptionReportService
                 'total_plans' => count($plans),
                 'total_revenue_egp' => round($currentRevenueEgp, 2),
                 'total_orders' => $currentOrdersCount,
+                'new_unique_subscribers' => $lifecycle['new_unique_subscribers'],
+                'subscription_records_started' => $lifecycle['subscription_records_started'],
+                'active_during_period' => $lifecycle['active_during_period'],
+                'active_at_period_end' => $lifecycle['active_at_period_end'],
+                'active_now' => $lifecycle['active_now'],
+                'expired_events' => $lifecycle['expired_events'],
+                'cancelled_events' => $lifecycle['cancelled_events'],
+                'churned_subscribers' => null,
+                'started_cohort_active_unique' => $lifecycle['started_cohort_active_unique'],
+                'started_cohort_expired_unique' => $lifecycle['started_cohort_expired_unique'],
+                'started_cohort_cancelled_unique' => $lifecycle['started_cohort_cancelled_unique'],
                 'total_subscribers' => $currentSubscribersCount,
                 'subscriptions_count' => $currentSubscriptionsCount,
                 'total_active_subscribers' => $currentActiveCount,
                 'total_expired_subscribers' => $currentExpiredCount,
                 'total_cancelled_subscribers' => $currentCancelledCount,
+                'total_active_subscription_records' => $currentActiveRecords,
+                'total_expired_subscription_records' => $currentExpiredRecords,
+                'total_cancelled_subscription_records' => $currentCancelledRecords,
+                'total_pending_subscription_records' => $currentPendingRecords,
                 // No suspended state exists in the subscription lifecycle yet.
                 'total_suspended_subscribers' => null,
                 'comparisons' => $comparisons,
@@ -101,13 +122,7 @@ final class SubscriptionReportService
             'revenue_series' => $revenueSeries,
             'status_distribution' => $statusDistribution,
             'plans' => $plans,
-            'meta' => [
-                'currency' => 'EGP',
-                'timezone' => config('app.timezone'),
-                'current_period' => ['from' => $currentStart->toIso8601String(), 'to' => $currentEnd->toIso8601String()],
-                'previous_period' => ['from' => $prevStart->toIso8601String(), 'to' => $prevEnd->toIso8601String()],
-                'applied_filters' => array_filter($filters, static fn ($value) => $value !== null && $value !== ''),
-            ],
+            'meta' => $this->buildMeta($period, $filters),
         ];
     }
 
@@ -121,11 +136,11 @@ final class SubscriptionReportService
             throw new \InvalidArgumentException('الباقة غير موجودة.');
         }
 
-        $dates = $this->resolveFilterDates($filters);
-        $currentStart = $dates['current_start'];
-        $currentEnd = $dates['current_end'];
-        $prevStart = $dates['prev_start'];
-        $prevEnd = $dates['prev_end'];
+        $period = $this->resolvePeriod($filters);
+        $currentStart = $period->start;
+        $currentEnd = $period->end;
+        $prevStart = $period->previousStart;
+        $prevEnd = $period->previousEnd;
 
         $paymentMethod = $filters['payment_method'] ?? null;
         $country = isset($filters['country']) ? strtoupper((string) $filters['country']) : null;
@@ -151,14 +166,15 @@ final class SubscriptionReportService
             $currentPlanPayments->whereHas('subscription', fn ($q) => $q->withTrashed()->where('status', $statusFilter));
         }
 
-        $totalStudents = (int) (clone $currentPlanSubs)->distinct('user_id')->count('user_id');
-        $subscriptionsCount = (int) (clone $currentPlanSubs)->count();
-        $activeSubs = (int) (clone $currentPlanSubs)->where('status', Subscription::STATUS_ACTIVE)
-            ->distinct('user_id')->count('user_id');
-        $expiredSubs = (int) (clone $currentPlanSubs)->where('status', Subscription::STATUS_EXPIRED)
-            ->distinct('user_id')->count('user_id');
-        $cancelledSubs = (int) (clone $currentPlanSubs)->where('status', Subscription::STATUS_CANCELLED)
-            ->distinct('user_id')->count('user_id');
+        $lifecycle = $this->buildLifecycleMetrics($currentStart, $currentEnd, $statusFilter, $paymentMethod, $country, $planId);
+        $totalStudents = $lifecycle['new_unique_subscribers'];
+        $subscriptionsCount = $lifecycle['subscription_records_started'];
+        $activeSubs = $lifecycle['active_at_period_end'];
+        $expiredSubs = $lifecycle['expired_events'];
+        $cancelledSubs = $lifecycle['cancelled_events'];
+        $activeRecords = $lifecycle['started_cohort_active_records'];
+        $expiredRecords = $lifecycle['started_cohort_expired_records'];
+        $cancelledRecords = $lifecycle['started_cohort_cancelled_records'];
         $totalRevenueEgp = (float) (clone $currentPlanPayments)->sum(DB::raw(ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments')));
 
         // Previous plan metrics
@@ -197,8 +213,8 @@ final class SubscriptionReportService
         // Country breakdown table & distribution chart
         $countryBreakdown = $this->buildCountryBreakdown($planId, $currentStart, $currentEnd, $paymentMethod, $country, $statusFilter);
 
-        // Monthly growth (12-month series)
-        $monthlyGrowth = $this->buildMonthlyGrowth($planId, $paymentMethod, $country);
+        // Monthly growth is a rolling 12-calendar-month series, independent of the KPI period.
+        $monthlyGrowth = $this->buildMonthlyGrowth($planId, $paymentMethod, $country, $currentStart, $currentEnd);
 
         return [
             'plan_id' => $plan->id,
@@ -207,13 +223,28 @@ final class SubscriptionReportService
             'badge_variant' => $this->resolveBadgeVariant($plan->name),
             'billing_cycle' => $plan->billing_cycle ?? 'سنوي',
             'status' => $plan->is_active ? 'active' : 'inactive',
+            'catalog_price_egp' => (float) $plan->price,
             'summary' => [
                 'total_students' => $totalStudents,
                 'total_subscribers' => $totalStudents,
+                'new_unique_subscribers' => $lifecycle['new_unique_subscribers'],
+                'subscription_records_started' => $lifecycle['subscription_records_started'],
+                'active_during_period' => $lifecycle['active_during_period'],
+                'active_at_period_end' => $lifecycle['active_at_period_end'],
+                'active_now' => $lifecycle['active_now'],
+                'expired_events' => $lifecycle['expired_events'],
+                'cancelled_events' => $lifecycle['cancelled_events'],
+                'churned_subscribers' => null,
+                'started_cohort_active_unique' => $lifecycle['started_cohort_active_unique'],
+                'started_cohort_expired_unique' => $lifecycle['started_cohort_expired_unique'],
+                'started_cohort_cancelled_unique' => $lifecycle['started_cohort_cancelled_unique'],
                 'subscriptions_count' => $subscriptionsCount,
                 'active_subscribers' => $activeSubs,
                 'expired_subscribers' => $expiredSubs,
                 'cancelled_subscribers' => $cancelledSubs,
+                'active_subscription_records' => $activeRecords,
+                'expired_subscription_records' => $expiredRecords,
+                'cancelled_subscription_records' => $cancelledRecords,
                 'total_revenue_egp' => round($totalRevenueEgp, 2),
                 'comparisons' => $comparisons,
             ],
@@ -221,13 +252,9 @@ final class SubscriptionReportService
             'country_totals' => $countryBreakdown['totals'],
             'country_distribution' => $countryBreakdown['distribution'],
             'monthly_growth' => $monthlyGrowth,
-            'meta' => [
-                'currency' => 'EGP',
-                'timezone' => config('app.timezone'),
-                'current_period' => ['from' => $currentStart->toIso8601String(), 'to' => $currentEnd->toIso8601String()],
-                'previous_period' => ['from' => $prevStart->toIso8601String(), 'to' => $prevEnd->toIso8601String()],
-                'applied_filters' => array_filter($filters, static fn ($value) => $value !== null && $value !== ''),
-            ],
+            'meta' => array_merge($this->buildMeta($period, $filters), [
+                'monthly_growth_scope' => 'rolling_12_calendar_months',
+            ]),
         ];
     }
 
@@ -245,17 +272,44 @@ final class SubscriptionReportService
         }
 
         fwrite($stream, "\xEF\xBB\xBF");
-        fputcsv($stream, ['الرمز', 'الباقة', 'إجمالي المشتركين', 'النشطين', 'المنتهيين', 'إجمالي الإيرادات (ج.م)']);
+        fputcsv($stream, [
+            'الرمز',
+            'الباقة',
+            'مشتركون جدد',
+            'سجلات بدأت',
+            'نشطون بنهاية الفترة',
+            'انتهاء خلال الفترة',
+            'إلغاء خلال الفترة',
+            'إيرادات محصلة (ج.م)',
+            'سعر الكتالوج الحالي (ج.م)',
+            'الباقة نشطة',
+            'الباقة محذوفة',
+        ]);
 
         foreach ($plans as $p) {
             $code = $this->escapeCsvFormula((string) ($p['plan_code'] ?? 'plan'));
             $name = $this->escapeCsvFormula((string) $p['plan_name']);
-            $total = $p['subscribers_count'] ?? $p['total_subscribers'] ?? 0;
-            $active = $p['active_subscribers'];
-            $expired = $p['expired_subscribers'] ?? 0;
-            $revenue = number_format($p['total_revenue_egp'], 2, '.', '');
+            $total = $p['new_unique_subscribers'] ?? $p['subscribers_count'] ?? $p['total_subscribers'] ?? 0;
+            $records = $p['subscription_records_started'] ?? $p['subscriptions_count'] ?? 0;
+            $active = $p['active_at_period_end'] ?? $p['active_subscribers'];
+            $expired = $p['expired_events'] ?? $p['expired_subscribers'] ?? 0;
+            $cancelled = $p['cancelled_events'] ?? $p['cancelled_subscribers'] ?? 0;
+            $revenue = number_format((float) $p['total_revenue_egp'], 2, '.', '');
+            $catalog = number_format((float) ($p['catalog_price_egp'] ?? $p['price'] ?? 0), 2, '.', '');
 
-            fputcsv($stream, [$code, $name, $total, $active, $expired, $revenue]);
+            fputcsv($stream, [
+                $code,
+                $name,
+                $total,
+                $records,
+                $active,
+                $expired,
+                $cancelled,
+                $revenue,
+                $catalog,
+                !empty($p['is_active']) ? '1' : '0',
+                !empty($p['is_deleted']) ? '1' : '0',
+            ]);
         }
 
         rewind($stream);
@@ -272,70 +326,100 @@ final class SubscriptionReportService
 
     // ── Internal Helpers ───────────────────────────────────────────────────
 
-    private function resolveFilterDates(array $filters): array
+    private function resolvePeriod(array $filters): ReportingPeriod
     {
-        $preset = $filters['preset'] ?? '30d';
-        $now = Carbon::now();
+        return (new ReportingPeriodService())->resolve($filters);
+    }
 
-        if ($preset === 'today') {
-            $currentStart = $now->copy()->startOfDay();
-            $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $now->copy()->subDay()->startOfDay();
-            $prevEnd = $now->copy()->subDay()->endOfDay();
-        } elseif ($preset === '7d') {
-            $currentStart = $now->copy()->subDays(6)->startOfDay();
-            $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $currentStart->copy()->subDays(7);
-            $prevEnd = $currentStart->copy()->subSecond();
-        } elseif ($preset === '90d') {
-            $currentStart = $now->copy()->subDays(89)->startOfDay();
-            $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $currentStart->copy()->subDays(90);
-            $prevEnd = $currentStart->copy()->subSecond();
-        } elseif ($preset === '12m') {
-            $currentStart = $now->copy()->subMonths(11)->startOfMonth();
-            $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $currentStart->copy()->subMonths(12);
-            $prevEnd = $currentStart->copy()->subSecond();
-        } elseif ($preset === 'this_month') {
-            $currentStart = $now->copy()->startOfMonth();
-            $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $now->copy()->subMonthNoOverflow()->startOfMonth();
-            $prevEnd = $now->copy()->subMonthNoOverflow()->endOfMonth();
-        } elseif ($preset === 'last_month') {
-            $currentStart = $now->copy()->subMonthNoOverflow()->startOfMonth();
-            $currentEnd = $now->copy()->subMonthNoOverflow()->endOfMonth();
-            $prevStart = $now->copy()->subMonthsNoOverflow(2)->startOfMonth();
-            $prevEnd = $now->copy()->subMonthsNoOverflow(2)->endOfMonth();
-        } elseif ($preset === 'this_year') {
-            $currentStart = $now->copy()->startOfYear();
-            $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $currentStart->copy()->subYearNoOverflow();
-            $prevEnd = $currentEnd->copy()->subYearNoOverflow();
-        } elseif ($preset === 'all' || $preset === 'all_time') {
-            $currentStart = Carbon::create(2000, 1, 1, 0, 0, 0);
-            $currentEnd = $now->copy()->endOfDay();
-            $prevStart = Carbon::create(2000, 1, 1, 0, 0, 0);
-            $prevEnd = Carbon::create(2000, 1, 1, 0, 0, 0);
-        } elseif ($preset === 'custom' && !empty($filters['date_from']) && !empty($filters['date_to'])) {
-            $currentStart = Carbon::parse($filters['date_from'])->startOfDay();
-            $currentEnd = Carbon::parse($filters['date_to'])->endOfDay();
-            $days = $currentStart->copy()->startOfDay()->diffInDays($currentEnd->copy()->startOfDay()) + 1;
-            $prevStart = $currentStart->copy()->subDays($days)->startOfDay();
-            $prevEnd = $currentStart->copy()->subSecond();
-        } else {
-            // Default 30d
-            $currentStart = $now->copy()->subDays(29)->startOfDay();
-            $currentEnd = $now->copy()->endOfDay();
-            $prevStart = $currentStart->copy()->subDays(30);
-            $prevEnd = $currentStart->copy()->subSecond();
-        }
+    /**
+     * @return array<string, int|null>
+     */
+    private function buildLifecycleMetrics(
+        Carbon $start,
+        Carbon $end,
+        string $status,
+        ?string $paymentMethod,
+        ?string $country,
+        ?int $planId = null,
+    ): array {
+        $started = $this->subscriptionScope($status, $paymentMethod, $country, $planId);
+        SubscriptionLifecycleQuery::startedInPeriod($started, $start, $end);
+
+        $overlapping = $this->subscriptionScope($status, $paymentMethod, $country, $planId);
+        SubscriptionLifecycleQuery::overlappingPeriod($overlapping, $start, $end);
+
+        $activeAtEnd = $this->subscriptionScope($status, $paymentMethod, $country, $planId);
+        SubscriptionLifecycleQuery::activeAt($activeAtEnd, $end);
+
+        $activeNow = $this->subscriptionScope($status, $paymentMethod, $country, $planId);
+        SubscriptionLifecycleQuery::activeAt($activeNow, Carbon::now((string) config('app.timezone', 'UTC')));
+
+        $expiredEvents = $this->subscriptionScope($status, $paymentMethod, $country, $planId);
+        SubscriptionLifecycleQuery::expiredEvents($expiredEvents, $start, $end);
+
+        $cancelledEvents = $this->subscriptionScope($status, $paymentMethod, $country, $planId);
+        SubscriptionLifecycleQuery::cancelledEvents($cancelledEvents, $start, $end);
 
         return [
-            'current_start' => $currentStart,
-            'current_end' => $currentEnd,
-            'prev_start' => $prevStart,
-            'prev_end' => $prevEnd,
+            'new_unique_subscribers' => $this->uniqueUserCount($started),
+            'subscription_records_started' => (int) (clone $started)->count(),
+            'active_during_period' => $this->uniqueUserCount($overlapping),
+            'active_at_period_end' => $this->uniqueUserCount($activeAtEnd),
+            'active_now' => $this->uniqueUserCount($activeNow),
+            'expired_events' => $this->uniqueUserCount($expiredEvents),
+            'cancelled_events' => $this->uniqueUserCount($cancelledEvents),
+            'started_cohort_active_unique' => $this->uniqueUserCount((clone $started)->where('status', Subscription::STATUS_ACTIVE)),
+            'started_cohort_expired_unique' => $this->uniqueUserCount((clone $started)->where('status', Subscription::STATUS_EXPIRED)),
+            'started_cohort_cancelled_unique' => $this->uniqueUserCount((clone $started)->where('status', Subscription::STATUS_CANCELLED)),
+            'started_cohort_active_records' => (int) (clone $started)->where('status', Subscription::STATUS_ACTIVE)->count(),
+            'started_cohort_expired_records' => (int) (clone $started)->where('status', Subscription::STATUS_EXPIRED)->count(),
+            'started_cohort_cancelled_records' => (int) (clone $started)->where('status', Subscription::STATUS_CANCELLED)->count(),
+            'started_cohort_pending_records' => (int) (clone $started)
+                ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+                ->count(),
+        ];
+    }
+
+    /**
+     * @return Builder<Subscription>
+     */
+    private function subscriptionScope(string $status, ?string $paymentMethod, ?string $country, ?int $planId = null): Builder
+    {
+        $query = Subscription::query();
+        if ($planId !== null) {
+            $query->where('plan_id', $planId);
+        }
+        if ($status !== 'all') {
+            $query->where('status', $status);
+        }
+        $this->applySubscriptionPaymentFilters($query, $paymentMethod, $country);
+
+        return $query;
+    }
+
+    /**
+     * @param  Builder<Subscription>  $query
+     */
+    private function uniqueUserCount(Builder $query): int
+    {
+        return (int) (clone $query)->distinct('user_id')->count('user_id');
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    private function buildMeta(ReportingPeriod $period, array $filters): array
+    {
+        return [
+            'currency' => 'EGP',
+            'timezone' => $period->timezone,
+            'generated_at' => Carbon::now($period->timezone)->toIso8601String(),
+            'data_scope' => 'subscription_lifecycle_and_settled_payments',
+            'current_period' => $period->currentIso(),
+            'previous_period' => $period->previousIso(),
+            'applied_filters' => array_filter($filters, static fn ($value) => $value !== null && $value !== ''),
+            'metric_grains' => $this->metricGrainMeta(),
         ];
     }
 
@@ -403,10 +487,35 @@ final class SubscriptionReportService
 
     private function getPaymentDateSql(): string
     {
-        // Older completed rows may predate paid_at. Their creation timestamp is
-        // the best available payment event date and prevents historical revenue
-        // from silently disappearing from reports.
-        return 'COALESCE(subscription_payments.paid_at, subscription_payments.created_at)';
+        return ReportMoneySql::subscriptionPaymentDateSql('subscription_payments');
+    }
+
+    /**
+     * Explicit grains so API consumers never treat unique people as subscription rows.
+     */
+    private function metricGrainMeta(): array
+    {
+        return [
+            'total_subscribers' => 'unique_users_with_subscription_starting_in_period',
+            'new_unique_subscribers' => 'unique_users_with_subscription_starting_in_period',
+            'subscriptions_count' => 'subscription_records_starting_in_period',
+            'subscription_records_started' => 'subscription_records_starting_in_period',
+            'active_during_period' => 'unique_users_whose_subscription_overlapped_the_period',
+            'active_at_period_end' => 'unique_users_active_at_period_end',
+            'active_now' => 'unique_users_active_at_current_time',
+            'total_active_subscribers' => 'unique_users_active_at_period_end',
+            'expired_events' => 'unique_users_with_ends_at_in_period',
+            'total_expired_subscribers' => 'unique_users_with_ends_at_in_period',
+            'cancelled_events' => 'unique_users_with_cancelled_at_in_period',
+            'total_cancelled_subscribers' => 'unique_users_with_cancelled_at_in_period',
+            'started_cohort_expired_unique' => 'unique_users_whose_period_start_row_currently_expired',
+            'status_distribution' => 'subscription_records_starting_in_period_current_status',
+            'total_revenue_egp' => 'completed_subscription_payments_settled_in_period',
+            'total_orders' => 'completed_subscription_payments_settled_in_period',
+            'catalog_price_egp' => 'current_plan_catalog_price_not_historical_paid_amount',
+            'country_price_egp' => 'average_historical_paid_amount_egp_in_country',
+            'churned_subscribers' => 'not_defined_immediate_renewal_is_not_churn',
+        ];
     }
 
     private function applyPaymentDateRange($query, Carbon $start, Carbon $end)
@@ -502,8 +611,16 @@ final class SubscriptionReportService
         $pending = (clone $q)->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])->count();
         $cancelled = (clone $q)->where('status', Subscription::STATUS_CANCELLED)->count();
         $total = $active + $expired + $pending + $cancelled;
+        $uniqueActive = (int) (clone $q)->where('status', Subscription::STATUS_ACTIVE)->distinct('user_id')->count('user_id');
+        $uniqueExpired = (int) (clone $q)->where('status', Subscription::STATUS_EXPIRED)->distinct('user_id')->count('user_id');
+        $uniqueCancelled = (int) (clone $q)->where('status', Subscription::STATUS_CANCELLED)->distinct('user_id')->count('user_id');
+        $uniquePending = (int) (clone $q)
+            ->whereIn('status', [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL])
+            ->distinct('user_id')
+            ->count('user_id');
 
         return [
+            'grain' => 'subscription_records',
             'active_count' => $active,
             'active_percentage' => $total > 0 ? round(($active / $total) * 100, 1) : 0,
             'expired_count' => $expired,
@@ -513,6 +630,10 @@ final class SubscriptionReportService
             'cancelled_count' => $cancelled,
             'cancelled_percentage' => $total > 0 ? round(($cancelled / $total) * 100, 1) : 0,
             'total_count' => $total,
+            'unique_active_count' => $uniqueActive,
+            'unique_expired_count' => $uniqueExpired,
+            'unique_pending_count' => $uniquePending,
+            'unique_cancelled_count' => $uniqueCancelled,
         ];
     }
 
@@ -520,27 +641,6 @@ final class SubscriptionReportService
     {
         $plans = SubscriptionPlan::withTrashed()->get();
         $result = [];
-
-        $subscriberRows = $this->getBaseSubscriptionsQuery($start, $end, $status, $paymentMethod, $country)
-            ->selectRaw('plan_id, COUNT(*) as subscriptions_count, COUNT(DISTINCT user_id) as subscribers_count')
-            ->groupBy('plan_id')
-            ->get()
-            ->keyBy('plan_id');
-        $activeRows = $this->getBaseSubscriptionsQuery($start, $end, $status, $paymentMethod, $country)
-            ->where('status', Subscription::STATUS_ACTIVE)
-            ->selectRaw('plan_id, COUNT(DISTINCT user_id) as aggregate_count')
-            ->groupBy('plan_id')
-            ->pluck('aggregate_count', 'plan_id');
-        $expiredRows = $this->getBaseSubscriptionsQuery($start, $end, $status, $paymentMethod, $country)
-            ->where('status', Subscription::STATUS_EXPIRED)
-            ->selectRaw('plan_id, COUNT(DISTINCT user_id) as aggregate_count')
-            ->groupBy('plan_id')
-            ->pluck('aggregate_count', 'plan_id');
-        $cancelledRows = $this->getBaseSubscriptionsQuery($start, $end, $status, $paymentMethod, $country)
-            ->where('status', Subscription::STATUS_CANCELLED)
-            ->selectRaw('plan_id, COUNT(DISTINCT user_id) as aggregate_count')
-            ->groupBy('plan_id')
-            ->pluck('aggregate_count', 'plan_id');
         $revenueRows = DB::table('subscription_payments')
             ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
             ->select('subscriptions.plan_id')
@@ -554,14 +654,8 @@ final class SubscriptionReportService
             ->pluck('total_revenue', 'subscriptions.plan_id');
 
         foreach ($plans as $plan) {
-            $subscriberRow = $subscriberRows->get($plan->id);
-            $subscriptionsCount = (int) ($subscriberRow->subscriptions_count ?? 0);
-            $subsCount = (int) ($subscriberRow->subscribers_count ?? 0);
-            $activeCount = (int) ($activeRows->get($plan->id) ?? 0);
-            $expiredCount = (int) ($expiredRows->get($plan->id) ?? 0);
-            $cancelledCount = (int) ($cancelledRows->get($plan->id) ?? 0);
+            $life = $this->buildLifecycleMetrics($start, $end, $status, $paymentMethod, $country, (int) $plan->id);
             $revEgp = (float) ($revenueRows->get($plan->id) ?? 0);
-
             $variant = $this->resolveBadgeVariant($plan->name);
             $color = $this->resolveBadgeColor($variant);
 
@@ -572,14 +666,28 @@ final class SubscriptionReportService
                 'billing_cycle' => $plan->billing_cycle ?? 'سنوي',
                 'badge_variant' => $variant,
                 'badge_color' => $color,
-                'subscribers_count' => $subsCount,
-                'total_subscribers' => $subsCount,
-                'subscriptions_count' => $subscriptionsCount,
-                'active_subscribers' => $activeCount,
-                'expired_subscribers' => $expiredCount,
-                'cancelled_subscribers' => $cancelledCount,
+                'subscribers_count' => $life['new_unique_subscribers'],
+                'total_subscribers' => $life['new_unique_subscribers'],
+                'new_unique_subscribers' => $life['new_unique_subscribers'],
+                'subscription_records_started' => $life['subscription_records_started'],
+                'subscriptions_count' => $life['subscription_records_started'],
+                'active_during_period' => $life['active_during_period'],
+                'active_at_period_end' => $life['active_at_period_end'],
+                'active_now' => $life['active_now'],
+                'expired_events' => $life['expired_events'],
+                'cancelled_events' => $life['cancelled_events'],
+                'active_subscribers' => $life['active_at_period_end'],
+                'expired_subscribers' => $life['expired_events'],
+                'cancelled_subscribers' => $life['cancelled_events'],
+                'started_cohort_active_unique' => $life['started_cohort_active_unique'],
+                'started_cohort_expired_unique' => $life['started_cohort_expired_unique'],
+                'active_subscription_records' => $life['started_cohort_active_records'],
+                'expired_subscription_records' => $life['started_cohort_expired_records'],
+                'cancelled_subscription_records' => $life['started_cohort_cancelled_records'],
                 'total_revenue_egp' => round($revEgp, 2),
                 'price' => (float) $plan->price,
+                'catalog_price_egp' => (float) $plan->price,
+                'price_kind' => 'current_catalog_price',
                 'is_active' => (bool) $plan->is_active,
                 'is_deleted' => $plan->deleted_at !== null,
             ];
@@ -593,6 +701,11 @@ final class SubscriptionReportService
         $egpSql = ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments');
         $paymentDateSql = $this->getPaymentDateSql();
 
+        $countryExpr = ReportMoneySql::unassignedCountrySql(
+            'subscription_payments.resolved_country',
+            'users.country_code'
+        );
+
         $raw = DB::table('subscriptions')
             ->join('users', 'subscriptions.user_id', '=', 'users.id')
             ->leftJoin('subscription_payments', function ($join) use ($start, $end, $paymentDateSql) {
@@ -601,7 +714,7 @@ final class SubscriptionReportService
                     ->whereRaw($paymentDateSql . ' BETWEEN ? AND ?', [$start, $end]);
             })
             ->select(
-                DB::raw("UPPER(COALESCE(NULLIF(subscription_payments.resolved_country, ''), NULLIF(users.country_code, ''), 'EG')) as country_code"),
+                DB::raw("{$countryExpr} as country_code"),
                 DB::raw('COUNT(DISTINCT subscriptions.user_id) as subs_cnt'),
                 DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'active' THEN subscriptions.user_id END) as active_cnt"),
                 DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'expired' THEN subscriptions.user_id END) as expired_cnt"),
@@ -613,8 +726,8 @@ final class SubscriptionReportService
             ->whereBetween('subscriptions.starts_at', [$start, $end])
             ->when($status !== 'all', fn($q) => $q->where('subscriptions.status', $status))
             ->when($paymentMethod, fn($q) => $q->where('subscription_payments.payment_method', $paymentMethod))
-            ->when($country, fn($q) => $q->whereRaw("UPPER(COALESCE(NULLIF(subscription_payments.resolved_country, ''), NULLIF(users.country_code, ''), 'EG')) = ?", [$country]))
-            ->groupBy(DB::raw("UPPER(COALESCE(NULLIF(subscription_payments.resolved_country, ''), NULLIF(users.country_code, ''), 'EG'))"))
+            ->when($country, fn($q) => $q->whereRaw("{$countryExpr} = ?", [$country]))
+            ->groupBy(DB::raw($countryExpr))
             ->get();
 
         $table = [];
@@ -623,10 +736,11 @@ final class SubscriptionReportService
         $totalRevenue = 0.0;
 
         foreach ($raw as $row) {
-            $cc = strtoupper($row->country_code ?: 'UNKNOWN');
+            $cc = strtoupper((string) ($row->country_code ?: 'UNASSIGNED'));
+            $isUnassigned = in_array($cc, ['UNASSIGNED', 'UNKNOWN'], true);
             $meta = self::COUNTRY_META[$cc] ?? [
-                'name_ar' => $cc === 'UNKNOWN' ? 'غير محدد' : $cc,
-                'name_en' => $cc === 'UNKNOWN' ? 'Unknown' : $cc,
+                'name_ar' => $isUnassigned ? 'غير محدد' : $cc,
+                'name_en' => $isUnassigned ? 'Unassigned' : $cc,
                 'flag' => '🌐',
                 'color' => '#6b7280',
             ];
@@ -645,6 +759,7 @@ final class SubscriptionReportService
                 'country_name_en' => $meta['name_en'],
                 'flag_emoji' => $meta['flag'],
                 'price_egp' => round((float) $row->avg_price_egp, 2),
+                'price_kind' => 'average_historical_paid_amount',
                 'subscribers_count' => $subs,
                 'active_count' => (int) $row->active_cnt,
                 'expired_count' => $exp,
@@ -680,7 +795,7 @@ final class SubscriptionReportService
         ];
     }
 
-    private function buildMonthlyGrowth(int $planId, ?string $paymentMethod, ?string $country): array
+    private function buildMonthlyGrowth(int $planId, ?string $paymentMethod, ?string $country, Carbon $periodStart, Carbon $periodEnd): array
     {
         $series = [];
         $now = Carbon::now();
@@ -719,6 +834,8 @@ final class SubscriptionReportService
                 'cancelled_subscribers' => $cancelled,
                 'net_growth' => $new - $expired - $cancelled,
                 'active_subscribers_end_of_month' => $activeAtEnd,
+                'in_selected_period' => $monthEnd->gte($periodStart) && $monthStart->lte($periodEnd),
+                'series_scope' => 'rolling_12_calendar_months',
             ];
         }
 

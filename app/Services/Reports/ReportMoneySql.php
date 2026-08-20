@@ -29,9 +29,33 @@ final class ReportMoneySql
         return "COALESCE(NULLIF({$alias}.amount_egp, 0), NULLIF({$alias}.final_amount, 0) * COALESCE(NULLIF({$alias}.exchange_rate_snapshot, 0), 1), NULLIF({$alias}.amount, 0) * COALESCE(NULLIF({$alias}.exchange_rate_snapshot, 0), 1), 0)";
     }
 
+    /**
+     * Settlement date for subscription revenue. Legacy completed rows may lack paid_at.
+     */
+    public static function subscriptionPaymentDateSql(string $alias = 'subscription_payments'): string
+    {
+        return "COALESCE({$alias}.paid_at, {$alias}.created_at)";
+    }
+
+    public static function unassignedCountrySql(string ...$columns): string
+    {
+        $coalesceArgs = [];
+        foreach ($columns as $column) {
+            $coalesceArgs[] = "NULLIF({$column}, '')";
+        }
+        $coalesceArgs[] = "'UNASSIGNED'";
+
+        return 'UPPER(COALESCE(' . implode(', ', $coalesceArgs) . '))';
+    }
+
     public static function subscriptionRevenueLocalSql(string $alias = 'subscription_payments'): string
     {
         return "COALESCE(NULLIF({$alias}.final_amount, 0), {$alias}.amount, 0)";
+    }
+
+    public static function refundDateSql(string $alias = 'refund_requests'): string
+    {
+        return "COALESCE({$alias}.processed_at, {$alias}.created_at)";
     }
 
     public static function refundAmountEgpSql(string $alias = 'refund_requests'): string

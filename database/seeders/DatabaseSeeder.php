@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             RolePermissionSeeder::class,
             FeatureFlagSeeder::class,
             SupportedCurrencySeeder::class,
+            ArticleSeeder::class,
         ]);
     }
 }

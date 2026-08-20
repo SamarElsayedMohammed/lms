@@ -194,7 +194,8 @@ class SubscriptionReportApiTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertHeader('Content-Type', 'text/csv; charset=utf-8');
-        $this->assertStringContainsString('إجمالي المشتركين', $response->getContent());
+        $this->assertStringContainsString('مشتركون جدد', $response->getContent());
+        $this->assertStringContainsString('نشطون بنهاية الفترة', $response->getContent());
     }
 
     public function test_custom_period_requires_valid_ordered_dates(): void
@@ -383,7 +384,8 @@ class SubscriptionReportApiTest extends TestCase
         $response->assertOk();
         $this->assertSame(1, $response->json('data.summary.total_subscribers'));
         $this->assertSame(1, $response->json('data.summary.total_active_subscribers'));
-        $this->assertSame(0, $response->json('data.summary.total_expired_subscribers'));
+        $this->assertSame(1, $response->json('data.summary.expired_events'));
+        $this->assertSame(0, $response->json('data.summary.started_cohort_expired_unique'));
     }
 
     public function test_zero_to_zero_comparison_has_zero_percentage(): void
@@ -459,5 +461,180 @@ class SubscriptionReportApiTest extends TestCase
         $this->assertSame(2, $detailRes->json('data.summary.subscriptions_count'));
         $this->assertSame(400.0, (float) $detailRes->json('data.summary.total_revenue_egp'));
         $this->assertSame(1, $detailRes->json('data.summary.active_subscribers'));
+    }
+
+    public function test_status_distribution_uses_records_while_summary_uses_unique_users(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Grain Plan',
+            'slug' => 'grain-plan',
+            'price' => 100,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        foreach ([Subscription::STATUS_EXPIRED, Subscription::STATUS_CANCELLED] as $status) {
+            Subscription::create([
+                'user_id' => $this->user->id,
+                'plan_id' => $plan->id,
+                'status' => $status,
+                'starts_at' => now()->subDays(3),
+                'ends_at' => now()->addDays(10),
+                'cancelled_at' => $status === Subscription::STATUS_CANCELLED ? now()->subDay() : null,
+            ]);
+        }
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=30d');
+
+        $response->assertOk();
+        $this->assertSame(1, $response->json('data.summary.total_subscribers'));
+        $this->assertSame(2, $response->json('data.summary.subscriptions_count'));
+        $this->assertSame(0, $response->json('data.summary.expired_events'));
+        $this->assertSame(1, $response->json('data.summary.started_cohort_expired_unique'));
+        $this->assertSame(1, $response->json('data.summary.started_cohort_cancelled_unique'));
+        $this->assertSame(1, $response->json('data.summary.total_expired_subscription_records'));
+        $this->assertSame(1, $response->json('data.summary.total_cancelled_subscription_records'));
+        $this->assertSame('subscription_records', $response->json('data.status_distribution.grain'));
+        $this->assertSame(2, $response->json('data.status_distribution.total_count'));
+        $this->assertSame(
+            $response->json('data.status_distribution.total_count'),
+            $response->json('data.status_distribution.active_count')
+            + $response->json('data.status_distribution.expired_count')
+            + $response->json('data.status_distribution.pending_count')
+            + $response->json('data.status_distribution.cancelled_count')
+        );
+        $this->assertSame(
+            'unique_users_with_subscription_starting_in_period',
+            $response->json('data.meta.metric_grains.total_subscribers')
+        );
+    }
+
+    public function test_unassigned_country_is_not_forced_to_egypt(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Country Plan',
+            'slug' => 'country-plan',
+            'price' => 80,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+        $user = User::factory()->create(['country_code' => null]);
+        $subscription = Subscription::create([
+            'user_id' => $user->id,
+            'plan_id' => $plan->id,
+            'status' => Subscription::STATUS_ACTIVE,
+            'starts_at' => now(),
+            'ends_at' => now()->addMonth(),
+        ]);
+        SubscriptionPayment::create([
+            'subscription_id' => $subscription->id,
+            'user_id' => $user->id,
+            'amount' => 80,
+            'final_amount' => 80,
+            'amount_egp' => 80,
+            'currency_code' => 'EGP',
+            'exchange_rate_snapshot' => 1,
+            'status' => SubscriptionPayment::STATUS_COMPLETED,
+            'payment_method' => 'card',
+            'resolved_country' => null,
+            'paid_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson("/api/admin/reports/subscriptions/{$plan->id}?preset=30d");
+
+        $response->assertOk();
+        $countries = collect($response->json('data.country_breakdown'))->pluck('country_code');
+        $this->assertTrue($countries->contains('UNASSIGNED'));
+        $this->assertFalse($countries->contains('EG'));
+        $this->assertEquals(80.0, (float) $response->json('data.country_totals.total_revenue_egp'));
+        $this->assertEquals(80.0, (float) $response->json('data.summary.total_revenue_egp'));
+    }
+
+    public function test_soft_deleted_plan_keeps_historical_revenue_and_catalog_price_is_separate(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Deleted Revenue Plan',
+            'slug' => 'deleted-revenue-plan',
+            'price' => 999,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+        $subscription = Subscription::create([
+            'user_id' => $this->user->id,
+            'plan_id' => $plan->id,
+            'status' => Subscription::STATUS_EXPIRED,
+            'starts_at' => now()->subDays(2),
+            'ends_at' => now()->addDays(10),
+        ]);
+        SubscriptionPayment::create([
+            'subscription_id' => $subscription->id,
+            'user_id' => $this->user->id,
+            'amount' => 50,
+            'final_amount' => 50,
+            'amount_egp' => 50,
+            'currency_code' => 'EGP',
+            'exchange_rate_snapshot' => 1,
+            'status' => SubscriptionPayment::STATUS_COMPLETED,
+            'payment_method' => 'card',
+            'resolved_country' => 'SA',
+            'paid_at' => now(),
+        ]);
+        $plan->delete();
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=30d');
+
+        $response->assertOk();
+        $planRow = collect($response->json('data.plans'))->firstWhere('plan_id', $plan->id);
+        $this->assertNotNull($planRow);
+        $this->assertTrue($planRow['is_deleted']);
+        $this->assertSame(50.0, (float) $planRow['total_revenue_egp']);
+        $this->assertSame(999.0, (float) $planRow['catalog_price_egp']);
+        $this->assertSame('current_catalog_price', $planRow['price_kind']);
+        $this->assertSame(50.0, (float) $response->json('data.summary.total_revenue_egp'));
+    }
+
+    public function test_plan_status_buckets_are_unique_people_and_do_not_invent_active_from_unique_minus_expired(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'gold subsccription',
+            'slug' => 'gold-subsccription',
+            'price' => 600,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        foreach ([Subscription::STATUS_EXPIRED, Subscription::STATUS_EXPIRED, Subscription::STATUS_CANCELLED] as $index => $status) {
+            $user = $index === 0 ? $this->user : User::factory()->create();
+            Subscription::create([
+                'user_id' => $user->id,
+                'plan_id' => $plan->id,
+                'status' => $status,
+                'starts_at' => now()->subDays(4),
+                'ends_at' => now()->addDays(10),
+                'cancelled_at' => $status === Subscription::STATUS_CANCELLED ? now()->subDay() : null,
+            ]);
+        }
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/subscriptions?preset=30d');
+
+        $response->assertOk();
+        $planRow = collect($response->json('data.plans'))->firstWhere('plan_id', $plan->id);
+        $this->assertSame(3, $planRow['subscribers_count']);
+        $this->assertSame(0, $planRow['active_subscribers']);
+        $this->assertSame(0, $planRow['expired_events']);
+        $this->assertSame(2, $planRow['started_cohort_expired_unique']);
+        $this->assertSame(1, $planRow['cancelled_events']);
+        $this->assertNotEquals(
+            $planRow['subscribers_count'] - $planRow['started_cohort_expired_unique'],
+            $planRow['active_subscribers']
+        );
     }
 }

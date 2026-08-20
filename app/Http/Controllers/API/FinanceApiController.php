@@ -23,7 +23,7 @@ class FinanceApiController extends Controller
 {
     private function applyDateFilter($query, Request $request, string $column = 'created_at'): void
     {
-        $tz = config('app.timezone', 'Africa/Cairo');
+        $tz = (string) config('app.timezone', 'UTC');
         $dateFrom = $request->date_from ?? $request->from_date;
         $dateTo = $request->date_to ?? $request->to_date;
 
@@ -372,7 +372,7 @@ class FinanceApiController extends Controller
             }
 
             $reportType = $request->report_type;
-            $tz = config('app.timezone', 'Africa/Cairo');
+            $tz = (string) config('app.timezone', 'UTC');
             $dateFrom = $request->filled('date_from') ? Carbon::parse($request->date_from, $tz)->startOfDay() : now($tz)->subDays(30)->startOfDay();
             $dateTo = $request->filled('date_to') ? Carbon::parse($request->date_to, $tz)->endOfDay() : now($tz)->endOfDay();
 

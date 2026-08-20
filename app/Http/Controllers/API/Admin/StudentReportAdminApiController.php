@@ -399,7 +399,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->sortBy('month')
             ->values();
 
-        return $this->jsonSuccess('Completion statistics retrieved', [
+        return $this->jsonSuccess('Completion statistics retrieved', array_merge([
             'total_students'                       => $totalStudentsCount,
             'students_with_enrollments'            => $studentsWithEnrollments,
             'completed_students'                   => $brackets['all_completed'],
@@ -412,7 +412,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'top_completed_courses'                => $topCompletedCourses,
             'monthly_enrollment_trend'             => $combinedTrend,
             'generated_at'                         => Carbon::now()->toDateTimeString(),
-        ]);
+        ], $this->reportingGrains()));
     }
 
     // ─── Private helpers ──────────────────────────────────────────────────────
@@ -543,13 +543,13 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $studentIds = collect($students->items())->pluck('id')->toArray();
 
         if (empty($studentIds)) {
-            return [
+            return array_merge([
                 'data'         => [],
                 'current_page' => $students->currentPage(),
                 'last_page'    => $students->lastPage(),
                 'per_page'     => $students->perPage(),
                 'total'        => $students->total(),
-            ];
+            ], $this->reportingGrains());
         }
 
         // Batch query 1: all purchased course IDs for page students
@@ -673,13 +673,13 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ];
         });
 
-        return [
+        return array_merge([
             'data'         => $items,
             'current_page' => $students->currentPage(),
             'last_page'    => $students->lastPage(),
             'per_page'     => $students->perPage(),
             'total'        => $students->total(),
-        ];
+        ], $this->reportingGrains());
     }
 
     private function getDetailedReport(Request $request): array
@@ -904,12 +904,25 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ];
         });
 
-        return [
+        return array_merge([
             'data'         => $items,
             'current_page' => $paginated->currentPage(),
             'last_page'    => $paginated->lastPage(),
             'per_page'     => $paginated->perPage(),
             'total'        => $paginated->total(),
+        ], $this->reportingGrains());
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function reportingGrains(): array
+    {
+        return [
+            'account_grain' => 'student_role_accounts',
+            'access_grain' => 'completed_purchases_and_curriculum_tracking',
+            'progress_grain' => 'user_course_progress_or_completed_curriculum_item_ratio',
+            'subscription_catalog_access' => 'excluded_from_student_report_included_in_my_learning',
         ];
     }
 }

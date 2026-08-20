@@ -165,6 +165,9 @@ Route::get('system-languages', [ApiController::class, 'getSystemLanguages']);
 Route::get('faqs', [ApiController::class, 'getFaqs']); // Get FAQs (site-wide)
 Route::get('courses/{courseId}/faqs', [\App\Http\Controllers\API\CourseFaqPublicApiController::class, 'index']); // Get Course FAQs (public)
 Route::get('pages', [ApiController::class, 'getPages']); // Get Pages (with optional type and language_id filters)
+Route::get('blog', [\App\Http\Controllers\API\PublicBlogController::class, 'index']);
+Route::get('blog/{slug}', [\App\Http\Controllers\API\PublicBlogController::class, 'show']);
+Route::get('article/{slug}', [\App\Http\Controllers\API\PublicBlogController::class, 'show']);
 Route::get('seo-settings', [ApiController::class, 'getSeoSettings']); // Get SEO Settings (with optional type, language_id, and language_code filters)
 
 // Public certificate verification — returns only safe fields, no auth needed
@@ -803,6 +806,15 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('tracking', [\App\Http\Controllers\API\Admin\AdminTrackingApiController::class, 'index']);
         Route::get('audit-logs', [\App\Http\Controllers\API\Admin\AdminAuditLogApiController::class, 'index'])
             ->middleware('role:Super Admin|Supervisor');
+
+        // Blog / Articles
+        Route::get('blog', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'index']);
+        Route::post('blog', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'store']);
+        Route::post('blog/upload-image', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'uploadImage']);
+        Route::get('blog/{slug}', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'show']);
+        Route::put('blog/{slug}', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'update']);
+        Route::patch('blog/{slug}', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'update']);
+        Route::delete('blog/{slug}', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'destroy']);
 
         // FAQs
         Route::get('faqs', [\App\Http\Controllers\API\Admin\FaqAdminApiController::class, 'index']);
