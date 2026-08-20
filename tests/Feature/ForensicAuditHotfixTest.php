@@ -58,6 +58,8 @@ class ForensicAuditHotfixTest extends TestCase
         $this->assertStringContainsString('kill -0 1', $script);
         $this->assertStringContainsString('php-fpm', $script);
         $this->assertStringContainsString('nginx', $script);
+        $this->assertStringContainsString('/proc/', $script);
+        $this->assertStringNotContainsString('pgrep', $script);
         $this->assertStringNotContainsString('curl', $script);
         $this->assertStringNotContainsString('PORT', $script);
     }
