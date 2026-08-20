@@ -297,11 +297,26 @@ final class SubscriptionReportService
             $currentEnd = $now->copy()->endOfDay();
             $prevStart = $currentStart->copy()->subMonths(12);
             $prevEnd = $currentStart->copy()->subSecond();
+        } elseif ($preset === 'this_month') {
+            $currentStart = $now->copy()->startOfMonth();
+            $currentEnd = $now->copy()->endOfDay();
+            $prevStart = $now->copy()->subMonthNoOverflow()->startOfMonth();
+            $prevEnd = $now->copy()->subMonthNoOverflow()->endOfMonth();
+        } elseif ($preset === 'last_month') {
+            $currentStart = $now->copy()->subMonthNoOverflow()->startOfMonth();
+            $currentEnd = $now->copy()->subMonthNoOverflow()->endOfMonth();
+            $prevStart = $now->copy()->subMonthsNoOverflow(2)->startOfMonth();
+            $prevEnd = $now->copy()->subMonthsNoOverflow(2)->endOfMonth();
         } elseif ($preset === 'this_year') {
             $currentStart = $now->copy()->startOfYear();
-            $currentEnd = $now->copy();
+            $currentEnd = $now->copy()->endOfDay();
             $prevStart = $currentStart->copy()->subYearNoOverflow();
             $prevEnd = $currentEnd->copy()->subYearNoOverflow();
+        } elseif ($preset === 'all' || $preset === 'all_time') {
+            $currentStart = Carbon::create(2000, 1, 1, 0, 0, 0);
+            $currentEnd = $now->copy()->endOfDay();
+            $prevStart = Carbon::create(2000, 1, 1, 0, 0, 0);
+            $prevEnd = Carbon::create(2000, 1, 1, 0, 0, 0);
         } elseif ($preset === 'custom' && !empty($filters['date_from']) && !empty($filters['date_to'])) {
             $currentStart = Carbon::parse($filters['date_from'])->startOfDay();
             $currentEnd = Carbon::parse($filters['date_to'])->endOfDay();
@@ -575,24 +590,31 @@ final class SubscriptionReportService
 
     private function buildCountryBreakdown(int $planId, Carbon $start, Carbon $end, ?string $paymentMethod, ?string $country, string $status): array
     {
-        $raw = DB::table('subscription_payments')
-            ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
+        $egpSql = ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments');
+        $paymentDateSql = $this->getPaymentDateSql();
+
+        $raw = DB::table('subscriptions')
+            ->join('users', 'subscriptions.user_id', '=', 'users.id')
+            ->leftJoin('subscription_payments', function ($join) use ($start, $end, $paymentDateSql) {
+                $join->on('subscription_payments.subscription_id', '=', 'subscriptions.id')
+                    ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
+                    ->whereRaw($paymentDateSql . ' BETWEEN ? AND ?', [$start, $end]);
+            })
             ->select(
-                'subscription_payments.resolved_country as country_code',
+                DB::raw("UPPER(COALESCE(NULLIF(subscription_payments.resolved_country, ''), NULLIF(users.country_code, ''), 'EG')) as country_code"),
                 DB::raw('COUNT(DISTINCT subscriptions.user_id) as subs_cnt'),
                 DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'active' THEN subscriptions.user_id END) as active_cnt"),
                 DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'expired' THEN subscriptions.user_id END) as expired_cnt"),
                 DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'cancelled' THEN subscriptions.user_id END) as cancelled_cnt"),
-                DB::raw('SUM(' . $this->getEgpAmountSql() . ') as rev_egp'),
-                DB::raw('AVG(' . $this->getEgpAmountSql() . ') as avg_price_egp')
+                DB::raw('COALESCE(SUM(' . $egpSql . '), 0) as rev_egp'),
+                DB::raw('COALESCE(AVG(' . $egpSql . '), 0) as avg_price_egp')
             )
             ->where('subscriptions.plan_id', $planId)
-            ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
-            ->whereRaw($this->getPaymentDateSql() . ' BETWEEN ? AND ?', [$start, $end])
-            ->when($paymentMethod, fn($q) => $q->where('subscription_payments.payment_method', $paymentMethod))
-            ->when($country, fn($q) => $q->where('subscription_payments.resolved_country', $country))
+            ->whereBetween('subscriptions.starts_at', [$start, $end])
             ->when($status !== 'all', fn($q) => $q->where('subscriptions.status', $status))
-            ->groupBy('subscription_payments.resolved_country')
+            ->when($paymentMethod, fn($q) => $q->where('subscription_payments.payment_method', $paymentMethod))
+            ->when($country, fn($q) => $q->whereRaw("UPPER(COALESCE(NULLIF(subscription_payments.resolved_country, ''), NULLIF(users.country_code, ''), 'EG')) = ?", [$country]))
+            ->groupBy(DB::raw("UPPER(COALESCE(NULLIF(subscription_payments.resolved_country, ''), NULLIF(users.country_code, ''), 'EG'))"))
             ->get();
 
         $table = [];
