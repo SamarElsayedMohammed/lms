@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
@@ -12,14 +13,16 @@ use Tests\TestCase;
  */
 final class AdminLocaleTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_admin_dashboard_request_uses_arabic_locale(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('Admin');
+        $user->assignRole('Super Admin');
 
-        $response = $this->actingAs($user)->get(route('dashboard'));
+        $response = $this->actingAs($user, 'sanctum')->getJson('/api/dashboard-data');
 
         $response->assertStatus(200);
-        $response->assertSee('لوحة التحكم', false);
+        $this->assertEquals('ar', app()->getLocale());
     }
 }

@@ -216,4 +216,107 @@ final class ManualSubscriptionPaymentTest extends TestCase
         Notification::assertNotSentTo($user, SubscriptionActivatedNotification::class);
         Notification::assertSentTo($user, ManualSubscriptionStatusNotification::class);
     }
+
+    public function test_user_can_submit_manual_subscription_with_manual_deposit_prefixed_id(): void
+    {
+        Notification::fake();
+
+        $user = User::factory()->create(['wallet_balance' => 0.00]);
+        $plan = SubscriptionPlan::create([
+            'name' => 'Deposit Test Plan',
+            'slug' => 'deposit-test-plan',
+            'price' => 200.00,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        $depositMethod = \App\Models\ManualDepositMethod::create([
+            'name' => 'Vodafone Cash Direct',
+            'account_details' => '01012345678',
+            'instructions' => 'Transfer to 01012345678',
+            'is_active' => true,
+        ]);
+
+        $receipt = UploadedFile::fake()->create('receipt.png', 150, 'image/png');
+        $response = $this->actingAs($user, 'sanctum')
+            ->withHeader('Idempotency-Key', 'manual-deposit-prefix-' . uniqid())
+            ->post('/api/subscription/subscribe', [
+                'plan_id' => $plan->id,
+                'payment_method' => 'manual',
+                'payment_method_id' => "manual-deposit-{$depositMethod->id}",
+                'receipt' => $receipt,
+            ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('status', true);
+        $response->assertJsonPath('data.subscription.status', Subscription::STATUS_PENDING_APPROVAL);
+    }
+
+    public function test_duplicate_pending_subscription_returns_409_conflict(): void
+    {
+        $user = User::factory()->create();
+        $plan = SubscriptionPlan::create([
+            'name' => 'Duplicate Test Plan',
+            'slug' => 'duplicate-test-plan',
+            'price' => 100.00,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        // Create an already pending subscription
+        Subscription::create([
+            'user_id' => $user->id,
+            'plan_id' => $plan->id,
+            'starts_at' => now(),
+            'status' => Subscription::STATUS_PENDING_APPROVAL,
+        ]);
+
+        $method = PaymentMethod::create([
+            'name' => 'Instapay Test',
+            'type' => 'instapay',
+            'account_name' => 'Recipient',
+            'instapay_id' => 'rec@instapay',
+            'is_active' => true,
+        ]);
+
+        $receipt = UploadedFile::fake()->create('receipt.jpg', 100, 'image/jpeg');
+        $response = $this->actingAs($user, 'sanctum')
+            ->withHeader('Idempotency-Key', 'conflict-test-' . uniqid())
+            ->post('/api/subscription/subscribe', [
+                'plan_id' => $plan->id,
+                'payment_method' => 'manual',
+                'payment_method_id' => (string) $method->id,
+                'receipt' => $receipt,
+            ]);
+
+        $response->assertStatus(409);
+        $response->assertJsonPath('errors.reason', 'DUPLICATE_SUBSCRIPTION_REQUEST');
+    }
+
+    public function test_unavailable_manual_method_returns_422(): void
+    {
+        $user = User::factory()->create();
+        $plan = SubscriptionPlan::create([
+            'name' => 'Validation Test Plan',
+            'slug' => 'validation-test-plan',
+            'price' => 100.00,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        $receipt = UploadedFile::fake()->create('receipt.jpg', 100, 'image/jpeg');
+        $response = $this->actingAs($user, 'sanctum')
+            ->withHeader('Idempotency-Key', 'unavailable-test-' . uniqid())
+            ->post('/api/subscription/subscribe', [
+                'plan_id' => $plan->id,
+                'payment_method' => 'manual',
+                'payment_method_id' => 'non-existent-id-999',
+                'receipt' => $receipt,
+            ]);
+
+        $response->assertStatus(422);
+    }
 }

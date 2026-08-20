@@ -18,7 +18,7 @@ class SetAdminLocale
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if (auth()->check() && !$request->routeIs('login-page')) {
+        if ((auth()->check() || auth('sanctum')->check()) && !$request->routeIs('login-page')) {
             App::setLocale('ar');
         }
 

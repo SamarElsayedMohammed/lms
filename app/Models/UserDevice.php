@@ -67,12 +67,36 @@ class UserDevice extends Model
                     ->lockForUpdate()
                     ->count();
 
+                // Implicit Eviction: If limit reached or exceeded, atomically revoke the oldest session(s)
                 if ($currentCount >= $maxDevices) {
-                    return [
-                        'allowed' => false,
-                        'code' => 'DEVICE_LIMIT_EXCEEDED',
-                        'message' => 'لقد وصلت إلى الحد الأقصى للأجهزة المسموح بها. يمكنك تسجيل الخروج من الأجهزة الأخرى للمتابعة.'
-                    ];
+                    $excessCount = ($currentCount - $maxDevices) + 1;
+
+                    // Prefer evicting devices of the same device_type first, ordered by updated_at ASC
+                    $evictionCandidates = self::where('user_id', $userId)
+                        ->lockForUpdate()
+                        ->orderByRaw("CASE WHEN device_type = ? THEN 0 ELSE 1 END", [$deviceType])
+                        ->orderBy('updated_at', 'asc')
+                        ->orderBy('id', 'asc')
+                        ->limit($excessCount)
+                        ->get();
+
+                    foreach ($evictionCandidates as $candidate) {
+                        $evictedDeviceId = $candidate->device_id;
+
+                        // Atomically revoke Sanctum tokens for the evicted device
+                        if (!empty($evictedDeviceId)) {
+                            \Illuminate\Support\Facades\DB::table('personal_access_tokens')
+                                ->where('tokenable_id', $userId)
+                                ->where('tokenable_type', \App\Models\User::class)
+                                ->where(function ($q) use ($evictedDeviceId) {
+                                    $q->where('name', $evictedDeviceId)
+                                      ->orWhere('name', $evictedDeviceId . '-refresh');
+                                })
+                                ->delete();
+                        }
+
+                        $candidate->delete();
+                    }
                 }
 
                 // 3. Register the new device (handling potential legacy schema gracefully)

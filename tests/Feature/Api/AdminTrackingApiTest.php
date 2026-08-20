@@ -91,6 +91,8 @@ class AdminTrackingApiTest extends TestCase
             'user_id' => $admin->id,
             'category_id' => $category->id,
             'price' => 100.0,
+            'level' => 'all_levels',
+            'course_type' => 'paid',
             'is_active' => true,
             'status' => 'publish',
             'approval_status' => 'approved',
@@ -99,6 +101,7 @@ class AdminTrackingApiTest extends TestCase
         $order = \App\Models\Order::create([
             'user_id' => $student->id,
             'order_number' => 'ORD-TRK-01',
+            'payment_method' => 'manual',
             'total_price' => 100.0,
             'final_price' => 100.0,
             'status' => 'completed',
@@ -108,6 +111,7 @@ class AdminTrackingApiTest extends TestCase
             'order_id' => $order->id,
             'course_id' => $course->id,
             'price' => 100.0,
+            'tax_price' => 0.0,
         ]);
 
         \App\Models\UserCourseProgress::create([

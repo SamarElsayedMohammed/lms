@@ -85,13 +85,18 @@ COPY docker/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 
 # ─── 13. Startup script ───────────────────────────────────────────────────────
 COPY docker/start.sh /usr/local/bin/start.sh
-RUN chmod +x /usr/local/bin/start.sh
+COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/start.sh /usr/local/bin/healthcheck.sh
 
-# Liveness only — never /api/health/ready (503 on DB blip restarts the container).
-# Do not append `|| exit 0`; a failed probe must fail the HEALTHCHECK.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -fsS http://localhost/api/health/live || curl -fsS http://localhost/up
+# Liveness = nginx static /api/health/live on runtime PORT.
+# Never /api/health/ready (503 on a DB blip restarts the container).
+# Probe failure must fail HEALTHCHECK. Never force a successful exit.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD /usr/local/bin/healthcheck.sh
 
 EXPOSE 80
+
+# Keep laravel.log across container replace. Also add this path in Coolify persistent storage.
+VOLUME ["/var/www/html/storage/logs"]
 
 CMD ["/usr/local/bin/start.sh"]

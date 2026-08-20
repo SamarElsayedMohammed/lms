@@ -407,8 +407,9 @@ trait ServesApiAuth
                 ApiResponseService::validationError('بيانات الدخول غير صحيحة.');
             }
 
-            if (!empty($request->fcm_id)) {
-                UserFcmToken::updateOrCreate(['fcm_token' => $request->fcm_id], [
+            $fcmId = $request->fcm_id ?? $request->fcm_token;
+            if (!empty($fcmId)) {
+                UserFcmToken::updateOrCreate(['fcm_token' => $fcmId], [
                     'user_id' => $auth->id,
                     'platform_type' => $request->platform_type,
                     'created_at' => Carbon::now(),
@@ -594,8 +595,9 @@ trait ServesApiAuth
                 ApiResponseService::validationError('بيانات الدخول غير صحيحة.');
             }
 
-            if (!empty($request->fcm_id)) {
-                UserFcmToken::updateOrCreate(['fcm_token' => $request->fcm_id], [
+            $fcmId = $request->fcm_id ?? $request->fcm_token;
+            if (!empty($fcmId)) {
+                UserFcmToken::updateOrCreate(['fcm_token' => $fcmId], [
                     'user_id'       => $auth->id,
                     'platform_type' => $request->platform_type,
                     'created_at'    => Carbon::now(),
@@ -673,8 +675,9 @@ trait ServesApiAuth
             }
 
             // Update FCM token if provided
-            if (!empty($request->fcm_id)) {
-                UserFcmToken::updateOrCreate(['fcm_token' => $request->fcm_id], [
+            $fcmId = $request->fcm_id ?? $request->fcm_token;
+            if (!empty($fcmId)) {
+                UserFcmToken::updateOrCreate(['fcm_token' => $fcmId], [
                     'user_id' => $user->id,
                     'platform_type' => $request->platform_type,
                     'created_at' => Carbon::now(),
@@ -922,8 +925,9 @@ trait ServesApiAuth
             RoleManager::assignStudentRole($user);
 
             // Update FCM token if provided
-            if (!empty($request->fcm_id)) {
-                UserFcmToken::updateOrCreate(['fcm_token' => $request->fcm_id], [
+            $fcmId = $request->fcm_id ?? $request->fcm_token;
+            if (!empty($fcmId)) {
+                UserFcmToken::updateOrCreate(['fcm_token' => $fcmId], [
                     'user_id' => $user->id,
                     'platform_type' => $request->platform_type,
                     'created_at' => Carbon::now(),

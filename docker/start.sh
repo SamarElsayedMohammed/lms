@@ -36,7 +36,8 @@ php artisan route:cache    2>/dev/null || true
 # Run pending migrations (safe in staging — remove in strict production)
 php artisan migrate --force >> /var/log/supervisor/migrate.log 2>&1 || echo "migrate failed; see /var/log/supervisor/migrate.log"
 
-# ── Re-apply ownership & permissions AFTER artisan commands create/touch files ──
+# ── Re-apply ownership AFTER artisan. Never rm/truncate logs (they must survive restarts). ──
+# touch creates laravel.log only if missing; it does not wipe existing content.
 touch /var/www/html/storage/logs/laravel.log 2>/dev/null || true
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run 2>/dev/null || true
 chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/log /var/run 2>/dev/null || true

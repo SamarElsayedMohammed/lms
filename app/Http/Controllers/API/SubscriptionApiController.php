@@ -355,6 +355,33 @@ final class SubscriptionApiController extends Controller
                             'require_receipt' => (bool) $method->require_receipt,
                         ];
                     });
+
+                $depositMethods = ManualDepositMethod::query()
+                    ->where('is_active', true)
+                    ->get()
+                    ->map(function (ManualDepositMethod $deposit) {
+                        return [
+                            'id' => "manual-deposit-{$deposit->id}",
+                            'name' => $deposit->name,
+                            'type' => 'manual',
+                            'description' => $deposit->instructions ?: $deposit->account_details,
+                            'instructions' => $deposit->instructions ?: $deposit->account_details,
+                            'account_details' => [
+                                'type' => 'bank_transfer',
+                                'account_name' => $deposit->name,
+                                'account_number' => $deposit->account_details,
+                                'instructions' => $deposit->instructions,
+                            ],
+                            'account_name' => $deposit->name,
+                            'account_number' => $deposit->account_details,
+                            'image' => $deposit->image,
+                            'logo' => $deposit->image,
+                            'dynamic_fields' => [],
+                            'require_receipt' => true,
+                        ];
+                    });
+
+                $manualMethods = $manualMethods->concat($depositMethods);
             }
 
             $electronicGateways = collect([]);
@@ -801,7 +828,7 @@ final class SubscriptionApiController extends Controller
                     if ($appliedPromoCode) {
                         $this->promoService->releasePromo($appliedPromoCode);
                     }
-                    return ApiResponseService::errorResponse('فشل في إرسال طلب الاشتراك اليدوي: ' . $e->getMessage());
+                    return ApiResponseService::errorResponse('فشل في إرسال طلب الاشتراك اليدوي: ' . $e->getMessage(), [], 422);
                 }
             }
 
@@ -1182,7 +1209,7 @@ $totalAmount = (float) $countryPricing['price'];
                     if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
                         throw $e;
                     }
-                    return ApiResponseService::errorResponse('فشل في إرسال طلب التجديد اليدوي: ' . $e->getMessage());
+                    return ApiResponseService::errorResponse('فشل في إرسال طلب التجديد اليدوي: ' . $e->getMessage(), [], 422);
                 }
             }
 

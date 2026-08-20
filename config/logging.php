@@ -50,7 +50,8 @@ return [
     'channels' => [
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'daily,stderr')),
+            // stderr survives Coolify UI; single keeps laravel.log (daily files vanish on restart and look "wiped").
+            'channels' => explode(',', (string) env('LOG_STACK', 'stderr,single')),
             'ignore_exceptions' => (bool) env('LOG_IGNORE_EXCEPTIONS', true),
         ],
         'single' => [

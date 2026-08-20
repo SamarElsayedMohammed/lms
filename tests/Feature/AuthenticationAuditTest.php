@@ -20,7 +20,7 @@ class AuthenticationAuditTest extends TestCase
         \Spatie\Permission\Models\Role::firstOrCreate(['name' => config('constants.SYSTEM_ROLES.SUPER_ADMIN')]);
     }
 
-    public function test_login_exceeding_device_limit_returns_403_and_clear_devices_resets_sessions()
+    public function test_login_exceeding_device_limit_implicitly_evicts_oldest_device_and_succeeds()
     {
         $user = User::factory()->create([
             'email' => 'test@example.com',
@@ -30,7 +30,7 @@ class AuthenticationAuditTest extends TestCase
         ]);
         $user->assignRole(config('constants.SYSTEM_ROLES.USER'));
 
-        // Login first device
+        // 1. Login first device (device-1)
         $response1 = $this->postJson('/api/user-login', [
             'type' => 'email',
             'email' => 'test@example.com',
@@ -41,8 +41,9 @@ class AuthenticationAuditTest extends TestCase
         ]);
         $response1->assertStatus(200);
         $this->assertEquals(1, UserDevice::where('user_id', $user->id)->count());
+        $this->assertDatabaseHas('user_devices', ['device_id' => 'device-1']);
 
-        // Login second device without clear_devices -> blocked with 403
+        // 2. Login second device (device-2) on account with limit=1 -> succeeds via implicit eviction!
         $response2 = $this->postJson('/api/user-login', [
             'type' => 'email',
             'email' => 'test@example.com',
@@ -51,25 +52,18 @@ class AuthenticationAuditTest extends TestCase
             'device_id' => 'device-2',
             'device_name' => 'Chrome PC 2'
         ]);
-        $response2->assertStatus(403)
-            ->assertJsonPath('errors.error_code', 'DEVICE_LIMIT_EXCEEDED');
+        $response2->assertStatus(200);
 
-        // Login with clear_devices = true -> clears previous devices and succeeds
-        $response3 = $this->postJson('/api/user-login', [
-            'type' => 'email',
-            'email' => 'test@example.com',
-            'password' => 'password123',
-            'device_type' => 'web',
-            'device_id' => 'device-2',
-            'device_name' => 'Chrome PC 2',
-            'clear_devices' => true,
-        ]);
-        $response3->assertStatus(200);
-
-        // Assert device-1 was removed, and only device-2 exists
+        // Assert device count remains 1, device-1 was evicted, and device-2 is active
         $this->assertEquals(1, UserDevice::where('user_id', $user->id)->count());
         $this->assertDatabaseHas('user_devices', ['device_id' => 'device-2']);
         $this->assertDatabaseMissing('user_devices', ['device_id' => 'device-1']);
+
+        // Assert Sanctum tokens for device-1 were revoked
+        $this->assertDatabaseMissing('personal_access_tokens', [
+            'tokenable_id' => $user->id,
+            'name' => 'device-1',
+        ]);
     }
 
     public function test_same_device_relogin_updates_metadata_without_consuming_new_slot()
@@ -120,7 +114,7 @@ class AuthenticationAuditTest extends TestCase
 
         $response->assertJson([
             'status' => false,
-            'message' => 'Invalid email or password.'
+            'message' => 'البريد الإلكتروني أو كلمة المرور غير صحيحة.'
         ]);
     }
 
@@ -143,7 +137,7 @@ class AuthenticationAuditTest extends TestCase
 
         $response->assertJson([
             'status' => false,
-            'message' => 'User is deactivated. Please contact the administrator.'
+            'message' => 'تم تعطيل الحساب. يرجى التواصل مع الدعم.'
         ]);
     }
 }

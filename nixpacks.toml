@@ -73,7 +73,7 @@ php artisan route:cache    2>/dev/null || true
 # Run pending database migrations
 php artisan migrate --force 2>/dev/null || true
 
-# ── Re-apply ownership AFTER artisan creates/touches files ───────────────────
+# ── Re-apply ownership AFTER artisan. Never rm/truncate logs. ────────────────
 touch /app/storage/logs/laravel.log 2>/dev/null || true
 chown -R www-data:www-data /app/storage /app/bootstrap/cache 2>/dev/null || true
 chmod -R 775 /app/storage /app/bootstrap/cache 2>/dev/null || true
@@ -251,6 +251,13 @@ http {
 
         index index.php index.html index.htm;
         charset utf-8;
+
+        location = /api/health/live {
+            access_log off;
+            default_type application/json;
+            add_header Content-Type application/json always;
+            return 200 '{"status":"alive","via":"nginx"}';
+        }
 
         location / {
             try_files $uri $uri/ /index.php?$query_string;

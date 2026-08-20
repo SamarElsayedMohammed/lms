@@ -18,6 +18,11 @@ class ForceJsonResponseToSnakeCase
      */
     public function handle(Request $request, Closure $next)
     {
+        // Health probes must stay cheap. Recursing a large JSON body can OOM FPM (256M).
+        if ($request->is('api/health', 'api/health/live', 'api/health/ready')) {
+            return $next($request);
+        }
+
         $response = $next($request);
 
         if ($response instanceof JsonResponse) {
