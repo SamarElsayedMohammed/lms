@@ -580,7 +580,8 @@ trait ServesInstructorCourseOps
         $perPage = 10,
         $page = 1,
     ) {
-        // Get enrolled students with their enrollment date
+        // Paginate at the database before calculating progress. Progress
+        // reconciliation can be expensive, so it must only run for this page.
         $enrolledStudents = User::whereHas(
             "orders.orderCourses",
             static function ($query) use ($courseId): void {
@@ -602,12 +603,12 @@ trait ServesInstructorCourseOps
                         ->where("status", "completed");
                 },
             ])
-            ->get();
+            ->orderBy("users.id")
+            ->paginate($perPage, ["users.*"], "page", $page);
 
-        // Calculate progress for each student
-        $studentsWithProgress = $enrolledStudents->map(function ($student) use (
-            $courseId,
-        ) {
+        $studentsWithProgress = $enrolledStudents
+            ->getCollection()
+            ->map(function ($student) use ($courseId) {
             $enrollmentDate = $student->orders->first()->created_at;
             $progressPercentage = $this->calculateStudentProgress(
                 $student->id,
@@ -624,20 +625,14 @@ trait ServesInstructorCourseOps
                     : null,
                 "progress_percentage" => $progressPercentage,
             ];
-        });
-
-        // Apply pagination manually
-        $total = $studentsWithProgress->count();
-        $offset = ($page - 1) * $perPage;
-        $paginatedStudents = $studentsWithProgress
-            ->slice($offset, $perPage)
+            })
             ->values();
 
         return $this->replacePaginationFormat(
-            $paginatedStudents,
-            $page,
-            $perPage,
-            $total,
+            $studentsWithProgress,
+            $enrolledStudents->currentPage(),
+            $enrolledStudents->perPage(),
+            $enrolledStudents->total(),
         );
     }
 

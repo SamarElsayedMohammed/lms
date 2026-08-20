@@ -1323,6 +1323,8 @@ class SettingsController extends Controller
                         . '&domain_url='
                         . $app_url,
                     CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_CONNECTTIMEOUT => 3,
+                    CURLOPT_TIMEOUT => 8,
                     CURLOPT_MAXREDIRS => 10,
                     CURLOPT_FOLLOWLOCATION => true,
                     CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,

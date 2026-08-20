@@ -50,8 +50,8 @@ return [
     'channels' => [
         'stack' => [
             'driver' => 'stack',
-            // stderr survives Coolify UI; single keeps laravel.log (daily files vanish on restart and look "wiped").
-            'channels' => explode(',', (string) env('LOG_STACK', 'stderr,single')),
+            // stderr is visible in Coolify; daily files persist for forensics without filling the disk.
+            'channels' => explode(',', (string) env('LOG_STACK', 'stderr,daily')),
             'ignore_exceptions' => (bool) env('LOG_IGNORE_EXCEPTIONS', true),
         ],
         'single' => [
@@ -64,7 +64,7 @@ return [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
-            'days' => env('LOG_DAILY_DAYS', 7),
+            'days' => (int) env('LOG_DAILY_DAYS', 14),
             'replace_placeholders' => true,
         ],
         'slack' => [

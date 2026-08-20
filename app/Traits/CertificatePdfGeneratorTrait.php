@@ -35,38 +35,13 @@ trait CertificatePdfGeneratorTrait
 
         if ($lock->get()) {
             try {
-                // Double check in case another process just generated it
                 if ($disk->exists($filePath)) {
                     return $disk->get($filePath);
                 }
 
-                $widthMM  = round($widthPx  * 0.264583, 2);
-                $heightMM = round($heightPx * 0.264583, 2);
-
-                $mpdf = new Mpdf([
-                    'mode'             => 'utf-8',
-                    'format'           => [$widthMM, $heightMM],
-                    'margin_left'      => 0,
-                    'margin_right'     => 0,
-                    'margin_top'       => 0,
-                    'margin_bottom'    => 0,
-                    'autoScriptToLang' => true,
-                    'autoLangToFont'   => true,
-                    'tempDir'          => storage_path('app/temp'),
-                ]);
-
-                $mpdf->WriteHTML($html);
-                $pdfContent = $mpdf->Output('', 'S');
-                
+                $pdfContent = $this->renderCertificatePdf($html, $widthPx, $heightPx);
                 $disk->put($filePath, $pdfContent);
-
-                // Garbage Collection: Delete older cached versions of THIS certificate
-                $allFiles = $disk->files('certificates');
-                foreach ($allFiles as $file) {
-                    if (str_starts_with($file, "certificates/cert_{$certificateNumber}_") && $file !== $filePath) {
-                        $disk->delete($file);
-                    }
-                }
+                $this->forgetPreviousCertificatePdf($disk, $certificateNumber, $filePath);
 
                 return $pdfContent;
             } catch (\Exception $e) {
@@ -80,17 +55,15 @@ trait CertificatePdfGeneratorTrait
             }
         }
 
-        // If locked by another request, wait up to 10 seconds for it to finish
-        $waited = 0;
-        while ($waited < 10) {
-            sleep(1);
-            $waited++;
-            if ($disk->exists($filePath)) {
-                return $disk->get($filePath);
-            }
+        if ($disk->exists($filePath)) {
+            return $disk->get($filePath);
         }
 
-        // Fallback: Generate synchronously without caching to avoid completely hanging the user
+        return $this->renderCertificatePdf($html, $widthPx, $heightPx);
+    }
+
+    private function renderCertificatePdf(string $html, int $widthPx, int $heightPx): string
+    {
         $widthMM  = round($widthPx  * 0.264583, 2);
         $heightMM = round($heightPx * 0.264583, 2);
 
@@ -107,6 +80,18 @@ trait CertificatePdfGeneratorTrait
         ]);
 
         $mpdf->WriteHTML($html);
+
         return $mpdf->Output('', 'S');
+    }
+
+    private function forgetPreviousCertificatePdf($disk, string $certificateNumber, string $filePath): void
+    {
+        $cacheKey = "cert_pdf_path_{$certificateNumber}";
+        $previousPath = Cache::get($cacheKey);
+        if (is_string($previousPath) && $previousPath !== $filePath && $disk->exists($previousPath)) {
+            $disk->delete($previousPath);
+        }
+
+        Cache::put($cacheKey, $filePath, now()->addDays(30));
     }
 }

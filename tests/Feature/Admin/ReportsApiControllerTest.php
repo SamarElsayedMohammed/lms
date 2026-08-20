@@ -14,8 +14,11 @@ use App\Models\Order;
 use App\Models\OrderCourse;
 use App\Models\User;
 use App\Models\UserCourseProgress;
+use App\Services\Reports\UnifiedSalesTransactionQuery;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -453,6 +456,87 @@ final class ReportsApiControllerTest extends TestCase
         $this->assertGreaterThanOrEqual(1, (int) $response->json('data.total_courses'));
         $this->assertGreaterThanOrEqual(1, (int) $response->json('data.active_courses'));
         $this->assertGreaterThanOrEqual(1, (int) $response->json('data.paid_courses'));
+    }
+
+    public function test_course_report_defaults_to_published_active_courses_unless_all_is_explicit(): void
+    {
+        Course::factory()->create([
+            'user_id' => $this->instructorUser->id,
+            'category_id' => $this->category->id,
+            'is_active' => true,
+            'status' => 'draft',
+        ]);
+        Course::factory()->create([
+            'user_id' => $this->instructorUser->id,
+            'category_id' => $this->category->id,
+            'is_active' => false,
+            'status' => 'publish',
+        ]);
+
+        $defaultResponse = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/course');
+        $allResponse = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/course?status=all');
+
+        $defaultResponse->assertOk();
+        $allResponse->assertOk();
+        $this->assertSame(1, (int) $defaultResponse->json('data.total_courses'));
+        $this->assertSame(3, (int) $allResponse->json('data.total_courses'));
+    }
+
+    public function test_course_and_instructor_summaries_aggregate_in_sql(): void
+    {
+        $source = (string) file_get_contents(app_path('Http/Controllers/API/ReportsApiController.php'));
+
+        $courseSummary = $this->methodSource($source, 'getCourseSummaryData', 'getDetailedCourseData');
+        $this->assertStringContainsString('selectRaw', $courseSummary);
+        $this->assertStringNotContainsString("withAvg('ratings', 'rating')->get()", $courseSummary);
+
+        $instructorSummary = $this->methodSource($source, 'getInstructorSummaryData', 'getDetailedInstructorData');
+        $this->assertStringContainsString('selectRaw', $instructorSummary);
+        $this->assertStringContainsString("whereIn('instructors.user_id'", $instructorSummary);
+
+        $coursePerformance = $this->methodSource($source, 'getCoursePerformanceData', 'getInstructorSummaryData');
+        $this->assertStringContainsString('paginate(', $coursePerformance);
+
+        $instructorPerformance = $this->methodSource($source, 'getInstructorPerformanceData', 'getEnrollmentSummaryData');
+        $this->assertStringContainsString('paginate(', $instructorPerformance);
+    }
+
+    private function methodSource(string $source, string $method, string $nextMethod): string
+    {
+        $start = strpos($source, "function {$method}(");
+        $end = strpos($source, "function {$nextMethod}(", $start ?: 0);
+        $this->assertNotFalse($start, $method);
+        $this->assertNotFalse($end, $nextMethod);
+
+        return substr($source, $start, $end - $start);
+    }
+
+    public function test_unified_sales_export_rejects_rows_above_its_explicit_limit(): void
+    {
+        foreach (range(1, 2) as $index) {
+            Order::create([
+                'user_id' => $this->student->id,
+                'order_number' => 'ORD-EXPORT-' . $index,
+                'total_price' => 100.0,
+                'final_price' => 100.0,
+                'amount_egp' => 100.0,
+                'exchange_rate_snapshot' => 1.0,
+                'payment_method' => 'stripe',
+                'status' => 'completed',
+                'created_at' => Carbon::now(),
+            ]);
+        }
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Export is limited to 1 rows');
+
+        (new UnifiedSalesTransactionQuery())->export(
+            Request::create('/api/reports/sales', 'GET'),
+            false,
+            1,
+        );
     }
 
     public function test_instructor_report_aggregates_instructor_metrics(): void

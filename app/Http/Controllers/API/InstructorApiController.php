@@ -30,6 +30,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class InstructorApiController extends Controller
 {
@@ -519,10 +520,10 @@ class InstructorApiController extends Controller
                 if (!$existingNotification) {
                     // Direct insert as fallback
                     try {
-                        $maxId = DB::table('notifications')->max('id') ?? 0;
+                        $notificationId = (string) Str::uuid();
 
                         DB::table('notifications')->insert([
-                            'id' => $maxId + 1,
+                            'id' => $notificationId,
                             'type' => $notificationType,
                             'notifiable_type' => User::class,
                             'notifiable_id' => $user->id,
@@ -534,7 +535,7 @@ class InstructorApiController extends Controller
 
                         \Illuminate\Support\Facades\Log::info('Team invitation notification created via direct insert', [
                             'user_id' => $user->id,
-                            'notification_id' => $maxId + 1,
+                            'notification_id' => $notificationId,
                         ]);
                     } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                         throw $e;

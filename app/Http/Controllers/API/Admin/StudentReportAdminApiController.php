@@ -281,75 +281,83 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $studentQuery = $this->baseStudentQuery();
         $this->applyStudentScope($studentQuery, $request, $eligibleCourseIds, false);
         $totalStudentsCount = $studentQuery->count();
+        $scopedStudentIds = (clone $studentQuery)->select('users.id');
 
-        // Optimized single-query aggregations across enrolled students
+        // Keep enrollment pairs inside SQL so report size does not control PHP memory usage.
         $enrollmentsQuery = DB::table('order_courses as oc')
             ->join('orders as o', 'oc.order_id', '=', 'o.id')
             ->where('o.status', 'completed')
+            ->whereIn('o.user_id', clone $scopedStudentIds)
             ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('oc.course_id', $eligibleCourseIds))
             ->select('o.user_id', 'oc.course_id');
 
         $trackingEnrollments = DB::table('user_curriculum_trackings as uct')
             ->join('course_chapters as cc', 'uct.course_chapter_id', '=', 'cc.id')
+            ->whereIn('uct.user_id', clone $scopedStudentIds)
             ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('cc.course_id', $eligibleCourseIds))
             ->select('uct.user_id', 'cc.course_id');
 
-        $enrolledPairs = $enrollmentsQuery->union($trackingEnrollments)->get();
-        $userIds = $enrolledPairs->pluck('user_id')->unique()->filter()->values();
+        $enrolledPairs = $enrollmentsQuery->union($trackingEnrollments);
+        $progressByCourse = DB::table('user_course_progress as ucp')
+            ->whereIn('ucp.user_id', clone $scopedStudentIds)
+            ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('ucp.course_id', $eligibleCourseIds))
+            ->selectRaw("
+                ucp.user_id,
+                ucp.course_id,
+                MAX(CASE WHEN ucp.status = 'completed' OR ucp.progress_percentage >= 100 THEN 1 ELSE 0 END) as is_completed,
+                MAX(CASE WHEN ucp.status = 'in_progress' OR ucp.progress_percentage > 0 THEN 1 ELSE 0 END) as has_progress
+            ")
+            ->groupBy('ucp.user_id', 'ucp.course_id');
 
-        $progressRecords = $userIds->isEmpty()
-            ? collect()
-            : DB::table('user_course_progress')
-                ->whereIn('user_id', $userIds)
-                ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('course_id', $eligibleCourseIds))
-                ->get()
-                ->keyBy(fn ($r) => "{$r->user_id}_{$r->course_id}");
+        $perStudentCompletion = DB::query()
+            ->fromSub($enrolledPairs, 'enrollments')
+            ->leftJoinSub($progressByCourse, 'progress', static function ($join): void {
+                $join->on('progress.user_id', '=', 'enrollments.user_id')
+                    ->on('progress.course_id', '=', 'enrollments.course_id');
+            })
+            ->selectRaw("
+                enrollments.user_id,
+                COUNT(*) as enrolled_courses,
+                SUM(COALESCE(progress.is_completed, 0)) as completed_courses,
+                SUM(COALESCE(progress.has_progress, 0)) as started_courses
+            ")
+            ->groupBy('enrollments.user_id');
 
-        $enrolledByUser = $enrolledPairs->groupBy('user_id');
-        $allCompletedCount = 0;
-        $inProgressCount = 0;
-        $notStartedCount = 0;
+        $bracketCounts = DB::query()
+            ->fromSub($perStudentCompletion, 'student_completion')
+            ->selectRaw("
+                COUNT(*) as students_with_enrollments,
+                SUM(CASE
+                    WHEN completed_courses = enrolled_courses THEN 1
+                    ELSE 0
+                END) as all_completed,
+                SUM(CASE
+                    WHEN completed_courses < enrolled_courses AND started_courses > 0 THEN 1
+                    ELSE 0
+                END) as in_progress,
+                SUM(CASE
+                    WHEN started_courses = 0 THEN 1
+                    ELSE 0
+                END) as not_started
+            ")
+            ->first();
 
-        foreach ($enrolledByUser as $uId => $courses) {
-            $distinctCourses = $courses->pluck('course_id')->unique();
-            $enrolled = $distinctCourses->count();
-            $completed = 0;
-            $inProg = 0;
-
-            foreach ($distinctCourses as $cId) {
-                $p = $progressRecords->get("{$uId}_{$cId}");
-                if ($p && ($p->status === 'completed' || (float) $p->progress_percentage >= 100)) {
-                    $completed++;
-                } elseif ($p && ($p->status === 'in_progress' || (float) $p->progress_percentage > 0)) {
-                    $inProg++;
-                }
-            }
-
-            if ($enrolled > 0 && $completed === $enrolled) {
-                $allCompletedCount++;
-            } elseif ($inProg > 0 || $completed > 0) {
-                $inProgressCount++;
-            } else {
-                $notStartedCount++;
-            }
-        }
-
-        $studentsWithEnrollments = count($enrolledByUser);
+        $studentsWithEnrollments = (int) ($bracketCounts->students_with_enrollments ?? 0);
         $noCoursesCount = max(0, $totalStudentsCount - $studentsWithEnrollments);
 
         $brackets = [
             'no_courses'    => $noCoursesCount,
-            'not_started'   => $notStartedCount,
-            'in_progress'   => $inProgressCount,
-            'all_completed' => $allCompletedCount,
+            'not_started'   => (int) ($bracketCounts->not_started ?? 0),
+            'in_progress'   => (int) ($bracketCounts->in_progress ?? 0),
+            'all_completed' => (int) ($bracketCounts->all_completed ?? 0),
         ];
 
-        // Overall progress enrollment totals
-        $progressCounts = DB::table('user_course_progress')
-            ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('course_id', $eligibleCourseIds))
+        // Aggregate the scoped progress grain without loading individual rows.
+        $progressCounts = DB::query()
+            ->fromSub(clone $progressByCourse, 'progress')
             ->selectRaw("
-                SUM(CASE WHEN status = 'completed' OR progress_percentage >= 100 THEN 1 ELSE 0 END) as completed_cnt,
-                SUM(CASE WHEN status = 'in_progress' OR (progress_percentage > 0 AND progress_percentage < 100) THEN 1 ELSE 0 END) as in_progress_cnt
+                SUM(is_completed) as completed_cnt,
+                SUM(CASE WHEN is_completed = 0 AND has_progress = 1 THEN 1 ELSE 0 END) as in_progress_cnt
             ")
             ->first();
 
@@ -363,6 +371,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 $q->where('ucp.status', 'completed')
                   ->orWhere('ucp.progress_percentage', '>=', 100);
             })
+            ->whereIn('ucp.user_id', clone $scopedStudentIds)
             ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('ucp.course_id', $eligibleCourseIds))
             ->select('c.id as course_id', 'c.title', DB::raw('COUNT(DISTINCT ucp.user_id) as completions'))
             ->groupBy('c.id', 'c.title')
@@ -381,22 +390,29 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $monthSubSql = \App\Services\Reports\ReportMoneySql::dateFormatSql('s.created_at', 'month');
 
         $trendOrders = DB::table('orders as o')
+            ->when($eligibleCourseIds !== null, fn ($q) => $q->join('order_courses as trend_oc', 'trend_oc.order_id', '=', 'o.id'))
             ->where('o.status', 'completed')
             ->where('o.created_at', '>=', Carbon::now()->subMonths(6))
+            ->whereIn('o.user_id', clone $scopedStudentIds)
+            ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('trend_oc.course_id', $eligibleCourseIds))
             ->selectRaw("{$monthOrderSql} as month, o.user_id as user_id");
 
         $trendSubs = DB::table('subscriptions as s')
             ->where('s.created_at', '>=', Carbon::now()->subMonths(6))
+            ->whereIn('s.user_id', clone $scopedStudentIds)
+            ->when($eligibleCourseIds !== null, fn ($q) => $q->whereRaw('1 = 0'))
             ->selectRaw("{$monthSubSql} as month, s.user_id as user_id");
 
-        $combinedRows = $trendOrders->union($trendSubs)->get();
-        $combinedTrend = $combinedRows
+        $combinedTrend = DB::query()
+            ->fromSub($trendOrders->union($trendSubs), 'combined_trend')
+            ->selectRaw('month, COUNT(*) as new_students')
             ->groupBy('month')
-            ->map(fn ($rows, $m) => [
-                'month'        => (string) $m,
-                'new_students' => $rows->pluck('user_id')->unique()->count(),
+            ->orderBy('month')
+            ->get()
+            ->map(static fn ($row) => [
+                'month'        => (string) $row->month,
+                'new_students' => (int) $row->new_students,
             ])
-            ->sortBy('month')
             ->values();
 
         return $this->jsonSuccess('Completion statistics retrieved', array_merge([

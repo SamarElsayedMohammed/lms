@@ -13,7 +13,9 @@ class BackfillBunnyDurations extends Command
      *
      * @var string
      */
-    protected $signature = 'skillso:backfill-bunny-durations';
+    protected $signature = 'skillso:backfill-bunny-durations
+        {--limit=1000 : Maximum jobs to dispatch in one run}
+        {--chunk=100 : Lectures loaded per database query}';
 
     /**
      * The console command description.
@@ -29,33 +31,49 @@ class BackfillBunnyDurations extends Command
     {
         $this->info('Finding lectures with Bunny Stream URLs and missing durations...');
 
-        $lectures = CourseChapterLecture::where('type', 'video')
+        $limit = max(1, min(10000, (int) $this->option('limit')));
+        $chunkSize = max(1, min(500, (int) $this->option('chunk')));
+
+        $query = CourseChapterLecture::whereIn('type', ['youtube_url', 'file'])
             ->where(function ($query) {
                 $query->where('youtube_url', 'like', '%iframe.mediadelivery.net%')
                       ->orWhere('file', 'like', '%iframe.mediadelivery.net%');
             })
-            ->where('duration_seconds', '<=', 0)
-            ->get();
+            ->where('duration_seconds', '<=', 0);
 
-        if ($lectures->isEmpty()) {
+        $matchingCount = min($limit, (clone $query)->count());
+        if ($matchingCount === 0) {
             $this->info('No lectures need backfilling.');
-            return;
+            return self::SUCCESS;
         }
 
-        $this->info('Found ' . $lectures->count() . ' lectures. Dispatching jobs...');
+        $this->info("Dispatching up to {$matchingCount} of {$limit} bounded jobs...");
 
         $count = 0;
-        foreach ($lectures as $lecture) {
-            $url = $lecture->youtube_url ?: $lecture->file;
-            
-            if (preg_match('/iframe\.mediadelivery\.net\/embed\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/', $url, $matches)) {
-                $libraryId = $matches[1];
-                $videoGuid = $matches[2];
-                FetchBunnyVideoDurationJob::dispatch($lecture->id, $libraryId, $videoGuid);
-                $count++;
+        $query->select(['id', 'youtube_url', 'file'])->chunkById(
+            $chunkSize,
+            function ($lectures) use (&$count, $limit): bool {
+                foreach ($lectures as $lecture) {
+                    if ($count >= $limit) {
+                        return false;
+                    }
+
+                    $url = $lecture->youtube_url ?: $lecture->getRawOriginal('file');
+                    if (!is_string($url)) {
+                        continue;
+                    }
+
+                    if (preg_match('/iframe\.mediadelivery\.net\/embed\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/', $url, $matches)) {
+                        FetchBunnyVideoDurationJob::dispatch($lecture->id, $matches[1], $matches[2]);
+                        $count++;
+                    }
+                }
+
+                return $count < $limit;
             }
-        }
+        );
 
         $this->info("Successfully dispatched {$count} jobs.");
+        return self::SUCCESS;
     }
 }

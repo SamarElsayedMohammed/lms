@@ -18,11 +18,13 @@ use App\Services\Reports\ReportingPeriodService;
 use App\Services\Reports\ReportMoneySql;
 use App\Services\Reports\UnifiedSalesTransactionQuery;
 use Carbon\Carbon;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class ReportsApiController extends Controller
 {
@@ -83,8 +85,10 @@ class ReportsApiController extends Controller
             };
 
             return ApiResponseService::successResponse('Sales report generated successfully', $data);
-        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+        } catch (HttpResponseException $e) {
             throw $e;
+        } catch (ValidationException $e) {
+            return ApiResponseService::validationError($e->getMessage());
         } catch (\Throwable $e) {
             return ApiResponseService::errorResponse('Failed to generate sales report: ' . $e->getMessage());
         }
@@ -134,15 +138,10 @@ class ReportsApiController extends Controller
                 $salesQuery->whereIn('orders.payment_method', self::CARD_GATEWAY_METHODS);
             }
 
-            $courseQuery = Course::with(['user', 'category', 'ratings', 'orderCourses']);
+            $courseQuery = Course::query();
             $this->applyCourseReportFilters($courseQuery, $request);
 
-            $instructorQuery = Instructor::with([
-                'user',
-                'user.courses' => static fn ($courses) => $courses
-                    ->where('is_active', true)
-                    ->where('status', 'publish'),
-            ]);
+            $instructorQuery = Instructor::query();
             $this->applyInstructorReportFilters($instructorQuery, $request);
 
             $enrollmentQuery = UserCourseProgress::with(['user', 'course.category', 'course.user'])
@@ -369,6 +368,7 @@ class ReportsApiController extends Controller
                                             ->where('status', 'publish')
                                             ->select('id', 'title')
                                             ->orderBy('title')
+                                            ->limit(500)
                                             ->get(),
                 'instructors'         => \Illuminate\Support\Facades\DB::table('users')
                                             ->whereNull('deleted_at')
@@ -378,11 +378,13 @@ class ReportsApiController extends Controller
                                                   ->whereColumn('instructors.user_id', 'users.id');
                                             })
                                             ->select('id', 'name', 'email')
+                                            ->limit(500)
                                             ->get(),
                 'categories'          => \Illuminate\Support\Facades\DB::table('categories')
                                             ->whereNull('deleted_at')
                                             ->select('id', 'name')
                                             ->orderBy('name')
+                                            ->limit(500)
                                             ->get(),
                 'order_statuses'      => ['pending', 'completed', 'cancelled', 'failed'],
                 'commission_statuses' => ['pending', 'paid', 'cancelled'],
@@ -524,41 +526,43 @@ class ReportsApiController extends Controller
         }
 
         if ($request->filled('course_id')) {
-            $query->where('id', $request->course_id);
+            $query->where('courses.id', $request->course_id);
         }
         if ($request->filled('instructor_id')) {
-            $query->where('user_id', $request->instructor_id);
+            $query->where('courses.user_id', $request->instructor_id);
         }
         if ($request->filled('category_id')) {
-            $query->where('category_id', $request->category_id);
+            $query->where('courses.category_id', $request->category_id);
         }
         if ($request->filled('status')) {
             if ($request->status === 'all') {
                 // Do not apply status restriction when 'all' is explicitly requested
             } elseif ($request->status === 'active' || $request->status === 'published' || $request->status === 'publish') {
-                $query->where('is_active', true)->where('status', 'publish');
+                $query->where('courses.is_active', true)->where('courses.status', 'publish');
             } elseif ($request->status === 'inactive') {
-                $query->where('is_active', false);
+                $query->where('courses.is_active', false);
             } elseif ($request->status === 'draft') {
-                $query->where('status', 'draft');
+                $query->where('courses.status', 'draft');
             } elseif ($request->status === 'pending') {
-                $query->where('status', 'pending');
+                $query->where('courses.status', 'pending');
             } elseif ($request->status === 'rejected') {
-                $query->where('status', 'rejected');
+                $query->where('courses.status', 'rejected');
             } else {
                 $query->where(static fn ($courses) => $courses
-                    ->where('is_active', false)
-                    ->orWhere('status', '!=', 'publish'));
+                    ->where('courses.is_active', false)
+                    ->orWhere('courses.status', '!=', 'publish'));
             }
+        } else {
+            $query->where('courses.is_active', true)->where('courses.status', 'publish');
         }
         if ($request->filled('approval_status') && $request->approval_status !== 'all') {
-            $query->where('approval_status', $request->approval_status);
+            $query->where('courses.approval_status', $request->approval_status);
         }
         if ($request->filled('course_type') && $request->course_type !== 'all') {
-            $query->where('is_free', $request->course_type === 'free' ? 1 : 0);
+            $query->where('courses.is_free', $request->course_type === 'free' ? 1 : 0);
         }
         if ($request->filled('level') && $request->level !== 'all') {
-            $query->where('level', $request->level);
+            $query->where('courses.level', $request->level);
         }
     }
 
@@ -818,9 +822,9 @@ class ReportsApiController extends Controller
 
     private function getExportedSalesData($query, $request)
     {
-        $summary = $this->getSalesSummaryData($query, $request);
         $hasCourseFilters = $request->filled('course_id') || $request->filled('category_id') || $request->filled('instructor_id');
         $exported = (new UnifiedSalesTransactionQuery())->export($request, !$hasCourseFilters);
+        $summary = $this->getSalesSummaryData($query, $request);
 
         return array_merge($summary, $exported);
     }
@@ -1011,43 +1015,83 @@ class ReportsApiController extends Controller
 
     private function getCourseSummaryData($query, $request)
     {
-        $courses = $query->withCount([
-            'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')),
-            'ratings',
-        ])->withAvg('ratings', 'rating')->get();
+        $base = $this->aggregateClone($query);
+        $courseIds = $this->courseIdSubquery($base);
 
-        $courseIds = $courses->pluck('id')->filter()->values();
-        $purchaseCount = (int) $courses->sum('order_courses_count');
-        $progressCount = $courseIds->isEmpty()
-            ? 0
-            : UserCourseProgress::whereIn('course_id', $courseIds)->count();
-        $totalEnrollments = $purchaseCount;
+        $counts = (clone $base)->selectRaw("
+            COUNT(*) as total_courses,
+            SUM(CASE WHEN courses.is_active = 1 THEN 1 ELSE 0 END) as active_courses,
+            SUM(CASE WHEN courses.is_free = 1 THEN 1 ELSE 0 END) as free_courses,
+            SUM(CASE WHEN courses.is_free = 0 THEN 1 ELSE 0 END) as paid_courses
+        ")->first();
 
-        $totalRevenue = 0.0;
-        if (!$courseIds->isEmpty()) {
-            $orderCourseRevenueSql = ReportMoneySql::orderCourseRevenueEgpSql('order_courses');
-            $totalRevenue = (float) DB::table('order_courses')
-                ->join('orders', 'order_courses.order_id', '=', 'orders.id')
-                ->whereIn('order_courses.course_id', $courseIds)
-                ->where('orders.status', 'completed')
-                ->sum(DB::raw($orderCourseRevenueSql));
-        }
+        $purchaseCount = (int) DB::table('order_courses')
+            ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+            ->where('orders.status', 'completed')
+            ->whereIn('order_courses.course_id', $courseIds)
+            ->count();
+
+        $progressCount = (int) UserCourseProgress::query()
+            ->whereIn('course_id', $courseIds)
+            ->count();
+
+        $orderCourseRevenueSql = ReportMoneySql::orderCourseRevenueEgpSql('order_courses');
+        $totalRevenue = (float) DB::table('order_courses')
+            ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+            ->where('orders.status', 'completed')
+            ->whereIn('order_courses.course_id', $courseIds)
+            ->sum(DB::raw($orderCourseRevenueSql));
+
+        $averageRating = (float) DB::table('ratings')
+            ->where('rateable_type', Course::class)
+            ->whereIn('rateable_id', $courseIds)
+            ->avg('rating');
+
+        $coursesByCategory = (clone $base)
+            ->leftJoin('categories', 'categories.id', '=', 'courses.category_id')
+            ->selectRaw("COALESCE(categories.name, '') as category_name, COUNT(courses.id) as total")
+            ->groupBy('category_name')
+            ->pluck('total', 'category_name');
+
+        $coursesByLevel = (clone $base)
+            ->selectRaw('courses.level as level, COUNT(*) as total')
+            ->groupBy('courses.level')
+            ->pluck('total', 'level');
+
+        $topRatedIds = (clone $base)
+            ->leftJoin('ratings', function ($join): void {
+                $join->on('ratings.rateable_id', '=', 'courses.id')
+                    ->where('ratings.rateable_type', Course::class);
+            })
+            ->select('courses.id')
+            ->groupBy('courses.id')
+            ->orderByRaw('AVG(ratings.rating) DESC')
+            ->limit(10)
+            ->pluck('id');
+
+        $topRatedCourses = $topRatedIds->isEmpty()
+            ? collect()
+            : Course::query()
+                ->whereIn('id', $topRatedIds)
+                ->get()
+                ->sortBy(fn ($course) => array_search($course->id, $topRatedIds->all(), true))
+                ->values();
 
         return [
-            'total_courses'        => $courses->count(),
-            'active_courses'       => $courses->where('is_active', true)->count(),
-            'free_courses'         => $courses->where('is_free', true)->count(),
-            'paid_courses'         => $courses->where('is_free', false)->count(),
-            'average_rating'       => round((float) ($courses->avg('ratings_avg_rating') ?? 0), 2),
-            'total_enrollments'    => $totalEnrollments,
+            'total_courses'        => (int) ($counts->total_courses ?? 0),
+            'active_courses'       => (int) ($counts->active_courses ?? 0),
+            'free_courses'         => (int) ($counts->free_courses ?? 0),
+            'paid_courses'         => (int) ($counts->paid_courses ?? 0),
+            'average_rating'       => round($averageRating, 2),
+            'total_enrollments'    => $purchaseCount,
             'course_purchases_count' => $purchaseCount,
             'progress_records_count' => $progressCount,
             'enrollment_grain'     => 'completed_course_purchases_not_progress_rows',
-            'total_students'       => $totalEnrollments,
+            'total_students'       => $purchaseCount,
             'total_revenue_egp'    => round($totalRevenue, 2),
-            'courses_by_category'  => $this->getCoursesByCategory($courses),
-            'courses_by_level'     => $courses->groupBy('level')->map->count(),
-            'top_rated_courses'    => $courses->sortByDesc('ratings_avg_rating')->take(10)->values(),
+            'courses_by_category'  => $coursesByCategory,
+            'courses_by_level'     => $coursesByLevel,
+            'top_rated_courses'    => $topRatedCourses,
         ];
     }
 
@@ -1098,9 +1142,10 @@ class ReportsApiController extends Controller
 
     private function getCoursePerformanceData($query, $request)
     {
+        $perPage = max(1, min(100, (int) ($request->per_page ?? 15)));
         $orderCourseRevenueSql = ReportMoneySql::orderCourseRevenueEgpSql('order_courses');
 
-        return $query
+        $paginated = (clone $query)
             ->withCount([
                 'orderCourses' => fn($q) => $q->whereHas('order', fn($oq) => $oq->where('status', 'completed')),
                 'ratings',
@@ -1114,37 +1159,76 @@ class ReportsApiController extends Controller
                 ],
                 DB::raw($orderCourseRevenueSql)
             )
-            ->get()
-            ->map(function ($course) {
-                return [
-                    'course'              => $course,
-                    'performance_metrics' => [
-                        'enrollments'    => $course->order_courses_count,
-                        'revenue'        => round((float) ($course->revenue ?? 0), 2),
-                        'rating'         => round($course->ratings_avg_rating ?? 0, 2),
-                        'reviews_count'  => $course->ratings_count,
-                    ],
-                ];
-            });
+            ->orderBy('courses.created_at', 'desc')
+            ->paginate($perPage);
+
+        $paginated->getCollection()->transform(function ($course) {
+            return [
+                'course'              => $course,
+                'performance_metrics' => [
+                    'enrollments'    => $course->order_courses_count,
+                    'revenue'        => round((float) ($course->revenue ?? 0), 2),
+                    'rating'         => round($course->ratings_avg_rating ?? 0, 2),
+                    'reviews_count'  => $course->ratings_count,
+                ],
+            ];
+        });
+
+        return $paginated->toArray();
     }
 
     private function getInstructorSummaryData($query, $request)
     {
-        $instructors = $query->with(['user'])->get();
-        $courseMetrics = InstructorCourseMetrics::countsForInstructors($instructors);
-        $userIds = array_keys($courseMetrics);
+        $base = $this->aggregateClone($query);
+        $counts = (clone $base)->selectRaw("
+            COUNT(*) as total_instructors,
+            SUM(CASE WHEN instructors.type = 'individual' THEN 1 ELSE 0 END) as individual_instructors,
+            SUM(CASE WHEN instructors.type = 'team' THEN 1 ELSE 0 END) as team_instructors,
+            SUM(CASE WHEN instructors.status = 'approved' THEN 1 ELSE 0 END) as approved_instructors,
+            SUM(CASE WHEN instructors.status = 'pending' THEN 1 ELSE 0 END) as pending_instructors,
+            SUM(CASE WHEN instructors.status = 'rejected' THEN 1 ELSE 0 END) as rejected_instructors,
+            SUM(CASE WHEN instructors.status = 'suspended' THEN 1 ELSE 0 END) as suspended_instructors
+        ")->first();
+
+        $userIds = (clone $base)
+            ->pluck('instructors.user_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $courseMetrics = InstructorCourseMetrics::countsForUsers($userIds);
         $engagement = InstructorCourseMetrics::engagementForUsers($userIds);
         $global = InstructorCourseMetrics::globalEngagement($userIds);
-        $ranked = $this->getTopInstructorsByCourses($instructors, $courseMetrics, $engagement);
+
+        $rankedUserIds = collect($engagement)
+            ->map(static function (array $stats, int|string $userId) use ($courseMetrics): array {
+                return [
+                    'user_id' => (int) $userId,
+                    'courses_count' => $courseMetrics[(int) $userId]['courses_count'] ?? 0,
+                    'students_count' => (int) ($stats['students_count'] ?? 0),
+                    'average_rating' => $stats['average_rating'] ?? null,
+                ];
+            })
+            ->filter(static fn (array $row): bool => ($row['students_count'] ?? 0) > 0 || ($row['average_rating'] ?? 0) > 0)
+            ->sortByDesc('courses_count')
+            ->take(10)
+            ->pluck('user_id')
+            ->all();
+
+        $topInstructors = $rankedUserIds === []
+            ? collect()
+            : (clone $base)->with(['user'])->whereIn('instructors.user_id', $rankedUserIds)->get();
+        $ranked = $this->getTopInstructorsByCourses($topInstructors, $courseMetrics, $engagement);
 
         return [
-            'total_instructors'          => $instructors->count(),
-            'individual_instructors'     => $instructors->where('type', 'individual')->count(),
-            'team_instructors'           => $instructors->where('type', 'team')->count(),
-            'approved_instructors'       => $instructors->where('status', 'approved')->count(),
-            'pending_instructors'        => $instructors->where('status', 'pending')->count(),
-            'rejected_instructors'       => $instructors->where('status', 'rejected')->count(),
-            'suspended_instructors'      => $instructors->where('status', 'suspended')->count(),
+            'total_instructors'          => (int) ($counts->total_instructors ?? 0),
+            'individual_instructors'     => (int) ($counts->individual_instructors ?? 0),
+            'team_instructors'           => (int) ($counts->team_instructors ?? 0),
+            'approved_instructors'       => (int) ($counts->approved_instructors ?? 0),
+            'pending_instructors'        => (int) ($counts->pending_instructors ?? 0),
+            'rejected_instructors'       => (int) ($counts->rejected_instructors ?? 0),
+            'suspended_instructors'      => (int) ($counts->suspended_instructors ?? 0),
             'total_courses_created'      => (int) array_sum(array_column($courseMetrics, 'courses_count')),
             'total_enrollments'          => $global['total_enrollments'],
             'total_students'             => $global['total_students'],
@@ -1206,11 +1290,16 @@ class ReportsApiController extends Controller
 
     private function getInstructorPerformanceData($query, $request)
     {
-        $instructors = $query->with(['user'])->get();
-        $courseMetrics = InstructorCourseMetrics::countsForInstructors($instructors);
+        $perPage = max(1, min(100, (int) ($request->per_page ?? 15)));
+        $paginated = (clone $query)
+            ->with(['user'])
+            ->orderBy('instructors.created_at', 'desc')
+            ->paginate($perPage);
+
+        $courseMetrics = InstructorCourseMetrics::countsForInstructors($paginated->getCollection());
         $engagement = InstructorCourseMetrics::engagementForUsers(array_keys($courseMetrics));
 
-        return $instructors->map(static function ($instructor) use ($courseMetrics, $engagement) {
+        $paginated->getCollection()->transform(static function ($instructor) use ($courseMetrics, $engagement) {
             $userId = (int) $instructor->user_id;
             $counts = $courseMetrics[$userId] ?? ['courses_count' => 0];
             $stats = $engagement[$userId] ?? ['students_count' => 0, 'average_rating' => null];
@@ -1224,6 +1313,8 @@ class ReportsApiController extends Controller
                 ],
             ];
         });
+
+        return $paginated->toArray();
     }
 
     private function getEnrollmentSummaryData($query, $request)
@@ -1529,5 +1620,30 @@ class ReportsApiController extends Controller
             $row['share_percent'] = $totalEgp > 0 ? round(($row['revenue_egp'] / $totalEgp) * 100, 2) : 0;
             return $row;
         })->values();
+    }
+
+    private function aggregateClone($query)
+    {
+        $clone = clone $query;
+        $clone->setEagerLoads([]);
+        $clone->getQuery()->orders = null;
+        $clone->getQuery()->limit = null;
+        $clone->getQuery()->offset = null;
+        $clone->getQuery()->groups = null;
+        $clone->getQuery()->havings = null;
+        $clone->getQuery()->columns = null;
+        $clone->getQuery()->joins = null;
+
+        return $clone;
+    }
+
+    private function courseIdSubquery($query)
+    {
+        $ids = $this->aggregateClone($query);
+        $ids->select('courses.id');
+        $ids->getQuery()->columns = ['courses.id'];
+        $ids->getQuery()->distinct = true;
+
+        return $ids;
     }
 }

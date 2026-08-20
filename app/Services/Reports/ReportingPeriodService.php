@@ -91,7 +91,7 @@ final class ReportingPeriodService
     {
         $filters = $request->all();
         if (!$request->filled('preset') && !$request->filled('date_from') && !$request->filled('from_date')) {
-            return $this->resolve(['preset' => 'all_time']);
+            $filters['preset'] = '30d';
         }
 
         if (!$request->filled('preset') && ($request->filled('date_from') || $request->filled('from_date'))) {

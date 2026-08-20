@@ -7,18 +7,20 @@ namespace Tests\Feature;
 use Tests\TestCase;
 
 /**
- * File logs vanish on every Coolify restart unless they go to stderr + laravel.log
- * and boot scripts never truncate storage/logs.
+ * File logs vanish on every Coolify restart unless they go to stderr + a
+ * persistent rotated file channel and boot scripts never truncate storage/logs.
  */
 class PersistentApplicationLogsTest extends TestCase
 {
-    public function test_default_stack_writes_stderr_and_stable_laravel_log(): void
+    public function test_default_stack_writes_stderr_and_rotated_daily_logs(): void
     {
         $channels = config('logging.channels.stack.channels');
 
         $this->assertContains('stderr', $channels);
-        $this->assertContains('single', $channels);
-        $this->assertSame(storage_path('logs/laravel.log'), config('logging.channels.single.path'));
+        $this->assertContains('daily', $channels);
+        $this->assertNotContains('single', $channels);
+        $this->assertSame(storage_path('logs/laravel.log'), config('logging.channels.daily.path'));
+        $this->assertLessThanOrEqual(14, config('logging.channels.daily.days'));
     }
 
     public function test_boot_scripts_never_delete_or_truncate_log_files(): void

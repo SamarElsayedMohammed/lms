@@ -9,6 +9,7 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class UnifiedSalesTransactionQuery
 {
@@ -61,6 +62,12 @@ final class UnifiedSalesTransactionQuery
         $productType = strtolower((string) ($request->product_type ?? $request->transaction_type ?? 'all'));
         $union = $this->baseUnion($request, $includeSubscriptions, $productType);
         $count = (int) DB::query()->fromSub((clone $union), 'sales_tx')->count();
+        if ($count > $limit) {
+            throw ValidationException::withMessages([
+                'export' => "Export is limited to {$limit} rows. Narrow the reporting date window or filters.",
+            ]);
+        }
+
         $rows = DB::query()
             ->fromSub($union, 'sales_tx')
             ->orderByDesc('event_at')

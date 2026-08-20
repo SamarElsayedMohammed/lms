@@ -22,7 +22,7 @@ class ContainerLivenessHealthcheckTest extends TestCase
             ->assertJsonPath('status', 'alive');
     }
 
-    public function test_dockerfile_healthcheck_uses_runtime_port_script_and_can_fail(): void
+    public function test_dockerfile_healthcheck_uses_pid1_liveness_script(): void
     {
         $dockerfile = $this->readBackendFile('Dockerfile');
 
@@ -34,26 +34,20 @@ class ContainerLivenessHealthcheckTest extends TestCase
 
         preg_match('/^HEALTHCHECK[\s\S]*?(?=\n[A-Z]|\z)/m', $dockerfile, $healthcheck) || $this->fail('Dockerfile is missing HEALTHCHECK.');
         $this->assertStringNotContainsString(
-            '|| exit 0',
-            $healthcheck[0],
-            'Always-green HEALTHCHECK hides a dead process from Coolify.',
-        );
-
-        $this->assertStringNotContainsString(
             '/api/health/ready',
             $healthcheck[0],
             'Readiness 503 on a DB blip must not restart the container.',
         );
     }
 
-    public function test_healthcheck_script_probes_live_on_runtime_port(): void
+    public function test_healthcheck_script_only_checks_container_pid1(): void
     {
         $script = $this->readBackendFile('docker/healthcheck.sh');
 
-        $this->assertStringContainsString('${PORT:-80}', $script);
-        $this->assertStringContainsString('/api/health/live', $script);
+        $this->assertStringContainsString('kill -0 1', $script);
+        $this->assertStringNotContainsString('curl', $script);
+        $this->assertStringNotContainsString('${PORT:-80}', $script);
         $this->assertStringNotContainsString('/api/health/ready', $script);
-        $this->assertStringNotContainsString('localhost/api/health/live', $script);
     }
 
     public function test_nginx_serves_liveness_without_php_fpm(): void

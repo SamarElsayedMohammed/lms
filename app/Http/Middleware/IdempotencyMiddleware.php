@@ -65,7 +65,7 @@ class IdempotencyMiddleware
             ], 409);
         }
 
-        if (!Cache::add($cacheKey, ['state' => 'processing'], now()->addHours(24))) {
+        if (!Cache::add($cacheKey, ['state' => 'processing'], now()->addMinutes(2))) {
             $race = Cache::get($cacheKey);
             if (is_array($race) && ($race['state'] ?? null) === 'completed') {
                 if ($onReplay === 'conflict') {
@@ -90,10 +90,13 @@ class IdempotencyMiddleware
             ], 409);
         }
 
-        $response = $next($request);
+        try {
+            $response = $next($request);
+        } catch (\Throwable $exception) {
+            Cache::forget($cacheKey);
+            throw $exception;
+        }
 
-        // If the request fails (e.g. 500 error), we might want to release the lock
-        // so the user can retry.
         if ($response->getStatusCode() >= 400 && $response->getStatusCode() !== 409) {
              Cache::forget($cacheKey);
         } elseif ($response->getStatusCode() < 400) {

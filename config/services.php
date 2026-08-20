@@ -48,6 +48,14 @@ return [
         'model' => env('GEMINI_MODEL', 'gemini-2.0-flash'),
     ],
 
+    'ai' => [
+        'provider' => env('AI_PROVIDER', 'gemini'),
+    ],
+
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+    ],
+
     'brevo' => [
         'api_key' => env('BREVO_API_KEY'),
     ],

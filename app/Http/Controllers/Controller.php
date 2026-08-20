@@ -34,6 +34,8 @@ class Controller extends BaseController
                 ResponseService::errorResponse('الجدول غير مسموح.', null, 403);
             }
 
+            ResponseService::noPermissionThenSendJson($allowedTables[$request->table]);
+
             $column = $request->column ?? 'sequence';
 
             $data = [];

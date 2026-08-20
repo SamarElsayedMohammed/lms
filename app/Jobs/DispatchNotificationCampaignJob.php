@@ -5,14 +5,12 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Models\User;
-use App\Notifications\ManualCustomNotification;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Notification;
 
 class DispatchNotificationCampaignJob implements ShouldQueue
 {
@@ -85,18 +83,23 @@ class DispatchNotificationCampaignJob implements ShouldQueue
                 break;
         }
 
-        $sent = 0;
-        $query->chunkById(100, function ($users) use (&$sent) {
-            Notification::send(
-                $users,
-                new ManualCustomNotification($this->notificationData, $this->internalChannels)
+        $queued = 0;
+        $query->select('users.id')->chunkById(100, function ($users) use (&$queued) {
+            $userIds = $users->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+
+            SendNotificationCampaignChunkJob::dispatch(
+                $this->campaignId,
+                $userIds,
+                $this->notificationData,
+                $this->internalChannels,
             );
-            $sent += $users->count();
+
+            $queued += count($userIds);
         });
 
         Log::info('Notification campaign queued to recipients', [
             'campaign_id' => $this->campaignId,
-            'queued_count' => $sent,
+            'queued_count' => $queued,
         ]);
     }
 }

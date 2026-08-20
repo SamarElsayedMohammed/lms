@@ -378,15 +378,16 @@ class AffiliateService
     {
         $today = now()->toDateString();
 
-        $commissions = AffiliateCommission::where('status', 'pending')
+        $count = 0;
+        AffiliateCommission::where('status', 'pending')
             ->where('available_date', '<=', $today)
-            ->get();
-
-        $count = $commissions->count();
-
-        foreach ($commissions as $commission) {
-            $commission->update(['status' => 'available']);
-        }
+            ->select('id')
+            ->chunkById(500, function ($commissions) use (&$count): void {
+                $ids = $commissions->pluck('id');
+                $count += AffiliateCommission::whereIn('id', $ids)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'available']);
+            });
 
         return $count;
     }

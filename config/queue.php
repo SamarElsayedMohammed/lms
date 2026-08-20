@@ -36,7 +36,7 @@ return [
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 7300),
-            'after_commit' => false,
+            'after_commit' => true,
         ],
         'beanstalkd' => [
             'driver' => 'beanstalkd',
@@ -62,7 +62,7 @@ return [
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 7300),
             'block_for' => null,
-            'after_commit' => false,
+            'after_commit' => true,
         ],
     ],
     /*

@@ -1300,6 +1300,8 @@ class OrderApiController extends Controller
             // Refresh order to get updated prices (after promo code and tax calculations)
             $order->refresh();
 
+            DB::commit();
+
             $paymentInit = $paymentService->initiate($order, [
                 'currency' => $currency,
                 'customer' => [
@@ -1310,8 +1312,6 @@ class OrderApiController extends Controller
                 'type' => $type, // Pass type to payment service
             ]);
 
-            DB::commit();
-
             return ApiResponseService::successResponse(
                 'Order placed successfully',
                 $this->formatPlaceOrderResponse($order, ['payment' => $paymentInit])
@@ -1319,7 +1319,9 @@ class OrderApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
 
             return ApiResponseService::errorResponse($th->getMessage());
         }
@@ -1696,6 +1698,14 @@ class OrderApiController extends Controller
             // Refresh order to get updated prices (after promo code and tax calculations)
             $order->refresh();
 
+            // 11. Don't clear cart for payment gateways - cart will be cleared after payment success
+            // Cart clearing is skipped for all payment gateways (stripe, razorpay, flutterwave, etc.)
+
+            // 12. Initialize course tracking for enrolled courses
+            $this->initializeCourseTracking($order, $user);
+
+            DB::commit();
+
             $paymentInit = $paymentService->initiate($order, [
                 'currency' => $currency,
                 'customer' => [
@@ -1706,14 +1716,6 @@ class OrderApiController extends Controller
                 'type' => $type, // Pass type to payment service
             ]);
 
-            // 11. Don't clear cart for payment gateways - cart will be cleared after payment success
-            // Cart clearing is skipped for all payment gateways (stripe, razorpay, flutterwave, etc.)
-
-            // 12. Initialize course tracking for enrolled courses
-            $this->initializeCourseTracking($order, $user);
-
-            DB::commit();
-
             return ApiResponseService::successResponse(
                 'Order placed successfully',
                 $this->formatPlaceOrderResponse($order, ['payment' => $paymentInit])
@@ -1721,7 +1723,9 @@ class OrderApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
 
             return ApiResponseService::errorResponse($th->getMessage());
         }

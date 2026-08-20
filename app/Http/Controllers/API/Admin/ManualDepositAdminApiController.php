@@ -181,14 +181,15 @@ class ManualDepositAdminApiController extends AdminCrudApiController
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
-        $deposit = ManualDeposit::findOrFail($id);
-
-        if ($deposit->status !== 'pending') {
-            return ApiResponseService::errorResponse('هذا الطلب تم معالجته بالفعل.');
-        }
-
         DB::beginTransaction();
         try {
+            $deposit = ManualDeposit::query()->where('id', $id)->lockForUpdate()->firstOrFail();
+
+            if ($deposit->status !== 'pending') {
+                DB::rollBack();
+                return ApiResponseService::errorResponse('هذا الطلب تم معالجته بالفعل.');
+            }
+
             $deposit->status = $request->status;
             $deposit->admin_notes = $request->admin_notes;
             $deposit->processed_at = now();
@@ -209,8 +210,12 @@ class ManualDepositAdminApiController extends AdminCrudApiController
 
             DB::commit();
             return ApiResponseService::successResponse('تم تحديث حالة الإيداع بنجاح.', $deposit);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             return ApiResponseService::errorResponse('فشل في معالجة طلب الإيداع: ' . $e->getMessage());
         }
     }

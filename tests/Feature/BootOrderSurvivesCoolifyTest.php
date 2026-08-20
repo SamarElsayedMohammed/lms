@@ -36,13 +36,34 @@ class BootOrderSurvivesCoolifyTest extends TestCase
         );
     }
 
-    public function test_healthcheck_tries_coolify_port_then_80(): void
+    public function test_queue_workers_start_after_laravel_boot_not_at_container_start(): void
+    {
+        $supervisor = $this->readBackendFile('docker/supervisor/supervisord.conf');
+
+        foreach (['default-worker', 'ingestion-worker', 'video-worker', 'scheduler'] as $program) {
+            $this->assertMatchesRegularExpression(
+                '/\[program:'.$program.'\][\s\S]*?autostart\s*=\s*false/',
+                $supervisor,
+                $program.' must wait for laravel-boot so migrate and cache do not compete for RAM.',
+            );
+        }
+
+        $this->assertStringContainsString(
+            'supervisorctl start default-worker:* ingestion-worker:* video-worker:* scheduler',
+            $supervisor,
+        );
+        $this->assertStringContainsString('php artisan route:cache', $supervisor);
+    }
+
+    public function test_healthcheck_does_not_depend_on_http_or_runtime_port(): void
     {
         $script = $this->readBackendFile('docker/healthcheck.sh');
 
-        $this->assertStringContainsString('${PORT:-80}', $script);
-        $this->assertStringContainsString('try_live 80', $script);
-        $this->assertStringNotContainsString('exec curl', $script);
+        $this->assertStringContainsString('kill -0 1', $script);
+        $this->assertStringContainsString('php-fpm', $script);
+        $this->assertStringContainsString('nginx', $script);
+        $this->assertStringNotContainsString('curl', $script);
+        $this->assertStringNotContainsString('PORT', $script);
     }
 
     public function test_fpm_pool_is_capped_so_small_vps_does_not_oomkill(): void

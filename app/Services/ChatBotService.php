@@ -16,6 +16,10 @@ use Illuminate\Support\Str;
 
 class ChatBotService
 {
+    private const OVERALL_DEADLINE_SECONDS = 20;
+
+    private const CONNECT_TIMEOUT_SECONDS = 3;
+
     /**
      * Get FAQ answer directly — no AI involved
      */
@@ -50,6 +54,7 @@ class ChatBotService
      */
     public function processMessage(string $message, ?int $conversationId = null): array
     {
+        $deadline = microtime(true) + self::OVERALL_DEADLINE_SECONDS;
         $settings = $this->getChatbotSettings();
 
         // Check if visitor chatbot is enabled globally
@@ -85,7 +90,12 @@ class ChatBotService
         $systemPrompt = $this->buildVisitorSystemPrompt($settings, $contextText);
 
         try {
-            $reply = $this->callAiApi($systemPrompt, $cleanMessage, (int) ($settings['chatbot_max_tokens'] ?? 500));
+            $reply = $this->callAiApi(
+                $systemPrompt,
+                $cleanMessage,
+                (int) ($settings['chatbot_max_tokens'] ?? 500),
+                $deadline,
+            );
 
             // Manage Conversation
             $userId = Auth::id();
@@ -156,6 +166,8 @@ class ChatBotService
      */
     public function processCourseMessage(string $message, Course $course, ?int $conversationId = null): array
     {
+        $deadline = microtime(true) + self::OVERALL_DEADLINE_SECONDS;
+
         if (!$course->chatbot_enabled) {
             return [
                 'reply' => 'عذراً، المساعد الذكي غير متاح لهذا الكورس حالياً. 🙏',
@@ -206,7 +218,7 @@ class ChatBotService
         $systemPrompt .= "5. حافظ على سلامة اللغة العربية واستخدم الإيموجي بشكل مناسب.\n";
 
         try {
-            $reply = $this->callAiApi($systemPrompt, $cleanMessage, $maxTokens);
+            $reply = $this->callAiApi($systemPrompt, $cleanMessage, $maxTokens, $deadline);
 
             // Manage Conversation
             $userId = Auth::id();
@@ -322,8 +334,14 @@ class ChatBotService
     /**
      * Call AI API (Supports OpenAI, OpenRouter & Gemini dynamically)
      */
-    private function callAiApi(string $systemPrompt, string $userMessage, int $maxTokens = 500): string
+    private function callAiApi(
+        string $systemPrompt,
+        string $userMessage,
+        int $maxTokens = 500,
+        ?float $deadline = null,
+    ): string
     {
+        $remainingSeconds = $this->remainingSeconds($deadline);
         $provider = env('AI_PROVIDER', 'gemini');
 
         // OpenRouter API
@@ -335,7 +353,9 @@ class ChatBotService
                 throw new \RuntimeException('OpenRouter API key is not configured. Set OPENROUTER_API_KEY in .env');
             }
 
-            $response = Http::withToken($apiKey)->timeout(30)
+            $response = Http::withToken($apiKey)
+                ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remainingSeconds))
+                ->timeout($remainingSeconds)
                 ->withHeaders([
                     'HTTP-Referer' => url('/'),
                     'X-Title' => 'Skillso LMS',
@@ -373,7 +393,10 @@ class ChatBotService
                 throw new \RuntimeException('OpenAI API key is not configured.');
             }
 
-            $response = Http::withToken($apiKey)->timeout(30)->post('https://api.openai.com/v1/chat/completions', [
+            $response = Http::withToken($apiKey)
+                ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remainingSeconds))
+                ->timeout($remainingSeconds)
+                ->post('https://api.openai.com/v1/chat/completions', [
                 'model' => $model,
                 'messages' => [
                     ['role' => 'system', 'content' => $systemPrompt],
@@ -381,7 +404,7 @@ class ChatBotService
                 ],
                 'max_tokens' => $maxTokens,
                 'temperature' => 0.7,
-            ]);
+                ]);
 
             if (!$response->successful()) {
                 Log::error('OpenAI API Error', ['status' => $response->status(), 'body' => $response->body()]);
@@ -408,7 +431,9 @@ class ChatBotService
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
-        $response = Http::timeout(30)->post($url, [
+        $response = Http::connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remainingSeconds))
+            ->timeout($remainingSeconds)
+            ->post($url, [
             'system_instruction' => [
                 'parts' => [
                     ['text' => $systemPrompt],
@@ -426,7 +451,7 @@ class ChatBotService
                 'maxOutputTokens' => $maxTokens,
                 'temperature' => 0.7,
             ],
-        ]);
+            ]);
 
         if (!$response->successful()) {
             Log::error('Gemini API Error', ['status' => $response->status(), 'body' => $response->body()]);
@@ -441,5 +466,19 @@ class ChatBotService
         }
 
         return trim($text);
+    }
+
+    private function remainingSeconds(?float $deadline): int
+    {
+        if ($deadline === null) {
+            return self::OVERALL_DEADLINE_SECONDS;
+        }
+
+        $remainingSeconds = (int) floor($deadline - microtime(true));
+        if ($remainingSeconds < 1) {
+            throw new \RuntimeException('Chatbot request deadline exceeded.');
+        }
+
+        return $remainingSeconds;
     }
 }

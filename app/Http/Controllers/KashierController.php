@@ -106,7 +106,7 @@ final class KashierController extends Controller
                 $isVerified = $this->kashierService->verifyPayment($payload);
             }
 
-            if (!$isVerified && !$isSuccess) {
+            if (!$isVerified) {
                 $this->kashierLog('Kashier verification incomplete', [
                     'orderId' => $orderId,
                     'transactionId' => $transactionId,

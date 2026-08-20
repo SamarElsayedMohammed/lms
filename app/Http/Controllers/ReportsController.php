@@ -20,6 +20,10 @@ use Mpdf\Mpdf;
  */
 class ReportsController extends Controller
 {
+    private const PDF_EXPORT_LIMIT = 500;
+
+    private const CSV_EXPORT_LIMIT = 5000;
+
     /**
      * Display sales reports page
      */
@@ -620,73 +624,84 @@ class ReportsController extends Controller
 
     private function getSalesSummaryData($query, $request)
     {
-        $orders = $query->get();
+        $totals = (clone $query)
+            ->toBase()
+            ->selectRaw('COUNT(*) as total_orders')
+            ->selectRaw('COALESCE(SUM(COALESCE(amount_egp, final_price)), 0) as total_revenue')
+            ->selectRaw('COALESCE(AVG(COALESCE(amount_egp, final_price)), 0) as average_order_value')
+            ->selectRaw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_orders")
+            ->selectRaw("SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_orders")
+            ->selectRaw("SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders")
+            ->first();
+
+        $paymentMethods = (clone $query)
+            ->toBase()
+            ->select('payment_method', DB::raw('COUNT(*) as aggregate'))
+            ->groupBy('payment_method')
+            ->pluck('aggregate', 'payment_method');
+
+        $recentOrders = (clone $query)
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get();
 
         $topCourses = collect();
+        $orderIds = (clone $query)->select('id');
+        $topRows = DB::table('order_courses')
+            ->select(
+                'order_courses.course_id',
+                DB::raw('COUNT(*) as total_orders'),
+                DB::raw('SUM(COALESCE(orders.amount_egp, orders.final_price, 0)) as total_sales')
+            )
+            ->join('orders', 'orders.id', '=', 'order_courses.order_id')
+            ->whereIn('order_courses.order_id', $orderIds)
+            ->groupBy('order_courses.course_id')
+            ->orderByDesc('total_sales')
+            ->limit(10)
+            ->get();
 
-        if ($orders->isNotEmpty()) {
-            $topCourses = $orders
-                ->flatMap(static function ($order) {
-                    if ($order->orderCourses && $order->orderCourses->isNotEmpty()) {
-                        return $order->orderCourses->map(static fn($orderCourse) => [
-                            'course' => $orderCourse->course,
-                            'sales' => $order->amount_egp ?? $order->final_price ?: 0,
-                            'order_id' => $order->id,
-                        ]);
-                    }
+        if ($topRows->isNotEmpty()) {
+            $courses = Course::query()
+                ->whereIn('id', $topRows->pluck('course_id'))
+                ->get()
+                ->keyBy('id');
 
-                    return collect();
-                })
-                ->filter(static fn($item) => $item['course'] !== null)
-                ->groupBy('course.id')
-                ->map(static function ($group) {
-                    $course = $group->first()['course'];
+            $topCourses = $topRows->map(static function ($row) use ($courses) {
+                $course = $courses->get($row->course_id);
+                if ($course === null) {
+                    return null;
+                }
 
-                    return [
-                        'course' => $course,
-                        'total_sales' => $group->sum('sales'),
-                        'total_orders' => $group->count(),
-                    ];
-                })
-                ->sortByDesc('total_sales')
-                ->take(10)
-                ->values();
+                return [
+                    'course' => $course,
+                    'total_sales' => (float) $row->total_sales,
+                    'total_orders' => (int) $row->total_orders,
+                ];
+            })->filter()->values();
         }
 
         return [
-            'total_orders' => $orders->count() ?: 0,
-            'total_revenue' => $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price) ?: 0,
-            'average_order_value' => $orders->avg(static fn($o) => $o->amount_egp ?? $o->final_price) ?: 0,
-            'completed_orders' => $orders->where('status', 'completed')->count() ?: 0,
-            'pending_orders' => $orders->where('status', 'pending')->count() ?: 0,
-            'cancelled_orders' => $orders->where('status', 'cancelled')->count() ?: 0,
-            'payment_methods' => $orders->isNotEmpty() ? $orders->groupBy('payment_method')->map->count() : collect(),
+            'total_orders' => (int) ($totals->total_orders ?? 0),
+            'total_revenue' => (float) ($totals->total_revenue ?? 0),
+            'average_order_value' => (float) ($totals->average_order_value ?? 0),
+            'completed_orders' => (int) ($totals->completed_orders ?? 0),
+            'pending_orders' => (int) ($totals->pending_orders ?? 0),
+            'cancelled_orders' => (int) ($totals->cancelled_orders ?? 0),
+            'payment_methods' => $paymentMethods,
             'top_courses' => $topCourses->toArray(),
-            'recent_orders' => $orders->isNotEmpty()
-                ? $orders->sortByDesc('created_at')->take(10)->values()
-                : collect(),
+            'recent_orders' => $recentOrders,
         ];
     }
 
     private function getDetailedSalesData($query, $request)
     {
-        $perPage = $request->per_page ?? 15;
-        $page = $request->page ?? 1;
+        $perPage = max(1, min(100, (int) ($request->per_page ?? 15)));
+        $page = max(1, (int) ($request->page ?? 1));
 
-        $orders = $query->orderBy('created_at', 'desc')->get();
-        $total = $orders->count();
-        $offset = ($page - 1) * $perPage;
-        $paginatedOrders = $orders->slice($offset, $perPage)->values();
-
-        return [
-            'data' => $paginatedOrders,
-            'current_page' => $page,
-            'per_page' => $perPage,
-            'total' => $total,
-            'last_page' => ceil($total / $perPage),
-            'from' => $offset + 1,
-            'to' => min($offset + $perPage, $total),
-        ];
+        return $query
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage, ['*'], 'page', $page)
+            ->toArray();
     }
 
     private function getSalesChartData($query, $request)
@@ -776,7 +791,7 @@ class ReportsController extends Controller
             $this->applyPaymentMethodFilter($query, $request);
             $this->applyCategoryFilter($query, $request);
 
-            $orders = $query->orderBy('created_at', 'desc')->get();
+            $orders = $this->getBoundedExportRows($query->orderBy('created_at', 'desc'), $request);
 
             if ($request->export_format === 'excel') {
                 return $this->exportExcel($orders, $request);
@@ -1018,7 +1033,7 @@ class ReportsController extends Controller
                 $query->where('status', $request->status);
             }
 
-            $commissions = $query->orderBy('created_at', 'desc')->get();
+            $commissions = $this->getBoundedExportRows($query->orderBy('created_at', 'desc'), $request);
 
             if ($request->export_format === 'excel') {
                 return $this->exportCommissionExcel($commissions, $request);
@@ -1087,7 +1102,7 @@ class ReportsController extends Controller
                     // Get instructor type
                     $instructorType = 'N/A';
                     if ($commission->instructor && $commission->instructor->instructor_details) {
-                        $instructorType = ucfirst($commission->instructor->instructor_details->type ?? 'N/A');
+                        $instructorType = ucfirst($commission->instructor->instructor_details?->type ?? 'N/A');
                     }
 
                     fputcsv($handle, [
@@ -1293,7 +1308,7 @@ class ReportsController extends Controller
                 $query->where('level', $request->level);
             }
 
-            $courses = $query->get();
+            $courses = $this->getBoundedExportRows($query, $request);
 
             // Calculate additional metrics for each course
             $courses = $courses->map(static function ($course) {
@@ -1729,10 +1744,10 @@ class ReportsController extends Controller
             $data = [
                 'total_instructors' => $instructors->count(),
                 'approved_instructors' => $instructors
-                    ->filter(static fn($instructor) => $instructor->instructor_details->status === 'approved')
+                    ->filter(static fn($instructor) => $instructor->instructor_details?->status === 'approved')
                     ->count(),
                 'individual_instructors' => $instructors
-                    ->filter(static fn($instructor) => $instructor->instructor_details->type === 'individual')
+                    ->filter(static fn($instructor) => $instructor->instructor_details?->type === 'individual')
                     ->count(),
                 'total_courses_created' => $instructors->sum('total_courses'),
                 'instructors' => $instructors->values(),
@@ -1801,7 +1816,7 @@ class ReportsController extends Controller
                 $query->whereDate('created_at', '<=', $request->date_to);
             }
 
-            $instructors = $query->get();
+            $instructors = $this->getBoundedExportRows($query, $request);
 
             // Calculate metrics for each instructor
             $instructors = $instructors->map(static function ($instructor) {
@@ -1902,8 +1917,8 @@ class ReportsController extends Controller
                     fputcsv($file, [
                         $this->sanitizeUtf8($instructor->name ?? 'N/A'),
                         $instructor->email ?? 'N/A',
-                        ucfirst($instructor->instructor_details->type ?? 'N/A'),
-                        ucfirst($instructor->instructor_details->status ?? 'N/A'),
+                        ucfirst($instructor->instructor_details?->type ?? 'N/A'),
+                        ucfirst($instructor->instructor_details?->status ?? 'N/A'),
                         $instructor->total_courses ?? 0,
                         $instructor->total_enrollments ?? 0,
                         $instructor->created_at->format('d M Y'),
@@ -2230,7 +2245,7 @@ class ReportsController extends Controller
                 $query->whereDate('created_at', '<=', $request->date_to);
             }
 
-            $enrollments = $query->orderBy('created_at', 'desc')->get();
+            $enrollments = $this->getBoundedExportRows($query->orderBy('created_at', 'desc'), $request);
 
             // Calculate progress for each enrollment
             $enrollments = $enrollments->map(static function ($enrollment) {
@@ -2730,7 +2745,7 @@ class ReportsController extends Controller
             $query = $this->applyDateFilter($query, $request);
             $query = $this->applyRevenueFilters($query, $request);
 
-            $orders = $query->orderBy('created_at', 'desc')->get();
+            $orders = $this->getBoundedExportRows($query->orderBy('created_at', 'desc'), $request);
 
             if ($request->format === 'excel') {
                 return $this->exportRevenueExcel($orders, $request);
@@ -2905,5 +2920,21 @@ class ReportsController extends Controller
 
             return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
         }
+    }
+
+    private function getBoundedExportRows($query, Request $request)
+    {
+        $format = (string) ($request->input('format') ?? $request->input('export_format'));
+        $limit = $format === 'pdf' ? self::PDF_EXPORT_LIMIT : self::CSV_EXPORT_LIMIT;
+
+        if ((clone $query)->offset($limit)->limit(1)->exists()) {
+            $message = "This export exceeds the {$limit}-row limit. Narrow the date range or filters and try again.";
+
+            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+                back()->withInput()->withErrors(['error' => $message]),
+            );
+        }
+
+        return $query->limit($limit)->get();
     }
 }

@@ -71,7 +71,8 @@ class HomeApiController extends Controller
     public function getCategoriesWithCourseCount()
     {
         try {
-            $categories = Category::where('status', 1)
+            $categories = \App\Services\CachingService::cacheRemember('home_categories_with_course_count', static function () {
+                return Category::where('status', 1)
                 ->select('categories.*')
                 ->selectRaw('(SELECT COUNT(DISTINCT courses.id) FROM courses
                         WHERE courses.category_id IN (
@@ -118,6 +119,7 @@ class HomeApiController extends Controller
                             AND users.deleted_at IS NULL
                         )) as courses_count')
                 ->get();
+            }, 600);
 
             return ApiResponseService::successResponse(
                 'Categories with active course count retrieved successfully.',

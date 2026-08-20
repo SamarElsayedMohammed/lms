@@ -39,7 +39,10 @@ class TestBunnyWebhook extends Command
         
         $response = Http::withHeaders([
             'Webhook-Signature' => $signature,
-        ])->post($url, $payload);
+        ])
+            ->connectTimeout(2)
+            ->timeout(5)
+            ->post($url, $payload);
 
         if ($response->successful()) {
             $this->info('Webhook received successfully. Response:');

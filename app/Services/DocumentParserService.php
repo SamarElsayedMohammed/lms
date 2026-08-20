@@ -4,18 +4,27 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Log;
-
 class DocumentParserService
 {
+    public const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+
     /**
      * Extract plain text content from a document file path.
      * Supports: PDF, DOCX, TXT, CSV, JSON, MD, HTML.
      */
     public function extractText(string $filePath, ?string $fileType = null): string
     {
-        if (!file_exists($filePath)) {
+        if (! file_exists($filePath)) {
             throw new \RuntimeException("File does not exist: {$filePath}");
+        }
+
+        $fileSize = filesize($filePath);
+        if ($fileSize === false) {
+            throw new \RuntimeException('Could not determine document size.');
+        }
+
+        if ($fileSize > self::MAX_FILE_SIZE_BYTES) {
+            throw new \RuntimeException('Document exceeds the maximum allowed size of 25 MB.');
         }
 
         $extension = strtolower($fileType ?: pathinfo($filePath, PATHINFO_EXTENSION));
@@ -56,7 +65,7 @@ class DocumentParserService
             foreach ($matches[0] as $block) {
                 if (preg_match_all('/\((.*?)\)\s*TJ|\((.*?)\)\s*Tj/s', $block, $strMatches)) {
                     $strings = array_merge(array_filter($strMatches[1]), array_filter($strMatches[2]));
-                    $text .= implode(' ', $strings) . "\n";
+                    $text .= implode(' ', $strings)."\n";
                 }
             }
         }
@@ -68,7 +77,7 @@ class DocumentParserService
             $meaningfulLines = [];
             foreach ($lines as $line) {
                 $trimmed = trim($line);
-                if (mb_strlen($trimmed) > 10 && !str_contains($trimmed, 'endobj') && !str_contains($trimmed, 'stream')) {
+                if (mb_strlen($trimmed) > 10 && ! str_contains($trimmed, 'endobj') && ! str_contains($trimmed, 'stream')) {
                     $meaningfulLines[] = $trimmed;
                 }
             }
@@ -83,17 +92,27 @@ class DocumentParserService
      */
     private function parseDocx(string $filePath): string
     {
-        if (!class_exists('\ZipArchive')) {
-            return $this->normalizeText(file_get_contents($filePath) ?: '');
+        if (! class_exists('\ZipArchive')) {
+            return $this->parsePlainText($filePath);
         }
 
-        $zip = new \ZipArchive();
+        $zip = new \ZipArchive;
         if ($zip->open($filePath) === true) {
+            $documentStats = $zip->statName('word/document.xml');
+            if (
+                is_array($documentStats)
+                && ($documentStats['size'] ?? 0) > self::MAX_FILE_SIZE_BYTES
+            ) {
+                $zip->close();
+                throw new \RuntimeException('Extracted document exceeds the maximum allowed size of 25 MB.');
+            }
+
             $xml = $zip->getFromName('word/document.xml');
             $zip->close();
 
             if ($xml) {
                 $text = strip_tags($xml);
+
                 return $this->normalizeText($text);
             }
         }
@@ -111,6 +130,7 @@ class DocumentParserService
         if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
             return $this->normalizeText(print_r($data, true));
         }
+
         return $this->normalizeText($raw);
     }
 
@@ -119,14 +139,18 @@ class DocumentParserService
      */
     private function parseCsv(string $filePath): string
     {
-        $lines = [];
+        $text = '';
         if (($handle = fopen($filePath, 'r')) !== false) {
-            while (($row = fgetcsv($handle, 1000, ',')) !== false) {
-                $lines[] = implode(' | ', array_filter($row));
+            try {
+                while (($row = fgetcsv($handle, 1000, ',')) !== false) {
+                    $text .= implode(' | ', array_filter($row))."\n";
+                }
+            } finally {
+                fclose($handle);
             }
-            fclose($handle);
         }
-        return $this->normalizeText(implode("\n", $lines));
+
+        return $this->normalizeText($text);
     }
 
     /**
@@ -136,6 +160,7 @@ class DocumentParserService
     {
         $raw = file_get_contents($filePath) ?: '';
         $clean = strip_tags($raw);
+
         return $this->normalizeText($clean);
     }
 
@@ -144,7 +169,24 @@ class DocumentParserService
      */
     private function parsePlainText(string $filePath): string
     {
-        $raw = file_get_contents($filePath) ?: '';
+        $handle = fopen($filePath, 'rb');
+        if ($handle === false) {
+            return '';
+        }
+
+        $raw = '';
+        try {
+            while (! feof($handle)) {
+                $chunk = fread($handle, 64 * 1024);
+                if ($chunk === false) {
+                    throw new \RuntimeException('Could not read document.');
+                }
+                $raw .= $chunk;
+            }
+        } finally {
+            fclose($handle);
+        }
+
         return $this->normalizeText($raw);
     }
 

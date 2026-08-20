@@ -88,10 +88,9 @@ COPY docker/start.sh /usr/local/bin/start.sh
 COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
 RUN chmod +x /usr/local/bin/start.sh /usr/local/bin/healthcheck.sh
 
-# Liveness = nginx static /api/health/live on runtime PORT.
-# Never /api/health/ready (503 on a DB blip restarts the container).
-# Probe failure must fail HEALTHCHECK. Never force a successful exit.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+# Built-in liveness checks PID 1 only. Supervisord self-heals child processes.
+# Coolify should monitor HTTP separately at /api/health/live.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD /usr/local/bin/healthcheck.sh
 
 EXPOSE 80

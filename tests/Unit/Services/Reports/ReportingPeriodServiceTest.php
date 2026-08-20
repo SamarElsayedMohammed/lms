@@ -6,6 +6,7 @@ namespace Tests\Unit\Services\Reports;
 
 use App\Services\Reports\ReportingPeriodService;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Tests\TestCase;
 
 final class ReportingPeriodServiceTest extends TestCase
@@ -41,5 +42,17 @@ final class ReportingPeriodServiceTest extends TestCase
 
         $this->assertTrue($canonical->start->equalTo($alias->start));
         $this->assertTrue($canonical->end->equalTo($alias->end));
+    }
+
+    public function test_omitted_dates_apply_a_safe_thirty_day_window(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-20 12:00:00', 'UTC'));
+        $request = Request::create('/reports/sales');
+
+        $period = (new ReportingPeriodService())->applyToRequest($request);
+
+        $this->assertSame('30d', $period->preset);
+        $this->assertSame('2026-07-22', $request->input('date_from'));
+        $this->assertSame('2026-08-20', $request->input('date_to'));
     }
 }

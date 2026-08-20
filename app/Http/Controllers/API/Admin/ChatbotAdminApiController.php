@@ -416,7 +416,8 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             if ($request->hasFile('file')) {
                 $file = $request->file('file');
-                $data['content'] = file_get_contents($file->getRealPath());
+                // Keep UTF-8 `content` empty so the ingestion job parses the stored file.
+                $data['content'] = null;
                 $data['file_path'] = FileService::upload($file, 'chatbot/knowledge');
                 $data['file_type'] = $file->getClientOriginalExtension();
             } else {
@@ -508,7 +509,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             if ($request->hasFile('file')) {
                 $file = $request->file('file');
-                $data['content'] = file_get_contents($file->getRealPath());
+                $data['content'] = null;
 
                 // Delete old file if exists
                 if ($entry->file_path) {

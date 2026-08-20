@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\AnalyzeLectureDurationJob;
 use App\Models\Category;
 use App\Models\Course\CourseChapter\Assignment\AssignmentResource;
 use App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment;
@@ -851,6 +852,7 @@ class HelperService
         $lectureData = CourseChapterLecture::find($request->lecture_type_id);
 
         $lectureDataArray = [];
+        $shouldAnalyzeVideoDuration = false;
         if ($request->lecture_type == 'youtube_url') {
             if ($lectureData && isset($lectureData->lecture_type) && $lectureData->lecture_type == 'file') {
                 FileService::delete($lectureData->getRawOriginal('file'));
@@ -889,30 +891,9 @@ class HelperService
                 $videoExtensions = ['mp4', 'avi', 'mov', 'webm', 'mkv', 'flv', 'wmv'];
 
                 if (in_array(strtolower($extension), $videoExtensions, true)) {
-                    // ✅ استخراج مدة الفيديو تلقائياً بـ getid3
-                    try {
-                        $getID3 = new \getID3();
-                        $fileInfo = $getID3->analyze($uploadedFile->getRealPath());
-                        $totalSeconds = (int) round($fileInfo['playtime_seconds'] ?? 0);
-
-                        if ($totalSeconds > 0) {
-                            $lectureDataArray['hours']   = (int) floor($totalSeconds / 3600);
-                            $lectureDataArray['minutes'] = (int) floor(($totalSeconds % 3600) / 60);
-                            $lectureDataArray['seconds'] = (int) ($totalSeconds % 60);
-
-                            Log::info('Video duration auto-detected', [
-                                'lecture_title' => $request->lecture_title,
-                                'total_seconds' => $totalSeconds,
-                                'hours'   => $lectureDataArray['hours'],
-                                'minutes' => $lectureDataArray['minutes'],
-                                'seconds' => $lectureDataArray['seconds'],
-                            ]);
-                        }
-                    } catch (\Throwable $e) {
-                        Log::warning('Could not auto-detect video duration', [
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
+                    // Metadata parsing reads through the uploaded file and can be
+                    // expensive for large videos. Run it after the upload request.
+                    $shouldAnalyzeVideoDuration = true;
 
                     // Check HLS settings before queuing encoding
                     $hlsSettings = CachingService::getSystemSettings(['hls_auto_encode', 'hls_max_file_size_mb']);
@@ -960,6 +941,10 @@ class HelperService
 
         // Update or Create Lecture
         $lecture = CourseChapterLecture::updateOrCreate(['id' => $request->lecture_type_id], $lectureDataArray);
+
+        if ($shouldAnalyzeVideoDuration) {
+            AnalyzeLectureDurationJob::dispatch($lecture->id);
+        }
 
         // Dispatch HLS encoding job if video file was uploaded
         if ($lecture->hls_status === 'pending') {

@@ -539,60 +539,60 @@ final class SubscriptionService
     {
         $count = 0;
 
-        $expiredSubscriptions = Subscription::with(['user', 'plan'])
+        Subscription::with(['user', 'plan'])
             ->where('status', Subscription::STATUS_ACTIVE)
             ->whereNotNull('ends_at')
             ->where('ends_at', '<=', now())
-            ->get();
+            ->chunkById(100, function ($expiredSubscriptions) use (&$count): void {
+                foreach ($expiredSubscriptions as $subscription) {
+                    DB::transaction(function () use ($subscription, &$count) {
+                        $lockedSub = Subscription::where('id', $subscription->id)
+                            ->where('status', Subscription::STATUS_ACTIVE)
+                            ->lockForUpdate()
+                            ->first();
 
-        foreach ($expiredSubscriptions as $subscription) {
-            DB::transaction(function () use ($subscription, &$count) {
-                $lockedSub = Subscription::where('id', $subscription->id)
-                    ->where('status', Subscription::STATUS_ACTIVE)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $lockedSub) {
-                    return;
-                }
-
-                if ($lockedSub->auto_renew && $lockedSub->plan) {
-                    $user = $lockedSub->user;
-                    $plan = $lockedSub->plan;
-                    $localPrice = (float) ($lockedSub->locked_price ?? $plan->price);
-                    $currency = strtoupper((string) ($lockedSub->locked_currency ?? 'EGP'));
-                    $priceEgp = app(CurrencyConversionService::class)->convertToEgp($localPrice, $currency);
-
-                    if ($user && $user->wallet_balance >= $priceEgp) {
-                        try {
-                            $this->renewWithPayment($user, $lockedSub, 'wallet', $localPrice, 0, $localPrice, $currency, $priceEgp);
-
-                            Log::info('Subscription auto-renewed via wallet', [
-                                'subscription_id' => $lockedSub->id,
-                                'user_id' => $user->id,
-                                'amount' => $localPrice,
-                            ]);
-
+                        if (! $lockedSub) {
                             return;
-                        } catch (\Throwable $e) {
-                            Log::warning('Auto-renewal failed, marking as expired', [
-                                'subscription_id' => $lockedSub->id,
-                                'error' => $e->getMessage(),
-                            ]);
                         }
-                    }
+
+                        if ($lockedSub->auto_renew && $lockedSub->plan) {
+                            $user = $lockedSub->user;
+                            $plan = $lockedSub->plan;
+                            $localPrice = (float) ($lockedSub->locked_price ?? $plan->price);
+                            $currency = strtoupper((string) ($lockedSub->locked_currency ?? 'EGP'));
+                            $priceEgp = app(CurrencyConversionService::class)->convertToEgp($localPrice, $currency);
+
+                            if ($user && $user->wallet_balance >= $priceEgp) {
+                                try {
+                                    $this->renewWithPayment($user, $lockedSub, 'wallet', $localPrice, 0, $localPrice, $currency, $priceEgp);
+
+                                    Log::info('Subscription auto-renewed via wallet', [
+                                        'subscription_id' => $lockedSub->id,
+                                        'user_id' => $user->id,
+                                        'amount' => $localPrice,
+                                    ]);
+
+                                    return;
+                                } catch (\Throwable $e) {
+                                    Log::warning('Auto-renewal failed, marking as expired', [
+                                        'subscription_id' => $lockedSub->id,
+                                        'error' => $e->getMessage(),
+                                    ]);
+                                }
+                            }
+                        }
+
+                        $lockedSub->status = Subscription::STATUS_EXPIRED;
+                        $lockedSub->save();
+                        $count++;
+
+                        Log::info('Subscription marked as expired', [
+                            'subscription_id' => $lockedSub->id,
+                            'user_id' => $lockedSub->user_id,
+                        ]);
+                    });
                 }
-
-                $lockedSub->status = Subscription::STATUS_EXPIRED;
-                $lockedSub->save();
-                $count++;
-
-                Log::info('Subscription marked as expired', [
-                    'subscription_id' => $lockedSub->id,
-                    'user_id' => $lockedSub->user_id,
-                ]);
             });
-        }
 
         return $count;
     }

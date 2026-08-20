@@ -106,15 +106,24 @@ class Handler extends ExceptionHandler
         // Get request details
         $url = $request->fullUrl();
         $method = $request->method();
-        $params = $request->all();
-
-        // Get user token if authenticated
-        $userToken = null;
-        if (Auth::check()) {
-            $userToken = Auth::user()->currentAccessToken()?->plainTextToken;
+        $params = $request->except([
+            'password',
+            'password_confirmation',
+            'current_password',
+            'token',
+            'access_token',
+            'refresh_token',
+            'authorization',
+            'card_number',
+            'cvv',
+            'otp',
+        ]);
+        foreach ($params as $key => $value) {
+            if ($request->file($key) || (is_string($key) && str_contains(strtolower($key), 'file'))) {
+                $params[$key] = '[uploaded-file]';
+            }
         }
 
-        // Prepare log message
         $logMessage = [
             'error' => $e->getMessage(),
             'controller' => $controller,
@@ -123,7 +132,7 @@ class Handler extends ExceptionHandler
             'url' => $url,
             'method' => $method,
             'params' => $params,
-            'user_token' => $userToken,
+            'user_id' => Auth::id(),
             'trace' => $e->getTraceAsString(),
         ];
 

@@ -18,6 +18,8 @@ class SendFcmNotificationJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
+    public const TOKEN_CHUNK_SIZE = 50;
+
     public $timeout = 120;
     public $tries = 3;
 
@@ -48,6 +50,21 @@ class SendFcmNotificationJob implements ShouldQueue
     public function handle()
     {
         if ($this->registrationIDs === []) {
+            return;
+        }
+
+        $tokenChunks = array_chunk($this->registrationIDs, self::TOKEN_CHUNK_SIZE);
+        if (count($this->registrationIDs) > self::TOKEN_CHUNK_SIZE) {
+            foreach ($tokenChunks as $tokenChunk) {
+                static::dispatch(
+                    $tokenChunk,
+                    $this->title,
+                    $this->message,
+                    $this->type,
+                    $this->customBodyFields,
+                );
+            }
+
             return;
         }
 

@@ -44,36 +44,43 @@ class RecalculateProgressCommand extends Command
             $this->info("Recalculating progress for ALL users. This may take a while...");
         }
 
-        $records = $query->get();
-        $this->info("Found {$records->count()} progress records to process.");
+        $recordCount = (clone $query)->count();
+        $this->info("Found {$recordCount} progress records to process.");
 
-        $bar = $this->output->createProgressBar($records->count());
+        $bar = $this->output->createProgressBar($recordCount);
         $bar->start();
 
         $updatedCount = 0;
         $certificatesIssued = 0;
 
-        foreach ($records as $record) {
-            try {
-                $oldPercentage = $record->progress_percentage;
-                
-                // Recalculate and update
-                $newProgress = $progressService->calculateAndUpdateProgress($record->user_id, $record->course_id);
-                
-                if ($oldPercentage != $newProgress->progress_percentage) {
-                    $updatedCount++;
+        $query->chunkById(100, function ($records) use (
+            $progressService,
+            $bar,
+            &$updatedCount,
+            &$certificatesIssued,
+        ): void {
+            foreach ($records as $record) {
+                try {
+                    $oldPercentage = $record->progress_percentage;
+                    $newProgress = $progressService->calculateAndUpdateProgress(
+                        $record->user_id,
+                        $record->course_id,
+                    );
+
+                    if ($oldPercentage != $newProgress->progress_percentage) {
+                        $updatedCount++;
+                    }
+
+                    if ($newProgress->progress_percentage >= 100 && $oldPercentage < 100) {
+                        $certificatesIssued++;
+                    }
+                } catch (\Exception $e) {
+                    $this->error("\nError processing user {$record->user_id} for course {$record->course_id}: {$e->getMessage()}");
                 }
 
-                if ($newProgress->progress_percentage >= 100 && $oldPercentage < 100) {
-                    $certificatesIssued++;
-                }
-
-            } catch (\Exception $e) {
-                $this->error("\nError processing user {$record->user_id} for course {$record->course_id}: {$e->getMessage()}");
+                $bar->advance();
             }
-
-            $bar->advance();
-        }
+        });
 
         $bar->finish();
         

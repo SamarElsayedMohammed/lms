@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\UserCurriculumTracking;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -373,6 +374,163 @@ final class StudentReportAdminApiControllerTest extends TestCase
 
         $this->assertGreaterThanOrEqual(1, (int) $response->json('data.completed_students'));
         $this->assertGreaterThanOrEqual(1, (int) $response->json('data.total_completed_course_enrollments'));
+    }
+
+    public function test_completion_stats_uses_database_aggregates_instead_of_materializing_raw_rows(): void
+    {
+        $order = Order::create([
+            'user_id' => $this->student1->id,
+            'order_number' => 'ORD-BOUNDED-STATS',
+            'total_price' => 500.0,
+            'final_price' => 500.0,
+            'amount_egp' => 500.0,
+            'exchange_rate_snapshot' => 1.0,
+            'payment_method' => 'stripe',
+            'status' => 'completed',
+        ]);
+        OrderCourse::create([
+            'order_id' => $order->id,
+            'course_id' => $this->course->id,
+            'price' => 500.0,
+            'tax_price' => 0,
+        ]);
+
+        \App\Models\UserCourseProgress::create([
+            'user_id' => $this->student1->id,
+            'course_id' => $this->course->id,
+            'status' => 'in_progress',
+            'progress_percentage' => 50.0,
+            'completed_items' => 1,
+            'total_items' => 2,
+        ]);
+
+        $executedQueries = [];
+        DB::listen(static function ($query) use (&$executedQueries): void {
+            $executedQueries[] = strtolower((string) $query->sql);
+        });
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/students/completion-stats')
+            ->assertOk();
+
+        $rawProgressQueries = collect($executedQueries)->filter(
+            static fn (string $sql): bool => str_contains($sql, 'select * from "user_course_progress"')
+        );
+        $rawUnionQueries = collect($executedQueries)->filter(
+            static fn (string $sql): bool => str_contains($sql, ' union ')
+                && ! preg_match('/^select\b.*\b(count|sum)\s*\(/is', ltrim($sql))
+        );
+
+        $this->assertCount(0, $rawProgressQueries, 'Completion stats must not load raw progress rows.');
+        $this->assertCount(0, $rawUnionQueries, 'Completion stats unions must be aggregated by SQL.');
+    }
+
+    public function test_completion_stats_applies_course_dimensions_and_student_dates_to_all_global_metrics(): void
+    {
+        $otherCategory = Category::create([
+            'name' => 'Data Science',
+            'slug' => 'data-science',
+            'is_active' => true,
+        ]);
+        $otherInstructor = User::factory()->create();
+        $otherCourse = Course::factory()->create([
+            'title' => 'Python Data Analysis',
+            'slug' => 'python-data-analysis',
+            'user_id' => $otherInstructor->id,
+            'category_id' => $otherCategory->id,
+            'price' => 300.0,
+            'is_active' => true,
+            'status' => 'publish',
+            'approval_status' => 'approved',
+            'course_type' => 'paid',
+        ]);
+
+        $this->student2->forceFill(['created_at' => Carbon::now()->subYear()])->save();
+
+        $currentStudentOrder = Order::create([
+            'user_id' => $this->student1->id,
+            'order_number' => 'ORD-FILTER-CURRENT',
+            'total_price' => 800.0,
+            'final_price' => 800.0,
+            'amount_egp' => 800.0,
+            'exchange_rate_snapshot' => 1.0,
+            'payment_method' => 'stripe',
+            'status' => 'completed',
+            'created_at' => Carbon::now(),
+        ]);
+        OrderCourse::create([
+            'order_id' => $currentStudentOrder->id,
+            'course_id' => $this->course->id,
+            'price' => 500.0,
+            'tax_price' => 0,
+        ]);
+        OrderCourse::create([
+            'order_id' => $currentStudentOrder->id,
+            'course_id' => $otherCourse->id,
+            'price' => 300.0,
+            'tax_price' => 0,
+        ]);
+
+        $oldStudentOrder = Order::create([
+            'user_id' => $this->student2->id,
+            'order_number' => 'ORD-FILTER-OLD',
+            'total_price' => 500.0,
+            'final_price' => 500.0,
+            'amount_egp' => 500.0,
+            'exchange_rate_snapshot' => 1.0,
+            'payment_method' => 'stripe',
+            'status' => 'completed',
+            'created_at' => Carbon::now(),
+        ]);
+        OrderCourse::create([
+            'order_id' => $oldStudentOrder->id,
+            'course_id' => $this->course->id,
+            'price' => 500.0,
+            'tax_price' => 0,
+        ]);
+
+        foreach ([
+            [$this->student1->id, $this->course->id, 'completed', 100.0],
+            [$this->student1->id, $otherCourse->id, 'in_progress', 50.0],
+            [$this->student2->id, $this->course->id, 'completed', 100.0],
+        ] as [$userId, $courseId, $status, $percentage]) {
+            \App\Models\UserCourseProgress::create([
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'status' => $status,
+                'progress_percentage' => $percentage,
+                'completed_items' => $status === 'completed' ? 2 : 1,
+                'total_items' => 2,
+            ]);
+        }
+
+        $dateFrom = Carbon::now()->subDay()->toDateString();
+        $filterQueries = [
+            "course_id={$this->course->id}",
+            "instructor_id={$this->admin->id}",
+            "category_id={$this->course->category_id}",
+        ];
+
+        foreach ($filterQueries as $filterQuery) {
+            $response = $this->actingAs($this->admin, 'sanctum')
+                ->getJson("/api/admin/reports/students/completion-stats?{$filterQuery}&date_from={$dateFrom}");
+
+            $response->assertOk();
+            $this->assertSame(1, (int) $response->json('data.total_students'));
+            $this->assertSame(1, (int) $response->json('data.students_with_enrollments'));
+            $this->assertSame(1, (int) $response->json('data.completed_students'));
+            $this->assertSame(100.0, (float) $response->json('data.completion_rate'));
+            $this->assertSame([
+                'no_courses' => 0,
+                'not_started' => 0,
+                'in_progress' => 0,
+                'all_completed' => 1,
+            ], $response->json('data.completion_brackets'));
+            $this->assertSame(1, (int) $response->json('data.total_completed_course_enrollments'));
+            $this->assertSame(0, (int) $response->json('data.total_in_progress_course_enrollments'));
+            $this->assertSame(1, (int) $response->json('data.top_completed_courses.0.completions'));
+            $this->assertSame(1, (int) $response->json('data.monthly_enrollment_trend.0.new_students'));
+        }
     }
 
     public function test_detailed_report_returns_correct_pagination_and_filters_by_status(): void

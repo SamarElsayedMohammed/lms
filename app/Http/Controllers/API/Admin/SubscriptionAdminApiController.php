@@ -357,12 +357,14 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 ]);
             }
 
+            DB::commit();
+
             try {
                 if (class_exists(\App\Services\TrackingService::class)) {
                     $trackingValue = (float) ($payment->amount_egp ?? ($payment->final_amount * ($payment->exchange_rate_snapshot ?? 1)));
-                    
+
                     \App\Services\TrackingService::sendFacebookEvent('Purchase', [
-                        'em' => hash('sha256', $user->email),
+                        'em' => hash('sha256', (string) $user->email),
                     ], [
                         'value' => $trackingValue,
                         'currency' => 'EGP',
@@ -386,8 +388,6 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                     'message' => $e->getMessage()
                 ]);
             }
-
-            DB::commit();
 
             \App\Services\AuditLogService::log(
                 action: 'manual_subscription_approved',

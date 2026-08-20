@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Log;
 
 class EmbeddingService
 {
+    private const SEARCH_CANDIDATE_LIMIT = 200;
+
     /**
      * Generate vector embedding array for a string of text.
      */
@@ -20,11 +22,11 @@ class EmbeddingService
             return [];
         }
 
-        $provider = env('AI_PROVIDER', 'gemini');
+        $provider = (string) config('services.ai.provider', 'gemini');
 
         // OpenAI embedding
         if ($provider === 'openai') {
-            $apiKey = \App\Services\CachingService::getSystemSettings('openai_api_key') ?: env('OPENAI_API_KEY');
+            $apiKey = \App\Services\CachingService::getSystemSettings('openai_api_key') ?: config('services.openai.api_key');
             if (!empty($apiKey)) {
                 try {
                     $response = Http::withToken($apiKey)->timeout(15)->post('https://api.openai.com/v1/embeddings', [
@@ -95,10 +97,24 @@ class EmbeddingService
             $chunksQuery->whereNull('course_id');
         }
 
-        $chunks = $chunksQuery
-            ->select(['id', 'title', 'chunk_text', 'embedding'])
-            ->limit(1000) // Hard cap: hydrating every embedding OOMs FPM (SB-MEM-01)
-            ->get();
+        $keywords = array_values(array_filter(
+            preg_split('/\s+/u', mb_strtolower(trim($query))) ?: [],
+            static fn (string $word): bool => mb_strlen($word) > 2
+        ));
+        $unfilteredQuery = clone $chunksQuery;
+        if ($keywords !== []) {
+            $chunksQuery->where(function ($filter) use ($keywords): void {
+                foreach (array_slice($keywords, 0, 5) as $keyword) {
+                    $filter->orWhere('chunk_text', 'like', '%'.addcslashes($keyword, '%_\\').'%');
+                }
+            });
+        }
+
+        $select = ['id', 'title', 'chunk_text', 'embedding'];
+        $chunks = $chunksQuery->select($select)->limit(self::SEARCH_CANDIDATE_LIMIT)->get();
+        if ($chunks->isEmpty() && $keywords !== []) {
+            $chunks = $unfilteredQuery->select($select)->limit(self::SEARCH_CANDIDATE_LIMIT)->get();
+        }
         if ($chunks->isEmpty()) {
             return [];
         }

@@ -22,21 +22,30 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public const WRITE_BATCH_SIZE = 25;
+
     public int $tries = 3;
+
     public int $backoff = 10;
+
+    public int $timeout = 7200;
+
+    public bool $failOnTimeout = true;
 
     public function __construct(
         public ?int $knowledgeBaseId = null,
         public ?int $courseId = null,
         public string $botType = 'course'
-    ) {}
+    ) {
+        $this->onQueue('ingestion');
+    }
 
     public function handle(
         DocumentParserService $parser,
         TextChunkingService $chunker,
         EmbeddingService $embedder
     ): void {
-        Log::info("ProcessKnowledgeIngestionJob started", [
+        Log::info('ProcessKnowledgeIngestionJob started', [
             'knowledge_base_id' => $this->knowledgeBaseId,
             'course_id' => $this->courseId,
             'bot_type' => $this->botType,
@@ -52,8 +61,9 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
 
         if ($this->knowledgeBaseId) {
             $knowledgeEntry = ChatbotKnowledgeBase::find($this->knowledgeBaseId);
-            if (!$knowledgeEntry) {
+            if (! $knowledgeEntry) {
                 Log::warning("Knowledge base entry not found: {$this->knowledgeBaseId}");
+
                 return;
             }
 
@@ -66,7 +76,8 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
             $targetCourseId = $knowledgeEntry->course_id ?: $this->courseId;
             $filePath = $knowledgeEntry->file_path;
             $fileType = $knowledgeEntry->file_type;
-            $rawText = $knowledgeEntry->content ?? '';
+            // File uploads are parsed from disk. Never treat leftover binary bytes as UTF-8 text.
+            $rawText = $filePath ? '' : ($knowledgeEntry->content ?? '');
         }
 
         if ($targetCourseId) {
@@ -82,8 +93,8 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
         try {
             // Extract text from uploaded file if path exists
             if ($filePath && empty($rawText)) {
-                $fullPath = storage_path('app/public/' . ltrim($filePath, '/'));
-                if (!file_exists($fullPath)) {
+                $fullPath = storage_path('app/public/'.ltrim($filePath, '/'));
+                if (! file_exists($fullPath)) {
                     $fullPath = public_path($filePath);
                 }
 
@@ -97,84 +108,96 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
 
             $normalizedText = $parser->normalizeText($rawText);
             if (empty($normalizedText)) {
-                throw new \RuntimeException("Extracted knowledge text is empty.");
+                throw new \RuntimeException('Extracted knowledge text is empty.');
             }
 
             $contentHash = $chunker->computeHash($normalizedText);
 
             $chunks = $chunker->chunkText($normalizedText);
             if (empty($chunks)) {
-                throw new \RuntimeException("Could not create any chunks from knowledge text.");
+                throw new \RuntimeException('Could not create any chunks from knowledge text.');
             }
 
-            $preparedChunks = [];
-            foreach ($chunks as $c) {
-                $preparedChunks[] = [
+            $timestamp = now();
+            $preparedRows = [];
+            foreach ($chunks as $chunk) {
+                $preparedRows[] = [
                     'bot_type' => $this->botType,
                     'course_id' => $targetCourseId,
                     'knowledge_base_id' => $this->knowledgeBaseId,
                     'source_type' => $filePath ? 'file' : 'text',
                     'title' => $title ?: ($courseModel ? $courseModel->title : 'Global Knowledge'),
-                    'chunk_index' => $c['index'],
-                    'chunk_text' => $c['text'],
-                    'embedding' => $embedder->generateEmbedding($c['text']),
-                    'token_count' => $c['token_count'],
-                    'content_hash' => $c['hash'],
+                    'chunk_index' => $chunk['index'],
+                    'chunk_text' => $chunk['text'],
+                    'embedding' => json_encode(
+                        $embedder->generateEmbedding($chunk['text']),
+                        JSON_THROW_ON_ERROR
+                    ),
+                    'token_count' => $chunk['token_count'],
+                    'content_hash' => $chunk['hash'],
                     'is_active' => true,
+                    'created_at' => $timestamp,
+                    'updated_at' => $timestamp,
                 ];
             }
 
-            DB::beginTransaction();
-
+            $chunkCount = count($preparedRows);
             $deleteQuery = ChatbotVectorChunk::where('bot_type', $this->botType);
             if ($this->knowledgeBaseId) {
                 $deleteQuery->where('knowledge_base_id', $this->knowledgeBaseId);
             } elseif ($targetCourseId) {
                 $deleteQuery->where('course_id', $targetCourseId);
             }
-            $deleteQuery->delete();
 
-            $chunkCount = 0;
-            foreach ($preparedChunks as $row) {
-                ChatbotVectorChunk::create($row);
-                $chunkCount++;
-            }
+            DB::transaction(function () use (
+                $deleteQuery,
+                $preparedRows,
+                $knowledgeEntry,
+                $courseModel,
+                $chunkCount,
+                $contentHash,
+                $normalizedText,
+            ): void {
+                $deleteQuery->delete();
 
-            // Update KnowledgeBase status to ready
-            if ($knowledgeEntry) {
-                $knowledgeEntry->update([
-                    'processing_status' => 'ready',
-                    'chunk_count' => $chunkCount,
-                    'content_hash' => $contentHash,
-                    'indexed_at' => now(),
-                    'failed_at' => null,
-                    'failure_reason' => null,
-                ]);
-            }
+                foreach (array_chunk($preparedRows, self::WRITE_BATCH_SIZE) as $batchRows) {
+                    ChatbotVectorChunk::insert($batchRows);
+                }
 
-            // Update Course status to ready
-            if ($courseModel) {
-                $courseModel->update([
-                    'ai_knowledge_content' => $normalizedText,
-                    'ai_processing_status' => 'ready',
-                    'ai_chunk_count' => $chunkCount,
-                    'ai_indexed_at' => now(),
-                    'ai_failed_at' => null,
-                    'ai_failure_reason' => null,
-                ]);
-            }
+                if ($knowledgeEntry) {
+                    $knowledgeEntry->update([
+                        'processing_status' => 'ready',
+                        'chunk_count' => $chunkCount,
+                        'content_hash' => $contentHash,
+                        'indexed_at' => now(),
+                        'failed_at' => null,
+                        'failure_reason' => null,
+                    ]);
+                }
 
-            DB::commit();
+                if ($courseModel) {
+                    $courseModel->update([
+                        'ai_knowledge_content' => $normalizedText,
+                        'ai_processing_status' => 'ready',
+                        'ai_chunk_count' => $chunkCount,
+                        'ai_indexed_at' => now(),
+                        'ai_failed_at' => null,
+                        'ai_failure_reason' => null,
+                    ]);
+                }
+            });
 
-            Log::info("ProcessKnowledgeIngestionJob completed successfully", [
+            Log::info('ProcessKnowledgeIngestionJob completed successfully', [
                 'knowledge_base_id' => $this->knowledgeBaseId,
                 'course_id' => $targetCourseId,
                 'chunks_created' => $chunkCount,
             ]);
         } catch (\Throwable $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
 
-            Log::error("ProcessKnowledgeIngestionJob failed: " . $e->getMessage(), [
+            Log::error('ProcessKnowledgeIngestionJob failed: '.$e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
 
@@ -195,6 +218,34 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
             }
 
             throw $e;
+        }
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        $failureReason = trim($exception->getMessage());
+        if ($failureReason === '') {
+            $failureReason = 'Knowledge ingestion failed before completion.';
+        }
+
+        $failure = [
+            'failed_at' => now(),
+            'failure_reason' => $failureReason,
+        ];
+
+        if ($this->knowledgeBaseId) {
+            ChatbotKnowledgeBase::whereKey($this->knowledgeBaseId)->update([
+                ...$failure,
+                'processing_status' => 'failed',
+            ]);
+        }
+
+        if ($this->courseId) {
+            Course::whereKey($this->courseId)->update([
+                'ai_processing_status' => 'failed',
+                'ai_failed_at' => $failure['failed_at'],
+                'ai_failure_reason' => $failure['failure_reason'],
+            ]);
         }
     }
 }
