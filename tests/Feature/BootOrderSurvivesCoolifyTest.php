@@ -72,6 +72,15 @@ class BootOrderSurvivesCoolifyTest extends TestCase
         $this->assertMatchesRegularExpression('/pm\.max_children\s*=\s*[1-8]\b/', $fpm);
     }
 
+    public function test_docker_build_skips_gd_avif_and_pins_bookworm(): void
+    {
+        $dockerfile = $this->readBackendFile('Dockerfile');
+
+        $this->assertStringContainsString('php:8.3-fpm-bookworm', $dockerfile);
+        $this->assertStringContainsString('IPE_GD_WITHOUTAVIF=1', $dockerfile);
+        $this->assertStringNotContainsString('FROM php:8.3-fpm', str_replace('FROM php:8.3-fpm-bookworm', '', $dockerfile));
+    }
+
     private function readBackendFile(string $relativePath): string
     {
         $path = dirname(__DIR__, 2).DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relativePath);

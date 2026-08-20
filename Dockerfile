@@ -1,9 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Application image with PHP 8.3 FPM, Nginx, and static ffmpeg
+# Pin bookworm: php:8.3-fpm:latest moved to Debian Trixie and busts every layer.
+# Skip GD AVIF: compiling libaom/dav1d on a 2GB Coolify host OOMs or times out.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM php:8.3-fpm
+FROM php:8.3-fpm-bookworm
 
 WORKDIR /var/www/html
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    IPE_GD_WITHOUTAVIF=1
 
 # ─── 1. System packages (minimal) ─────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -15,11 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── 2. Copy static ffmpeg/ffprobe binaries (multi-arch, fully self-contained) ─
-COPY --from=mwader/static-ffmpeg:latest /ffmpeg  /usr/local/bin/ffmpeg
-COPY --from=mwader/static-ffmpeg:latest /ffprobe /usr/local/bin/ffprobe
+COPY --from=mwader/static-ffmpeg:7.1.1 /ffmpeg  /usr/local/bin/ffmpeg
+COPY --from=mwader/static-ffmpeg:7.1.1 /ffprobe /usr/local/bin/ffprobe
 
 # ─── 3. PHP extensions via fast binary installer ─────────────────────────────
-COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+COPY --from=mlocati/php-extension-installer:2.11.12 /usr/bin/install-php-extensions /usr/local/bin/
 RUN install-php-extensions \
     pdo_mysql \
     redis \
@@ -33,7 +38,7 @@ RUN install-php-extensions \
     exif
 
 # ─── 4. Composer ─────────────────────────────────────────────────────────────
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # ─── 5. Copy application ─────────────────────────────────────────────────────
 COPY . /var/www/html
