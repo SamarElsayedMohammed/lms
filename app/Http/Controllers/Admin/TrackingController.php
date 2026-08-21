@@ -56,44 +56,31 @@ class TrackingController extends Controller
             });
         }
 
-        // Get user-course pairs
-        $userCoursePairs = $baseQuery->get();
+        $perPage = 15;
+        $paginatedPairs = $baseQuery->paginate($perPage);
 
-        // Build tracking data with progress calculation
+        // Batch-hydrate courses and users for the current page only
+        $userIds = $paginatedPairs->pluck('user_id')->unique()->filter()->all();
+        $courseIds = $paginatedPairs->pluck('course_id')->unique()->filter()->all();
+
+        $courses = !empty($courseIds) ? Course::with('user')->whereIn('id', $courseIds)->get()->keyBy('id') : collect();
+        $users = !empty($userIds) ? User::whereIn('id', $userIds)->get()->keyBy('id') : collect();
+
+        // Build tracking data with progress calculation for current page only
         $trackingsData = [];
-        foreach ($userCoursePairs as $pair) {
+        foreach ($paginatedPairs as $pair) {
             $userId = $pair->user_id;
             $courseId = $pair->course_id;
 
-            // Get course and user
-            $course = Course::with('user')->find($courseId);
-            $user = User::find($userId);
+            $course = $courses->get($courseId);
+            $user = $users->get($userId);
 
             if (!$course || !$user) {
                 continue;
             }
 
-            // Calculate progress from curriculum trackings
+            // Calculate progress from curriculum trackings for active page items
             $progressData = $this->calculateProgressFromCurriculum($userId, $courseId);
-
-            // Apply progress status filter
-            if ($request->filled('progress_status')) {
-                $statusMatch = false;
-                switch ($request->progress_status) {
-                    case 'not_started':
-                        $statusMatch = $progressData['status'] === 'not_started';
-                        break;
-                    case 'in_progress':
-                        $statusMatch = $progressData['status'] === 'in_progress';
-                        break;
-                    case 'completed':
-                        $statusMatch = $progressData['status'] === 'completed';
-                        break;
-                }
-                if (!$statusMatch) {
-                    continue;
-                }
-            }
 
             $trackingsData[] = (object) [
                 'id' => $userId . '_' . $courseId,
@@ -105,16 +92,11 @@ class TrackingController extends Controller
             ];
         }
 
-        // Convert to collection and paginate manually
-        $trackings = collect($trackingsData);
-        $perPage = 15;
-        $currentPage = $request->get('page', 1);
-        $items = $trackings->slice(($currentPage - 1) * $perPage, $perPage)->values();
         $trackings = new \Illuminate\Pagination\LengthAwarePaginator(
-            $items,
-            $trackings->count(),
+            $trackingsData,
+            $paginatedPairs->total(),
             $perPage,
-            $currentPage,
+            $paginatedPairs->currentPage(),
             ['path' => $request->url(), 'query' => $request->query()],
         );
 
