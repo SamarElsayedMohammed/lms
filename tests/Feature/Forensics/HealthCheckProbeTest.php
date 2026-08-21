@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Forensics;
 
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -79,8 +80,9 @@ final class HealthCheckProbeTest extends TestCase
      */
     public function test_health_endpoint_returns_degraded_when_database_connection_fails(): void
     {
-        DB::shouldReceive('connection')
-            ->andThrow(new \PDOException('Simulated DB network failure', 2002));
+        // Sever database connection by pointing to an unopenable read-only/invalid directory
+        Config::set('database.connections.sqlite.database', '/non_existent_directory_unreachable/db.sqlite');
+        DB::purge('sqlite');
 
         $response = $this->getJson('/api/health');
 
@@ -95,8 +97,8 @@ final class HealthCheckProbeTest extends TestCase
      */
     public function test_health_ready_endpoint_returns_503_not_ready_when_database_fails(): void
     {
-        DB::shouldReceive('connection')
-            ->andThrow(new \PDOException('Simulated DB network failure', 2002));
+        Config::set('database.connections.sqlite.database', '/non_existent_directory_unreachable/db.sqlite');
+        DB::purge('sqlite');
 
         $response = $this->getJson('/api/health/ready');
 
@@ -111,8 +113,8 @@ final class HealthCheckProbeTest extends TestCase
      */
     public function test_health_live_endpoint_succeeds_even_when_database_is_severed(): void
     {
-        DB::shouldReceive('connection')
-            ->andThrow(new \PDOException('Simulated DB network failure', 2002));
+        Config::set('database.connections.sqlite.database', '/non_existent_directory_unreachable/db.sqlite');
+        DB::purge('sqlite');
 
         $response = $this->getJson('/api/health/live');
 
