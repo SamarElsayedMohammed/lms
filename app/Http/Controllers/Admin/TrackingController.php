@@ -585,43 +585,28 @@ class TrackingController extends Controller
      */
     private function getStatisticsFromCurriculum()
     {
-        // Get unique user-course pairs
-        $userCoursePairs = UserCurriculumTracking::select(
-            'user_curriculum_trackings.user_id',
-            'course_chapters.course_id',
-        )
-            ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
-            ->join('users', 'user_curriculum_trackings.user_id', '=', 'users.id')
-            ->whereHas('user.orders', static function ($q): void {
-                $q->where('status', 'completed');
+        $totalEnrollments = DB::table('user_curriculum_trackings as uct')
+            ->join('course_chapters as cc', 'uct.course_chapter_id', '=', 'cc.id')
+            ->join('users as u', 'uct.user_id', '=', 'u.id')
+            ->whereExists(static function ($q): void {
+                $q->select(DB::raw(1))
+                    ->from('orders')
+                    ->whereColumn('orders.user_id', 'u.id')
+                    ->where('orders.status', 'completed');
             })
-            ->groupBy('user_curriculum_trackings.user_id', 'course_chapters.course_id')
-            ->get();
+            ->distinct()
+            ->count(['uct.user_id', 'cc.course_id']);
 
-        $totalEnrollments = $userCoursePairs->count();
-        $notStarted = 0;
-        $inProgress = 0;
-        $completed = 0;
-        $totalProgress = 0;
+        $completed = DB::table('user_course_tracks')
+            ->where('status', 'completed')
+            ->count();
 
-        foreach ($userCoursePairs as $pair) {
-            $progressData = $this->calculateProgressFromCurriculum($pair->user_id, $pair->course_id);
-            $totalProgress += $progressData['progress_percentage'];
+        $inProgress = DB::table('user_course_tracks')
+            ->where('status', 'in_progress')
+            ->count();
 
-            switch ($progressData['status']) {
-                case 'not_started':
-                    $notStarted++;
-                    break;
-                case 'in_progress':
-                    $inProgress++;
-                    break;
-                case 'completed':
-                    $completed++;
-                    break;
-            }
-        }
-
-        $averageProgress = $totalEnrollments > 0 ? round($totalProgress / $totalEnrollments, 1) : 0;
+        $notStarted = max(0, $totalEnrollments - $completed - $inProgress);
+        $averageProgress = $totalEnrollments > 0 ? round((($completed * 100) + ($inProgress * 50)) / $totalEnrollments, 1) : 0;
 
         return [
             'total_enrollments' => $totalEnrollments,
