@@ -15,6 +15,10 @@ class ManualCustomNotification extends Notification implements ShouldQueue
     use Queueable;
     use PushesToFirebase;
 
+    public int $tries = 3;
+    public int $timeout = 60;
+    public int|array $backoff = [10, 30];
+
     protected array $data;
 
     /**

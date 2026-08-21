@@ -93,7 +93,7 @@ class FirebaseHelper
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $data1);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
 
         $result = curl_exec($ch);
 
@@ -168,7 +168,7 @@ class FirebaseHelper
         $client = new Client();
         $client->setHttpClient(new GuzzleClient([
             'timeout' => 10,
-            'connect_timeout' => 5,
+            'connect_timeout' => 3,
         ]));
         $client->setAuthConfig($filePath);
         $client->setScopes(['https://www.googleapis.com/auth/firebase.messaging']);
