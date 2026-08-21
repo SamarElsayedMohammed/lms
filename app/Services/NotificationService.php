@@ -65,7 +65,7 @@ class NotificationService
             $client = new Client();
             $client->setHttpClient(new \GuzzleHttp\Client([
                 'timeout' => 10,
-                'connect_timeout' => 5,
+                'connect_timeout' => 3,
             ]));
             $client->setAuthConfig($file_path);
             $client->setScopes(['https://www.googleapis.com/auth/firebase.messaging']);

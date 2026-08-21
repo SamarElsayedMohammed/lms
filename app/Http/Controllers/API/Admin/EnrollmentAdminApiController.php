@@ -13,7 +13,7 @@ use App\Models\Subscription;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class EnrollmentAdminApiController extends AdminCrudApiController
 {
@@ -29,17 +29,136 @@ class EnrollmentAdminApiController extends AdminCrudApiController
 
         $perPage = min((int) $request->input('per_page', 15), 100);
         $page = max((int) $request->input('page', 1), 1);
+        $offset = ($page - 1) * $perPage;
 
-        $enrollments = collect()
-            ->merge($this->purchaseEnrollments($request))
-            ->merge($this->trackEnrollments($request))
-            ->merge($this->subscriptionEnrollments($request))
-            ->sortByDesc('created_at')
-            ->values();
+        // 1. Purchase enrollments query
+        $purchaseQuery = DB::table('order_courses')
+            ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+            ->where('orders.status', 'completed')
+            ->when($request->course_id, fn ($q) => $q->where('order_courses.course_id', $request->course_id))
+            ->when($request->user_id, fn ($q) => $q->where('orders.user_id', $request->user_id))
+            ->when($request->date_from, fn ($q) => $q->whereDate('order_courses.created_at', '>=', $request->date_from))
+            ->when($request->date_to, fn ($q) => $q->whereDate('order_courses.created_at', '<=', $request->date_to))
+            ->selectRaw("CAST(order_courses.id AS CHAR) as record_id, order_courses.created_at as created_at, 'purchase' as source, orders.user_id as user_id, order_courses.course_id as course_id");
+
+        // 2. Track enrollments query
+        $trackQuery = DB::table('user_course_tracks')
+            ->when($request->course_id, fn ($q) => $q->where('course_id', $request->course_id))
+            ->when($request->user_id, fn ($q) => $q->where('user_id', $request->user_id))
+            ->when($request->date_from, fn ($q) => $q->whereDate('created_at', '>=', $request->date_from))
+            ->when($request->date_to, fn ($q) => $q->whereDate('created_at', '<=', $request->date_to))
+            ->selectRaw("CAST(user_course_tracks.id AS CHAR) as record_id, user_course_tracks.created_at as created_at, 'track' as source, user_course_tracks.user_id as user_id, user_course_tracks.course_id as course_id");
+
+        // 3. Subscription enrollments query
+        $subCurriculumQuery = DB::table('user_curriculum_trackings as uct')
+            ->join('course_chapters as cc', 'uct.course_chapter_id', '=', 'cc.id')
+            ->join('subscriptions as s', function ($join) {
+                $join->on('uct.user_id', '=', 's.user_id')
+                    ->where('s.status', '=', 'active')
+                    ->where(function ($q) {
+                        $q->whereNull('s.ends_at')->orWhere('s.ends_at', '>', now());
+                    });
+            })
+            ->when($request->course_id, fn ($q) => $q->where('cc.course_id', $request->course_id))
+            ->when($request->user_id, fn ($q) => $q->where('uct.user_id', $request->user_id))
+            ->when($request->date_from, fn ($q) => $q->whereDate('uct.created_at', '>=', $request->date_from))
+            ->when($request->date_to, fn ($q) => $q->whereDate('uct.created_at', '<=', $request->date_to))
+            ->selectRaw("CAST(MIN(uct.id) AS CHAR) as record_id, MIN(uct.created_at) as created_at, 'subscription' as source, uct.user_id as user_id, cc.course_id as course_id")
+            ->groupBy('uct.user_id', 'cc.course_id');
+
+        $union = (clone $purchaseQuery)
+            ->toBase()
+            ->unionAll((clone $trackQuery)->toBase())
+            ->unionAll((clone $subCurriculumQuery)->toBase());
+
+        $total = DB::query()->fromSub($union, 'combined_count')->count();
+
+        $pageRows = DB::query()
+            ->fromSub($union, 'combined_enrollments')
+            ->orderByDesc('created_at')
+            ->offset($offset)
+            ->limit($perPage)
+            ->get();
+
+        // Batch-hydrate relations for the current page only
+        $purchaseIds = $pageRows->where('source', 'purchase')->pluck('record_id')->map(fn ($id) => (int) $id)->all();
+        $trackIds = $pageRows->where('source', 'track')->pluck('record_id')->map(fn ($id) => (int) $id)->all();
+        $subUserIds = $pageRows->where('source', 'subscription')->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->all();
+        $courseIds = $pageRows->pluck('course_id')->map(fn ($id) => (int) $id)->unique()->filter()->all();
+
+        $orderCoursesById = !empty($purchaseIds)
+            ? OrderCourse::with(['order.user', 'course.user'])->whereIn('id', $purchaseIds)->get()->keyBy('id')
+            : collect();
+
+        $tracksById = !empty($trackIds)
+            ? UserCourseTrack::with(['user', 'course.user'])->whereIn('id', $trackIds)->get()->keyBy('id')
+            : collect();
+
+        $coursesById = !empty($courseIds)
+            ? Course::with('user')->whereIn('id', $courseIds)->get()->keyBy('id')
+            : collect();
+
+        $activeSubsByUser = !empty($subUserIds)
+            ? Subscription::with('plan')->active()->whereIn('user_id', $subUserIds)->get()->groupBy('user_id')
+            : collect();
+
+        $currentItems = $pageRows->map(function ($row) use ($orderCoursesById, $tracksById, $coursesById, $activeSubsByUser) {
+            $recordId = (int) $row->record_id;
+            $courseId = (int) $row->course_id;
+            $userId = (int) $row->user_id;
+
+            if ($row->source === 'purchase') {
+                $enrollment = $orderCoursesById->get($recordId);
+                return [
+                    'id' => $enrollment?->id ?? $recordId,
+                    'source' => 'purchase',
+                    'user_id' => $enrollment?->order?->user_id ?? $userId,
+                    'course_id' => $enrollment?->course_id ?? $courseId,
+                    'created_at' => $enrollment?->created_at ?? $row->created_at,
+                    'updated_at' => $enrollment?->updated_at ?? $row->created_at,
+                    'order' => $enrollment?->order,
+                    'course' => $enrollment?->course ?? $coursesById->get($courseId),
+                    'track' => null,
+                    'subscription' => null,
+                ];
+            }
+
+            if ($row->source === 'track') {
+                $track = $tracksById->get($recordId);
+                return [
+                    'id' => 'track-' . ($track?->id ?? $recordId),
+                    'source' => 'track',
+                    'user_id' => $track?->user_id ?? $userId,
+                    'course_id' => $track?->course_id ?? $courseId,
+                    'created_at' => $track?->created_at ?? $row->created_at,
+                    'updated_at' => $track?->updated_at ?? $row->created_at,
+                    'order' => null,
+                    'course' => $track?->course ?? $coursesById->get($courseId),
+                    'track' => $track,
+                    'subscription' => null,
+                ];
+            }
+
+            $sub = $activeSubsByUser->get($userId)?->first();
+            $course = $coursesById->get($courseId);
+
+            return [
+                'id' => 'subscription-' . ($sub?->id ?? 'sub') . '-' . $courseId,
+                'source' => 'subscription',
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'created_at' => $row->created_at,
+                'updated_at' => $row->created_at,
+                'order' => null,
+                'course' => $course,
+                'track' => null,
+                'subscription' => $sub,
+            ];
+        });
 
         $paginated = new LengthAwarePaginator(
-            $enrollments->forPage($page, $perPage)->values(),
-            $enrollments->count(),
+            $currentItems->values(),
+            $total,
             $perPage,
             $page,
             [
@@ -62,114 +181,5 @@ class EnrollmentAdminApiController extends AdminCrudApiController
         }
 
         return $this->jsonSuccess(__('Enrollment retrieved'), $enrollment);
-    }
-
-    private function purchaseEnrollments(Request $request): Collection
-    {
-        return OrderCourse::with(['order.user', 'course.user'])
-            ->whereHas('order', fn ($q) => $q->where('status', 'completed'))
-            ->when($request->course_id, fn ($q) => $q->where('course_id', $request->course_id))
-            ->when($request->user_id, fn ($q) => $q->whereHas('order', fn ($oq) => $oq->where('user_id', $request->user_id)))
-            ->when($request->date_from, fn ($q) => $q->whereDate('created_at', '>=', $request->date_from))
-            ->when($request->date_to, fn ($q) => $q->whereDate('created_at', '<=', $request->date_to))
-            ->get()
-            ->map(fn (OrderCourse $enrollment) => [
-                'id' => $enrollment->id,
-                'source' => 'purchase',
-                'user_id' => $enrollment->order?->user_id,
-                'course_id' => $enrollment->course_id,
-                'created_at' => $enrollment->created_at,
-                'updated_at' => $enrollment->updated_at,
-                'order' => $enrollment->order,
-                'course' => $enrollment->course,
-                'track' => null,
-                'subscription' => null,
-            ]);
-    }
-
-    private function trackEnrollments(Request $request): Collection
-    {
-        return UserCourseTrack::with(['user', 'course.user'])
-            ->when($request->course_id, fn ($q) => $q->where('course_id', $request->course_id))
-            ->when($request->user_id, fn ($q) => $q->where('user_id', $request->user_id))
-            ->when($request->date_from, fn ($q) => $q->whereDate('created_at', '>=', $request->date_from))
-            ->when($request->date_to, fn ($q) => $q->whereDate('created_at', '<=', $request->date_to))
-            ->get()
-            ->map(fn (UserCourseTrack $track) => [
-                'id' => 'track-' . $track->id,
-                'source' => 'track',
-                'user_id' => $track->user_id,
-                'course_id' => $track->course_id,
-                'created_at' => $track->created_at,
-                'updated_at' => $track->updated_at,
-                'order' => null,
-                'course' => $track->course,
-                'track' => $track,
-                'subscription' => null,
-            ]);
-    }
-
-    private function subscriptionEnrollments(Request $request): Collection
-    {
-        $activeSubscriberIds = Subscription::active()
-            ->when($request->user_id, fn ($q) => $q->where('user_id', $request->user_id))
-            ->pluck('user_id')
-            ->unique()
-            ->all();
-
-        if (empty($activeSubscriberIds)) {
-            return collect();
-        }
-
-        // Find courses actively accessed/tracked by active subscribers
-        $trackedCoursePairs = DB::table('user_curriculum_trackings as uct')
-            ->join('course_chapters as cc', 'uct.course_chapter_id', '=', 'cc.id')
-            ->whereIn('uct.user_id', $activeSubscriberIds)
-            ->when($request->course_id, fn ($q) => $q->where('cc.course_id', $request->course_id))
-            ->when($request->date_from, fn ($q) => $q->whereDate('uct.created_at', '>=', $request->date_from))
-            ->when($request->date_to, fn ($q) => $q->whereDate('uct.created_at', '<=', $request->date_to))
-            ->selectRaw('uct.user_id, cc.course_id, MIN(uct.created_at) as created_at, MAX(uct.updated_at) as updated_at')
-            ->groupBy('uct.user_id', 'cc.course_id')
-            ->get();
-
-        $progressCoursePairs = DB::table('user_course_progress as ucp')
-            ->whereIn('ucp.user_id', $activeSubscriberIds)
-            ->when($request->course_id, fn ($q) => $q->where('ucp.course_id', $request->course_id))
-            ->when($request->date_from, fn ($q) => $q->whereDate('ucp.created_at', '>=', $request->date_from))
-            ->when($request->date_to, fn ($q) => $q->whereDate('ucp.created_at', '<=', $request->date_to))
-            ->selectRaw('ucp.user_id, ucp.course_id, ucp.created_at, ucp.updated_at')
-            ->get();
-
-        $mergedPairs = $trackedCoursePairs->concat($progressCoursePairs)
-            ->groupBy(fn ($p) => "{$p->user_id}_{$p->course_id}")
-            ->map(fn ($group) => $group->first());
-
-        if ($mergedPairs->isEmpty()) {
-            return collect();
-        }
-
-        $userIds = $mergedPairs->pluck('user_id')->unique()->all();
-        $courseIds = $mergedPairs->pluck('course_id')->unique()->all();
-
-        $courses = Course::with('user')->whereIn('id', $courseIds)->get()->keyBy('id');
-        $activeSubs = Subscription::with('plan')->active()->whereIn('user_id', $userIds)->get()->groupBy('user_id');
-
-        return $mergedPairs->map(function ($pair) use ($courses, $activeSubs) {
-            $course = $courses->get($pair->course_id);
-            $sub = $activeSubs->get($pair->user_id)?->first();
-
-            return [
-                'id' => 'subscription-' . ($sub?->id ?? 'sub') . '-' . $pair->course_id,
-                'source' => 'subscription',
-                'user_id' => $pair->user_id,
-                'course_id' => $pair->course_id,
-                'created_at' => $pair->created_at,
-                'updated_at' => $pair->updated_at,
-                'order' => null,
-                'course' => $course,
-                'track' => null,
-                'subscription' => $sub,
-            ];
-        })->filter(fn ($item) => $item['course'] !== null)->values();
     }
 }
