@@ -73,8 +73,8 @@ COPY docker/php/zz-skillso-fpm.conf /usr/local/etc/php-fpm.d/zz-skillso.conf
 # ─── Symlink /app → /var/www/html (Coolify pre-deployment commands use /app) ──
 RUN ln -sf /var/www/html /app
 
-# ─── 10. Final permissions ────────────────────────────────────────────────────
-RUN chown -R www-data:www-data /var/www/html \
+# ─── 10. Final permissions (targeted to writable dirs only) ───────────────────
+RUN chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
 # ─── 11. Nginx ────────────────────────────────────────────────────────────────
