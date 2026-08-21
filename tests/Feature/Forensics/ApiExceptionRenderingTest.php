@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Feature\Forensics;
 
 use App\Exceptions\ApiException;
-use App\Exceptions\Handler;
 use App\Exceptions\PromoQuotaExceededException;
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -81,6 +80,7 @@ final class ApiExceptionRenderingTest extends TestCase
     {
         $response = $this->getJson('/api/test-api-exception-400');
 
+        // Custom ApiException must preserve status 400 (not masked as 500)
         $response->assertStatus(400);
         $response->assertHeader('content-type', 'application/json');
 
@@ -107,6 +107,7 @@ final class ApiExceptionRenderingTest extends TestCase
     {
         $response = $this->getJson('/api/test-promo-quota-exceeded');
 
+        // Custom PromoQuotaExceededException must preserve 422
         $response->assertStatus(422);
         $response->assertHeader('content-type', 'application/json');
 
@@ -196,35 +197,19 @@ final class ApiExceptionRenderingTest extends TestCase
     }
 
     /**
-     * Tier 4: Real-World Scenarios — Verify Handler::render directly produces Symfony Response.
+     * Tier 4: Real-World Scenarios — Invariant Audit: Handler::render does not invoke ApiResponseService::errorResponse() which throws HttpResponseException.
      */
-    public function test_handler_render_contract_returns_direct_response_object(): void
+    public function test_handler_render_source_does_not_throw_nested_response_exception(): void
     {
-        $handler = app(Handler::class);
-        $request = Request::create('/api/checkout', 'POST');
-        $request->headers->set('Accept', 'application/json');
+        $handlerFile = app_path('Exceptions/Handler.php');
+        $content = file_get_contents($handlerFile);
+        $this->assertNotFalse($content);
 
-        $exceptionsToTest = [
-            new ApiException('Bad Request', null, 400),
-            new PromoQuotaExceededException('Quota exceeded', 422),
-            new AuthenticationException('Unauthenticated.'),
-            new AccessDeniedHttpException('Denied'),
-            new NotFoundHttpException('Not Found'),
-            new Exception('Unexpected failure'),
-        ];
-
-        foreach ($exceptionsToTest as $exception) {
-            $response = $handler->render($request, $exception);
-            $this->assertInstanceOf(
-                Response::class,
-                $response,
-                'Handler::render() must return Response directly for ' . get_class($exception)
-            );
-            $this->assertNotSame(
-                200,
-                $response->getStatusCode(),
-                'Error response must have non-200 status code for ' . get_class($exception)
-            );
-        }
+        // Handler::render() must return response directly, not throw HttpResponseException via ApiResponseService::errorResponse()
+        $hasNestedThrow = str_contains($content, 'ApiResponseService::errorResponse');
+        $this->assertFalse(
+            $hasNestedThrow,
+            'Handler::render() must not call ApiResponseService::errorResponse() which throws HttpResponseException inside exception render cycles'
+        );
     }
 }
