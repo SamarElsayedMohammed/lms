@@ -13,6 +13,10 @@ class GoogleMeetService
     public function __construct()
     {
         $this->client = new \Google\Client();
+        $this->client->setHttpClient(new \GuzzleHttp\Client([
+            'connect_timeout' => 3,
+            'timeout' => 10,
+        ]));
         $this->client->setApplicationName('LMS Webinar System');
         $this->client->setScopes([\Google\Service\Calendar::CALENDAR_EVENTS]);
         

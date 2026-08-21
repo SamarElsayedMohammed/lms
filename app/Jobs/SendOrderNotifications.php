@@ -16,8 +16,9 @@ class SendOrderNotifications implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 120;
-    public $tries = 3;
+    public int $timeout = 120;
+    public int $tries = 3;
+    public int|array $backoff = [10, 30, 60];
 
     public $order;
 

@@ -12,6 +12,12 @@ class SendWebinarReminder implements ShouldQueue
 {
     use InteractsWithQueue;
 
+    public int $tries = 3;
+
+    public int $timeout = 60;
+
+    public int|array $backoff = [10, 30];
+
     /**
      * Handle the event.
      */
@@ -19,20 +25,20 @@ class SendWebinarReminder implements ShouldQueue
     {
         $webinar = $event->webinar;
 
-        // Strictly notify only confirmed registrants (paid or free), excluding unpaid pending/expired
-        $registrations = $webinar->registrations()
+        // Strictly notify only confirmed registrants (paid or free) using chunkById streaming
+        $webinar->registrations()
             ->whereIn('payment_status', ['paid', 'free'])
             ->with('user')
-            ->get();
-
-        foreach ($registrations as $reg) {
-            if ($reg->user) {
-                try {
-                    $reg->user->notify(new WebinarRegistrationNotification($webinar, isReminder: true));
-                } catch (\Throwable $e) {
-                    Log::error("Failed sending starting soon reminder to user #{$reg->user->id}: " . $e->getMessage());
+            ->chunkById(100, function ($registrations) use ($webinar) {
+                foreach ($registrations as $reg) {
+                    if ($reg->user) {
+                        try {
+                            $reg->user->notify(new WebinarRegistrationNotification($webinar, isReminder: true));
+                        } catch (\Throwable $e) {
+                            Log::error("Failed sending starting soon reminder to user #{$reg->user->id}: " . $e->getMessage());
+                        }
+                    }
                 }
-            }
-        }
+            });
     }
 }

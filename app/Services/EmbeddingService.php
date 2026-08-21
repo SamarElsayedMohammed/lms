@@ -29,7 +29,7 @@ class EmbeddingService
             $apiKey = \App\Services\CachingService::getSystemSettings('openai_api_key') ?: config('services.openai.api_key');
             if (!empty($apiKey)) {
                 try {
-                    $response = Http::withToken($apiKey)->timeout(15)->post('https://api.openai.com/v1/embeddings', [
+                    $response = Http::connectTimeout(3)->timeout(10)->withToken($apiKey)->post('https://api.openai.com/v1/embeddings', [
                         'model' => 'text-embedding-3-small',
                         'input' => $text,
                     ]);
@@ -49,7 +49,7 @@ class EmbeddingService
         if (!empty($geminiKey)) {
             try {
                 $url = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={$geminiKey}";
-                $response = Http::timeout(15)->post($url, [
+                $response = Http::connectTimeout(3)->timeout(10)->post($url, [
                     'model' => 'models/text-embedding-004',
                     'content' => [
                         'parts' => [

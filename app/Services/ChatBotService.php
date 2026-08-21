@@ -16,7 +16,7 @@ use Illuminate\Support\Str;
 
 class ChatBotService
 {
-    private const OVERALL_DEADLINE_SECONDS = 20;
+    private const OVERALL_DEADLINE_SECONDS = 10;
 
     private const CONNECT_TIMEOUT_SECONDS = 3;
 

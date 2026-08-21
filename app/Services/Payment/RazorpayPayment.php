@@ -10,14 +10,15 @@ use Throwable;
 
 class RazorpayPayment implements PaymentInterface
 {
+    public const CURLOPT_CONNECTTIMEOUT = 3;
+    public const CURLOPT_TIMEOUT = 10;
+
     private readonly Api $api;
     private readonly string $currencyCode;
 
     /**
      * RazorpayPayment constructor.
-     * @param $secretKey
-     * @param $publicKey
-     * @param $currencyCode
+     * @param $paymentData
      */
     public function __construct($paymentData)
     {
