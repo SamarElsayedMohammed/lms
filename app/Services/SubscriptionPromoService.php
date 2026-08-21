@@ -520,49 +520,50 @@ class SubscriptionPromoService
         $cutoff = now()->subHours($hours ?? self::RESERVATION_EXPIRY_HOURS);
 
         // 1. Reclaim expired PromoRedemption records
-        $expiredRedemptions = PromoRedemption::where('status', PromoRedemption::STATUS_RESERVED)
+        $expiredRedemptionsCount = 0;
+        PromoRedemption::where('status', PromoRedemption::STATUS_RESERVED)
             ->where('reserved_at', '<', $cutoff)
-            ->get();
-
-        foreach ($expiredRedemptions as $r) {
-            $r->markAsExpired();
-        }
+            ->chunkById(100, function ($expiredRedemptions) use (&$expiredRedemptionsCount) {
+                foreach ($expiredRedemptions as $r) {
+                    $r->markAsExpired();
+                    $expiredRedemptionsCount++;
+                }
+            });
 
         // 2. Expire old pending payments
-        $expiredPayments = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_PENDING)
+        $reclaimedCount = 0;
+        SubscriptionPayment::where('status', SubscriptionPayment::STATUS_PENDING)
             ->whereNotNull('promo_code')
             ->where('promo_code', '!=', '')
             ->where('created_at', '<', $cutoff)
-            ->get();
+            ->chunkById(100, function ($expiredPayments) use (&$reclaimedCount) {
+                foreach ($expiredPayments as $payment) {
+                    DB::transaction(function () use ($payment, &$reclaimedCount) {
+                        $lockedPayment = SubscriptionPayment::where('id', $payment->id)
+                            ->where('status', SubscriptionPayment::STATUS_PENDING)
+                            ->lockForUpdate()
+                            ->first();
 
-        $reclaimedCount = 0;
+                        if (! $lockedPayment) {
+                            return;
+                        }
 
-        foreach ($expiredPayments as $payment) {
-            DB::transaction(function () use ($payment, &$reclaimedCount) {
-                $lockedPayment = SubscriptionPayment::where('id', $payment->id)
-                    ->where('status', SubscriptionPayment::STATUS_PENDING)
-                    ->lockForUpdate()
-                    ->first();
+                        $lockedPayment->status = SubscriptionPayment::STATUS_FAILED;
+                        $lockedPayment->admin_notes = 'Payment intent expired automatically';
+                        $lockedPayment->save();
 
-                if (! $lockedPayment) {
-                    return;
+                        if ($lockedPayment->subscription && in_array($lockedPayment->subscription->status, [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL], true)) {
+                            $lockedPayment->subscription->status = Subscription::STATUS_CANCELLED;
+                            $lockedPayment->subscription->save();
+                        }
+
+                        $this->releasePromo($lockedPayment->promo_code, $lockedPayment->id);
+                        $reclaimedCount++;
+                    });
                 }
-
-                $lockedPayment->status = SubscriptionPayment::STATUS_FAILED;
-                $lockedPayment->admin_notes = 'Payment intent expired automatically';
-                $lockedPayment->save();
-
-                if ($lockedPayment->subscription && in_array($lockedPayment->subscription->status, [Subscription::STATUS_PENDING, Subscription::STATUS_PENDING_APPROVAL], true)) {
-                    $lockedPayment->subscription->status = Subscription::STATUS_CANCELLED;
-                    $lockedPayment->subscription->save();
-                }
-
-                $this->releasePromo($lockedPayment->promo_code, $lockedPayment->id);
-                $reclaimedCount++;
             });
-        }
 
-        return $reclaimedCount + $expiredRedemptions->count();
+        return $reclaimedCount + $expiredRedemptionsCount;
     }
 
     /**
@@ -576,42 +577,42 @@ class SubscriptionPromoService
         $ordersBackfilled = 0;
 
         // 1. Backfill legacy completed subscription payments
-        $unlinkedPayments = SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
+        SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
             ->whereNotNull('promo_code')
             ->where('promo_code', '!=', '')
             ->whereNotIn('id', function ($q) {
                 $q->select('subscription_payment_id')->from('promo_redemptions')->whereNotNull('subscription_payment_id');
             })
-            ->get();
+            ->chunkById(100, function ($unlinkedPayments) use (&$paymentsBackfilled) {
+                foreach ($unlinkedPayments as $payment) {
+                    $code = self::normalizeCode($payment->promo_code);
+                    $promo = PromoCode::where(function ($q) use ($code) {
+                        $q->where('promo_code', $code)
+                          ->orWhereRaw('UPPER(promo_code) = ?', [$code]);
+                    })->first();
 
-        foreach ($unlinkedPayments as $payment) {
-            $code = self::normalizeCode($payment->promo_code);
-            $promo = PromoCode::where(function ($q) use ($code) {
-                $q->where('promo_code', $code)
-                  ->orWhereRaw('UPPER(promo_code) = ?', [$code]);
-            })->first();
-
-            PromoRedemption::create([
-                'promo_code_id' => $promo?->id,
-                'promo_code' => $payment->promo_code,
-                'user_id' => $payment->user_id,
-                'subscription_id' => $payment->subscription_id,
-                'subscription_payment_id' => $payment->id,
-                'status' => PromoRedemption::STATUS_CONSUMED,
-                'currency' => $payment->currency_code ?: 'EGP',
-                'original_amount' => (float) ($payment->original_amount ?? $payment->amount),
-                'discount_amount' => (float) ($payment->discount_amount ?? 0),
-                'final_amount' => (float) ($payment->final_amount ?? $payment->amount),
-                'discount_type_snapshot' => $promo?->discount_type,
-                'discount_value_snapshot' => $promo?->discount,
-                'reserved_at' => $payment->created_at,
-                'consumed_at' => $payment->paid_at ?? $payment->created_at,
-            ]);
-            $paymentsBackfilled++;
-        }
+                    PromoRedemption::create([
+                        'promo_code_id' => $promo?->id,
+                        'promo_code' => $payment->promo_code,
+                        'user_id' => $payment->user_id,
+                        'subscription_id' => $payment->subscription_id,
+                        'subscription_payment_id' => $payment->id,
+                        'status' => PromoRedemption::STATUS_CONSUMED,
+                        'currency' => $payment->currency_code ?: 'EGP',
+                        'original_amount' => (float) ($payment->original_amount ?? $payment->amount),
+                        'discount_amount' => (float) ($payment->discount_amount ?? 0),
+                        'final_amount' => (float) ($payment->final_amount ?? $payment->amount),
+                        'discount_type_snapshot' => $promo?->discount_type,
+                        'discount_value_snapshot' => $promo?->discount,
+                        'reserved_at' => $payment->created_at,
+                        'consumed_at' => $payment->paid_at ?? $payment->created_at,
+                    ]);
+                    $paymentsBackfilled++;
+                }
+            });
 
         // 2. Backfill legacy completed orders
-        $unlinkedOrders = \App\Models\Order::where('status', 'completed')
+        \App\Models\Order::where('status', 'completed')
             ->where(function ($q) {
                 $q->whereNotNull('promo_code_id')
                   ->orWhere(function ($oq) {
@@ -621,43 +622,43 @@ class SubscriptionPromoService
             ->whereNotIn('id', function ($q) {
                 $q->select('order_id')->from('promo_redemptions')->whereNotNull('order_id');
             })
-            ->get();
+            ->chunkById(100, function ($unlinkedOrders) use (&$ordersBackfilled) {
+                foreach ($unlinkedOrders as $order) {
+                    $promo = null;
+                    if ($order->promo_code_id) {
+                        $promo = PromoCode::find($order->promo_code_id);
+                    }
+                    if (! $promo && $order->promo_code) {
+                        $code = self::normalizeCode($order->promo_code);
+                        $promo = PromoCode::where(function ($q) use ($code) {
+                            $q->where('promo_code', $code)
+                              ->orWhereRaw('UPPER(promo_code) = ?', [$code]);
+                        })->first();
+                    }
 
-        foreach ($unlinkedOrders as $order) {
-            $promo = null;
-            if ($order->promo_code_id) {
-                $promo = PromoCode::find($order->promo_code_id);
-            }
-            if (! $promo && $order->promo_code) {
-                $code = self::normalizeCode($order->promo_code);
-                $promo = PromoCode::where(function ($q) use ($code) {
-                    $q->where('promo_code', $code)
-                      ->orWhereRaw('UPPER(promo_code) = ?', [$code]);
-                })->first();
-            }
+                    $orderCode = $order->promo_code ?: ($promo ? $promo->promo_code : 'PROMO');
+                    $originalAmount = (float) ($order->subtotal ?? $order->total ?? 0);
+                    $discountAmount = (float) ($order->discount ?? 0);
+                    $finalAmount = (float) ($order->total ?? ($originalAmount - $discountAmount));
 
-            $orderCode = $order->promo_code ?: ($promo ? $promo->promo_code : 'PROMO');
-            $originalAmount = (float) ($order->subtotal ?? $order->total ?? 0);
-            $discountAmount = (float) ($order->discount ?? 0);
-            $finalAmount = (float) ($order->total ?? ($originalAmount - $discountAmount));
-
-            PromoRedemption::create([
-                'promo_code_id' => $promo?->id,
-                'promo_code' => $orderCode,
-                'user_id' => $order->user_id,
-                'order_id' => $order->id,
-                'status' => PromoRedemption::STATUS_CONSUMED,
-                'currency' => $order->currency ?? 'EGP',
-                'original_amount' => $originalAmount,
-                'discount_amount' => $discountAmount,
-                'final_amount' => $finalAmount,
-                'discount_type_snapshot' => $promo?->discount_type,
-                'discount_value_snapshot' => $promo?->discount,
-                'reserved_at' => $order->created_at,
-                'consumed_at' => $order->created_at,
-            ]);
-            $ordersBackfilled++;
-        }
+                    PromoRedemption::create([
+                        'promo_code_id' => $promo?->id,
+                        'promo_code' => $orderCode,
+                        'user_id' => $order->user_id,
+                        'order_id' => $order->id,
+                        'status' => PromoRedemption::STATUS_CONSUMED,
+                        'currency' => $order->currency ?? 'EGP',
+                        'original_amount' => $originalAmount,
+                        'discount_amount' => $discountAmount,
+                        'final_amount' => $finalAmount,
+                        'discount_type_snapshot' => $promo?->discount_type,
+                        'discount_value_snapshot' => $promo?->discount,
+                        'reserved_at' => $order->created_at,
+                        'consumed_at' => $order->created_at,
+                    ]);
+                    $ordersBackfilled++;
+                }
+            });
 
         return [
             'subscription_payments_backfilled' => $paymentsBackfilled,
