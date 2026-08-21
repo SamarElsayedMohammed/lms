@@ -4,6 +4,7 @@ namespace App\Models\Course;
 
 use App\Models\Category;
 use App\Models\Course\CourseChapter\CourseChapter;
+use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\PromoCode;
 use App\Models\Rating;
 use App\Models\Tag;
@@ -442,14 +443,11 @@ class Course extends Model
      */
     public function recalculateDuration(): void
     {
-        $chapters = $this->chapters()->get();
-        $totalDuration = 0;
-        $totalLectures = 0;
-
-        foreach ($chapters as $chapter) {
-            $totalDuration += $chapter->duration_seconds;
-            $totalLectures += $chapter->lectures()->count();
-        }
+        $chapterIds = $this->chapters()->pluck('id');
+        $totalDuration = (int) $this->chapters()->sum('duration_seconds');
+        $totalLectures = $chapterIds->isNotEmpty()
+            ? (int) CourseChapterLecture::whereIn('course_chapter_id', $chapterIds)->count()
+            : 0;
 
         // updateQuietly prevents any course-level observers re-triggering this method.
         $this->updateQuietly([

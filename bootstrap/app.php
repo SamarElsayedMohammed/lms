@@ -1,8 +1,96 @@
 <?php
 
+use App\Exceptions\ApiException;
+use App\Exceptions\PromoQuotaExceededException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+
+// ─── Pre-allocate 512KB emergency memory reserve for fatal error forensics ───
+if (!isset($GLOBALS['__skillso_memory_reserve'])) {
+    $GLOBALS['__skillso_memory_reserve'] = str_repeat(' ', 512 * 1024);
+}
+
+// ─── Register fail-safe fatal error and memory exhaustion shutdown hook ─────
+if (!defined('SKILLSO_SHUTDOWN_REGISTERED')) {
+    define('SKILLSO_SHUTDOWN_REGISTERED', true);
+
+    register_shutdown_function(function (): void {
+        $error = error_get_last();
+        if ($error === null) {
+            return;
+        }
+
+        $fatalTypes = E_ERROR | E_PARSE | E_CORE_ERROR | E_CORE_WARNING | E_COMPILE_ERROR | E_COMPILE_WARNING | E_USER_ERROR;
+        if (($error['type'] & $fatalTypes) === 0) {
+            return;
+        }
+
+        // Immediately release emergency memory reserve so JSON encoding & log writes have headroom
+        $GLOBALS['__skillso_memory_reserve'] = null;
+
+        $typeNames = [
+            E_ERROR => 'E_ERROR',
+            E_PARSE => 'E_PARSE',
+            E_CORE_ERROR => 'E_CORE_ERROR',
+            E_CORE_WARNING => 'E_CORE_WARNING',
+            E_COMPILE_ERROR => 'E_COMPILE_ERROR',
+            E_COMPILE_WARNING => 'E_COMPILE_WARNING',
+            E_USER_ERROR => 'E_USER_ERROR',
+        ];
+        $typeName = $typeNames[$error['type']] ?? ('FATAL_ERROR_' . $error['type']);
+
+        $isOom = str_contains(strtolower($error['message']), 'allowed memory size of') ||
+                 str_contains(strtolower($error['message']), 'out of memory');
+
+        $isCli = (PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg');
+        $requestUri = !$isCli && isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null;
+        $requestMethod = !$isCli && isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : null;
+        $cliCommand = $isCli && isset($_SERVER['argv']) ? implode(' ', $_SERVER['argv']) : null;
+
+        $diagnostic = [
+            'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+            'event' => 'FATAL_SHUTDOWN',
+            'error_type' => $typeName,
+            'is_oom' => $isOom,
+            'message' => $error['message'],
+            'file' => $error['file'],
+            'line' => $error['line'],
+            'memory_usage_bytes' => memory_get_usage(true),
+            'memory_peak_bytes' => memory_get_peak_usage(true),
+            'memory_limit' => ini_get('memory_limit'),
+            'sapi' => PHP_SAPI,
+            'request_method' => $requestMethod,
+            'request_uri' => $requestUri,
+            'cli_command' => $cliCommand,
+            'pid' => getmypid(),
+        ];
+
+        $jsonRecord = json_encode($diagnostic, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        // 1. Direct synchronous stderr write for container stream / Supervisor
+        try {
+            file_put_contents('php://stderr', "[FATAL-SHUTDOWN] " . $jsonRecord . PHP_EOL);
+        } catch (\Throwable) {}
+
+        // 2. Safe disk persistence to storage/logs/laravel.log
+        try {
+            $logDir = dirname(__DIR__) . '/storage/logs';
+            if (is_dir($logDir) && is_writable($logDir)) {
+                $logFile = $logDir . '/laravel.log';
+                $logLine = sprintf(
+                    "[%s] production.EMERGENCY: Fatal Shutdown Hook: %s in %s:%d %s\n",
+                    date('Y-m-d H:i:s'),
+                    $error['message'],
+                    $error['file'],
+                    $error['line'],
+                    $jsonRecord
+                );
+                @file_put_contents($logFile, $logLine, FILE_APPEND | LOCK_EX);
+            }
+        } catch (\Throwable) {}
+    });
+}
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -68,11 +156,38 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (ApiException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'status' => false,
+                    'error' => true,
+                    'message' => $e->getMessage() ?: 'API Error',
+                    'data' => $e->getData() ?? (object) [],
+                    'code' => $e->getStatusCode(),
+                ], $e->getStatusCode());
+            }
+        });
+
+        $exceptions->render(function (PromoQuotaExceededException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                $code = $e->getCode() ?: 422;
+                return response()->json([
+                    'success' => false,
+                    'status' => false,
+                    'error' => true,
+                    'message' => $e->getMessage() ?: 'كوبون الخصم استنفذ الحد الأقصى للاستخدام',
+                    'code' => $code,
+                ], $code);
+            }
+        });
+
         $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
                     'success' => false,
                     'status' => false,
+                    'error' => true,
                     'message' => 'Unauthenticated.',
                     'code' => 401,
                 ], 401);
@@ -84,6 +199,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json([
                     'success' => false,
                     'status' => false,
+                    'error' => true,
                     'message' => $e->getMessage() ?: 'Unauthorized action.',
                     'code' => 403,
                 ], 403);
@@ -95,6 +211,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json([
                     'success' => false,
                     'status' => false,
+                    'error' => true,
                     'message' => 'Resource not found.',
                     'code' => 404,
                 ], 404);
@@ -106,7 +223,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json([
                     'success' => false,
                     'status' => false,
-                    'message' => $e->validator->errors()->first() ?: 'Validation failed.',
+                    'error' => true,
+                    'message' => $e->validator?->errors()->first() ?: ($e->getMessage() ?: 'Validation failed.'),
                     'errors' => $e->errors(),
                     'code' => 422,
                 ], 422);
@@ -118,6 +236,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json([
                     'success' => false,
                     'status' => false,
+                    'error' => true,
                     'message' => 'Too many requests. Please slow down.',
                     'code' => 429,
                 ], 429);
@@ -129,6 +248,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json([
                     'success' => false,
                     'status' => false,
+                    'error' => true,
                     'message' => $e->getMessage() ?: 'Http Error',
                     'code' => $e->getStatusCode(),
                 ], $e->getStatusCode());
@@ -149,16 +269,35 @@ return Application::configure(basePath: dirname(__DIR__))
                         'url' => $request->fullUrl(),
                         'method' => $request->method(),
                     ]);
-                } catch (\Throwable) {
-                    // Suppress log failure to guarantee API error response delivery
+                } catch (\Throwable $logEx) {
+                    // Direct synchronous stderr fallback on logging driver failure
+                    try {
+                        $fallback = [
+                            'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+                            'level' => 'CRITICAL',
+                            'channel' => 'fallback_stderr',
+                            'message' => 'API Exception: ' . $e->getMessage(),
+                            'exception' => get_class($e),
+                            'file' => $e->getFile(),
+                            'line' => $e->getLine(),
+                            'url' => $request->fullUrl(),
+                            'method' => $request->method(),
+                            'logging_failure' => $logEx->getMessage(),
+                        ];
+                        file_put_contents('php://stderr', "[FALLBACK-API-EXCEPTION] " . json_encode($fallback, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL);
+                    } catch (\Throwable) {}
                 }
 
-                $isLocal = app()->environment('local') && config('app.debug') === true;
+                $isLocal = false;
+                try {
+                    $isLocal = app()->environment('local') && config('app.debug') === true;
+                } catch (\Throwable) {}
 
                 $payload = [
                     'success' => false,
                     'status' => false,
-                    'message' => $isLocal ? $e->getMessage() : 'Internal server error.',
+                    'error' => true,
+                    'message' => $isLocal ? ($e->getMessage() ?: 'Internal server error.') : 'Internal server error.',
                     'code' => 500,
                 ];
 

@@ -374,25 +374,32 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             DB::commit();
 
             try {
-                if (class_exists(\App\Services\TrackingService::class)) {
+                if (class_exists(\App\Jobs\SendTrackingEventJob::class)) {
                     $trackingValue = (float) ($payment->amount_egp ?? ($payment->final_amount * ($payment->exchange_rate_snapshot ?? 1)));
 
-                    \App\Services\TrackingService::sendFacebookEvent('Purchase', [
-                        'em' => hash('sha256', (string) $user->email),
-                    ], [
-                        'value' => $trackingValue,
-                        'currency' => 'EGP',
-                        'content_name' => $subscription->plan->name,
-                        'content_ids' => [(string) $subscription->plan->id],
-                        'content_type' => 'product',
+                    \App\Jobs\SendTrackingEventJob::dispatch('facebook', 'Purchase', [
+                        'user_data' => [
+                            'em' => hash('sha256', (string) $user->email),
+                            'client_ip_address' => request()?->ip(),
+                            'client_user_agent' => request()?->userAgent(),
+                        ],
+                        'custom_data' => [
+                            'value' => $trackingValue,
+                            'currency' => 'EGP',
+                            'content_name' => $subscription->plan->name,
+                            'content_ids' => [(string) $subscription->plan->id],
+                            'content_type' => 'product',
+                        ],
                     ]);
-                    \App\Services\TrackingService::sendGA4Event('purchase', [
-                        'transaction_id' => 'SUB-' . $subscription->id,
-                        'value' => $trackingValue,
-                        'currency' => 'EGP',
-                        'items' => [
-                            ['item_id' => (string) $subscription->plan->id, 'item_name' => $subscription->plan->name]
-                        ]
+                    \App\Jobs\SendTrackingEventJob::dispatch('ga4', 'purchase', [
+                        'params' => [
+                            'transaction_id' => 'SUB-' . $subscription->id,
+                            'value' => $trackingValue,
+                            'currency' => 'EGP',
+                            'items' => [
+                                ['item_id' => (string) $subscription->plan->id, 'item_name' => $subscription->plan->name],
+                            ],
+                        ],
                     ]);
                 }
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

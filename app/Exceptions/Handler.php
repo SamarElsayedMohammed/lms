@@ -46,6 +46,28 @@ class Handler extends ExceptionHandler
     }
 
     /**
+     * Report or log an exception safely.
+     *
+     * @param  \Throwable  $e
+     * @return void
+     */
+    #[\Override]
+    public function report(Throwable $e)
+    {
+        $e = $this->mapException($e);
+
+        if ($this->shouldntReport($e)) {
+            return;
+        }
+
+        try {
+            $this->logException($e);
+        } catch (Throwable $outerEx) {
+            $this->fallbackStderrLog($e, ['outer_report_exception' => $outerEx->getMessage()]);
+        }
+    }
+
+    /**
      * Render an exception into an HTTP response.
      *
      * @param  \Illuminate\Http\Request  $request

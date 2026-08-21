@@ -228,22 +228,29 @@ final class SubscriptionService
      */
     private function trackSubscriptionPurchase($user, $subscription, $plan): void
     {
-        \App\Services\TrackingService::sendFacebookEvent('Purchase', [
-            'em' => hash('sha256', $user->email),
-        ], [
-            'value' => (float) $plan->price,
-            'currency' => 'EGP',
-            'content_name' => $plan->name,
-            'content_ids' => [(string) $plan->id],
-            'content_type' => 'product',
+        \App\Jobs\SendTrackingEventJob::dispatch('facebook', 'Purchase', [
+            'user_data' => [
+                'em' => hash('sha256', $user->email),
+                'client_ip_address' => request()?->ip(),
+                'client_user_agent' => request()?->userAgent(),
+            ],
+            'custom_data' => [
+                'value' => (float) $plan->price,
+                'currency' => 'EGP',
+                'content_name' => $plan->name,
+                'content_ids' => [(string) $plan->id],
+                'content_type' => 'product',
+            ],
         ]);
-        \App\Services\TrackingService::sendGA4Event('purchase', [
-            'transaction_id' => 'SUB-' . $subscription->id,
-            'value' => (float) $plan->price,
-            'currency' => 'EGP',
-            'items' => [
-                ['item_id' => (string) $plan->id, 'item_name' => $plan->name]
-            ]
+        \App\Jobs\SendTrackingEventJob::dispatch('ga4', 'purchase', [
+            'params' => [
+                'transaction_id' => 'SUB-' . $subscription->id,
+                'value' => (float) $plan->price,
+                'currency' => 'EGP',
+                'items' => [
+                    ['item_id' => (string) $plan->id, 'item_name' => $plan->name],
+                ],
+            ],
         ]);
     }
 

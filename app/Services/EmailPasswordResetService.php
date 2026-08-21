@@ -155,7 +155,10 @@ final class EmailPasswordResetService
 
     public function resetPassword(string $email, string $code, string $password): bool
     {
-        return DB::transaction(function () use ($email, $code, $password) {
+        $firebaseId = null;
+        $userId = null;
+
+        $success = DB::transaction(function () use ($email, $code, $password, &$firebaseId, &$userId) {
             $record = $this->getValidResetRecord($email, $code);
 
             if ($record === null) {
@@ -187,14 +190,8 @@ final class EmailPasswordResetService
                 ->first();
 
             if ($socialLogin !== null && !empty($socialLogin->firebase_id)) {
-                try {
-                    HelperService::updateFirebasePassword($socialLogin->firebase_id, $password);
-                } catch (\Throwable $e) {
-                    Log::warning('Firebase password sync failed during email OTP reset', [
-                        'user_id' => $user->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                $firebaseId = $socialLogin->firebase_id;
+                $userId = $user->id;
             }
 
             $user->tokens()->delete();
@@ -202,6 +199,19 @@ final class EmailPasswordResetService
 
             return true;
         });
+
+        if ($success && $firebaseId !== null) {
+            try {
+                HelperService::updateFirebasePassword($firebaseId, $password);
+            } catch (\Throwable $e) {
+                Log::warning('Firebase password sync failed during email OTP reset', [
+                    'user_id' => $userId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $success;
     }
 
     public function remainingSeconds(string $email): ?int

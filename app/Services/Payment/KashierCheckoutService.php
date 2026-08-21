@@ -269,9 +269,9 @@ class KashierCheckoutService implements PaymentGatewayContract
 
         try {
             // Kashier Management API uses api.kashier.io
-            $response = Http::timeout(10)->withHeaders([
+            $response = Http::connectTimeout(3)->timeout(10)->withHeaders([
                 'Authorization' => $config['api_key'],
-            ])->timeout(10)->get('https://api.kashier.io/v1/transaction/' . $transactionId);
+            ])->get('https://api.kashier.io/v1/transaction/' . $transactionId);
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -310,9 +310,9 @@ class KashierCheckoutService implements PaymentGatewayContract
         $baseUrl = $config['mode'] === 'live' ? 'https://api.kashier.io' : 'https://test-api.kashier.io';
 
         try {
-            $response = Http::timeout(10)->withHeaders([
+            $response = Http::connectTimeout(3)->timeout(10)->withHeaders([
                 'Authorization' => $config['api_key'],
-            ])->timeout(10)->get($baseUrl . '/v1/transaction/' . $transactionId);
+            ])->get($baseUrl . '/v1/transaction/' . $transactionId);
 
             if ($response->successful()) {
                 return $this->parsePaymentDetails($response->json());
@@ -347,9 +347,21 @@ class KashierCheckoutService implements PaymentGatewayContract
             $baseUrl . '/v1/transaction/order/' . urlencode($orderId),
         ];
 
+        $startTime = microtime(true);
+        $maxTotalTimeout = 10;
+
         foreach ($urls as $url) {
+            $elapsed = microtime(true) - $startTime;
+            if ($elapsed >= $maxTotalTimeout) {
+                break;
+            }
+            $perRequestTimeout = min(3, max(1, (int) ($maxTotalTimeout - $elapsed)));
+
             try {
-                $response = Http::withHeaders($headers)->timeout(10)->get($url);
+                $response = Http::connectTimeout(min(2, $perRequestTimeout))
+                    ->timeout($perRequestTimeout)
+                    ->withHeaders($headers)
+                    ->get($url);
 
                 if ($response->successful()) {
                     $details = $this->parsePaymentDetails($response->json());

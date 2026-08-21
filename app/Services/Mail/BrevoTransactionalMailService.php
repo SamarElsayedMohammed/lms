@@ -31,7 +31,8 @@ final class BrevoTransactionalMailService
 
         $from = $this->mailFromResolver->resolve();
 
-        $response = Http::timeout(20)
+        $response = Http::connectTimeout(3)
+            ->timeout(10)
             ->withHeaders([
                 'api-key' => $apiKey,
                 'accept' => 'application/json',

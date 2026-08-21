@@ -377,12 +377,18 @@ trait ServesApiAuth
                         }
                     }
 
-                    // Server-side tracking
-                    \App\Services\TrackingService::sendFacebookEvent('CompleteRegistration', [
-                        'em' => hash('sha256', $user->email),
-                        'ph' => $user->mobile ? hash('sha256', $user->mobile) : null,
+                    // Server-side tracking (dispatched asynchronously)
+                    \App\Jobs\SendTrackingEventJob::dispatch('facebook', 'CompleteRegistration', [
+                        'user_data' => [
+                            'em' => hash('sha256', $user->email),
+                            'ph' => $user->mobile ? hash('sha256', $user->mobile) : null,
+                            'client_ip_address' => $request->ip(),
+                            'client_user_agent' => $request->userAgent(),
+                        ],
                     ]);
-                    \App\Services\TrackingService::sendGA4Event('sign_up', ['method' => $request->type]);
+                    \App\Jobs\SendTrackingEventJob::dispatch('ga4', 'sign_up', [
+                        'params' => ['method' => $request->type],
+                    ]);
                 } catch (\Illuminate\Database\QueryException $e) {
                     if (DB::transactionLevel() > 0) {
                         DB::rollBack();

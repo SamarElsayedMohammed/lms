@@ -21,6 +21,8 @@ final class AnalyzeLectureDurationJob implements ShouldQueue
 
     public int $tries = 2;
 
+    public int|array $backoff = [10, 30];
+
     public function __construct(public int $lectureId)
     {
         $this->onQueue('video-encoding');

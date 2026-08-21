@@ -24,6 +24,8 @@ final class EncodeVideoToHLS implements ShouldQueue
 
     public int $tries = 1; // Only try once - encoding is expensive
 
+    public int|array $backoff = 0;
+
     public int $maxExceptions = 1; // Fail immediately on exception
 
     public function __construct(
@@ -57,7 +59,7 @@ final class EncodeVideoToHLS implements ShouldQueue
                     'missing_requirements' => $missingRequirements,
                 ]);
 
-                $this->lecture->update([
+                $this->lecture->updateQuietly([
                     'hls_status' => 'failed',
                     'hls_error_message' => $errorMessage,
                 ]);
@@ -74,7 +76,7 @@ final class EncodeVideoToHLS implements ShouldQueue
             $originalFile = $this->lecture->getRawOriginal('file');
             if ($originalFile === null || $originalFile === '') {
                 Log::error('No file found for lecture', ['lecture_id' => $this->lecture->id]);
-                $this->lecture->update([
+                $this->lecture->updateQuietly([
                     'hls_status' => 'failed',
                     'hls_error_message' => 'No video file found',
                 ]);
@@ -82,7 +84,7 @@ final class EncodeVideoToHLS implements ShouldQueue
             }
 
             // Update status to processing
-            $this->lecture->update(['hls_status' => 'processing']);
+            $this->lecture->updateQuietly(['hls_status' => 'processing']);
 
             // Get absolute path to original video
             $originalPath = Storage::disk('public')->path((string) $originalFile);
@@ -93,7 +95,7 @@ final class EncodeVideoToHLS implements ShouldQueue
                     'expected_path' => $originalPath,
                 ]);
 
-                $this->lecture->update([
+                $this->lecture->updateQuietly([
                     'hls_status' => 'failed',
                     'hls_error_message' => 'Original video file not found - file may have been deleted or moved',
                 ]);
@@ -111,7 +113,7 @@ final class EncodeVideoToHLS implements ShouldQueue
                     'file_path' => $originalPath,
                 ]);
 
-                $this->lecture->update([
+                $this->lecture->updateQuietly([
                     'hls_status' => 'failed',
                     'hls_error_message' => 'Unable to determine video file size',
                 ]);
@@ -142,7 +144,7 @@ final class EncodeVideoToHLS implements ShouldQueue
                     'available_mb' => $availableMB,
                 ]);
 
-                $this->lecture->update([
+                $this->lecture->updateQuietly([
                     'hls_status' => 'failed',
                     'hls_error_message' => "Insufficient disk space. Required: {$requiredMB}MB, Available: {$availableMB}MB",
                 ]);
@@ -260,7 +262,7 @@ final class EncodeVideoToHLS implements ShouldQueue
 
             // Update lecture with success
             $manifestRelativePath = $hlsDir . '/master.m3u8';
-            $this->lecture->update([
+            $this->lecture->updateQuietly([
                 'hls_status' => 'completed',
                 'hls_manifest_path' => $manifestRelativePath,
                 'hls_error_message' => null,
@@ -280,7 +282,7 @@ final class EncodeVideoToHLS implements ShouldQueue
             ]);
 
             // Update lecture with failure
-            $this->lecture->update([
+            $this->lecture->updateQuietly([
                 'hls_status' => 'failed',
                 'hls_error_message' => $e->getMessage(),
             ]);

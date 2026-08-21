@@ -195,14 +195,9 @@ class CourseChapter extends Model
     /**
      * Recalculate duration for the chapter.
      */
-    public function recalculateDuration(): void
+    public function recalculateDuration(bool $recalculateCourse = true): void
     {
-        $lectures = $this->lectures()->get();
-        $totalDuration = 0;
-
-        foreach ($lectures as $lecture) {
-            $totalDuration += $lecture->duration_seconds;
-        }
+        $totalDuration = (int) $this->lectures()->sum('duration_seconds');
 
         // Use updateQuietly to avoid re-firing the ChapterObserver and causing
         // an infinite save → recalculate loop (especially with sync queue).
@@ -210,9 +205,11 @@ class CourseChapter extends Model
             'duration_seconds' => $totalDuration,
         ]);
 
-        $course = $this->relationLoaded('course') ? $this->course : ($this->course_id ? Course::find($this->course_id) : null);
-        if ($course) {
-            $course->recalculateDuration();
+        if ($recalculateCourse) {
+            $course = $this->relationLoaded('course') ? $this->course : ($this->course_id ? Course::find($this->course_id) : null);
+            if ($course) {
+                $course->recalculateDuration();
+            }
         }
     }
 }

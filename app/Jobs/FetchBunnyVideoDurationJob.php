@@ -19,15 +19,19 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
     /**
      * The number of times the job may be attempted.
      */
-    public $tries = 10;
+    public int $tries = 10;
+
+    /**
+     * The number of seconds the job can run before timing out.
+     */
+    public int $timeout = 60;
 
     /**
      * Calculate the number of seconds to wait before retrying the job.
+     *
+     * @var int|array<int, int>
      */
-    public function backoff(): array
-    {
-        return [60, 120, 300, 600, 1800]; // 1m, 2m, 5m, 10m, 30m
-    }
+    public int|array $backoff = [60, 120, 300, 600, 1800]; // 1m, 2m, 5m, 10m, 30m
 
     public function __construct(
         public int $lectureId,
@@ -127,11 +131,11 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
     }
 
     /**
-     * Manual release() ignores backoff() unless a delay is passed — delay 0 busy-loops the worker.
+     * Manual release() ignores backoff unless a delay is passed — delay 0 busy-loops the worker.
      */
     private function releaseWithBackoff(): void
     {
-        $delays = $this->backoff();
+        $delays = is_array($this->backoff) ? $this->backoff : [$this->backoff];
         $attempt = max(1, $this->attempts());
         $delay = $delays[min($attempt - 1, count($delays) - 1)];
         $this->release($delay);
@@ -144,7 +148,7 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
     {
         $lecture = CourseChapterLecture::find($this->lectureId);
         if ($lecture) {
-            $lecture->update([
+            $lecture->updateQuietly([
                 'hls_status' => 'duration_failed',
                 'hls_error_message' => 'Failed to fetch duration from Bunny API after max retries.',
             ]);

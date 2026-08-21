@@ -23,6 +23,8 @@ class DispatchNotificationCampaignJob implements ShouldQueue
 
     public int $tries = 3;
 
+    public int|array $backoff = [10, 30, 60];
+
     /**
      * @param array<string, mixed> $filters
      * @param array<string, mixed> $notificationData

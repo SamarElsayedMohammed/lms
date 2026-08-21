@@ -12,7 +12,9 @@ class LectureObserver
      */
     public function saved(CourseChapterLecture $lecture): void
     {
-        $this->dispatchRecalculateJob($lecture);
+        if ($lecture->wasChanged(['duration_seconds', 'hours', 'minutes', 'seconds', 'is_active'])) {
+            $this->dispatchRecalculateJob($lecture);
+        }
     }
 
     /**

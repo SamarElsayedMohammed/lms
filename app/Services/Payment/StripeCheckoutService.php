@@ -44,6 +44,8 @@ class StripeCheckoutService implements PaymentGatewayContract
         $cancelUrl = url('/stripe-cancel') . '?order=' . $order->order_number . '&type=' . $type;
 
         Stripe::setApiKey($stripeSettings['stripe_secret_key']);
+        Stripe::setConnectTimeout(3);
+        Stripe::setTimeout(10);
 
         // Handle zero-decimal amounts
         $zeroDecimal = in_array($currency, [

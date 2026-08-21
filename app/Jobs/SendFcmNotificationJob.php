@@ -20,8 +20,9 @@ class SendFcmNotificationJob implements ShouldQueue
 
     public const TOKEN_CHUNK_SIZE = 50;
 
-    public $timeout = 120;
-    public $tries = 3;
+    public int $timeout = 120;
+    public int $tries = 3;
+    public int|array $backoff = [10, 30, 60];
 
     protected array $registrationIDs;
     protected ?string $title;

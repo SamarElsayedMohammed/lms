@@ -236,7 +236,7 @@ final class HlsManagementController extends Controller
             ], 400);
         }
 
-        $lecture->update([
+        $lecture->updateQuietly([
             'hls_status' => 'pending',
             'hls_manifest_path' => null,
             'hls_error_message' => null,
@@ -265,28 +265,28 @@ final class HlsManagementController extends Controller
             ], 400);
         }
 
-        $failedLectures = CourseChapterLecture::query()
+        $count = 0;
+        CourseChapterLecture::query()
             ->where('type', 'file')
             ->whereIn('file_extension', self::VIDEO_EXTENSIONS)
             ->where('hls_status', 'failed')
-            ->get();
+            ->chunkById(100, function ($failedLectures) use (&$count) {
+                foreach ($failedLectures as $lecture) {
+                    $lecture->updateQuietly([
+                        'hls_status' => 'pending',
+                        'hls_error_message' => null,
+                    ]);
 
-        $count = $failedLectures->count();
+                    EncodeVideoToHLS::dispatch($lecture);
+                    $count++;
+                }
+            });
 
         if ($count === 0) {
             return response()->json([
                 'error' => false,
                 'message' => __('No failed videos to retry'),
             ]);
-        }
-
-        foreach ($failedLectures as $lecture) {
-            $lecture->update([
-                'hls_status' => 'pending',
-                'hls_error_message' => null,
-            ]);
-
-            EncodeVideoToHLS::dispatch($lecture);
         }
 
         return response()->json([

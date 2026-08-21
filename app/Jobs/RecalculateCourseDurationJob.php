@@ -13,6 +13,10 @@ class RecalculateCourseDurationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $tries = 3;
+    public int $timeout = 120;
+    public int|array $backoff = [10, 30, 60];
+
     public int $courseId;
 
     /**
@@ -34,10 +38,10 @@ class RecalculateCourseDurationJob implements ShouldQueue
             return;
         }
 
-        // 1. Recalculate all chapters first
+        // 1. Recalculate all chapters first (without redundant eager course recalculation per chapter)
         $chapters = $course->chapters()->get();
         foreach ($chapters as $chapter) {
-            $chapter->recalculateDuration();
+            $chapter->recalculateDuration(false);
         }
 
         // 2. Recalculate course

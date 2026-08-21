@@ -196,7 +196,7 @@ class ContactMessageAdminApiController extends AdminCrudApiController
             // 2️⃣ Send email reply
             if (in_array('mail', NotificationSettingsService::getChannelsFor('ContactReplyNotification', ['mail', 'database']), true)) {
                 try {
-                    Mail::send(
+                    Mail::queue(
                     'emails.contact-reply',
                     [
                         'contactMessage' => $message,

@@ -21,6 +21,8 @@ final class SendNotificationCampaignChunkJob implements ShouldQueue
 
     public int $tries = 3;
 
+    public int|array $backoff = [10, 30];
+
     /**
      * @param array<int, int> $userIds
      * @param array<string, mixed> $notificationData
