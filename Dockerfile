@@ -40,31 +40,28 @@ RUN install-php-extensions \
 # ─── 4. Composer ─────────────────────────────────────────────────────────────
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# ─── 5. Copy application ─────────────────────────────────────────────────────
-COPY . /var/www/html
-
-# ─── 6. Create ALL required directories before composer runs ──────────────────
+# ─── 5. Install Composer Dependencies (Layer Cached) ─────────────────────────
+COPY composer.json composer.lock /var/www/html/
 RUN mkdir -p \
         bootstrap/cache \
         storage/logs \
         storage/framework/cache \
         storage/framework/sessions \
         storage/framework/views \
-    && chown -R www-data:www-data bootstrap/cache storage \
-    && chmod -R 775 bootstrap/cache storage
-
-# ─── 7. Composer install ─────────────────────────────────────────────────────
-RUN APP_ENV=production composer install \
+    && APP_ENV=production composer install \
         --no-dev \
         --no-interaction \
         --prefer-dist \
         --optimize-autoloader \
         --ignore-platform-reqs \
-        --no-scripts \
-    && composer dump-autoload --optimize --ignore-platform-reqs
+        --no-scripts
 
-# ─── 8. Generate package manifest (no DB needed, safe at build time) ─────────
-RUN php artisan package:discover --ansi 2>/dev/null || true
+# ─── 6. Copy application ─────────────────────────────────────────────────────
+COPY . /var/www/html
+
+# ─── 7. Dump Autoload & Package Discovery ────────────────────────────────────
+RUN composer dump-autoload --optimize --ignore-platform-reqs \
+    && php artisan package:discover --ansi 2>/dev/null || true
 
 # ─── 9. PHP & FPM config ─────────────────────────────────────────────────────
 RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \

@@ -14,9 +14,8 @@ cmds = [
 
 [phases.build]
 cmds = [
-    "npm ci || npm install || true",
-    "npm run production || npm run build || true",
-    "rm -rf node_modules"
+    "echo 'Using pre-compiled public assets. Skipping npm build.'",
+    "php artisan package:discover --ansi || true"
 ]
 
 [start]
@@ -110,14 +109,14 @@ stderr_logfile=/var/log/worker-nginx.log
 "worker-laravel-default.conf" = '''
 [program:worker-laravel-default]
 process_name=%(program_name)s_%(process_num)02d
-command=php /app/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600 --memory=256
+command=php /app/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600 --memory=128
 user=www-data
 autostart=true
 autorestart=true
 stopasgroup=true
 killasgroup=true
 numprocs=1
-startsecs=1
+startsecs=5
 startretries=10
 stopwaitsecs=3600
 stdout_logfile=/var/log/worker-laravel-default.log
@@ -127,14 +126,14 @@ stderr_logfile=/var/log/worker-laravel-default.log
 "worker-laravel-ingestion.conf" = '''
 [program:worker-laravel-ingestion]
 process_name=%(program_name)s_%(process_num)02d
-command=php /app/artisan queue:work --queue=ingestion --sleep=5 --tries=3 --timeout=7200 --max-time=7200 --max-jobs=1 --memory=384
+command=php /app/artisan queue:work --queue=ingestion --sleep=5 --tries=3 --timeout=7200 --max-time=7200 --max-jobs=1 --memory=256
 user=www-data
 autostart=true
 autorestart=true
 stopasgroup=true
 killasgroup=true
 numprocs=1
-startsecs=1
+startsecs=5
 startretries=10
 stopwaitsecs=7250
 stdout_logfile=/var/log/worker-laravel-ingestion.log
@@ -144,14 +143,14 @@ stderr_logfile=/var/log/worker-laravel-ingestion.log
 "worker-laravel-video.conf" = '''
 [program:worker-laravel-video]
 process_name=%(program_name)s_%(process_num)02d
-command=php /app/artisan queue:work --queue=video-encoding --sleep=10 --tries=1 --max-time=7200 --memory=384
+command=php /app/artisan queue:work --queue=video-encoding --sleep=10 --tries=1 --max-time=7200 --memory=256
 user=www-data
 autostart=true
 autorestart=true
 stopasgroup=true
 killasgroup=true
 numprocs=1
-startsecs=1
+startsecs=5
 startretries=10
 stopwaitsecs=7200
 stdout_logfile=/var/log/worker-laravel-video.log
@@ -182,6 +181,7 @@ autorestart=true
 stopasgroup=true
 killasgroup=true
 priority=30
+startsecs=5
 stdout_logfile=/var/log/worker-scheduler.log
 stderr_logfile=/var/log/worker-scheduler.log
 '''
@@ -195,17 +195,17 @@ daemonize = no
 [www]
 listen = 127.0.0.1:9000
 pm = dynamic
-pm.max_children = 8
-pm.start_servers = 2
+pm.max_children = 4
+pm.start_servers = 1
 pm.min_spare_servers = 1
 pm.max_spare_servers = 2
-pm.max_requests = 500
+pm.max_requests = 200
 request_terminate_timeout = 60s
 clear_env = no
 catch_workers_output = yes
 php_admin_value[post_max_size] = 50M
 php_admin_value[upload_max_filesize] = 50M
-php_admin_value[memory_limit] = 256M
+php_admin_value[memory_limit] = 128M
 php_admin_value[max_execution_time] = 60
 '''
 
