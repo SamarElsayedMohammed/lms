@@ -11,6 +11,12 @@ class SendWebinarConfirmationMail implements ShouldQueue
 {
     use InteractsWithQueue;
 
+    public int $tries = 3;
+
+    public int $timeout = 60;
+
+    public int|array $backoff = [10, 30];
+
     /**
      * Handle the event.
      */

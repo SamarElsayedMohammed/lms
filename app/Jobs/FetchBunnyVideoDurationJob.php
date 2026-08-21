@@ -55,8 +55,8 @@ class FetchBunnyVideoDurationJob implements ShouldQueue
         $url = "https://video.bunnycdn.com/library/{$this->libraryId}/videos/{$this->videoGuid}";
 
         try {
-            $response = Http::timeout(15)
-                ->connectTimeout(5)
+            $response = Http::connectTimeout(3)
+                ->timeout(10)
                 ->withHeaders([
                     'AccessKey' => $apiKey,
                     'Accept'    => 'application/json',
