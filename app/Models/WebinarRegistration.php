@@ -14,6 +14,8 @@ class WebinarRegistration extends Model
         'expires_at',
         'attended_at',
         'attended',
+        'form_responses',
+        'utm_source',
     ];
 
     protected $casts = [
@@ -21,6 +23,7 @@ class WebinarRegistration extends Model
         'expires_at' => 'datetime',
         'attended_at' => 'datetime',
         'attended' => 'boolean',
+        'form_responses' => 'array',
     ];
 
     public function isPaid(): bool

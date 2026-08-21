@@ -246,7 +246,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 'not_started_courses' => $notStartedCourses,
                 'completion_rate'     => $totalEnrolled > 0
                     ? round(($completedCourses / $totalEnrolled) * 100, 2)
-                    : 0,
+                    : null,
             ],
             'courses'      => $courseDetails,
             'generated_at' => Carbon::now()->toDateTimeString(),
@@ -421,7 +421,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'completed_students'                   => $brackets['all_completed'],
             'completion_rate'                      => $studentsWithEnrollments > 0
                 ? round(($brackets['all_completed'] / $studentsWithEnrollments) * 100, 2)
-                : 0,
+                : null,
             'completion_brackets'                  => $brackets,
             'total_completed_course_enrollments'   => $totalCompletedCourseEnrollments,
             'total_in_progress_course_enrollments' => $totalInProgressCourseEnrollments,
@@ -684,7 +684,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 'open_courses'      => $inProgress,
                 'completion_rate'   => count($enrolledIds) > 0
                     ? round(($completed / count($enrolledIds)) * 100, 2)
-                    : 0,
+                    : null,
                 'joined_at'         => $user->created_at?->toDateString(),
             ];
         });

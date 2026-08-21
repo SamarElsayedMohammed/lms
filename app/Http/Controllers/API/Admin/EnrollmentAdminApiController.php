@@ -111,37 +111,65 @@ class EnrollmentAdminApiController extends AdminCrudApiController
 
     private function subscriptionEnrollments(Request $request): Collection
     {
-        $courses = Course::with('user')
-            ->where('status', 'publish')
-            ->where('approval_status', 'approved')
-            ->where('is_active', true)
-            ->whereHasContent()
-            ->when($request->course_id, fn ($q) => $q->where('id', $request->course_id))
-            ->get();
+        $activeSubscriberIds = Subscription::active()
+            ->when($request->user_id, fn ($q) => $q->where('user_id', $request->user_id))
+            ->pluck('user_id')
+            ->unique()
+            ->all();
 
-        if ($courses->isEmpty()) {
+        if (empty($activeSubscriberIds)) {
             return collect();
         }
 
-        return Subscription::with(['user', 'plan'])
-            ->active()
-            ->when($request->user_id, fn ($q) => $q->where('user_id', $request->user_id))
-            ->when($request->date_from, fn ($q) => $q->whereDate('created_at', '>=', $request->date_from))
-            ->when($request->date_to, fn ($q) => $q->whereDate('created_at', '<=', $request->date_to))
-            ->get()
-            ->flatMap(function (Subscription $subscription) use ($courses) {
-                return $courses->map(fn (Course $course) => [
-                    'id' => 'subscription-' . $subscription->id . '-' . $course->id,
-                    'source' => 'subscription',
-                    'user_id' => $subscription->user_id,
-                    'course_id' => $course->id,
-                    'created_at' => $subscription->created_at,
-                    'updated_at' => $subscription->updated_at,
-                    'order' => null,
-                    'course' => $course,
-                    'track' => null,
-                    'subscription' => $subscription,
-                ]);
-            });
+        // Find courses actively accessed/tracked by active subscribers
+        $trackedCoursePairs = DB::table('user_curriculum_trackings as uct')
+            ->join('course_chapters as cc', 'uct.course_chapter_id', '=', 'cc.id')
+            ->whereIn('uct.user_id', $activeSubscriberIds)
+            ->when($request->course_id, fn ($q) => $q->where('cc.course_id', $request->course_id))
+            ->when($request->date_from, fn ($q) => $q->whereDate('uct.created_at', '>=', $request->date_from))
+            ->when($request->date_to, fn ($q) => $q->whereDate('uct.created_at', '<=', $request->date_to))
+            ->selectRaw('uct.user_id, cc.course_id, MIN(uct.created_at) as created_at, MAX(uct.updated_at) as updated_at')
+            ->groupBy('uct.user_id', 'cc.course_id')
+            ->get();
+
+        $progressCoursePairs = DB::table('user_course_progress as ucp')
+            ->whereIn('ucp.user_id', $activeSubscriberIds)
+            ->when($request->course_id, fn ($q) => $q->where('ucp.course_id', $request->course_id))
+            ->when($request->date_from, fn ($q) => $q->whereDate('ucp.created_at', '>=', $request->date_from))
+            ->when($request->date_to, fn ($q) => $q->whereDate('ucp.created_at', '<=', $request->date_to))
+            ->selectRaw('ucp.user_id, ucp.course_id, ucp.created_at, ucp.updated_at')
+            ->get();
+
+        $mergedPairs = $trackedCoursePairs->concat($progressCoursePairs)
+            ->groupBy(fn ($p) => "{$p->user_id}_{$p->course_id}")
+            ->map(fn ($group) => $group->first());
+
+        if ($mergedPairs->isEmpty()) {
+            return collect();
+        }
+
+        $userIds = $mergedPairs->pluck('user_id')->unique()->all();
+        $courseIds = $mergedPairs->pluck('course_id')->unique()->all();
+
+        $courses = Course::with('user')->whereIn('id', $courseIds)->get()->keyBy('id');
+        $activeSubs = Subscription::with('plan')->active()->whereIn('user_id', $userIds)->get()->groupBy('user_id');
+
+        return $mergedPairs->map(function ($pair) use ($courses, $activeSubs) {
+            $course = $courses->get($pair->course_id);
+            $sub = $activeSubs->get($pair->user_id)?->first();
+
+            return [
+                'id' => 'subscription-' . ($sub?->id ?? 'sub') . '-' . $pair->course_id,
+                'source' => 'subscription',
+                'user_id' => $pair->user_id,
+                'course_id' => $pair->course_id,
+                'created_at' => $pair->created_at,
+                'updated_at' => $pair->updated_at,
+                'order' => null,
+                'course' => $course,
+                'track' => null,
+                'subscription' => $sub,
+            ];
+        })->filter(fn ($item) => $item['course'] !== null)->values();
     }
 }

@@ -44,7 +44,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         // --- 1. Calculate Statistics ---
         
         $totalSubscriptions = Subscription::count();
-        $activeSubscriptions = Subscription::where('status', Subscription::STATUS_ACTIVE)->count();
+        $activeSubscriptions = Subscription::active()->count();
         
         // Total Revenue from completed payments (Converted to EGP)
         $totalRevenue = (float) SubscriptionPayment::where('status', SubscriptionPayment::STATUS_COMPLETED)
@@ -74,7 +74,14 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         }]);
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $status = $request->status;
+            if ($status === Subscription::STATUS_ACTIVE) {
+                $query->active();
+            } elseif ($status === Subscription::STATUS_EXPIRED) {
+                $query->expired();
+            } else {
+                $query->where('status', $status);
+            }
         }
 
         if ($request->filled('payment_method')) {
@@ -104,15 +111,22 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
         $subscriptions->getCollection()->transform(function ($sub) {
             $latestPayment = $sub->payments->first();
             $data = $sub->toArray();
+            $data['days_remaining'] = $sub->days_remaining;
+            $data['is_active'] = $sub->is_active;
             $data['payment_info'] = $latestPayment ? [
                 'original_currency' => $latestPayment->currency_code ?? 'EGP',
-                'original_amount' => (float) $latestPayment->final_amount,
+                'original_amount' => (float) ($latestPayment->original_amount ?? $latestPayment->amount ?? $latestPayment->final_amount),
+                'discount_amount' => (float) ($latestPayment->discount_amount ?? 0),
+                'promo_code' => $latestPayment->promo_code,
+                'final_amount' => (float) ($latestPayment->final_amount ?? $latestPayment->amount),
                 'converted_amount' => (float) ($latestPayment->amount_egp ?? ($latestPayment->final_amount * ($latestPayment->exchange_rate_snapshot ?? 1))),
                 'exchange_rate' => (float) ($latestPayment->exchange_rate_snapshot ?? 1),
                 'payment_date' => $latestPayment->paid_at ?? $latestPayment->created_at,
+                'paid_at' => $latestPayment->paid_at,
                 'payment_method' => $latestPayment->payment_method ?? 'Unknown',
                 'country' => $latestPayment->resolved_country ?? 'Unknown',
                 'status' => $latestPayment->status,
+                'transaction_id' => $latestPayment->transaction_id,
             ] : null;
             return $data;
         });

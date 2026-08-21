@@ -40,14 +40,30 @@ class WebinarRegistrationController extends Controller
                 );
             }
 
+            // Extract dynamic custom field responses and UTM tracking
+            $payload = $request->all();
+            $formResponses = is_array($request->input('form_responses'))
+                ? $request->input('form_responses')
+                : $request->except(['_token', 'use_wallet', 'utm_source', 'password', 'password_confirmation']);
+            $utmSource = $request->input('utm_source');
+
             // Free webinar registration
-            $this->registrationService->register($webinar, $user, 'free', 0.00);
+            $this->registrationService->register($webinar, $user, 'free', 0.00, null, $formResponses, $utmSource);
 
             return ApiResponseService::successResponse('Successfully registered for the webinar.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return ApiResponseService::errorResponse(
+                $e->getMessage(),
+                $e->errors(),
+                422
+            );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
             $code = $e->getCode();
+            if ($code === 422) {
+                return ApiResponseService::errorResponse($e->getMessage(), ['error_code' => 'validation_error'], 422);
+            }
             if ($code === 409) {
                 return ApiResponseService::errorResponse($e->getMessage(), ['error_code' => 'conflict'], 409);
             }

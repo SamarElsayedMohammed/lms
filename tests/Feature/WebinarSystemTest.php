@@ -392,4 +392,105 @@ class WebinarSystemTest extends TestCase
         $response->assertStatus(400);
         $this->assertEquals('wallet_required', $response->json('data.error_code') ?? $response->json('errors.error_code'));
     }
+
+    public function test_registration_persists_dynamic_form_responses_and_utm_source()
+    {
+        $user = User::factory()->create();
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Dynamic Form Webinar',
+            'slug' => 'dynamic-form-webinar',
+            'start_at' => now()->addDays(2),
+            'duration' => 90,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+            'config' => [
+                'form' => [
+                    'customFields' => [
+                        [
+                            'id' => 'field_job',
+                            'name' => 'job_title',
+                            'label' => 'المسمى الوظيفي',
+                            'type' => 'text',
+                            'required' => true,
+                        ],
+                        [
+                            'id' => 'field_exp',
+                            'name' => 'experience_level',
+                            'label' => 'مستوى الخبرة',
+                            'type' => 'select',
+                            'options' => ['مبتدئ', 'متوسط', 'متقدم'],
+                            'required' => false,
+                        ]
+                    ]
+                ]
+            ]
+        ]);
+
+        $response = $this->actingAs($user)->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'أحمد المهندس',
+            'email' => 'ahmed.dev@example.com',
+            'whatsapp' => '01012345678',
+            'job_title' => 'Senior Full Stack Engineer',
+            'experience_level' => 'متقدم',
+            'utm_source' => 'facebook_campaign_2026',
+        ]);
+
+        $response->assertStatus(200);
+
+        $this->assertDatabaseHas('webinar_registrations', [
+            'webinar_id' => $webinar->id,
+            'user_id' => $user->id,
+            'utm_source' => 'facebook_campaign_2026',
+        ]);
+
+        $registration = WebinarRegistration::where('webinar_id', $webinar->id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        $this->assertNotNull($registration);
+        $this->assertEquals('Senior Full Stack Engineer', $registration->form_responses['job_title'] ?? null);
+        $this->assertEquals('متقدم', $registration->form_responses['experience_level'] ?? null);
+    }
+
+    public function test_registration_fails_validation_when_required_custom_field_missing()
+    {
+        $user = User::factory()->create();
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Strict Form Webinar',
+            'slug' => 'strict-form-webinar',
+            'start_at' => now()->addDays(2),
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+            'config' => [
+                'form' => [
+                    'customFields' => [
+                        [
+                            'id' => 'field_company',
+                            'name' => 'company_name',
+                            'label' => 'جهة العمل / الشركة',
+                            'type' => 'text',
+                            'required' => true,
+                        ]
+                    ]
+                ]
+            ]
+        ]);
+
+        $response = $this->actingAs($user)->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'مستخدم بدون شركة',
+            'email' => 'user@example.com',
+            'whatsapp' => '01011112222',
+            // company_name missing
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['company_name']);
+    }
 }

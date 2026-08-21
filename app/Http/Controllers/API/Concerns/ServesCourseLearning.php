@@ -150,19 +150,98 @@ trait ServesCourseLearning
             $enrolledItems = $enrollmentService->resolveEnrolledCourseIds((int) $userId);
 
             if ($enrolledItems->isEmpty()) {
+                $emptyPaginator = new LengthAwarePaginator([], 0, $request->per_page ?? 15, $request->page ?? 1, [
+                    "path" => request()->url(),
+                    "pageName" => "page",
+                ]);
+                $emptyData = $emptyPaginator->toArray();
+                $emptyData['summary_counts'] = [
+                    'all' => 0,
+                    'in_progress' => 0,
+                    'completed' => 0,
+                    'not_started' => 0,
+                ];
                 return ApiResponseService::successResponse(
                     "My learning courses retrieved successfully",
-                    new LengthAwarePaginator([], 0, $request->per_page ?? 15, $request->page ?? 1, [
-                        "path" => request()->url(),
-                        "pageName" => "page",
-                    ])
+                    $emptyData
                 );
             }
 
-            $courseIds = $enrolledItems->pluck('course_id')->toArray();
+            $allCourseIds = $enrolledItems->pluck('course_id')->toArray();
             $purchaseDatesMap = $enrolledItems->keyBy('course_id')->map(fn($i) => $i['purchase_date']);
 
-            $query = Course::whereIn('id', $courseIds)
+            // Batch calculate progress status for all enrolled courses
+            $progressService = app(\App\Services\CourseProgressService::class);
+            $allCourseProgresses = collect($allCourseIds)->mapWithKeys(function ($cId) use ($userId, $progressService) {
+                return [$cId => $progressService->getProgressWithCache((int) $userId, (int) $cId)];
+            });
+
+            $videoWatchedCourseIds = DB::table('video_progress')
+                ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+                ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+                ->where('video_progress.user_id', $userId)
+                ->whereIn('course_chapters.course_id', $allCourseIds)
+                ->where('video_progress.watched_seconds', '>', 0)
+                ->pluck('course_chapters.course_id')
+                ->unique()
+                ->toArray();
+
+            $courseStatusMap = [];
+            $inProgressCourseIds = [];
+            $completedCourseIds = [];
+            $notStartedCourseIds = [];
+
+            foreach ($allCourseIds as $cId) {
+                $p = $allCourseProgresses->get($cId);
+                $pct = (float) ($p->progress_percentage ?? 0);
+                $hasWatched = in_array($cId, $videoWatchedCourseIds, true);
+
+                if ($pct >= 100 || ($p->status ?? '') === 'completed') {
+                    $status = 'completed';
+                    $completedCourseIds[] = $cId;
+                } elseif ($pct > 0 || $hasWatched || ($p->completed_items ?? 0) > 0) {
+                    $status = 'in_progress';
+                    $inProgressCourseIds[] = $cId;
+                } else {
+                    $status = 'not_started';
+                    $notStartedCourseIds[] = $cId;
+                }
+                $courseStatusMap[$cId] = $status;
+            }
+
+            $summaryCounts = [
+                'all' => count($allCourseIds),
+                'in_progress' => count($inProgressCourseIds),
+                'completed' => count($completedCourseIds),
+                'not_started' => count($notStartedCourseIds),
+            ];
+
+            $targetCourseIds = $allCourseIds;
+            if ($request->filled("progress_status") && $request->progress_status !== "all") {
+                $targetStatus = $request->progress_status;
+                if ($targetStatus === "in_progress") {
+                    $targetCourseIds = $inProgressCourseIds;
+                } elseif ($targetStatus === "completed") {
+                    $targetCourseIds = $completedCourseIds;
+                } elseif ($targetStatus === "not_started") {
+                    $targetCourseIds = $notStartedCourseIds;
+                }
+            }
+
+            if (empty($targetCourseIds)) {
+                $emptyPaginator = new LengthAwarePaginator([], 0, $request->per_page ?? 15, $request->page ?? 1, [
+                    "path" => request()->url(),
+                    "pageName" => "page",
+                ]);
+                $emptyData = $emptyPaginator->toArray();
+                $emptyData['summary_counts'] = $summaryCounts;
+                return ApiResponseService::successResponse(
+                    "My learning courses retrieved successfully",
+                    $emptyData
+                );
+            }
+
+            $query = Course::whereIn('id', $targetCourseIds)
                 ->where('status', 'publish')
                 ->where('approval_status', 'approved')
                 ->where('is_active', true);
@@ -200,7 +279,8 @@ trait ServesCourseLearning
 
             if ($sortBy === 'purchase_date') {
                 // PHP-side sorting of the IDs based on the mapped purchase dates
-                $sortedIds = $enrolledItems->sortBy(fn($item) => $item['purchase_date'], SORT_REGULAR, $sortOrder === 'desc')
+                $sortedIds = $enrolledItems->whereIn('course_id', $targetCourseIds)
+                    ->sortBy(fn($item) => $item['purchase_date'], SORT_REGULAR, $sortOrder === 'desc')
                     ->pluck('course_id')->toArray();
                 if (!empty($sortedIds)) {
                     $orderedIdsStr = implode(',', $sortedIds);
@@ -218,7 +298,9 @@ trait ServesCourseLearning
             $paginatedIds = collect($paginatedCourses->items())->pluck('id')->toArray();
             
             if (empty($paginatedIds)) {
-                return ApiResponseService::successResponse("My learning courses retrieved successfully", $paginatedCourses);
+                $emptyData = $paginatedCourses->toArray();
+                $emptyData['summary_counts'] = $summaryCounts;
+                return ApiResponseService::successResponse("My learning courses retrieved successfully", $emptyData);
             }
 
             // We must hydrate the models properly for the transformations
@@ -250,12 +332,12 @@ trait ServesCourseLearning
 
             // Map the paginated collection
             $transformedItems = collect($paginatedCourses->items())->map(function($basicCourse) use (
-                $userId, $hydratedCourses, $purchaseDatesMap, $wishlistedCourseIds, $latestTrackings, $firstChapters, $refundEnabled, $refundPeriodDays
+                $userId, $hydratedCourses, $purchaseDatesMap, $wishlistedCourseIds, $latestTrackings, $firstChapters, $refundEnabled, $refundPeriodDays, $allCourseProgresses, $courseStatusMap
             ) {
                 $course = $hydratedCourses->get($basicCourse->id);
                 if (!$course) return null;
 
-                $cachedProgress = app(\App\Services\CourseProgressService::class)->getProgressWithCache($userId, $course->id);
+                $cachedProgress = $allCourseProgresses->get($course->id) ?? app(\App\Services\CourseProgressService::class)->getProgressWithCache($userId, $course->id);
                 $progressPercentage = (float) $cachedProgress->progress_percentage;
                 $totalCurriculumItems = $cachedProgress->total_items;
                 $completedCurriculumItems = $cachedProgress->completed_items;
@@ -288,6 +370,8 @@ trait ServesCourseLearning
                 if ($course->display_price > 0 && $course->display_discount_price > 0 && $course->display_price > $course->display_discount_price) {
                     $discountPercentage = round((($course->display_price - $course->display_discount_price) / $course->display_price) * 100);
                 }
+
+                $progressStatus = $courseStatusMap[$course->id] ?? $this->getProgressStatusWithStarted($progressPercentage, $startedCurriculumItems);
 
                 return [
                     "id" => $course->id,
@@ -322,7 +406,7 @@ trait ServesCourseLearning
                     "completed_curriculum_items" => $completedCurriculumItems,
                     "started_curriculum_items" => $startedCurriculumItems,
                     "progress_percentage" => $progressPercentage,
-                    "progress_status" => $this->getProgressStatusWithStarted($progressPercentage, $startedCurriculumItems),
+                    "progress_status" => $progressStatus,
                     "refund_enabled" => $refundEnabled,
                     "refund_period_days" => $refundPeriodDays,
                     "is_refund_eligible" => $isRefundEligible,
@@ -331,24 +415,13 @@ trait ServesCourseLearning
                 ];
             })->filter()->values();
 
-            if ($request->filled("progress_status") && $request->progress_status !== "all") {
-                $progressStatus = $request->progress_status;
-                $transformedItems = $transformedItems->filter(function($course) use ($progressStatus) {
-                    if ($progressStatus === "in_progress") {
-                        return $course["progress_percentage"] > 0 && $course["progress_percentage"] < 100;
-                    } elseif ($progressStatus === "completed") {
-                        return $course["progress_percentage"] == 100;
-                    }
-                    return true;
-                })->values();
-            }
-
-            // Update the paginator with the transformed items
-            $paginatedCourses->setCollection($transformedItems);
+            $responseArray = $paginatedCourses->toArray();
+            $responseArray['data'] = $transformedItems->all();
+            $responseArray['summary_counts'] = $summaryCounts;
 
             return ApiResponseService::successResponse(
                 "My learning courses retrieved successfully",
-                $paginatedCourses
+                $responseArray
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;

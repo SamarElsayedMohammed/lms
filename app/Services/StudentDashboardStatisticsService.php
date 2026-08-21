@@ -34,18 +34,60 @@ final class StudentDashboardStatisticsService
     }
 
     /**
+     * Resolves all accessible/enrolled course progresses for the user.
+     *
+     * @return Collection<int, array{course_id: int, course: mixed, purchase_date: mixed, source: string, progress_percentage: float, watched_seconds: int, is_started: bool}>
+     */
+    public function getEnrolledCourseProgresses(User $user): Collection
+    {
+        $enrolled = $this->enrollmentService->resolveEnrolledCourses((int) $user->id);
+        if ($enrolled->isEmpty()) {
+            return collect();
+        }
+
+        $courseIds = $enrolled->pluck('course_id')->all();
+
+        // Batch load video progress for started check
+        $videoWatchedMap = DB::table('video_progress')
+            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+            ->where('video_progress.user_id', $user->id)
+            ->whereIn('course_chapters.course_id', $courseIds)
+            ->where('video_progress.watched_seconds', '>', 0)
+            ->groupBy('course_chapters.course_id')
+            ->selectRaw('course_chapters.course_id, SUM(video_progress.watched_seconds) as total_watched')
+            ->pluck('total_watched', 'course_id');
+
+        return $enrolled
+            ->map(function (array $item) use ($user, $videoWatchedMap): array {
+                $courseId = (int) $item['course_id'];
+                $progressObj = $this->progressService->getProgressWithCache((int) $user->id, $courseId);
+                $progressPercentage = (float) $progressObj->progress_percentage;
+                $watchedSeconds = (int) ($videoWatchedMap->get($courseId) ?? 0);
+                $isStarted = $progressPercentage > 0 || $watchedSeconds > 0 || $progressObj->completed_items > 0;
+
+                $item['progress_percentage'] = $progressPercentage;
+                $item['watched_seconds'] = $watchedSeconds;
+                $item['is_started'] = $isStarted;
+
+                return $item;
+            })
+            ->values();
+    }
+
+    /**
      * Calculate numeric dashboard statistics from one request-scoped progress snapshot.
      *
-     * @param Collection<int, array{course_id: int, course: mixed, purchase_date: mixed, source: string, progress_percentage: float}> $courseProgresses
+     * @param Collection<int, array{course_id: int, course: mixed, purchase_date: mixed, source: string, progress_percentage: float, watched_seconds?: int, is_started?: bool}> $courseProgresses
      */
     public function getDashboardStatsForCourseProgresses(User $user, Collection $courseProgresses): array
     {
         $totalCourses = $courseProgresses->count();
         $completedCourses = $courseProgresses->where('progress_percentage', '>=', 100)->count();
         $inProgressCourses = $courseProgresses
-            ->filter(static fn (array $course): bool => $course['progress_percentage'] > 0 && $course['progress_percentage'] < 100)
+            ->filter(static fn (array $course): bool => ($course['progress_percentage'] > 0 || !empty($course['is_started'])) && $course['progress_percentage'] < 100)
             ->count();
-        $notStartedCourses = $totalCourses - $completedCourses - $inProgressCourses;
+        $notStartedCourses = max(0, $totalCourses - $completedCourses - $inProgressCourses);
         $averageProgress = $totalCourses > 0
             ? round($courseProgresses->avg('progress_percentage'), 2)
             : 0;
@@ -64,66 +106,12 @@ final class StudentDashboardStatisticsService
             'not_started_courses' => $notStartedCourses,
             'in_progress_courses' => $inProgressCourses,
             'completed_courses'   => $completedCourses,
-            'open_courses'        => $totalCourses - $completedCourses,
+            'open_courses'        => max(0, $totalCourses - $completedCourses),
             'certificates'        => $certificatesCount,
             'average_progress'    => $averageProgress,
             'learning_hours'      => $learningHours,
             'wishlist'            => $wishlistCount,
         ];
-    }
-
-    /**
-     * Resolves the same started-enrollment set used for all dashboard metrics.
-     *
-     * @return Collection<int, array{course_id: int, course: mixed, purchase_date: mixed, source: string, progress_percentage: float}>
-     */
-    public function getEnrolledCourseProgresses(User $user): Collection
-    {
-        $enrolled = $this->enrollmentService->resolveEnrolledCourses((int) $user->id);
-        $subscriptionCourseIds = $enrolled
-            ->where('source', 'subscription')
-            ->pluck('course_id')
-            ->all();
-        $startedSubscriptionCourseIds = $this->getStartedSubscriptionCourseIds(
-            (int) $user->id,
-            $subscriptionCourseIds,
-        );
-
-        return $enrolled
-            ->filter(static fn (array $item): bool => $item['source'] !== 'subscription'
-                || in_array($item['course_id'], $startedSubscriptionCourseIds, true))
-            ->map(function (array $item) use ($user): array {
-                $item['progress_percentage'] = (float) $this->progressService
-                    ->getProgressWithCache((int) $user->id, (int) $item['course_id'])
-                    ->progress_percentage;
-
-                return $item;
-            })
-            ->values();
-    }
-
-    private function getStartedSubscriptionCourseIds(int $userId, array $subscriptionCourseIds): array
-    {
-        if ($subscriptionCourseIds === []) {
-            return [];
-        }
-
-        $startedViaTrackings = DB::table('user_curriculum_trackings')
-            ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
-            ->where('user_curriculum_trackings.user_id', $userId)
-            ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
-            ->pluck('course_chapters.course_id')
-            ->all();
-        $startedViaVideos = DB::table('video_progress')
-            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
-            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
-            ->where('video_progress.user_id', $userId)
-            ->whereIn('course_chapters.course_id', $subscriptionCourseIds)
-            ->where('video_progress.watched_seconds', '>', 0)
-            ->pluck('course_chapters.course_id')
-            ->all();
-
-        return array_values(array_unique([...$startedViaTrackings, ...$startedViaVideos]));
     }
 
     /**

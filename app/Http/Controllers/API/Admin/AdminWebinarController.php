@@ -359,14 +359,16 @@ class AdminWebinarController extends AdminCrudApiController
             ->map(fn ($reg) => [
                 'id'             => $reg->id,
                 'user_id'        => $reg->user_id,
-                'name'           => $reg->user?->name  ?? 'N/A',
-                'email'          => $reg->user?->email ?? 'N/A',
-                'phone'          => $reg->user?->mobile ?? 'N/A',
+                'name'           => $reg->user?->name  ?? ($reg->form_responses['name'] ?? 'N/A'),
+                'email'          => $reg->user?->email ?? ($reg->form_responses['email'] ?? 'N/A'),
+                'phone'          => $reg->user?->mobile ?? ($reg->form_responses['whatsapp'] ?? ($reg->form_responses['phone'] ?? 'N/A')),
                 'payment_status' => $reg->payment_status,
                 'paid_amount'    => $reg->paid_amount,
                 'attended'       => (bool) $reg->attended,
                 'attended_at'    => $reg->attended_at ? $reg->attended_at->toDateTimeString() : null,
                 'registered_at'  => $reg->created_at ? $reg->created_at->toDateTimeString() : null,
+                'form_responses' => $reg->form_responses ?? [],
+                'utm_source'     => $reg->utm_source,
             ]);
 
         return $this->jsonSuccess('Registrants retrieved successfully', [
@@ -378,7 +380,7 @@ class AdminWebinarController extends AdminCrudApiController
     }
 
     /**
-     * Export webinar registrants as CSV
+     * Export webinar registrants as CSV with dynamic custom fields and UTF-8 BOM
      * GET /api/admin/webinars/{slug}/registrants/export
      */
     public function exportRegistrants(Webinar $webinar): \Symfony\Component\HttpFoundation\StreamedResponse|JsonResponse
@@ -395,6 +397,19 @@ class AdminWebinarController extends AdminCrudApiController
             ->oldest()
             ->get();
 
+        // Extract custom fields schema from webinar config
+        $customFieldDefs = $webinar->config['form']['customFields'] ?? [];
+        $customFieldKeys = [];
+        $customFieldHeaders = [];
+        if (is_array($customFieldDefs)) {
+            foreach ($customFieldDefs as $f) {
+                if (is_array($f) && !empty($f['name'])) {
+                    $customFieldKeys[] = $f['name'];
+                    $customFieldHeaders[] = $f['label'] ?? $f['name'];
+                }
+            }
+        }
+
         $filename = 'webinar-registrants-' . $webinar->id . '-' . now()->format('Ymd-His') . '.csv';
 
         $headers = [
@@ -405,10 +420,10 @@ class AdminWebinarController extends AdminCrudApiController
             'Expires'             => '0',
         ];
 
-        $callback = function () use ($registrations, $webinar) {
+        $callback = function () use ($registrations, $webinar, $customFieldKeys, $customFieldHeaders) {
             $handle = fopen('php://output', 'w');
 
-            // UTF-8 BOM
+            // UTF-8 BOM for Microsoft Excel Arabic support
             fprintf($handle, chr(0xEF) . chr(0xBB) . chr(0xBF));
 
             fputcsv($handle, ['Webinar', $webinar->title]);
@@ -416,7 +431,7 @@ class AdminWebinarController extends AdminCrudApiController
             fputcsv($handle, ['Total Registrants', $registrations->count()]);
             fputcsv($handle, []); 
 
-            fputcsv($handle, [
+            $csvHeader = [
                 '#',
                 'Name',
                 'Email',
@@ -426,19 +441,31 @@ class AdminWebinarController extends AdminCrudApiController
                 'Attended',
                 'Attended At',
                 'Registered At',
-            ]);
+                'UTM Source',
+                ...$customFieldHeaders,
+            ];
+            fputcsv($handle, $csvHeader);
 
             foreach ($registrations as $index => $reg) {
+                $responses = is_array($reg->form_responses) ? $reg->form_responses : [];
+                $customVals = [];
+                foreach ($customFieldKeys as $k) {
+                    $v = $responses[$k] ?? '';
+                    $customVals[] = is_array($v) ? implode(', ', $v) : (string) $v;
+                }
+
                 fputcsv($handle, [
                     $index + 1,
-                    $reg->user?->name    ?? 'N/A',
-                    $reg->user?->email   ?? 'N/A',
-                    $reg->user?->mobile  ?? 'N/A',
+                    $reg->user?->name    ?? ($responses['name'] ?? 'N/A'),
+                    $reg->user?->email   ?? ($responses['email'] ?? 'N/A'),
+                    $reg->user?->mobile  ?? ($responses['whatsapp'] ?? ($responses['phone'] ?? 'N/A')),
                     $reg->payment_status,
                     $reg->paid_amount   ?? '0.00',
                     $reg->attended ? 'Yes' : 'No',
                     $reg->attended_at ? $reg->attended_at->format('Y-m-d H:i:s') : 'N/A',
                     $reg->created_at ? $reg->created_at->format('Y-m-d H:i:s') : 'N/A',
+                    $reg->utm_source ?? 'N/A',
+                    ...$customVals,
                 ]);
             }
 

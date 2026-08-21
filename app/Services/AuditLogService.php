@@ -37,7 +37,7 @@ class AuditLogService
      */
     public static function log(
         string $action,
-        ?Model $target = null,
+        mixed $target = null,
         ?string $summary = null,
         array $details = [],
         ?User $actor = null
@@ -46,8 +46,8 @@ class AuditLogService
 
         $sanitizedDetails = self::redactSensitiveData($details);
 
-        $targetType = $target ? class_basename($target) : null;
-        $targetId = $target?->getKey();
+        $targetType = is_object($target) ? class_basename($target) : (is_string($target) ? $target : null);
+        $targetId = is_object($target) && method_exists($target, 'getKey') ? $target->getKey() : (is_array($target) ? ($target['id'] ?? null) : null);
 
         return AdminAuditLog::create([
             'user_id'     => $user?->id,

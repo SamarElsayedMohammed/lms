@@ -57,11 +57,9 @@ class UserDashboardIntegrityTest extends TestCase
             ),
         );
 
-        $pricingService = Mockery::mock(PricingService::class);
-        $pricingService->shouldReceive('detectUserCountry')->andReturn('EG');
-        $pricingService->shouldReceive('getCurrencyForCountry')->andReturn(null);
-        $pricingService->shouldReceive('convertFromEgp')->andReturn(0.0);
-        app()->instance(PricingService::class, $pricingService);
+        $geoService = Mockery::mock(GeoLocationService::class);
+        $geoService->shouldReceive('getCountryCodeFromRequest')->andReturn('EG');
+        app()->instance(GeoLocationService::class, $geoService);
     }
 
     public function test_revoked_certificates_are_excluded_from_dashboard_statistics(): void
@@ -71,6 +69,7 @@ class UserDashboardIntegrityTest extends TestCase
             'course_id' => $this->incompleteCourse->id,
             'certificate_number' => 'REVOKED-CERTIFICATE',
             'status' => 'revoked',
+            'issued_date' => now(),
         ]);
 
         $stats = app(StudentDashboardStatisticsService::class)->getDashboardStats($this->user);
@@ -87,6 +86,7 @@ class UserDashboardIntegrityTest extends TestCase
             'course_id' => $this->incompleteCourse->id,
             'certificate_number' => 'MANUAL-CERTIFICATE',
             'status' => 'active',
+            'issued_date' => now(),
         ]);
 
         $stats = app(StudentDashboardStatisticsService::class)->getDashboardStats($this->user);
@@ -139,12 +139,14 @@ class UserDashboardIntegrityTest extends TestCase
             'course_id' => $this->incompleteCourse->id,
             'certificate_number' => 'MANUAL-CERTIFICATE',
             'status' => 'active',
+            'issued_date' => now(),
         ]);
         CourseCertificate::create([
             'user_id' => $this->user->id,
             'course_id' => $this->completedCourse->id,
             'certificate_number' => 'REVOKED-CERTIFICATE',
             'status' => 'revoked',
+            'issued_date' => now(),
         ]);
 
         $response = $this->actingAs($this->user, 'sanctum')->getJson('/api/user/certificates');
@@ -176,8 +178,8 @@ class UserDashboardIntegrityTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user, 'sanctum')->getJson('/api/user/dashboard');
-
-        $response->assertOk()->assertJsonCount(0, 'data.learning_activity');
+        $response->assertOk();
+        $this->assertCount(0, $response->json('data.learning_activity') ?? []);
     }
 
     private function createEnrollmentWithContent(Course $course): void

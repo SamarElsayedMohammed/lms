@@ -178,12 +178,15 @@ class UserDashboardApiController extends Controller
                 if (!$course) return null;
 
                 $snapshotProgress = round((float) $progressByCourseId->get($progress->course_id), 2);
+                $courseId = is_array($course) ? ($course['id'] ?? null) : $course->id;
+                $courseTitle = is_array($course) ? ($course['title'] ?? '') : $course->title;
+                $courseThumbnail = is_array($course) ? ($course['thumbnail'] ?? null) : $course->thumbnail;
 
                 return [
-                    'id'                  => $course->id,
-                    'title'               => $course->title,
-                    'thumbnail'           => $course->thumbnail,
-                    'image'               => $course->thumbnail,
+                    'id'                  => $courseId,
+                    'title'               => $courseTitle,
+                    'thumbnail'           => $courseThumbnail,
+                    'image'               => $courseThumbnail,
                     'progress'            => $snapshotProgress,
                     'progress_percentage' => $snapshotProgress,
                     'last_accessed'       => $progress->last_accessed_at?->toDateTimeString(),
@@ -211,12 +214,15 @@ class UserDashboardApiController extends Controller
                 if (!$course) return null;
 
                 $snapshotProgress = round((float) $progressByCourseId->get($track->tracked_course_id), 2);
+                $courseId = is_array($course) ? ($course['id'] ?? null) : $course->id;
+                $courseTitle = is_array($course) ? ($course['title'] ?? '') : $course->title;
+                $courseThumbnail = is_array($course) ? ($course['thumbnail'] ?? null) : $course->thumbnail;
 
                 return [
-                    'id'                  => $course->id,
-                    'title'               => $course->title,
-                    'thumbnail'           => $course->thumbnail,
-                    'image'               => $course->thumbnail,
+                    'id'                  => $courseId,
+                    'title'               => $courseTitle,
+                    'thumbnail'           => $courseThumbnail,
+                    'image'               => $courseThumbnail,
                     'progress'            => $snapshotProgress,
                     'progress_percentage' => $snapshotProgress,
                     'last_accessed'       => $track->updated_at->toDateTimeString(),
@@ -245,16 +251,17 @@ class UserDashboardApiController extends Controller
                 if (!$course) return null;
 
                 $snapshotProgress = round((float) $progressByCourseId->get($progress->tracked_course_id), 2);
+                $courseId = is_array($course) ? ($course['id'] ?? null) : $course->id;
+                $courseTitle = is_array($course) ? ($course['title'] ?? '') : $course->title;
+                $courseThumbnail = is_array($course) ? ($course['thumbnail'] ?? null) : $course->thumbnail;
 
                 return [
-                    'id'                  => $course->id,
-                    'title'               => $course->title,
-                    'thumbnail'           => $course->thumbnail,
-                    'image'               => $course->thumbnail,
+                    'id'                  => $courseId,
+                    'title'               => $courseTitle,
+                    'thumbnail'           => $courseThumbnail,
+                    'image'               => $courseThumbnail,
                     'progress'            => $snapshotProgress,
                     'progress_percentage' => $snapshotProgress,
-                    // Query-builder rows expose timestamps as strings, unlike
-                    // Eloquent models used by the other activity sources.
                     'last_accessed'       => $progress->updated_at,
                 ];
             })
@@ -268,12 +275,15 @@ class UserDashboardApiController extends Controller
             ->map(function (array $item) {
                 $course = $item['course'];
                 $snapshotProgress = round($item['progress_percentage'], 2);
+                $courseId = is_array($course) ? ($course['id'] ?? null) : $course->id;
+                $courseTitle = is_array($course) ? ($course['title'] ?? '') : $course->title;
+                $courseThumbnail = is_array($course) ? ($course['thumbnail'] ?? null) : $course->thumbnail;
 
                 return [
-                    'id'                  => $course->id,
-                    'title'               => $course->title,
-                    'thumbnail'           => $course->thumbnail,
-                    'image'               => $course->thumbnail,
+                    'id'                  => $courseId,
+                    'title'               => $courseTitle,
+                    'thumbnail'           => $courseThumbnail,
+                    'image'               => $courseThumbnail,
                     'progress'            => $snapshotProgress,
                     'progress_percentage' => $snapshotProgress,
                     'last_accessed'       => null,
@@ -281,6 +291,7 @@ class UserDashboardApiController extends Controller
             });
 
         return $progressActivities
+            ->toBase()
             ->merge($trackingActivities)
             ->merge($videoActivities)
             ->sortByDesc('last_accessed')
@@ -302,12 +313,15 @@ class UserDashboardApiController extends Controller
             ->map(static function (array $item): array {
                 $course = $item['course'];
                 $progress = round($item['progress_percentage'], 2);
+                $courseId = is_array($course) ? ($course['id'] ?? null) : $course->id;
+                $courseTitle = is_array($course) ? ($course['title'] ?? '') : $course->title;
+                $courseThumbnail = is_array($course) ? ($course['thumbnail'] ?? null) : $course->thumbnail;
 
                 return [
-                    'id' => $course->id,
-                    'title' => $course->title,
-                    'thumbnail' => $course->thumbnail,
-                    'image' => $course->thumbnail,
+                    'id' => $courseId,
+                    'title' => $courseTitle,
+                    'thumbnail' => $courseThumbnail,
+                    'image' => $courseThumbnail,
                     'progress' => $progress,
                     'progress_percentage' => $progress,
                     'enrolled_at' => $item['purchase_date']?->toIso8601String(),
@@ -328,8 +342,6 @@ class UserDashboardApiController extends Controller
         }
 
         return UserCurriculumTracking::where('user_id', $user->id)
-            // Activity alone never grants dashboard visibility. Restrict it to
-            // the same valid-access course snapshot used by every course metric.
             ->whereHas('chapter', static function ($query) use ($courseIds): void {
                 $query->whereIn('course_id', $courseIds);
             })
@@ -337,8 +349,6 @@ class UserDashboardApiController extends Controller
             ->latest('updated_at')
             ->limit(10)
             ->get()
-            // Bug 6 fix: skip orphaned rows (chapter or course deleted) to prevent
-            // "N/A" titles appearing in the learning activity feed.
             ->filter(fn($track) => $track->chapter !== null && $track->chapter->course !== null)
             ->map(function ($track) {
                 $type = 'activity';
@@ -385,12 +395,15 @@ class UserDashboardApiController extends Controller
             ->map(static function (array $item): array {
                 $course = $item['course'];
                 $progress = round($item['progress_percentage'], 2);
+                $courseId = is_array($course) ? ($course['id'] ?? null) : $course->id;
+                $courseTitle = is_array($course) ? ($course['title'] ?? '') : $course->title;
+                $courseThumbnail = is_array($course) ? ($course['thumbnail'] ?? null) : $course->thumbnail;
 
                 return [
-                    'id' => $course->id,
-                    'title' => $course->title,
-                    'thumbnail' => $course->thumbnail,
-                    'image' => $course->thumbnail,
+                    'id' => $courseId,
+                    'title' => $courseTitle,
+                    'thumbnail' => $courseThumbnail,
+                    'image' => $courseThumbnail,
                     'progress' => $progress,
                     'progress_percentage' => $progress,
                 ];

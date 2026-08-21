@@ -103,6 +103,10 @@ final class UnifiedSalesTransactionQuery
             'product_type' => $productType,
             'order_number' => $row->order_number,
             'status' => $row->status,
+            'original_price' => (float) ($row->original_price ?? $row->final_price),
+            'discount_amount' => (float) ($row->discount_amount ?? 0),
+            'promo_code' => $row->promo_code ?? null,
+            'currency_code' => $row->currency_code ?? 'EGP',
             'final_price' => (float) $row->final_price,
             'amount' => (float) $row->amount,
             'payment_method' => $row->payment_method,
@@ -145,6 +149,7 @@ final class UnifiedSalesTransactionQuery
         $orderNumberSql = 'COALESCE(orders.order_number, ' . $this->sqlConcat("'ORD-'", 'orders.id') . ')';
         $query = DB::table('orders')
             ->leftJoin('users', 'orders.user_id', '=', 'users.id')
+            ->leftJoin('promo_codes', 'orders.promo_code_id', '=', 'promo_codes.id')
             ->selectRaw("
                 orders.id as source_id,
                 'course_order' as product_type,
@@ -152,6 +157,10 @@ final class UnifiedSalesTransactionQuery
                 orders.status as status,
                 COALESCE(orders.final_price, 0) as final_price,
                 " . ReportMoneySql::orderRevenueEgpSql('orders') . " as amount,
+                COALESCE(orders.total_price, orders.final_price, 0) as original_price,
+                COALESCE(orders.discount_amount, 0) as discount_amount,
+                COALESCE(orders.promo_code, promo_codes.promo_code) as promo_code,
+                COALESCE(orders.currency_code, 'EGP') as currency_code,
                 orders.payment_method as payment_method,
                 orders.created_at as event_at,
                 orders.created_at as paid_at,
@@ -176,6 +185,8 @@ final class UnifiedSalesTransactionQuery
         $dateSql = ReportMoneySql::subscriptionPaymentDateSql('subscription_payments');
         $query = DB::table('subscription_payments')
             ->leftJoin('users', 'subscription_payments.user_id', '=', 'users.id')
+            ->leftJoin('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
+            ->leftJoin('subscription_plans', 'subscriptions.plan_id', '=', 'subscription_plans.id')
             ->selectRaw("
                 subscription_payments.id as source_id,
                 'subscription' as product_type,
@@ -183,10 +194,14 @@ final class UnifiedSalesTransactionQuery
                 subscription_payments.status as status,
                 COALESCE(subscription_payments.final_amount, subscription_payments.amount, 0) as final_price,
                 " . ReportMoneySql::subscriptionRevenueEgpSql('subscription_payments') . " as amount,
+                COALESCE(subscription_payments.original_amount, subscription_payments.amount, 0) as original_price,
+                COALESCE(subscription_payments.discount_amount, 0) as discount_amount,
+                subscription_payments.promo_code as promo_code,
+                COALESCE(subscription_payments.currency_code, 'EGP') as currency_code,
                 subscription_payments.payment_method as payment_method,
                 {$dateSql} as event_at,
                 subscription_payments.paid_at as paid_at,
-                'اشتراك' as course_title,
+                COALESCE(subscription_plans.name, 'اشتراك') as course_title,
                 users.id as user_id,
                 users.name as user_name,
                 users.email as user_email

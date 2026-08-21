@@ -1687,80 +1687,219 @@ class CourseChapterApiController extends Controller
     }
 
     /**
-     * Get current (last completed) curriculum item for authenticated user
+     * Get current (last accessed/completed) curriculum item and resume position for authenticated user
      */
     public function getCurrentCurriculum(Request $request)
     {
         try {
-            $user = Auth::user();
+            $user = Auth::guard('sanctum')->user() ?: Auth::user();
+            if (!$user) {
+                return ApiResponseService::errorResponse('User not authenticated', null, 401);
+            }
 
-            // Get the last completed curriculum item
-            $currentCurriculum = UserCurriculumTracking::where('user_id', $user?->id)
-                ->where('status', 'completed')
-                ->with(['chapter.course'])
-                ->orderBy('completed_at', 'desc')
+            $enrollmentService = app(\App\Services\UserEnrollmentService::class);
+            $accessibleCourses = $enrollmentService->resolveEnrolledCourses((int) $user->id);
+            $accessibleCourseIds = $accessibleCourses->pluck('course_id')->all();
+
+            if ($request->filled('course_id')) {
+                $targetCourseId = (int) $request->course_id;
+                $targetCourse = Course::find($targetCourseId);
+                if (!$targetCourse || (!in_array($targetCourseId, $accessibleCourseIds, true) && !app(\App\Services\ContentAccessService::class)->canAccessCourse($user, $targetCourse))) {
+                    return ApiResponseService::successResponse('No accessible curriculum for this course', [
+                        'current_curriculum_id' => null,
+                        'curriculum_name' => null,
+                        'lesson_id' => null,
+                        'lesson_title' => null,
+                        'chapter_id' => null,
+                        'chapter_title' => null,
+                        'course_id' => $targetCourseId,
+                        'course_title' => $targetCourse?->title,
+                        'course_slug' => $targetCourse?->slug,
+                        'model_id' => null,
+                        'model_type' => null,
+                        'resume_position_seconds' => 0,
+                        'progress_percentage' => 0,
+                        'completed_at' => null,
+                    ]);
+                }
+                $targetCourseIds = [$targetCourseId];
+            } else {
+                if (empty($accessibleCourseIds)) {
+                    return ApiResponseService::successResponse('No curriculum accessible yet', [
+                        'current_curriculum_id' => null,
+                        'curriculum_name' => null,
+                        'lesson_id' => null,
+                        'lesson_title' => null,
+                        'chapter_id' => null,
+                        'chapter_title' => null,
+                        'course_id' => null,
+                        'course_title' => null,
+                        'course_slug' => null,
+                        'model_id' => null,
+                        'model_type' => null,
+                        'resume_position_seconds' => 0,
+                        'progress_percentage' => 0,
+                        'completed_at' => null,
+                    ]);
+                }
+                $targetCourseIds = $accessibleCourseIds;
+            }
+
+            // 1. Candidate 1: Latest Video Progress (watched > 0)
+            $latestVideo = \App\Models\VideoProgress::query()
+                ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+                ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+                ->where('video_progress.user_id', $user->id)
+                ->whereIn('course_chapters.course_id', $targetCourseIds)
+                ->where('video_progress.watched_seconds', '>', 0)
+                ->select([
+                    'video_progress.id as vp_id',
+                    'video_progress.lecture_id',
+                    'video_progress.watched_seconds',
+                    'video_progress.updated_at as vp_updated_at',
+                    'course_chapter_lectures.title as lecture_title',
+                    'course_chapters.id as chapter_id',
+                    'course_chapters.title as chapter_title',
+                    'course_chapters.course_id',
+                ])
+                ->orderByDesc('video_progress.updated_at')
                 ->first();
 
-            if (!$currentCurriculum) {
-                return ApiResponseService::successResponse('No curriculum completed yet', [
-                    'current_curriculum_id' => null,
-                    'curriculum_name' => null,
-                    'chapter_id' => null,
-                    'chapter_title' => null,
-                    'course_id' => null,
-                    'course_title' => null,
-                    'model_id' => null,
-                    'model_type' => null,
+            // 2. Candidate 2: Latest Curriculum Tracking
+            $latestTracking = UserCurriculumTracking::query()
+                ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+                ->where('user_curriculum_trackings.user_id', $user->id)
+                ->whereIn('course_chapters.course_id', $targetCourseIds)
+                ->select([
+                    'user_curriculum_trackings.*',
+                    'course_chapters.course_id',
+                    'course_chapters.title as chapter_title',
+                ])
+                ->orderByDesc('user_curriculum_trackings.updated_at')
+                ->first();
+
+            $chosenSource = null;
+            if ($latestVideo && $latestTracking) {
+                $chosenSource = Carbon::parse($latestVideo->vp_updated_at)->gte(Carbon::parse($latestTracking->updated_at)) ? 'video' : 'tracking';
+            } elseif ($latestVideo) {
+                $chosenSource = 'video';
+            } elseif ($latestTracking) {
+                $chosenSource = 'tracking';
+            }
+
+            if ($chosenSource === 'video') {
+                $course = Course::find($latestVideo->course_id);
+                $cachedProg = app(\App\Services\CourseProgressService::class)->getProgressWithCache((int) $user->id, (int) $latestVideo->course_id);
+
+                return ApiResponseService::successResponse('Current curriculum retrieved successfully', [
+                    'current_curriculum_id' => $latestVideo->vp_id,
+                    'curriculum_name' => $latestVideo->lecture_title,
+                    'lesson_id' => (int) $latestVideo->lecture_id,
+                    'lesson_title' => $latestVideo->lecture_title,
+                    'chapter_id' => (int) $latestVideo->chapter_id,
+                    'chapter_title' => $latestVideo->chapter_title,
+                    'course_id' => (int) $latestVideo->course_id,
+                    'course_title' => $course?->title ?? 'Unknown Course',
+                    'course_slug' => $course?->slug,
+                    'model_id' => (int) $latestVideo->lecture_id,
+                    'model_type' => 'lecture',
+                    'model_type_full' => \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::class,
+                    'resume_position_seconds' => (int) $latestVideo->watched_seconds,
+                    'progress_percentage' => (float) $cachedProg->progress_percentage,
                     'completed_at' => null,
+                    'last_activity_at' => Carbon::parse($latestVideo->vp_updated_at)->toIso8601String(),
                 ]);
             }
 
-            // Get curriculum item details based on model_type
-            $curriculumItem = null;
-            $modelTypeShort = null;
+            if ($chosenSource === 'tracking') {
+                $course = Course::find($latestTracking->course_id);
+                $cachedProg = app(\App\Services\CourseProgressService::class)->getProgressWithCache((int) $user->id, (int) $latestTracking->course_id);
 
-            switch ($currentCurriculum->model_type) {
-                case \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::class:
-                    $curriculumItem = \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::find($currentCurriculum->model_id);
+                $curriculumItem = null;
+                $modelTypeShort = 'activity';
+                if ($latestTracking->model_type === \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::class || str_ends_with((string)$latestTracking->model_type, 'CourseChapterLecture')) {
+                    $curriculumItem = \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::find($latestTracking->model_id);
                     $modelTypeShort = 'lecture';
-                    break;
-                case \App\Models\Course\CourseChapter\Quiz\CourseChapterQuiz::class:
-                    $curriculumItem = \App\Models\Course\CourseChapter\Quiz\CourseChapterQuiz::find($currentCurriculum->model_id);
+                } elseif ($latestTracking->model_type === \App\Models\Course\CourseChapter\Quiz\CourseChapterQuiz::class || str_ends_with((string)$latestTracking->model_type, 'CourseChapterQuiz')) {
+                    $curriculumItem = \App\Models\Course\CourseChapter\Quiz\CourseChapterQuiz::find($latestTracking->model_id);
                     $modelTypeShort = 'quiz';
-                    break;
-                case \App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment::class:
-                    $curriculumItem = \App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment::find($currentCurriculum->model_id);
+                } elseif ($latestTracking->model_type === \App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment::class || str_ends_with((string)$latestTracking->model_type, 'CourseChapterAssignment')) {
+                    $curriculumItem = \App\Models\Course\CourseChapter\Assignment\CourseChapterAssignment::find($latestTracking->model_id);
                     $modelTypeShort = 'assignment';
-                    break;
-                case \App\Models\Course\CourseChapter\Resource\CourseChapterResource::class:
-                    $curriculumItem = \App\Models\Course\CourseChapter\Resource\CourseChapterResource::find($currentCurriculum->model_id);
+                } elseif ($latestTracking->model_type === \App\Models\Course\CourseChapter\Resource\CourseChapterResource::class || str_ends_with((string)$latestTracking->model_type, 'CourseChapterResource')) {
+                    $curriculumItem = \App\Models\Course\CourseChapter\Resource\CourseChapterResource::find($latestTracking->model_id);
                     $modelTypeShort = 'resource';
-                    break;
+                }
+
+                $itemName = $curriculumItem?->title ?? 'Unknown Item';
+
+                return ApiResponseService::successResponse('Current curriculum retrieved successfully', [
+                    'current_curriculum_id' => $latestTracking->id,
+                    'curriculum_name' => $itemName,
+                    'lesson_id' => (int) $latestTracking->model_id,
+                    'lesson_title' => $itemName,
+                    'chapter_id' => (int) $latestTracking->course_chapter_id,
+                    'chapter_title' => $latestTracking->chapter_title,
+                    'course_id' => (int) $latestTracking->course_id,
+                    'course_title' => $course?->title ?? 'Unknown Course',
+                    'course_slug' => $course?->slug,
+                    'model_id' => (int) $latestTracking->model_id,
+                    'model_type' => $modelTypeShort,
+                    'model_type_full' => $latestTracking->model_type,
+                    'resume_position_seconds' => 0,
+                    'progress_percentage' => (float) $cachedProg->progress_percentage,
+                    'completed_at' => $latestTracking->completed_at ? Carbon::parse($latestTracking->completed_at)->toIso8601String() : null,
+                    'last_activity_at' => Carbon::parse($latestTracking->updated_at)->toIso8601String(),
+                ]);
             }
 
-            $response = [
-                'current_curriculum_id' => $currentCurriculum->id,
-                'curriculum_name' => $curriculumItem ? $curriculumItem->title : 'Unknown',
-                'chapter_id' => $currentCurriculum->course_chapter_id,
-                'chapter_title' => $currentCurriculum->chapter ? $currentCurriculum->chapter->title : 'Unknown Chapter',
-                'course_id' => $currentCurriculum->chapter ? $currentCurriculum->chapter->course_id : null,
-                'course_title' => $currentCurriculum->chapter && $currentCurriculum->chapter->course
-                    ? $currentCurriculum->chapter->course->title
-                    : 'Unknown Course',
-                'model_id' => $currentCurriculum->model_id,
-                'model_type' => $modelTypeShort,
-                'model_type_full' => $currentCurriculum->model_type,
-                'completed_at' => $currentCurriculum->completed_at,
-                'completed_at_formatted' => $currentCurriculum->completed_at
-                    ? $currentCurriculum->completed_at->format('Y-m-d H:i:s')
-                    : null,
-                'completed_at_human' => $currentCurriculum->completed_at
-                    ? $currentCurriculum->completed_at->diffForHumans()
-                    : null,
-                'time_spent' => $currentCurriculum->time_spent,
-            ];
+            // Fallback: Return first chapter & lecture of the first target course
+            $firstCourse = Course::find($targetCourseIds[0] ?? null);
+            if ($firstCourse) {
+                $firstChapter = \App\Models\Course\CourseChapter\CourseChapter::where('course_id', $firstCourse->id)
+                    ->where('is_active', 1)
+                    ->orderBy('chapter_order')
+                    ->first();
+                $firstLecture = $firstChapter?->lectures()->where('is_active', 1)->orderBy('lecture_order')->first();
 
-            return ApiResponseService::successResponse('Current curriculum retrieved successfully', $response);
+                $cachedProg = app(\App\Services\CourseProgressService::class)->getProgressWithCache((int) $user->id, (int) $firstCourse->id);
+
+                return ApiResponseService::successResponse('Current curriculum retrieved successfully', [
+                    'current_curriculum_id' => null,
+                    'curriculum_name' => $firstLecture?->title ?? ($firstChapter?->title ?? $firstCourse->title),
+                    'lesson_id' => $firstLecture?->id ? (int) $firstLecture->id : null,
+                    'lesson_title' => $firstLecture?->title ?? 'مقدمة الدورة',
+                    'chapter_id' => $firstChapter?->id ? (int) $firstChapter->id : null,
+                    'chapter_title' => $firstChapter?->title ?? 'الفصل الأول',
+                    'course_id' => (int) $firstCourse->id,
+                    'course_title' => $firstCourse->title,
+                    'course_slug' => $firstCourse->slug,
+                    'model_id' => $firstLecture?->id ? (int) $firstLecture->id : null,
+                    'model_type' => 'lecture',
+                    'model_type_full' => \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::class,
+                    'resume_position_seconds' => 0,
+                    'progress_percentage' => (float) $cachedProg->progress_percentage,
+                    'completed_at' => null,
+                    'last_activity_at' => null,
+                ]);
+            }
+
+            return ApiResponseService::successResponse('No curriculum completed yet', [
+                'current_curriculum_id' => null,
+                'curriculum_name' => null,
+                'lesson_id' => null,
+                'lesson_title' => null,
+                'chapter_id' => null,
+                'chapter_title' => null,
+                'course_id' => null,
+                'course_title' => null,
+                'course_slug' => null,
+                'model_id' => null,
+                'model_type' => null,
+                'resume_position_seconds' => 0,
+                'progress_percentage' => 0,
+                'completed_at' => null,
+            ]);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
