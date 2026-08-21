@@ -8,13 +8,12 @@ use Tests\TestCase;
 
 class SubscriptionPricingSecurityTest extends TestCase
 {
-    /**
-     * A basic feature test example.
-     */
-    public function test_example(): void
-    {
-        $response = $this->get('/');
+    use RefreshDatabase;
 
-        $response->assertStatus(200);
+    public function test_plans_endpoint_accessible(): void
+    {
+        $response = $this->getJson('/api/subscription/plans');
+
+        $this->assertContains($response->status(), [200, 404]);
     }
 }

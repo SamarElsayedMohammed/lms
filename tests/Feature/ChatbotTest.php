@@ -64,15 +64,23 @@ class ChatbotTest extends TestCase
             'course_type' => 'paid',
             'price' => 100,
         ]);
+        $chapter = \App\Models\Course\CourseChapter\CourseChapter::factory()->create(['course_id' => $course->id]);
+        \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::factory()->create(['course_chapter_id' => $chapter->id]);
 
         $user = User::factory()->create();
-        \App\Models\UserCourseProgress::create([
+        $order = \App\Models\Order::create([
             'user_id' => $user->id,
+            'status' => 'completed',
+            'payment_method' => 'wallet',
+            'total_price' => 100,
+            'final_price' => 100,
+            'order_number' => 'ORD-CHAT-BOT-' . $user->id,
+        ]);
+        \App\Models\OrderCourse::create([
+            'order_id' => $order->id,
             'course_id' => $course->id,
-            'completed_items' => 1,
-            'total_items' => 10,
-            'progress_percentage' => 10,
-            'status' => 'in_progress',
+            'price' => 100,
+            'tax_price' => 0,
         ]);
 
         $this->actingAs($user)

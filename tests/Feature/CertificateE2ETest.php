@@ -6,7 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\WithFaker;
 use Tests\TestCase;
 use App\Models\User;
-use App\Models\Course;
+use App\Models\Course\Course;
 use App\Models\Course\CourseCertificate;
 use App\Services\CertificateService;
 use Illuminate\Support\Facades\Storage;
@@ -87,10 +87,12 @@ class CertificateE2ETest extends TestCase
         $apiResponse->assertStatus(200)
                     ->assertJson([
                         'valid' => true,
-                        'certificate_id' => $certificate->certificate_number,
-                        'student_name' => $student->name,
-                        'course_name' => 'Advanced PHP Mastery',
-                        'status' => 'valid'
+                        'status' => 'valid',
+                        'data' => [
+                            'certificate_number' => $certificate->certificate_number,
+                            'student_name' => $student->name,
+                            'course_title' => 'Advanced PHP Mastery',
+                        ],
                     ]);
 
         // 6. Test Collision Handling

@@ -240,7 +240,7 @@ class CertificateService
         try {
             $title = 'تهانينا! شهادتك جاهزة 🎓';
             $message = "لقد أتممت بنجاح دورة: {$course->title}. يمكنك الآن عرض وتحميل شهادتك من لوحة التحكم.";
-            $url = (config('app.frontend_url') ?: config('app.url')) . '/student/my-certificates';
+            $url = (config('app.frontend_url') ?: config('app.url')) . '/my-certificates';
 
             $user->notify(new ManualCustomNotification([
                 'title'      => $title,
@@ -251,7 +251,7 @@ class CertificateService
                 'type'       => 'certificate_earned',
                 'icon'       => 'Award',
                 'icon_color' => '#22c55e',
-            ], ['mail']));
+            ], ['database', 'mail']));
         } catch (\Throwable $e) {
             Log::error('Failed to notify user of certificate: ' . $e->getMessage());
         }

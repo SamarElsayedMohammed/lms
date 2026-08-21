@@ -513,12 +513,18 @@ final class SubscriptionPromoLifecycleTest extends TestCase
         // Explicitly clear cache to prove durable payment intent
         Cache::forget('kashier_pending_' . $orderId);
 
+        $mock = $this->mock(\App\Services\Payment\KashierCheckoutService::class);
+        $mock->shouldReceive('verifyPayment')->andReturn(true);
+        $mock->shouldReceive('getPaymentDetails')->andReturn(null);
+        $mock->shouldReceive('getPaymentDetailsByOrderId')->andReturn(null);
+
         // First webhook delivery
         $response1 = $this->post('/api/webhooks/kashier', [
             'merchantOrderId' => $orderId,
             'paymentStatus' => 'SUCCESS',
             'amount' => 250.00,
             'transactionId' => 'KASH-TXN-12345',
+            'signature' => 'mock_signature',
         ]);
 
         $response1->assertStatus(200);
@@ -536,6 +542,7 @@ final class SubscriptionPromoLifecycleTest extends TestCase
             'paymentStatus' => 'SUCCESS',
             'amount' => 250.00,
             'transactionId' => 'KASH-TXN-12345',
+            'signature' => 'mock_signature',
         ]);
         $response2->assertStatus(200);
         $this->assertEquals(1, $promo->fresh()->used_count);

@@ -5,10 +5,13 @@ namespace Tests\Feature;
 use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\CourseChapter;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class CurriculumResourceTest extends TestCase
 {
+    use RefreshDatabase;
+
     protected User $admin;
     protected Course $course;
     protected CourseChapter $chapter;
@@ -18,8 +21,11 @@ class CurriculumResourceTest extends TestCase
     {
         parent::setUp();
 
-        $this->admin = User::factory()->create();
-        $this->admin->assignRole('Admin');
+        $role = config('constants.SYSTEM_ROLES.INSTRUCTOR') ?? 'Teacher';
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => $role, 'guard_name' => 'web']);
+        $this->admin = User::factory()->create(['is_active' => 1]);
+        $this->admin->assignRole($role);
+        \App\Models\Instructor::firstOrCreate(['user_id' => $this->admin->id], ['status' => 'approved', 'type' => 'individual']);
 
         $this->course = Course::factory()->create(['user_id' => $this->admin->id]);
         $this->chapter = CourseChapter::factory()->create(['course_id' => $this->course->id]);
@@ -29,7 +35,7 @@ class CurriculumResourceTest extends TestCase
     {
         $this->actingAs($this->admin);
 
-        $response = $this->post(route('course-chapters.curriculum.store', ['id' => $this->chapter->id]), [
+        $response = $this->postJson('/api/course-chapters/curriculum', [
             'chapter_id' => $this->chapter->id,
             'type' => 'lecture',
             'lecture_type' => 'file',
@@ -54,7 +60,7 @@ class CurriculumResourceTest extends TestCase
     {
         $this->actingAs($this->admin);
 
-        $response = $this->post(route('course-chapters.curriculum.store', ['id' => $this->chapter->id]), [
+        $response = $this->postJson('/api/course-chapters/curriculum', [
             'chapter_id' => $this->chapter->id,
             'type' => 'lecture',
             'lecture_type' => 'file',

@@ -13,7 +13,7 @@ class RecalculateCourseDurationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected int $courseId;
+    public int $courseId;
 
     /**
      * Create a new job instance.

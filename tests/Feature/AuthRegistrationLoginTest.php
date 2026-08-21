@@ -130,7 +130,7 @@ class AuthRegistrationLoginTest extends TestCase
         $token = $loginResponse->json('data.token');
 
         $meResponse = $this->withHeader('Authorization', 'Bearer ' . $token)
-            ->getJson('/api/user-details');
+            ->getJson('/api/get-user-details');
 
         $meResponse->assertStatus(200);
     }

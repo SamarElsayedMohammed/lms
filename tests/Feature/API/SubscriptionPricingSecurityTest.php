@@ -56,7 +56,7 @@ class SubscriptionPricingSecurityTest extends TestCase
         // Without CF-Connecting-IP, the CF-IPCountry should be ignored
         $response = $this->withHeaders([
             'CF-IPCountry' => 'SA',
-        ])->getJson('/api/v1/subscription/plans');
+        ])->getJson('/api/subscription/plans');
 
         $response->assertStatus(200);
         $this->assertEquals('EG', $response->json('data.detected_country')); // default fallback
@@ -70,7 +70,7 @@ class SubscriptionPricingSecurityTest extends TestCase
 
         $response = $this->withHeaders([
             'X-Skillso-Resolved-Country' => 'SA.' . $timestamp . '.' . $signature,
-        ])->getJson('/api/v1/subscription/plans');
+        ])->getJson('/api/subscription/plans');
 
         $response->assertStatus(200);
         $this->assertEquals('SA', $response->json('data.detected_country'));
@@ -86,7 +86,7 @@ class SubscriptionPricingSecurityTest extends TestCase
 
         $response = $this->withHeaders([
             'X-Skillso-Resolved-Country' => 'SA.' . $timestamp . '.' . $signature,
-        ])->getJson('/api/v1/subscription/plans');
+        ])->getJson('/api/subscription/plans');
 
         $response->assertStatus(200);
         $this->assertEquals('EG', $response->json('data.detected_country'));
@@ -100,7 +100,7 @@ class SubscriptionPricingSecurityTest extends TestCase
 
         $response = $this->withHeaders([
             'X-Skillso-Resolved-Country' => 'AE.' . $timestamp . '.' . $signature,
-        ])->getJson('/api/v1/subscription/plans');
+        ])->getJson('/api/subscription/plans');
 
         $response->assertStatus(200);
         $this->assertEquals('AE', $response->json('data.detected_country'));
@@ -110,6 +110,13 @@ class SubscriptionPricingSecurityTest extends TestCase
 
     public function test_checkout_recalculates_price_server_side()
     {
+        \App\Models\Setting::updateOrCreate(['name' => 'automatic_payments_enabled'], ['value' => '1']);
+        \App\Models\Setting::updateOrCreate(['name' => 'kashier_status'], ['value' => '1']);
+        \App\Models\Setting::updateOrCreate(['name' => 'kashier_merchant_id'], ['value' => 'test_mid']);
+        \App\Models\Setting::updateOrCreate(['name' => 'kashier_api_key'], ['value' => 'test_key']);
+        \App\Models\Setting::updateOrCreate(['name' => 'kashier_mode'], ['value' => 'test']);
+        \Illuminate\Support\Facades\Cache::forget(config('constants.CACHE.SETTINGS'));
+
         $user = User::factory()->create();
         
         $timestamp = time();
@@ -118,9 +125,10 @@ class SubscriptionPricingSecurityTest extends TestCase
 
         $response = $this->actingAs($user)->withHeaders([
             'X-Skillso-Resolved-Country' => 'SA.' . $timestamp . '.' . $signature,
-        ])->postJson('/api/v1/subscription/subscribe', [
+            'Idempotency-Key' => 'idemp-' . \Illuminate\Support\Str::random(10),
+        ])->postJson('/api/subscription/subscribe', [
             'plan_id' => $this->plan->id,
-            'payment_method' => 'wallet',
+            'payment_method' => 'kashier',
             'use_wallet' => false,
         ]);
 
@@ -135,7 +143,7 @@ class SubscriptionPricingSecurityTest extends TestCase
         // XX is Cloudflare's "unknown" code - should be skipped
         $response = $this->withHeaders([
             'X-Vercel-IP-Country' => 'XX',
-        ])->getJson('/api/v1/subscription/plans');
+        ])->getJson('/api/subscription/plans');
 
         $response->assertStatus(200);
         // Should fallback to EG (default), not use XX
@@ -150,7 +158,7 @@ class SubscriptionPricingSecurityTest extends TestCase
             'CF-IPCountry' => 'SA',
             'CF-Connecting-IP' => '1.2.3.4',
             'X-Forwarded-For' => '8.8.8.8',
-        ])->getJson('/api/v1/subscription/plans');
+        ])->getJson('/api/subscription/plans');
 
         $response->assertStatus(200);
         $this->assertEquals('EG', $response->json('data.detected_country'));

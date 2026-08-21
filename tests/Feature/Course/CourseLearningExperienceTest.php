@@ -15,7 +15,8 @@ class CourseLearningExperienceTest extends TestCase
     {
         $user = User::factory()->create();
         $course = Course::factory()->create([
-            'is_published' => true,
+            'status' => 'publish',
+            'approval_status' => 'approved',
         ]);
 
         $response = $this->actingAs($user, 'sanctum')
