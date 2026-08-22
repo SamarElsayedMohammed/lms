@@ -69,7 +69,19 @@ class WalletRegistrationController extends Controller
                 ], $check['code']);
             }
 
-            $transaction = DB::transaction(function () use ($user, $webinar) {
+            $formResponses = is_array($request->input('form_responses'))
+                ? $request->input('form_responses')
+                : $request->except(['_token', 'use_wallet', 'utm_source']);
+            $utmSource = $request->input('utm_source');
+            $paymentReference = (string) $request->header('Idempotency-Key');
+
+            $transaction = DB::transaction(function () use (
+                $user,
+                $webinar,
+                $formResponses,
+                $utmSource,
+                $paymentReference,
+            ) {
                 $confirmed = WebinarRegistration::query()
                     ->where('user_id', $user->id)
                     ->where('webinar_id', $webinar->id)
@@ -83,15 +95,26 @@ class WalletRegistrationController extends Controller
 
                 $transaction = null;
                 if (!$webinar->is_free && $webinar->price > 0) {
-                    $transaction = $this->walletIntegrationService->payForWebinar($user, $webinar);
+                    $transaction = $this->walletIntegrationService->payForWebinar(
+                        $user,
+                        $webinar,
+                        $paymentReference,
+                    );
                 }
 
-                $this->registrationService->register(
+                $registration = $this->registrationService->register(
                     $webinar,
                     $user,
                     $webinar->is_free || $webinar->price <= 0 ? 'free' : 'paid',
-                    $webinar->is_free ? 0.00 : (float) $webinar->price
+                    $webinar->is_free ? 0.00 : (float) $webinar->price,
+                    null,
+                    $formResponses,
+                    $utmSource,
                 );
+
+                if ($transaction) {
+                    $registration->update(['wallet_transaction_id' => $transaction->id]);
+                }
 
                 return $transaction;
             });

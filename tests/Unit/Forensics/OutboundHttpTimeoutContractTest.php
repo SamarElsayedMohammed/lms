@@ -6,6 +6,7 @@ namespace Tests\Unit\Forensics;
 
 use App\Helpers\FirebaseHelper;
 use App\Jobs\FetchBunnyVideoDurationJob;
+use App\Jobs\SendTrackingEventJob;
 use App\Jobs\UpdateExchangeRatesJob;
 use App\Models\MarketingPixel;
 use App\Services\CountryDetectionService;
@@ -13,9 +14,11 @@ use App\Services\GeoLocationService;
 use App\Services\Mail\BrevoTransactionalMailService;
 use App\Services\Mail\MailFromResolver;
 use App\Services\TrackingService;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -29,6 +32,22 @@ use Tests\TestCase;
  */
 final class OutboundHttpTimeoutContractTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if (!Schema::hasTable('marketing_pixels')) {
+            Schema::create('marketing_pixels', function (Blueprint $table) {
+                $table->id();
+                $table->string('platform');
+                $table->string('pixel_id');
+                $table->boolean('is_active')->default(true);
+                $table->json('additional_config')->nullable();
+                $table->timestamps();
+            });
+        }
+    }
+
     /**
      * Tier 1: Feature Coverage — Verify BrevoTransactionalMailService enforces connect and execution timeouts.
      */
@@ -44,12 +63,7 @@ final class OutboundHttpTimeoutContractTest extends TestCase
             ], 201),
         ]);
 
-        $resolver = $this->createMock(MailFromResolver::class);
-        $resolver->method('resolve')->willReturn([
-            'address' => 'noreply@skillso.com',
-            'name' => 'Skillso LMS',
-        ]);
-
+        $resolver = new MailFromResolver();
         $service = new BrevoTransactionalMailService($resolver);
         $result = $service->sendHtml('student@example.com', 'Student', 'Welcome', '<p>Hello</p>');
 
@@ -94,14 +108,13 @@ final class OutboundHttpTimeoutContractTest extends TestCase
             'https://graph.facebook.com/*' => Http::response(['events_received' => 1], 200),
         ]);
 
-        $pixel = new MarketingPixel([
+        MarketingPixel::create([
             'platform' => 'facebook',
             'pixel_id' => '1234567890',
             'is_active' => true,
             'additional_config' => ['access_token' => 'mock-fb-token'],
         ]);
 
-        // Mock pixel query or use instance
         TrackingService::sendFacebookEvent('Purchase', ['em' => 'test@example.com'], ['value' => 100, 'currency' => 'USD']);
 
         Http::assertSent(function (Request $request) {
@@ -129,6 +142,13 @@ final class OutboundHttpTimeoutContractTest extends TestCase
             'https://www.google-analytics.com/*' => Http::response([], 204),
         ]);
 
+        MarketingPixel::create([
+            'platform' => 'google_analytics',
+            'pixel_id' => 'G-12345',
+            'is_active' => true,
+            'additional_config' => ['api_secret' => 'mock-ga4-secret'],
+        ]);
+
         TrackingService::sendGA4Event('purchase', ['value' => 100, 'currency' => 'USD']);
 
         Http::assertSent(function (Request $request) {
@@ -145,6 +165,23 @@ final class OutboundHttpTimeoutContractTest extends TestCase
             }
             return true;
         });
+    }
+
+    /**
+     * Tier 1: Feature Coverage — Verify SendTrackingEventJob configuration and execution.
+     */
+    public function test_send_tracking_event_job_queue_configuration(): void
+    {
+        $job = new SendTrackingEventJob('facebook', 'Purchase', [
+            'user_data' => ['em' => 'abc'],
+            'custom_data' => ['value' => 100],
+        ]);
+
+        $this->assertSame(2, $job->tries);
+        $this->assertSame(10, $job->timeout);
+        $this->assertSame(5, $job->backoff);
+        $this->assertSame('facebook', $job->platform);
+        $this->assertSame('Purchase', $job->eventName);
     }
 
     /**

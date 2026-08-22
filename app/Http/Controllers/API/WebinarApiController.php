@@ -92,6 +92,27 @@ class WebinarApiController extends Controller
             if (!$user) {
                 return ApiResponseService::errorResponse('Unauthorized.', [], 401);
             }
+
+            $request->validate([
+                'use_wallet' => 'nullable|boolean',
+                'form_responses' => 'nullable|array|max:50',
+                'utm_source' => 'nullable|string|max:255',
+                'name' => 'nullable|string|max:255',
+                'email' => 'nullable|email|max:255',
+                'phone' => 'nullable|string|max:50',
+                'mobile' => 'nullable|string|max:50',
+                'whatsapp' => 'nullable|string|max:50',
+            ]);
+
+            $formResponses = $request->input('form_responses');
+            if (!is_array($formResponses)) {
+                $formResponses = collect($request->except(['use_wallet', 'utm_source', 'form_responses']))
+                    ->filter(static fn ($value) => is_scalar($value) || $value === null)
+                    ->take(50)
+                    ->all();
+            }
+            $utmSource = $request->filled('utm_source') ? trim((string) $request->utm_source) : null;
+
             $webinar = Webinar::where('id', $param)->orWhere('slug', $param)->firstOrFail();
 
             if ($webinar->status === 'completed' || $webinar->status === 'cancelled') {
@@ -104,32 +125,46 @@ class WebinarApiController extends Controller
 
             $existing = WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->first();
             if ($existing) {
-                return ApiResponseService::successResponse('You are already registered for this webinar.');
+                if ($existing->isConfirmed()) {
+                    return ApiResponseService::successResponse('You are already registered for this webinar.');
+                }
+                if (!$existing->isExpired()) {
+                    return ApiResponseService::validationError('A webinar payment is already pending.');
+                }
+                $existing->delete();
             }
 
             if (!$webinar->is_free && $webinar->price > 0) {
                 // Calculate localized pricing
                 $pricingService = app(\App\Services\PricingCalculationService::class);
                 $currencyInfo = $pricingService->resolveDisplayCurrency($user, $request);
-                $exchangeRate = $currencyInfo['exchange_rate'];
+                $exchangeRate = max(0.0001, (float) $currencyInfo['exchange_rate']);
                 $currency = $currencyInfo['code'];
-
-                $totalAmount = round($webinar->price * $exchangeRate, 2);
-                $walletAmount = 0.0;
-                $gatewayAmount = $totalAmount;
+                $priceEgp = (float) $webinar->price;
+                $totalAmount = app(\App\Services\CurrencyConversionService::class)
+                    ->convertFromEgp($priceEgp, $currency);
                 $useWallet = $request->boolean('use_wallet');
-
-                if ($useWallet && $user->wallet_balance > 0) {
-                    $walletAmount = (float) min($user->wallet_balance, $totalAmount);
-                    $gatewayAmount = $totalAmount - $walletAmount;
-                }
+                $walletAmountEgp = $useWallet && (float) $user->wallet_balance >= $priceEgp ? $priceEgp : 0.0;
+                // Partial wallet holds are not created for webinars. If the
+                // wallet cannot cover the full EGP price, charge the full local
+                // amount through the gateway to avoid an unfunded split later.
+                $gatewayAmount = $walletAmountEgp > 0 ? 0.0 : $totalAmount;
 
                 // If fully paid by wallet
                 if ($gatewayAmount <= 0) {
-                    \Illuminate\Support\Facades\DB::transaction(function () use ($user, $webinar, $walletAmount) {
-                        \App\Services\WalletService::debitWallet(
+                    \Illuminate\Support\Facades\DB::transaction(function () use ($user, $webinar, $walletAmountEgp, $totalAmount, $currency, $exchangeRate, $priceEgp, $formResponses, $utmSource) {
+                        $lockedWebinar = Webinar::whereKey($webinar->id)->lockForUpdate()->firstOrFail();
+                        \Illuminate\Support\Facades\DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+                        if ($lockedWebinar->is_full) {
+                            return ApiResponseService::validationError('This webinar is full. No more registrations allowed.');
+                        }
+                        if (WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->exists()) {
+                            return ApiResponseService::validationError('A webinar registration already exists.');
+                        }
+
+                        $walletTransaction = \App\Services\WalletService::debitWallet(
                             $user->id,
-                            $walletAmount,
+                            $walletAmountEgp,
                             'webinar_payment',
                             'Paid for webinar: ' . $webinar->title,
                             (string) $webinar->id,
@@ -140,6 +175,15 @@ class WebinarApiController extends Controller
                             'user_id' => $user->id,
                             'webinar_id' => $webinar->id,
                             'payment_status' => 'paid',
+                            'paid_amount' => $totalAmount,
+                            'amount_egp' => $priceEgp,
+                            'currency_code' => $currency,
+                            'exchange_rate_snapshot' => $exchangeRate,
+                            'wallet_amount_egp' => $walletAmountEgp,
+                            'gateway_amount' => 0,
+                            'wallet_transaction_id' => $walletTransaction->id,
+                            'form_responses' => $formResponses,
+                            'utm_source' => $utmSource,
                         ]);
                     });
 
@@ -156,18 +200,41 @@ class WebinarApiController extends Controller
                     return ApiResponseService::errorResponse('Payment gateway is not configured.', [], 503);
                 }
 
-                \Illuminate\Support\Facades\Cache::put('kashier_pending_' . $checkout['order_id'], [
-                    'wallet_amount' => $walletAmount,
-                    'webinar_id' => $webinar->id,
-                    'user_id' => $user->id,
-                ], 3600); // 1 hour TTL
-
                 // Create a pending registration
-                WebinarRegistration::create([
-                    'user_id' => $user->id,
+                \Illuminate\Support\Facades\DB::transaction(function () use ($user, $webinar, $totalAmount, $priceEgp, $currency, $exchangeRate, $gatewayAmount, $checkout, $formResponses, $utmSource) {
+                    $lockedWebinar = Webinar::whereKey($webinar->id)->lockForUpdate()->firstOrFail();
+                    \Illuminate\Support\Facades\DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+                    if ($lockedWebinar->is_full) {
+                        return ApiResponseService::validationError('This webinar is full. No more registrations allowed.');
+                    }
+                    if (WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->exists()) {
+                        return ApiResponseService::validationError('A webinar registration already exists.');
+                    }
+
+                    WebinarRegistration::create([
+                        'user_id' => $user->id,
+                        'webinar_id' => $webinar->id,
+                        'payment_status' => 'pending',
+                        'paid_amount' => 0,
+                        'amount_egp' => $priceEgp,
+                        'currency_code' => $currency,
+                        'exchange_rate_snapshot' => $exchangeRate,
+                        'wallet_amount_egp' => 0,
+                        'gateway_amount' => $gatewayAmount,
+                        'gateway_order_id' => $checkout['order_id'],
+                        'expires_at' => now()->addHour(),
+                        'form_responses' => $formResponses,
+                        'utm_source' => $utmSource,
+                    ]);
+                });
+
+                \Illuminate\Support\Facades\Cache::put('kashier_pending_' . $checkout['order_id'], [
+                    'wallet_amount_egp' => 0,
+                    'expected_amount' => $gatewayAmount,
+                    'expected_currency' => $currency,
                     'webinar_id' => $webinar->id,
-                    'payment_status' => 'pending',
-                ]);
+                    'user_id' => $user->id,
+                ], 3600); // Cache is an optimization; DB snapshots are authoritative.
 
                 return ApiResponseService::successResponse('Please complete payment via Kashier.', [
                     'requires_checkout' => true,
@@ -175,18 +242,33 @@ class WebinarApiController extends Controller
                     'order_id' => $checkout['order_id'],
                     'payment' => [
                         'total_amount' => $totalAmount,
-                        'wallet_amount' => $walletAmount,
+                        'wallet_amount' => 0,
+                        'wallet_amount_egp' => 0,
                         'gateway_amount' => $gatewayAmount,
+                        'currency' => $currency,
                     ],
                 ]);
             }
 
             // Free webinar
-            WebinarRegistration::create([
-                'user_id' => $user->id,
-                'webinar_id' => $webinar->id,
-                'payment_status' => 'free',
-            ]);
+            \Illuminate\Support\Facades\DB::transaction(function () use ($user, $webinar, $formResponses, $utmSource) {
+                $lockedWebinar = Webinar::whereKey($webinar->id)->lockForUpdate()->firstOrFail();
+                \Illuminate\Support\Facades\DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+                if ($lockedWebinar->is_full) {
+                    return ApiResponseService::validationError('This webinar is full. No more registrations allowed.');
+                }
+                if (WebinarRegistration::where('user_id', $user->id)->where('webinar_id', $webinar->id)->exists()) {
+                    return ApiResponseService::validationError('A webinar registration already exists.');
+                }
+                WebinarRegistration::create([
+                    'user_id' => $user->id,
+                    'webinar_id' => $webinar->id,
+                    'payment_status' => 'free',
+                    'paid_amount' => 0,
+                    'form_responses' => $formResponses,
+                    'utm_source' => $utmSource,
+                ]);
+            });
 
             $user->notify(new \App\Notifications\WebinarRegistrationNotification($webinar));
 
@@ -265,6 +347,46 @@ class WebinarApiController extends Controller
                 return ApiResponseService::errorResponse('Not registered for this webinar.', [], 400);
             }
 
+            if ($registration->payment_status === 'pending') {
+                return ApiResponseService::validationError('A pending gateway payment cannot be cancelled from the registration endpoint.');
+            }
+
+            if (!$webinar->is_free && $registration->payment_status === 'paid'
+                && $webinar->start_at && $webinar->start_at->isPast()) {
+                return ApiResponseService::errorResponse('Cannot cancel registration after the webinar has started.', [], 400);
+            }
+
+            $gatewayOrderId = $registration->gateway_order_id;
+            \Illuminate\Support\Facades\DB::transaction(function () use ($registration, $user, $webinar): void {
+                $lockedRegistration = WebinarRegistration::whereKey($registration->id)->lockForUpdate()->firstOrFail();
+
+                if (!$webinar->is_free && $lockedRegistration->payment_status === 'paid') {
+                    $amountToRefundEgp = (float) ($lockedRegistration->amount_egp ?? $webinar->price);
+                    if ($amountToRefundEgp <= 0) {
+                        throw new \RuntimeException('Invalid webinar refund amount.');
+                    }
+
+                    \App\Services\WalletService::creditWallet(
+                        $user->id,
+                        $amountToRefundEgp,
+                        'webinar_refund',
+                        'Webinar registration refund: ' . $webinar->title,
+                        $lockedRegistration->id,
+                        WebinarRegistration::class,
+                        'user',
+                    );
+                }
+
+                $lockedRegistration->delete();
+            });
+
+            if ($gatewayOrderId) {
+                \Illuminate\Support\Facades\Cache::forget('kashier_pending_' . $gatewayOrderId);
+            }
+
+            return ApiResponseService::successResponse('Registration cancelled successfully.');
+
+            /* Legacy non-atomic cancellation path retained temporarily in source history.
             // If webinar is paid and registration was paid, refund wallet if webinar hasn't started yet
             if (!$webinar->is_free && $registration->payment_status === 'paid') {
                 if ($webinar->start_at && $webinar->start_at->isPast()) {
@@ -296,6 +418,7 @@ class WebinarApiController extends Controller
             $registration->delete();
 
             return ApiResponseService::successResponse('Registration cancelled successfully.');
+            */
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {

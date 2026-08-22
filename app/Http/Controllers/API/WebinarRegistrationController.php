@@ -116,12 +116,19 @@ class WebinarRegistrationController extends Controller
                                 $refundAmount,
                                 'refund',
                                 "استرداد رسوم التسجيل في ندوة: {$webinar->title}",
-                                $webinar->id,
-                                Webinar::class,
+                                $lockedReg->wallet_transaction_id ?: "legacy-webinar-registration-{$lockedReg->id}",
+                                'webinar_registration_refund',
                                 'user'
                             );
                         }
-                        $lockedReg->delete();
+                        // Keep the unique registration row as an expired pending record.
+                        // A future purchase reuses it and stores a new wallet transaction,
+                        // while the refund remains idempotently tied to the original debit.
+                        $lockedReg->update([
+                            'payment_status' => 'pending',
+                            'paid_amount' => 0,
+                            'expires_at' => now()->subSecond(),
+                        ]);
                     }
                 });
 

@@ -99,6 +99,14 @@ class TeamInvitationResponseNotification extends Notification implements ShouldQ
     private function sendFcmNotification($notifiable)
     {
         try {
+            if (!\App\Services\NotificationSettingsService::isUserChannelEnabled(
+                $notifiable,
+                class_basename(self::class),
+                'push',
+            )) {
+                return;
+            }
+
             $title = $this->action === 'accepted' ? 'Team Invitation Accepted' : 'Team Invitation Rejected';
 
             $message = $this->action === 'accepted'

@@ -780,8 +780,11 @@ class FinanceApiController extends Controller
                 'id' => $request->id,
                 'amount' => $request->amount_egp ?? $request->amount, // Backward compatibility
                 'amount_egp' => $request->amount_egp ?? $request->amount,
+                'fee_amount' => $request->fee_amount_egp ?? $request->fee_amount ?? 0,
+                'net_amount' => $request->net_amount_egp ?? $request->net_amount ?? $request->amount_egp ?? $request->amount,
                 'original_amount' => $request->amount,
                 'original_currency' => $request->currency_code ?? 'EGP',
+                'method_snapshot' => $request->method_snapshot,
                 'status' => $request->status,
                 'status_label' => ucfirst((string) $request->status),
                 'payment_method' => $request->payment_method,
@@ -820,6 +823,8 @@ class FinanceApiController extends Controller
                 'total_amount_pending' => (float) WithdrawalRequest::where('status', 'pending')->sum(DB::raw($withdrawalAmountSql)),
                 'total_amount_approved' => (float) WithdrawalRequest::where('status', 'approved')->sum(DB::raw($withdrawalAmountSql)),
                 'total_amount_completed' => (float) WithdrawalRequest::where('status', 'completed')->sum(DB::raw($withdrawalAmountSql)),
+                'total_fees_completed' => (float) WithdrawalRequest::where('status', 'completed')->sum('fee_amount_egp'),
+                'total_net_completed' => (float) WithdrawalRequest::where('status', 'completed')->sum('net_amount_egp'),
             ];
 
             return ApiResponseService::successResponse('Withdrawal requests retrieved successfully', [
@@ -864,16 +869,27 @@ class FinanceApiController extends Controller
                 return ApiResponseService::errorResponse('Only admins can update withdrawal request status.', [], 403);
             }
 
-            $withdrawalRequest = WithdrawalRequest::with('user')->findOrFail($request->withdrawal_request_id);
-            $oldStatus = $withdrawalRequest->status;
-            $newStatus = $request->status;
-
-            // Check if status change is valid
-            if ($oldStatus === $newStatus) {
-                return ApiResponseService::validationError('Status is already set to ' . $newStatus);
-            }
-
             DB::beginTransaction();
+
+            $withdrawalRequest = WithdrawalRequest::with('user')
+                ->lockForUpdate()
+                ->findOrFail($request->withdrawal_request_id);
+            $oldStatus = (string) $withdrawalRequest->status;
+            $newStatus = (string) $request->status;
+            $allowedTransitions = [
+                'pending' => ['processing', 'approved', 'rejected'],
+                'processing' => ['approved', 'completed', 'rejected'],
+                'approved' => ['processing', 'completed', 'rejected'],
+                'completed' => [],
+                'rejected' => [],
+            ];
+
+            if (!in_array($newStatus, $allowedTransitions[$oldStatus] ?? [], true)) {
+                DB::rollBack();
+                return ApiResponseService::validationError(
+                    "Invalid withdrawal status transition from {$oldStatus} to {$newStatus}.",
+                );
+            }
 
             // Update withdrawal request
             $withdrawalRequest->update([
@@ -890,20 +906,9 @@ class FinanceApiController extends Controller
             if ($newStatus === 'rejected' && $oldStatus !== 'rejected') {
                 WalletService::creditWallet(
                     $withdrawalRequest->user_id,
-                    $withdrawalRequest->amount,
+                    (float) ($withdrawalRequest->amount_egp ?? $withdrawalRequest->amount),
                     'withdrawal_refund',
                     "Withdrawal request #{$withdrawalRequest->id} rejected - Amount refunded",
-                    $withdrawalRequest->id,
-                    \App\Models\WithdrawalRequest::class,
-                    $withdrawalRequest->entry_type
-                );
-            } elseif ($oldStatus === 'rejected' && $newStatus !== 'rejected') {
-                // If a rejected request is reopened, re-encumber the funds
-                WalletService::debitWallet(
-                    $withdrawalRequest->user_id,
-                    $withdrawalRequest->amount,
-                    'withdrawal',
-                    "Withdrawal request #{$withdrawalRequest->id} reopened",
                     $withdrawalRequest->id,
                     \App\Models\WithdrawalRequest::class,
                     $withdrawalRequest->entry_type

@@ -7,6 +7,7 @@ use App\Models\SocialLogin;
 use App\Models\User;
 use App\Models\UserFcmToken;
 use App\Models\UserSocialAccount;
+use App\Models\AffiliateLink;
 use App\Services\ApiResponseService;
 use App\Services\ApiService;
 use App\Services\HelperService;
@@ -162,7 +163,8 @@ class SocialLoginApiController extends ApiController
             return ApiResponseService::validationError('تعذر الحصول على البريد الإلكتروني من حساب Google.');
         }
 
-        $user = DB::transaction(function () use ($firebaseUid, $email, $name, $avatar, $provider) {
+        $referredBy = $this->resolveReferredBy($request);
+        $user = DB::transaction(function () use ($firebaseUid, $email, $name, $avatar, $provider, $referredBy) {
             // ── 1. Check existing SocialLogin record (Firebase UID) ───────
             $socialLogin = SocialLogin::where('firebase_id', $firebaseUid)
                 ->where('type', $provider)
@@ -194,6 +196,7 @@ class SocialLoginApiController extends ApiController
                     'slug'      => $slug,
                     'is_active' => 1,
                     'type'      => $provider,
+                    'referred_by' => $referredBy,
                 ]);
                 $user->email_verified_at = now();
                 $user->save();
@@ -271,7 +274,8 @@ class SocialLoginApiController extends ApiController
             return ApiResponseService::validationError('تعذر الحصول على البريد الإلكتروني من حساب Google.');
         }
 
-        $user = DB::transaction(function () use ($socialUser, $provider, $email) {
+        $referredBy = $this->resolveReferredBy($request);
+        $user = DB::transaction(function () use ($socialUser, $provider, $email, $referredBy) {
             // Try to find via linked social account first
             $socialAccount = UserSocialAccount::where('provider', $provider)
                 ->where('provider_id', $socialUser->getId())
@@ -306,6 +310,7 @@ class SocialLoginApiController extends ApiController
                     'slug'      => $slug,
                     'is_active' => 1,
                     'type'      => $provider,
+                    'referred_by' => $referredBy,
                 ]);
                 $user->email_verified_at = now();
                 $user->save();
@@ -359,6 +364,21 @@ class SocialLoginApiController extends ApiController
         $formattedUser = $this->formatUserWithRolesAndPermissions($user, $pair['access'], $pair['refresh']);
 
         ApiResponseService::successResponse('User logged-in successfully', $formattedUser);
+    }
+
+    private function resolveReferredBy(Request $request): ?int
+    {
+        $code = $request->input('referral')
+            ?: $request->input('affiliate_code')
+            ?: $request->cookie('referral_code')
+            ?: $request->cookie('affiliate_code');
+        if (!is_string($code) || trim($code) === '') {
+            return null;
+        }
+
+        return AffiliateLink::where('code', trim($code))
+            ->where('is_active', true)
+            ->value('user_id');
     }
 
 }

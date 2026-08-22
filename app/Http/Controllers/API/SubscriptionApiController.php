@@ -160,6 +160,10 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
+            // Lifecycle transitions are owned by SubscriptionService. Both this
+            // endpoint and the dashboard therefore observe the same timestamped state.
+            $this->subscriptionService->syncQueuedSubscriptions($user);
+
             // Detect user country & resolve display currency
             $countryCode     = $this->pricingService->detectUserCountry($request) ?: 'EG';
             $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
@@ -176,7 +180,21 @@ final class SubscriptionApiController extends Controller
                 ->get();
 
             if ($subscriptions->isEmpty()) {
-                return ApiResponseService::successResponse('No active subscription found', null);
+                $isAffiliateEnabled = $this->affiliateService->isEnabled();
+                return ApiResponseService::successResponse('No active subscription found', [
+                    'has_access' => false,
+                    'currency' => $displayCurrency,
+                    'currency_symbol' => $displaySymbol,
+                    'affiliate_system_enabled' => $isAffiliateEnabled,
+                    'wallet_payment_enabled' => $isAffiliateEnabled,
+                    'can_renew_with_wallet' => $isAffiliateEnabled,
+                    'wallet_balance' => (float) $user->wallet_balance,
+                    'subscriptions' => [],
+                    'subscription' => null,
+                    'upcoming_subscription' => null,
+                    'upcoming_subscriptions' => [],
+                    'pending_approval_subscription' => null,
+                ]);
             }
 
             $isEntitledNow = function ($sub): bool {
@@ -721,6 +739,12 @@ final class SubscriptionApiController extends Controller
                             'amount' => $totalAmount,
                             'wallet_amount' => $walletAmount,
                             'gateway_amount' => $gatewayAmount,
+                            'amount_egp' => (float) (($split['wallet_amount_egp'] ?? 0) + ($split['gateway_amount_egp'] ?? 0)),
+                            'wallet_amount_egp' => (float) ($split['wallet_amount_egp'] ?? 0),
+                            'gateway_amount_egp' => (float) ($split['gateway_amount_egp'] ?? 0),
+                            'exchange_rate_snapshot' => $totalAmount > 0
+                                ? (float) (($split['wallet_amount_egp'] ?? 0) + ($split['gateway_amount_egp'] ?? 0)) / $totalAmount
+                                : 1.0,
                             'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
                             'payment_method' => 'manual',
                             'resolved_country' => $countryCode,
@@ -865,6 +889,7 @@ final class SubscriptionApiController extends Controller
                     $appliedPromoCode,
                     $originalAmount,
                     $discountAmount,
+                    $split,
                     $checkout
                 ) {
                     $pendingSub = Subscription::create([
@@ -884,6 +909,12 @@ final class SubscriptionApiController extends Controller
                         'amount' => $totalAmount,
                         'wallet_amount' => $walletAmount,
                         'gateway_amount' => $gatewayAmount,
+                        'amount_egp' => (float) (($split['wallet_amount_egp'] ?? 0) + ($split['gateway_amount_egp'] ?? 0)),
+                        'wallet_amount_egp' => (float) ($split['wallet_amount_egp'] ?? 0),
+                        'gateway_amount_egp' => (float) ($split['gateway_amount_egp'] ?? 0),
+                        'exchange_rate_snapshot' => $totalAmount > 0
+                            ? (float) (($split['wallet_amount_egp'] ?? 0) + ($split['gateway_amount_egp'] ?? 0)) / $totalAmount
+                            : 1.0,
                         'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
                         'payment_method' => 'kashier',
                         'resolved_country' => $countryCode,
@@ -1120,6 +1151,7 @@ $totalAmount = (float) $countryPricing['price'];
                         $method,
                         $receiptPath,
                         $subscription,
+                        $split,
                         &$newSubscription
                     ) {
                         // For renewal via manual payment, create a NEW pending_approval subscription
@@ -1141,6 +1173,12 @@ $totalAmount = (float) $countryPricing['price'];
                             'amount' => $totalAmount,
                             'wallet_amount' => $walletAmount,
                             'gateway_amount' => $gatewayAmount,
+                            'amount_egp' => (float) (($split['wallet_amount_egp'] ?? 0) + ($split['gateway_amount_egp'] ?? 0)),
+                            'wallet_amount_egp' => (float) ($split['wallet_amount_egp'] ?? 0),
+                            'gateway_amount_egp' => (float) ($split['gateway_amount_egp'] ?? 0),
+                            'exchange_rate_snapshot' => $totalAmount > 0
+                                ? (float) (($split['wallet_amount_egp'] ?? 0) + ($split['gateway_amount_egp'] ?? 0)) / $totalAmount
+                                : 1.0,
                             'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
                             'payment_method' => 'manual',
                             'resolved_country' => $countryCode,
@@ -1157,6 +1195,18 @@ $totalAmount = (float) $countryPricing['price'];
                             'tax' => 0,
                             'final_amount' => $totalAmount,
                         ]);
+
+                        if ($walletAmount > 0) {
+                            \App\Services\WalletService::debitWallet(
+                                $user->id,
+                                (float) ($split['wallet_amount_egp'] ?? $walletAmount),
+                                'subscription',
+                                "Hold for manual subscription renewal #{$newSubscription->id}",
+                                $newSubscription->id,
+                                \App\Models\Subscription::class,
+                                'user'
+                            );
+                        }
                     });
 
                     // Notify admins about the new manual renewal request
@@ -1229,9 +1279,70 @@ $totalAmount = (float) $countryPricing['price'];
                 );
             }
 
-            // Store pending wallet amount for webhook to apply on success
+            // Persist the renewal before redirecting. The webhook must be able to
+            // reconcile it even if the cache entry expires or the app restarts.
+            [$pendingSub, $pendingPayment] = \Illuminate\Support\Facades\DB::transaction(function () use (
+                $user,
+                $plan,
+                $subscription,
+                $totalAmount,
+                $resolvedCurrency,
+                $walletAmount,
+                $gatewayAmount,
+                $countryCode,
+                $countryPricing,
+                $split,
+                $checkout,
+            ) {
+                $durationDays = $plan->getDurationDays();
+                $startsAt = $subscription->ends_at && $subscription->ends_at->isFuture()
+                    ? $subscription->ends_at->copy()
+                    : now();
+
+                $pendingSub = Subscription::create([
+                    'user_id' => $user->id,
+                    'plan_id' => $plan->id,
+                    'locked_price' => $totalAmount,
+                    'locked_currency' => $resolvedCurrency,
+                    'starts_at' => $startsAt,
+                    'ends_at' => $durationDays !== null ? $startsAt->copy()->addDays($durationDays) : null,
+                    'status' => Subscription::STATUS_PENDING,
+                    'auto_renew' => true,
+                    'parent_subscription_id' => $subscription->id,
+                ]);
+
+                $totalAmountEgp = (float) (($split['wallet_amount_egp'] ?? 0) + ($split['gateway_amount_egp'] ?? 0));
+                $exchangeRate = $totalAmount > 0 ? $totalAmountEgp / $totalAmount : 1.0;
+                $pendingPayment = \App\Models\SubscriptionPayment::create([
+                    'subscription_id' => $pendingSub->id,
+                    'user_id' => $user->id,
+                    'amount' => $totalAmount,
+                    'wallet_amount' => $walletAmount,
+                    'gateway_amount' => $gatewayAmount,
+                    'amount_egp' => $totalAmountEgp,
+                    'wallet_amount_egp' => (float) ($split['wallet_amount_egp'] ?? 0),
+                    'gateway_amount_egp' => (float) ($split['gateway_amount_egp'] ?? 0),
+                    'exchange_rate_snapshot' => $exchangeRate,
+                    'status' => \App\Models\SubscriptionPayment::STATUS_PENDING,
+                    'payment_method' => $walletAmount > 0 ? 'wallet_and_kashier' : 'kashier',
+                    'resolved_country' => $countryCode,
+                    'currency_code' => $resolvedCurrency,
+                    'price_source' => $countryPricing['price_source'] ?? 'default',
+                    'tax' => 0,
+                    'final_amount' => $totalAmount,
+                    'transaction_id' => $checkout['order_id'],
+                    'paid_at' => null,
+                ]);
+
+                return [$pendingSub, $pendingPayment];
+            });
+
+            // Cache is an optimization; the durable rows above are canonical.
             \Illuminate\Support\Facades\Cache::put('kashier_pending_' . $checkout['order_id'], [
+                'subscription_id' => $pendingSub->id,
+                'payment_id' => $pendingPayment->id,
                 'wallet_amount' => $walletAmount,
+                'wallet_amount_egp' => $split['wallet_amount_egp'] ?? 0,
                 'gateway_amount' => $gatewayAmount,
                 'total_amount' => $totalAmount,
                 'plan_id' => $plan->id,
@@ -1410,20 +1521,30 @@ $totalAmount = (float) $countryPricing['price'];
                 $histSymbol = $this->pricingService->getCurrencySymbol($histCurrency);
                 $finalAmt = (float) ($payment->final_amount ?? $payment->amount);
                 $receiptRaw = $payment->getRawOriginal('receipt');
+                $snapshotRate = max(0.0001, (float) ($payment->exchange_rate_snapshot ?? 1));
+                $amountEgp = (float) ($payment->amount_egp ?? ($finalAmt * $snapshotRate));
+                $walletAmountEgp = (float) ($payment->wallet_amount_egp ?? ((float) $payment->wallet_amount * $snapshotRate));
+                $gatewayAmountEgp = (float) ($payment->gateway_amount_egp ?? ((float) $payment->gateway_amount * $snapshotRate));
+                $originalAmountEgp = $payment->original_amount !== null
+                    ? (float) $payment->original_amount * $snapshotRate
+                    : null;
+                $discountAmountEgp = (float) ($payment->discount_amount ?? 0) * $snapshotRate;
 
                 return [
                     'id'                   => $payment->id,
                     'amount'               => $finalAmt,
-                    'local_amount'         => $this->pricingService->convertFromEgp((float) ($payment->amount_egp ?? $finalAmt), $displayCurrency),
+                    'local_amount'         => $this->pricingService->convertFromEgp($amountEgp, $displayCurrency),
                     'wallet_amount'        => (float) ($payment->wallet_amount ?? 0),
-                    'local_wallet_amount'  => $this->pricingService->convertFromEgp((float) ($payment->wallet_amount ?? 0), $displayCurrency),
+                    'wallet_amount_egp'    => $walletAmountEgp,
+                    'local_wallet_amount'  => $this->pricingService->convertFromEgp($walletAmountEgp, $displayCurrency),
                     'gateway_amount'       => (float) ($payment->gateway_amount ?? 0),
-                    'local_gateway_amount' => $this->pricingService->convertFromEgp((float) ($payment->gateway_amount ?? 0), $displayCurrency),
+                    'gateway_amount_egp'   => $gatewayAmountEgp,
+                    'local_gateway_amount' => $this->pricingService->convertFromEgp($gatewayAmountEgp, $displayCurrency),
                     'promo_code'           => $payment->promo_code,
                     'original_amount'      => $payment->original_amount ? (float) $payment->original_amount : null,
-                    'local_original_amount' => $payment->original_amount ? $this->pricingService->convertFromEgp((float) $payment->original_amount, $displayCurrency) : null,
+                    'local_original_amount' => $originalAmountEgp !== null ? $this->pricingService->convertFromEgp($originalAmountEgp, $displayCurrency) : null,
                     'discount_amount'      => (float) ($payment->discount_amount ?? 0),
-                    'local_discount_amount' => $this->pricingService->convertFromEgp((float) ($payment->discount_amount ?? 0), $displayCurrency),
+                    'local_discount_amount' => $this->pricingService->convertFromEgp($discountAmountEgp, $displayCurrency),
                     'currency'             => $histCurrency,
                     'currency_symbol'      => $histSymbol,
                     'status'               => $payment->status,

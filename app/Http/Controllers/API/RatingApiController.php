@@ -24,7 +24,7 @@ class RatingApiController extends Controller
             'course_id' => 'nullable|exists:courses,id',
             'instructor_id' => 'nullable|exists:instructors,id',
             'rating' => 'required|integer|min:1|max:5',
-            'review' => 'nullable|string|max:1000',
+            'review' => 'nullable|string|max:2000',
         ]);
 
         if ($validator->fails()) {
@@ -168,7 +168,7 @@ class RatingApiController extends Controller
             'course_id' => 'nullable|exists:courses,id',
             'instructor_id' => 'nullable|exists:instructors,id',
             'rating' => 'required|integer|min:1|max:5',
-            'review' => 'nullable|string|max:1000',
+            'review' => 'nullable|string|max:2000',
         ]);
 
         if ($validator->fails()) {

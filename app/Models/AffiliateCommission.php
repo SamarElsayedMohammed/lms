@@ -13,6 +13,8 @@ class AffiliateCommission extends Model
         'subscription_id',
         'plan_id',
         'amount',
+        'remaining_amount',
+        'transferred_amount',
         'commission_type',
         'commission_rate',
         'status',
@@ -25,6 +27,8 @@ class AffiliateCommission extends Model
 
     protected $casts = [
         'amount' => 'float',
+        'remaining_amount' => 'float',
+        'transferred_amount' => 'float',
         'commission_type' => 'string',
         'commission_rate' => 'float',
         'earned_date' => 'date',
@@ -61,7 +65,7 @@ class AffiliateCommission extends Model
 
     public function scopeAvailable($query)
     {
-        return $query->where('status', 'available');
+        return $query->where('status', 'available')->where('remaining_amount', '>', 0);
     }
 
     public function scopeForAffiliate($query, int $affiliateId)

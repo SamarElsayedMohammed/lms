@@ -4,6 +4,7 @@ namespace App\Traits;
 
 use App\Jobs\SendFcmNotificationJob;
 use App\Models\UserFcmToken;
+use App\Services\NotificationSettingsService;
 use Illuminate\Support\Facades\Log;
 
 trait PushesToFirebase
@@ -19,6 +20,14 @@ trait PushesToFirebase
         try {
             $userId = $notifiable->id ?? null;
             if (!$userId) {
+                return;
+            }
+
+            if (!NotificationSettingsService::isUserChannelEnabled(
+                $notifiable,
+                class_basename(static::class),
+                'push',
+            )) {
                 return;
             }
 

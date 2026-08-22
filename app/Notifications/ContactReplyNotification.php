@@ -37,7 +37,7 @@ class ContactReplyNotification extends Notification implements ShouldQueue
             'message'            => $this->replyMessage,
             'contact_message_id' => $this->contactMessage->id,
             'original_message'   => mb_substr($this->contactMessage->message, 0, 100),
-            'action_url'         => null,
+            'action_url'         => '/messages?ticket=' . $this->contactMessage->id,
         ];
     }
 
@@ -52,5 +52,16 @@ class ContactReplyNotification extends Notification implements ShouldQueue
         ]);
 
         return new DatabaseMessage($data);
+    }
+
+    public function sendPushTo(object $notifiable): void
+    {
+        $this->sendFcmNotification($notifiable, [
+            'title' => "رد على رسالتك - {$this->appName}",
+            'body' => $this->replyMessage,
+            'type' => 'contact_reply',
+            'action_url' => '/messages?ticket=' . $this->contactMessage->id,
+            'contact_message_id' => (string) $this->contactMessage->id,
+        ]);
     }
 }

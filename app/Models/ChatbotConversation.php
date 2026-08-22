@@ -45,6 +45,8 @@ class ChatbotConversation extends Model
      */
     public function messages()
     {
-        return $this->hasMany(ChatbotMessage::class, 'conversation_id')->orderBy('created_at', 'asc');
+        return $this->hasMany(ChatbotMessage::class, 'conversation_id')
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc');
     }
 }

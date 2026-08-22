@@ -4,6 +4,7 @@ namespace App\Services\Payment;
 
 use App\Models\User;
 use App\Models\Webinar;
+use App\Models\WalletHistory;
 use App\Services\WalletService;
 use Exception;
 use Illuminate\Support\Facades\DB;
@@ -18,13 +19,17 @@ class WalletPaymentIntegrationService
      * @return bool
      * @throws Exception
      */
-    public function payForWebinar(User $user, Webinar $webinar): bool
+    public function payForWebinar(
+        User $user,
+        Webinar $webinar,
+        ?string $paymentReference = null,
+    ): ?WalletHistory
     {
         if ($webinar->is_free || $webinar->price <= 0) {
-            return true; // No payment needed
+            return null;
         }
 
-        return DB::transaction(function () use ($user, $webinar) {
+        return DB::transaction(function () use ($user, $webinar, $paymentReference) {
             // Lock user row to prevent race conditions during balance check
             $lockedUser = User::where('id', $user->id)->lockForUpdate()->first();
 
@@ -33,16 +38,14 @@ class WalletPaymentIntegrationService
             }
 
             // Perform the deduction using the existing WalletService
-            WalletService::debitWallet(
+            return WalletService::debitWallet(
                 $lockedUser->id,
                 $webinar->price,
                 'webinar_payment',
                 'Paid for webinar: ' . $webinar->title,
-                (string) $webinar->id,
-                'webinar'
+                $paymentReference ?: (string) \Illuminate\Support\Str::uuid(),
+                'webinar_registration_payment'
             );
-
-            return true;
         });
     }
 }

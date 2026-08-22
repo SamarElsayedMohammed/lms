@@ -3,13 +3,15 @@
 namespace App\Http\Controllers\API\User;
 
 use App\Http\Controllers\Controller;
-use App\Models\Subscription;
 use App\Models\UserCourseProgress;
 use App\Models\UserCurriculumTracking;
 use App\Models\WebinarRegistration;
+use App\Models\Course\CourseCertificate;
 use App\Services\ApiResponseService;
 use App\Services\PricingService;
 use App\Services\StudentDashboardStatisticsService;
+use App\Services\SubscriptionService;
+use App\Services\UserNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -19,7 +21,9 @@ class UserDashboardApiController extends Controller
 {
     public function __construct(
         private readonly PricingService $pricingService,
-        private readonly StudentDashboardStatisticsService $statisticsService
+        private readonly StudentDashboardStatisticsService $statisticsService,
+        private readonly SubscriptionService $subscriptionService,
+        private readonly UserNotificationService $notificationService,
     ) {}
 
     /**
@@ -68,6 +72,10 @@ class UserDashboardApiController extends Controller
             // 6. Completed courses use the exact same progress source as stats.
             $completedCourses = $this->getCompletedCourses($courseProgresses);
 
+            // Issued certificate inventory is part of the overview contract so the
+            // dashboard does not need a second certificates request to correct it.
+            $certificateOverview = $this->getCertificateOverview($user);
+
             // 7. Learning Activity
             $learningActivity = $this->getLearningActivity($user, $courseProgresses);
 
@@ -75,7 +83,7 @@ class UserDashboardApiController extends Controller
             $upcomingWebinars = $this->getUpcomingWebinars($user);
 
             // 9. Notifications
-            $unreadNotificationsCount = $user->unreadNotifications()->count();
+            $unreadNotificationsCount = $this->notificationService->unreadCount($user);
 
             $data = [
                 'stats' => $stats,
@@ -84,6 +92,8 @@ class UserDashboardApiController extends Controller
                 'recent_courses' => $recentCourses,
                 'latest_courses' => $latestCourses,
                 'completed_courses' => $completedCourses,
+                'certificate_preview' => $certificateOverview['preview'],
+                'issued_certificate_course_ids' => $certificateOverview['course_ids'],
                 'learning_activity' => $learningActivity,
                 'upcoming_webinars' => $upcomingWebinars,
                 'unread_notifications_count' => $unreadNotificationsCount,
@@ -104,17 +114,11 @@ class UserDashboardApiController extends Controller
     }
 
     /**
-     * Get active subscription info
+     * Get the primary visible subscription state (active, queued, or awaiting approval).
      */
     private function getSubscriptionInfo($user)
     {
-        $sub = Subscription::where('user_id', $user->id)
-            ->active()
-            ->with('plan')
-            ->orderByRaw('ends_at IS NULL DESC') // Lifetime first
-            ->orderByDesc('ends_at')
-            ->orderByDesc('id')
-            ->first();
+        $sub = $this->subscriptionService->getPrimaryVisibleSubscription($user);
 
         if (!$sub) {
             return [
@@ -139,7 +143,8 @@ class UserDashboardApiController extends Controller
         };
 
         return [
-            'has_active'   => true,
+            'id'           => $sub->id,
+            'has_active'   => (bool) $sub->is_active,
             'plan_name'    => $sub->plan->name ?? 'N/A',
             'status'       => $sub->status,
             'status_label' => $statusLabel,
@@ -268,35 +273,11 @@ class UserDashboardApiController extends Controller
             ->filter()
             ->values();
 
-        $fallbackCourses = $courseProgresses
-            ->filter(fn($item) => $item['source'] !== 'subscription')
-            ->sortByDesc('purchase_date')
-            ->take(5)
-            ->map(function (array $item) {
-                $course = $item['course'];
-                $snapshotProgress = round($item['progress_percentage'], 2);
-                $courseId = is_array($course) ? ($course['id'] ?? null) : $course->id;
-                $courseTitle = is_array($course) ? ($course['title'] ?? '') : $course->title;
-                $courseThumbnail = is_array($course) ? ($course['thumbnail'] ?? null) : $course->thumbnail;
-
-                return [
-                    'id'                  => $courseId,
-                    'title'               => $courseTitle,
-                    'thumbnail'           => $courseThumbnail,
-                    'image'               => $courseThumbnail,
-                    'progress'            => $snapshotProgress,
-                    'progress_percentage' => $snapshotProgress,
-                    'last_accessed'       => null,
-                ];
-            });
-
         return $progressActivities
             ->toBase()
             ->merge($trackingActivities)
             ->merge($videoActivities)
             ->sortByDesc('last_accessed')
-            ->unique('id')
-            ->merge($fallbackCourses)
             ->unique('id')
             ->take(5)
             ->values();
@@ -308,7 +289,7 @@ class UserDashboardApiController extends Controller
     private function getLatestCourses(Collection $courseProgresses)
     {
         return $courseProgresses
-            ->sortByDesc('purchase_date')
+            ->sortByDesc('enrolled_at')
             ->take(5)
             ->map(static function (array $item): array {
                 $course = $item['course'];
@@ -324,7 +305,10 @@ class UserDashboardApiController extends Controller
                     'image' => $courseThumbnail,
                     'progress' => $progress,
                     'progress_percentage' => $progress,
-                    'enrolled_at' => $item['purchase_date']?->toIso8601String(),
+                    'progress_status' => $item['learning_status'],
+                    'enrolled_at' => $item['enrolled_at']?->toIso8601String(),
+                    'access_started_at' => $item['access_started_at']?->toIso8601String(),
+                    'purchase_date' => $item['purchase_date']?->toIso8601String(),
                 ];
             })
             ->values();
@@ -343,13 +327,19 @@ class UserDashboardApiController extends Controller
 
         return UserCurriculumTracking::where('user_id', $user->id)
             ->whereHas('chapter', static function ($query) use ($courseIds): void {
-                $query->whereIn('course_id', $courseIds);
+                $query->whereIn('course_id', $courseIds)->where('is_active', true);
             })
-            ->with('chapter.course')
+            ->with(['chapter.course', 'trackable'])
             ->latest('updated_at')
             ->limit(10)
             ->get()
-            ->filter(fn($track) => $track->chapter !== null && $track->chapter->course !== null)
+            ->filter(static function ($track): bool {
+                if ($track->chapter === null || $track->chapter->course === null || $track->trackable === null) {
+                    return false;
+                }
+
+                return !isset($track->trackable->is_active) || (bool) $track->trackable->is_active;
+            })
             ->map(function ($track) {
                 $type = 'activity';
                 if (str_contains($track->model_type, 'Lecture')) $type = 'lecture';
@@ -357,9 +347,11 @@ class UserDashboardApiController extends Controller
                 elseif (str_contains($track->model_type, 'Assignment')) $type = 'assignment';
 
                 return [
-                    'activity'     => 'Completed ' . $type,
+                    'activity'     => ($track->status === 'completed' ? 'Completed ' : 'Started ') . $type,
+                    'type'         => $type,
+                    'status'       => $track->status,
                     'course_title' => $track->chapter->course->title,
-                    'date'         => $track->updated_at->toDateTimeString(),
+                    'date'         => $track->updated_at?->toIso8601String(),
                 ];
             })
             ->values();
@@ -370,9 +362,14 @@ class UserDashboardApiController extends Controller
      */
     private function getUpcomingWebinars($user)
     {
+        \App\Models\Webinar::syncPublishedLifecycleStatuses();
+
         return WebinarRegistration::where('user_id', $user->id)
+            ->whereIn('payment_status', ['paid', 'free'])
             ->whereHas('webinar', function ($q) {
-                $q->where('start_at', '>', now());
+                $q->where('start_at', '>', now())
+                    ->where('status', 'scheduled')
+                    ->where('is_published', true);
             })
             ->with(['webinar.instructor'])
             ->latest('created_at')
@@ -382,8 +379,8 @@ class UserDashboardApiController extends Controller
                 return [
                     'id' => $reg->webinar->id,
                     'title' => $reg->webinar->title,
-                    'start_at' => $reg->webinar->start_at->toDateTimeString(),
-                    'instructor' => $reg->webinar->instructor->name ?? 'N/A',
+                    'start_at' => $reg->webinar->start_at?->toIso8601String(),
+                    'instructor' => $reg->webinar->instructor?->name ?? 'N/A',
                 ];
             });
     }
@@ -391,7 +388,7 @@ class UserDashboardApiController extends Controller
     private function getCompletedCourses(Collection $courseProgresses)
     {
         return $courseProgresses
-            ->filter(static fn (array $item): bool => $item['progress_percentage'] >= 100)
+            ->where('learning_status', 'completed')
             ->map(static function (array $item): array {
                 $course = $item['course'];
                 $progress = round($item['progress_percentage'], 2);
@@ -406,9 +403,43 @@ class UserDashboardApiController extends Controller
                     'image' => $courseThumbnail,
                     'progress' => $progress,
                     'progress_percentage' => $progress,
+                    'progress_status' => 'completed',
                 ];
             })
             ->values();
+    }
+
+    private function getCertificateOverview($user): array
+    {
+        $certificates = CourseCertificate::query()
+            ->where('user_id', $user->id)
+            ->active()
+            ->with(['course.user'])
+            ->latest('issued_date')
+            ->latest('id')
+            ->get();
+
+        $certificate = $certificates->first();
+
+        if ($certificate === null) {
+            return ['preview' => null, 'course_ids' => []];
+        }
+
+        return ['course_ids' => $certificates->pluck('course_id')->map(fn ($id) => (int) $id)->values()->all(), 'preview' => [
+            'id' => $certificate->id,
+            'is_issued' => true,
+            'status' => 'issued',
+            'course_id' => $certificate->course_id,
+            'slug' => $certificate->course?->slug ?? '',
+            'title' => $certificate->course?->title ?? '',
+            'thumbnail' => $certificate->course?->thumbnail ?? '',
+            'author_name' => $certificate->instructor_name
+                ?? $certificate->course?->user?->name
+                ?? '',
+            'certificate_number' => $certificate->certificate_number,
+            'issued_at' => $certificate->issued_date?->toIso8601String(),
+            'certificate_url' => $certificate->verification_url,
+        ]];
     }
 
 

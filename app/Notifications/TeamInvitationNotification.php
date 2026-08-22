@@ -84,8 +84,7 @@ class TeamInvitationNotification extends Notification implements ShouldQueue
      */
     public function toDatabase(object $notifiable): DatabaseMessage
     {
-        // Return database message - this will save the notification to database
-        // FCM notification will be sent separately after database save to avoid blocking
+        $this->sendFcmNotification($notifiable);
         return new DatabaseMessage($this->toArray($notifiable));
     }
 
@@ -95,6 +94,14 @@ class TeamInvitationNotification extends Notification implements ShouldQueue
     private function sendFcmNotification($notifiable)
     {
         try {
+            if (!\App\Services\NotificationSettingsService::isUserChannelEnabled(
+                $notifiable,
+                class_basename(self::class),
+                'push',
+            )) {
+                return;
+            }
+
             // Ensure token is available
             $invitationToken = $this->teamMember->invitation_token;
             if (empty($invitationToken)) {

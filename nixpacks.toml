@@ -109,9 +109,9 @@ stderr_logfile=/var/log/worker-nginx.log
 "worker-laravel-default.conf" = '''
 [program:worker-laravel-default]
 process_name=%(program_name)s_%(process_num)02d
-command=php /app/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600 --memory=128
+command=php -d memory_limit=128M /app/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600 --memory=128
 user=www-data
-autostart=true
+autostart=false
 autorestart=true
 stopasgroup=true
 killasgroup=true
@@ -126,9 +126,9 @@ stderr_logfile=/var/log/worker-laravel-default.log
 "worker-laravel-ingestion.conf" = '''
 [program:worker-laravel-ingestion]
 process_name=%(program_name)s_%(process_num)02d
-command=php /app/artisan queue:work --queue=ingestion --sleep=5 --tries=3 --timeout=7200 --max-time=7200 --max-jobs=1 --memory=256
+command=php -d memory_limit=192M /app/artisan queue:work --queue=ingestion --sleep=5 --tries=3 --timeout=7200 --max-time=7200 --max-jobs=1 --memory=192
 user=www-data
-autostart=true
+autostart=false
 autorestart=true
 stopasgroup=true
 killasgroup=true
@@ -143,9 +143,9 @@ stderr_logfile=/var/log/worker-laravel-ingestion.log
 "worker-laravel-video.conf" = '''
 [program:worker-laravel-video]
 process_name=%(program_name)s_%(process_num)02d
-command=php /app/artisan queue:work --queue=video-encoding --sleep=10 --tries=1 --max-time=7200 --memory=256
+command=php -d memory_limit=160M /app/artisan queue:work --queue=video-encoding --sleep=10 --tries=1 --max-time=7200 --max-jobs=1 --memory=160
 user=www-data
-autostart=true
+autostart=false
 autorestart=true
 stopasgroup=true
 killasgroup=true
@@ -159,7 +159,7 @@ stderr_logfile=/var/log/worker-laravel-video.log
 
 "worker-laravel-boot.conf" = '''
 [program:laravel-boot]
-command=/bin/bash -c "php artisan config:cache || true; php artisan migrate --force || true"
+command=/bin/bash -c "php artisan config:cache || true; php artisan migrate --force || true; supervisorctl start worker-laravel-default:* worker-laravel-ingestion:* worker-laravel-video:* worker-scheduler || true"
 directory=/app
 user=www-data
 autostart=true
@@ -174,9 +174,9 @@ stderr_logfile=/var/log/worker-laravel-boot.log
 "worker-scheduler.conf" = '''
 [program:worker-scheduler]
 process_name=%(program_name)s
-command=php /app/artisan schedule:work
+command=php -d memory_limit=128M /app/artisan schedule:work
 user=www-data
-autostart=true
+autostart=false
 autorestart=true
 stopasgroup=true
 killasgroup=true
@@ -195,7 +195,7 @@ daemonize = no
 [www]
 listen = 127.0.0.1:9000
 pm = dynamic
-pm.max_children = 4
+pm.max_children = 2
 pm.start_servers = 1
 pm.min_spare_servers = 1
 pm.max_spare_servers = 2

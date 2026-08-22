@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 final class UserEnrollmentService
 {
     /**
-     * @return Collection<int, array{course_id: int, course: Course, purchase_date: Carbon, source: string}>
+     * @return Collection<int, array{course_id: int, enrolled_at: Carbon, access_started_at: Carbon, purchase_date: Carbon|null, source: string}>
      */
     public function resolveEnrolledCourseIds(int $userId): Collection
     {
@@ -57,7 +57,7 @@ final class UserEnrollmentService
                     continue;
                 }
 
-                $this->upsertEnrollment($enrolled, $courseId, $orderDate, 'purchase');
+                $this->upsertEnrollment($enrolled, $courseId, $orderDate, $orderDate, 'purchase');
             }
         }
 
@@ -73,22 +73,28 @@ final class UserEnrollmentService
                 $this->upsertEnrollment(
                     $enrolled,
                     (int) $track->course_id,
-                    Carbon::parse($track->updated_at),
+                    Carbon::parse($track->created_at),
+                    null,
                     'track',
                 );
             });
 
-        if ($user->activeSubscription()->exists()) {
+        $activeSubscription = app(SubscriptionService::class)->getActiveSubscription($user);
+        if ($activeSubscription !== null) {
+            $accessStartedAt = Carbon::parse(
+                $activeSubscription->starts_at ?? $activeSubscription->created_at,
+            );
             Course::query()
                 ->where('status', 'publish')
                 ->where('approval_status', 'approved')
                 ->where('is_active', true)
                 ->pluck('id')
-                ->each(function ($courseId) use ($enrolled): void {
+                ->each(function ($courseId) use ($enrolled, $accessStartedAt): void {
                     $this->upsertEnrollment(
                         $enrolled,
                         (int) $courseId,
-                        now(),
+                        $accessStartedAt,
+                        null,
                         'subscription',
                     );
                 });
@@ -98,7 +104,7 @@ final class UserEnrollmentService
     }
 
     /**
-     * @return Collection<int, array{course_id: int, course: Course, purchase_date: Carbon, source: string}>
+     * @return Collection<int, array{course_id: int, course: Course, enrolled_at: Carbon, access_started_at: Carbon, purchase_date: Carbon|null, source: string}>
      */
     public function resolveEnrolledCourses(int $userId, ?callable $courseQueryModifier = null): Collection
     {
@@ -126,7 +132,6 @@ final class UserEnrollmentService
                     || !$course->is_active
                     || $course->status !== 'publish'
                     || $course->approval_status !== 'approved'
-                    || !$course->hasContent()
                 ) {
                     return null;
                 }
@@ -134,6 +139,8 @@ final class UserEnrollmentService
                 return [
                     'course_id' => $item['course_id'],
                     'course' => $course,
+                    'enrolled_at' => $item['enrolled_at'],
+                    'access_started_at' => $item['access_started_at'],
                     'purchase_date' => $item['purchase_date'],
                     'source' => $item['source'],
                 ];
@@ -226,8 +233,7 @@ final class UserEnrollmentService
         return $course !== null
             && $course->status === 'publish'
             && $course->approval_status === 'approved'
-            && (bool) $course->is_active
-            && $course->hasContent();
+            && (bool) $course->is_active;
     }
 
     private function isRefundedPurchase(
@@ -247,15 +253,23 @@ final class UserEnrollmentService
     }
 
     /**
-     * @param Collection<int, array{course_id: int, purchase_date: Carbon, source: string}> $enrolled
+     * @param Collection<int, array{course_id: int, enrolled_at: Carbon, access_started_at: Carbon, purchase_date: Carbon|null, source: string}> $enrolled
      */
-    private function upsertEnrollment(Collection $enrolled, int $courseId, Carbon $purchaseDate, string $source): void
+    private function upsertEnrollment(
+        Collection $enrolled,
+        int $courseId,
+        Carbon $enrolledAt,
+        ?Carbon $purchaseDate,
+        string $source,
+    ): void
     {
         $existingIndex = $enrolled->search(static fn (array $item) => $item['course_id'] === $courseId);
 
         if ($existingIndex === false) {
             $enrolled->push([
                 'course_id' => $courseId,
+                'enrolled_at' => $enrolledAt,
+                'access_started_at' => $enrolledAt,
                 'purchase_date' => $purchaseDate,
                 'source' => $source,
             ]);
@@ -264,12 +278,22 @@ final class UserEnrollmentService
         }
 
         $existing = $enrolled[$existingIndex];
-        if ($purchaseDate->gt($existing['purchase_date'])) {
-            $enrolled[$existingIndex] = [
-                'course_id' => $courseId,
-                'purchase_date' => $purchaseDate,
-                'source' => $source,
-            ];
+        $existing['enrolled_at'] = $enrolledAt->lt($existing['enrolled_at'])
+            ? $enrolledAt
+            : $existing['enrolled_at'];
+        $existing['access_started_at'] = $enrolledAt->lt($existing['access_started_at'])
+            ? $enrolledAt
+            : $existing['access_started_at'];
+
+        if ($purchaseDate !== null && ($existing['purchase_date'] === null || $purchaseDate->lt($existing['purchase_date']))) {
+            $existing['purchase_date'] = $purchaseDate;
         }
+
+        // A direct purchase is the strongest durable acquisition source.
+        if ($source === 'purchase' || $existing['source'] === 'subscription') {
+            $existing['source'] = $source;
+        }
+
+        $enrolled[$existingIndex] = $existing;
     }
 }

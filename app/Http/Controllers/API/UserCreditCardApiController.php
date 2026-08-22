@@ -33,16 +33,22 @@ class UserCreditCardApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'card_holder_name' => 'nullable|string|max:255',
-                'last_four_digits' => 'required|string|size:4',
+                'last_four_digits' => ['required', 'string', 'regex:/^\d{4}$/'],
                 'brand' => 'nullable|string|max:50',
-                'exp_month' => 'required|string|size:2',
-                'exp_year' => 'required|string|size:4',
-                'gateway_token' => 'required|string',
+                'exp_month' => ['required', 'string', 'regex:/^(0[1-9]|1[0-2])$/'],
+                'exp_year' => ['required', 'string', 'regex:/^\d{4}$/'],
+                'gateway_token' => 'required|string|max:2048',
                 'is_default' => 'boolean',
             ]);
 
             if ($validator->fails()) {
                 return ApiResponseService::validationError($validator->errors()->first());
+            }
+
+            $expiryBoundary = now()->startOfMonth();
+            $expiry = now()->setDate((int) $request->exp_year, (int) $request->exp_month, 1)->startOfMonth();
+            if ($expiry->lt($expiryBoundary)) {
+                return ApiResponseService::validationError('Credit card expiry date is in the past.');
             }
 
             $user = Auth::user();
@@ -97,8 +103,8 @@ class UserCreditCardApiController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'card_holder_name' => 'nullable|string|max:255',
-                'exp_month' => 'nullable|string|size:2',
-                'exp_year' => 'nullable|string|size:4',
+                'exp_month' => ['nullable', 'string', 'regex:/^(0[1-9]|1[0-2])$/'],
+                'exp_year' => ['nullable', 'string', 'regex:/^\d{4}$/'],
             ]);
 
             if ($validator->fails()) {
@@ -110,6 +116,15 @@ class UserCreditCardApiController extends Controller
 
             if (!$card) {
                 return ApiResponseService::validationError('Credit card not found');
+            }
+
+
+            $nextMonth = (string) ($request->input('exp_month') ?? $card->exp_month);
+            $nextYear = (string) ($request->input('exp_year') ?? $card->exp_year);
+            $expiryBoundary = now()->startOfMonth();
+            $expiry = now()->setDate((int) $nextYear, (int) $nextMonth, 1)->startOfMonth();
+            if ($expiry->lt($expiryBoundary)) {
+                return ApiResponseService::validationError('Credit card expiry date is in the past.');
             }
 
             $card->update($request->only(['card_holder_name', 'exp_month', 'exp_year']));

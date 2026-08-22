@@ -30,45 +30,48 @@ class ActivateQueuedSubscriptionsCommand extends Command
     {
         $this->info('Checking for queued subscriptions to activate...');
 
+        $count = 0;
+
         // Find subscriptions that are pending/queued and their start date is now or in the past
-        $queuedSubscriptions = Subscription::where('status', Subscription::STATUS_PENDING)
+        Subscription::where('status', Subscription::STATUS_PENDING)
             ->where('starts_at', '<=', now())
-            ->get();
+            ->chunkById(100, function ($queuedSubscriptions) use (&$count) {
+                foreach ($queuedSubscriptions as $subscription) {
+                    DB::transaction(function () use ($subscription, &$count) {
+                        $lockedSub = Subscription::where('id', $subscription->id)
+                            ->where('status', Subscription::STATUS_PENDING)
+                            ->lockForUpdate()
+                            ->first();
 
-        if ($queuedSubscriptions->isEmpty()) {
-            $this->info('No queued subscriptions to activate.');
-            return;
-        }
+                        if (! $lockedSub) {
+                            return;
+                        }
 
-        foreach ($queuedSubscriptions as $subscription) {
-            DB::transaction(function () use ($subscription) {
-                $lockedSub = Subscription::where('id', $subscription->id)
-                    ->where('status', Subscription::STATUS_PENDING)
-                    ->lockForUpdate()
-                    ->first();
+                        // Ensure no other active subscription exists for this user
+                        $activeSub = Subscription::forUser($lockedSub->user_id)
+                            ->active()
+                            ->where('id', '!=', $lockedSub->id)
+                            ->lockForUpdate()
+                            ->first();
 
-                if (! $lockedSub) {
-                    return;
-                }
+                        if (! $activeSub) {
+                            $lockedSub->status = Subscription::STATUS_ACTIVE;
+                            $lockedSub->save();
+                            $count++;
 
-                // Ensure no other active subscription exists for this user
-                $activeSub = Subscription::forUser($lockedSub->user_id)
-                    ->active()
-                    ->where('id', '!=', $lockedSub->id)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $activeSub) {
-                    $lockedSub->status = Subscription::STATUS_ACTIVE;
-                    $lockedSub->save();
-
-                    $this->info("Activated subscription #{$lockedSub->id} for user #{$lockedSub->user_id}");
-                    Log::info('Queued subscription activated', [
-                        'subscription_id' => $lockedSub->id,
-                        'user_id' => $lockedSub->user_id,
-                    ]);
+                            $this->info("Activated subscription #{$lockedSub->id} for user #{$lockedSub->user_id}");
+                            Log::info('Queued subscription activated', [
+                                'subscription_id' => $lockedSub->id,
+                                'user_id' => $lockedSub->user_id,
+                            ]);
+                        }
+                    });
                 }
             });
+
+        if ($count === 0) {
+            $this->info('No queued subscriptions to activate.');
+            return;
         }
 
         $this->info('Activation process completed.');

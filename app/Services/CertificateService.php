@@ -23,10 +23,44 @@ class CertificateService
     public function checkCourseCompletionStatus(int $userId, int $courseId): bool
     {
         $progress = app(CourseProgressService::class)->getProgressWithCache($userId, $courseId);
-        return $progress->total_items > 0
-            && $progress->completed_items === $progress->total_items
-            && (float) $progress->progress_percentage >= 100.0
-            && $progress->status === 'completed';
+        return app(CourseProgressService::class)->resolveLearningStatus($progress, 0) === 'completed';
+    }
+
+    /**
+     * Canonical automatic-certificate eligibility used by API, listing and issuance.
+     *
+     * @return array{eligible: bool, is_enrolled: bool, is_completed: bool, certificate_enabled: bool, certificate_fee: float, certificate_fee_paid: bool, progress_percentage: float, completed_items: int, total_items: int}
+     */
+    public function getCourseEligibility(User $user, Course $course): array
+    {
+        $progress = app(CourseProgressService::class)->getProgressWithCache((int) $user->id, (int) $course->id);
+        $isEnrolled = CourseCertificate::userIsEnrolled((int) $user->id, (int) $course->id, $user);
+        $isCompleted = app(CourseProgressService::class)->resolveLearningStatus($progress, 0) === 'completed';
+        $certificateEnabled = (bool) $course->certificate_enabled;
+        // A paid course includes its certificate. The separate certificate fee
+        // applies only to free courses (the purchase endpoint follows this rule).
+        $certificateFee = $course->course_type === 'free'
+            ? (float) ($course->certificate_fee ?? 0)
+            : 0.0;
+        $certificateFeePaid = $certificateFee <= 0 || OrderCourse::query()
+            ->where('course_id', $course->id)
+            ->where('certificate_purchased', true)
+            ->whereHas('order', static fn ($query) => $query
+                ->where('user_id', $user->id)
+                ->where('status', 'completed'))
+            ->exists();
+
+        return [
+            'eligible' => $isEnrolled && $isCompleted && $certificateEnabled && $certificateFeePaid,
+            'is_enrolled' => $isEnrolled,
+            'is_completed' => $isCompleted,
+            'certificate_enabled' => $certificateEnabled,
+            'certificate_fee' => $certificateFee,
+            'certificate_fee_paid' => $certificateFeePaid,
+            'progress_percentage' => round((float) $progress->progress_percentage, 2),
+            'completed_items' => (int) ($progress->completed_items ?? 0),
+            'total_items' => (int) ($progress->total_items ?? 0),
+        ];
     }
 
     /**
@@ -101,34 +135,13 @@ class CertificateService
                 ->where('course_id', $courseId)
                 ->first();
 
-            if ($existing) {
+            if ($existing && !$existing->isRevoked()) {
                 return $existing;
             }
 
             // ── Business rule checks (before acquiring lock to reduce lock time) ──
             if ($issuanceSource === 'automatic') {
-                if (!$course->certificate_enabled) {
-                    return null;
-                }
-
-                if (!CourseCertificate::userIsEnrolled($userId, $courseId, $user)) {
-                    return null;
-                }
-
-                if (!$this->checkCourseCompletionStatus($userId, $courseId)) {
-                    return null;
-                }
-
-                if ($course->certificate_fee > 0) {
-                    $purchased = OrderCourse::where('course_id', $courseId)
-                        ->whereHas('order', fn ($query) => $query->where('user_id', $userId))
-                        ->where('certificate_purchased', true)
-                        ->exists();
-
-                    if (!$purchased) {
-                        return null;
-                    }
-                }
+                if (!$this->getCourseEligibility($user, $course)['eligible']) return null;
             } elseif ($issuanceSource === 'admin_manual') {
                 // Admin manual issuance: check progress if needed
                 $allowIncomplete = $options['allow_incomplete'] ?? false;
@@ -150,7 +163,7 @@ class CertificateService
                     ->where('course_id', $courseId)
                     ->first();
 
-                if ($existing) {
+                if ($existing && !$existing->isRevoked()) {
                     return $existing;
                 }
 
@@ -174,7 +187,7 @@ class CertificateService
                 $instructorName = trim($options['instructor_name'] ?? ($course->user->name ?? 'Instructor'));
                 $issuedDate = $options['issued_date'] ?? now()->toDateString();
 
-                $certificate = CourseCertificate::create([
+                $certificateData = [
                     'user_id'                 => $userId,
                     'course_id'               => $courseId,
                     'certificate_number'      => $certificateNumber,
@@ -191,7 +204,22 @@ class CertificateService
                     'completed_at'            => $options['completed_at'] ?? now(),
                     'certificate_template_id' => $template ? $template->id : null,
                     'issuer_id'               => $issuerId,
-                ]);
+                ];
+
+                if ($existing && $existing->isRevoked()) {
+                    $certificateData['revoked_at'] = null;
+                    $certificateData['revoked_reason'] = null;
+                    $certificateData['revoked_by'] = null;
+                    $certificateData['pdf_path'] = null;
+                    $certificateData['qr_code_path'] = null;
+                    if (\Illuminate\Support\Facades\Schema::hasColumn('course_certificates', 'is_valid')) {
+                        $certificateData['is_valid'] = true;
+                    }
+                    $existing->update($certificateData);
+                    $certificate = $existing->fresh();
+                } else {
+                    $certificate = CourseCertificate::create($certificateData);
+                }
 
                 try {
                     $qrTarget = $appUrl . '/certificates/verify/' . $verificationToken;

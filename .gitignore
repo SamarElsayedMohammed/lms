@@ -98,9 +98,11 @@ backups/
 *.7z
 *.md
 !docs/AUTHENTICATION_BUG_REPORT_AR.md
+!backend-crash-forensics.md
 
 *.sh
 !docker/*.sh
+!scripts/capture-runtime-health.sh
 
 # Public folder
 !/public/*

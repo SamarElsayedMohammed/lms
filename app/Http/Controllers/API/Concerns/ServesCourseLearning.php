@@ -127,13 +127,13 @@ trait ServesCourseLearning
             $validator = Validator::make($request->all(), [
                 "per_page" => "nullable|integer|min:1|max:100",
                 "page" => "nullable|integer|min:1",
-                "sort_by" => "nullable|in:id,title,created_at,updated_at,purchase_date",
+                "sort_by" => "nullable|in:id,title,created_at,updated_at,enrolled_at,purchase_date",
                 "sort_order" => "nullable|in:asc,desc",
                 "search" => "nullable|string|max:255",
                 "category_id" => "nullable|exists:categories,id",
                 "level" => "nullable|string",
                 "course_type" => "nullable|string|in:all,free,paid",
-                "progress_status" => "nullable|in:all,in_progress,completed",
+                "progress_status" => "nullable|in:all,not_started,in_progress,completed",
             ]);
 
             if ($validator->fails()) {
@@ -144,7 +144,10 @@ trait ServesCourseLearning
 
             // Get refund settings
             $refundEnabled = HelperService::systemSettings("refund_enabled") == 1;
-            $refundPeriodDays = (int) HelperService::systemSettings("refund_period_days") ?? 7;
+            $refundPeriodSetting = HelperService::systemSettings("refund_period_days");
+            $refundPeriodDays = ($refundPeriodSetting === null || $refundPeriodSetting === '')
+                ? 7
+                : max(0, (int) $refundPeriodSetting);
 
             $enrollmentService = app(UserEnrollmentService::class);
             $enrolledItems = $enrollmentService->resolveEnrolledCourseIds((int) $userId);
@@ -160,6 +163,7 @@ trait ServesCourseLearning
                     'in_progress' => 0,
                     'completed' => 0,
                     'not_started' => 0,
+                    'average_progress' => 0,
                 ];
                 return ApiResponseService::successResponse(
                     "My learning courses retrieved successfully",
@@ -169,22 +173,13 @@ trait ServesCourseLearning
 
             $allCourseIds = $enrolledItems->pluck('course_id')->toArray();
             $purchaseDatesMap = $enrolledItems->keyBy('course_id')->map(fn($i) => $i['purchase_date']);
+            $enrolledDatesMap = $enrolledItems->keyBy('course_id')->map(fn($i) => $i['enrolled_at']);
+            $accessStartedDatesMap = $enrolledItems->keyBy('course_id')->map(fn($i) => $i['access_started_at']);
 
-            // Batch calculate progress status for all enrolled courses
-            $progressService = app(\App\Services\CourseProgressService::class);
-            $allCourseProgresses = collect($allCourseIds)->mapWithKeys(function ($cId) use ($userId, $progressService) {
-                return [$cId => $progressService->getProgressWithCache((int) $userId, (int) $cId)];
-            });
-
-            $videoWatchedCourseIds = DB::table('video_progress')
-                ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
-                ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
-                ->where('video_progress.user_id', $userId)
-                ->whereIn('course_chapters.course_id', $allCourseIds)
-                ->where('video_progress.watched_seconds', '>', 0)
-                ->pluck('course_chapters.course_id')
-                ->unique()
-                ->toArray();
+            // Dashboard and My Learning consume the exact same canonical state snapshot.
+            $canonicalProgresses = app(\App\Services\StudentDashboardStatisticsService::class)
+                ->getEnrolledCourseProgresses(Auth::user())
+                ->keyBy('course_id');
 
             $courseStatusMap = [];
             $inProgressCourseIds = [];
@@ -192,20 +187,10 @@ trait ServesCourseLearning
             $notStartedCourseIds = [];
 
             foreach ($allCourseIds as $cId) {
-                $p = $allCourseProgresses->get($cId);
-                $pct = (float) ($p->progress_percentage ?? 0);
-                $hasWatched = in_array($cId, $videoWatchedCourseIds, true);
-
-                if ($pct >= 100 || ($p->status ?? '') === 'completed') {
-                    $status = 'completed';
-                    $completedCourseIds[] = $cId;
-                } elseif ($pct > 0 || $hasWatched || ($p->completed_items ?? 0) > 0) {
-                    $status = 'in_progress';
-                    $inProgressCourseIds[] = $cId;
-                } else {
-                    $status = 'not_started';
-                    $notStartedCourseIds[] = $cId;
-                }
+                $status = (string) ($canonicalProgresses->get($cId)['learning_status'] ?? 'not_started');
+                if ($status === 'completed') $completedCourseIds[] = $cId;
+                elseif ($status === 'in_progress') $inProgressCourseIds[] = $cId;
+                else $notStartedCourseIds[] = $cId;
                 $courseStatusMap[$cId] = $status;
             }
 
@@ -214,6 +199,11 @@ trait ServesCourseLearning
                 'in_progress' => count($inProgressCourseIds),
                 'completed' => count($completedCourseIds),
                 'not_started' => count($notStartedCourseIds),
+                'average_progress' => count($allCourseIds) > 0
+                    ? round(collect($allCourseIds)->avg(
+                        fn ($courseId) => (float) ($canonicalProgresses->get($courseId)['progress_percentage'] ?? 0),
+                    ), 2)
+                    : 0,
             ];
 
             $targetCourseIds = $allCourseIds;
@@ -274,17 +264,20 @@ trait ServesCourseLearning
             }
 
             // Sorting logic
-            $sortBy = $request->sort_by ?? 'purchase_date';
+            $sortBy = $request->sort_by ?? 'enrolled_at';
             $sortOrder = $request->sort_order ?? 'desc';
 
-            if ($sortBy === 'purchase_date') {
-                // PHP-side sorting of the IDs based on the mapped purchase dates
+            if (in_array($sortBy, ['enrolled_at', 'purchase_date'], true)) {
+                $dateKey = $sortBy;
                 $sortedIds = $enrolledItems->whereIn('course_id', $targetCourseIds)
-                    ->sortBy(fn($item) => $item['purchase_date'], SORT_REGULAR, $sortOrder === 'desc')
+                    ->sortBy(fn($item) => $item[$dateKey], SORT_REGULAR, $sortOrder === 'desc')
                     ->pluck('course_id')->toArray();
                 if (!empty($sortedIds)) {
-                    $orderedIdsStr = implode(',', $sortedIds);
-                    $query->orderByRaw("FIELD(id, {$orderedIdsStr})");
+                    $caseSql = collect($sortedIds)
+                        ->values()
+                        ->map(fn ($id, $position) => 'WHEN ' . (int) $id . ' THEN ' . (int) $position)
+                        ->implode(' ');
+                    $query->orderByRaw("CASE id {$caseSql} ELSE " . count($sortedIds) . ' END');
                 }
             } else {
                 $query->orderBy($sortBy, $sortOrder);
@@ -324,24 +317,18 @@ trait ServesCourseLearning
                     return $item->chapter->course_id ?? 0;
                 });
 
-            $firstChapters = \App\Models\Course\CourseChapter\CourseChapter::whereIn('course_id', $paginatedIds)
-                ->where('is_active', 1)
-                ->orderBy('chapter_order')
-                ->get()
-                ->groupBy('course_id');
-
             // Map the paginated collection
             $transformedItems = collect($paginatedCourses->items())->map(function($basicCourse) use (
-                $userId, $hydratedCourses, $purchaseDatesMap, $wishlistedCourseIds, $latestTrackings, $firstChapters, $refundEnabled, $refundPeriodDays, $allCourseProgresses, $courseStatusMap
+                $hydratedCourses, $purchaseDatesMap, $enrolledDatesMap, $accessStartedDatesMap, $wishlistedCourseIds, $latestTrackings, $refundEnabled, $refundPeriodDays, $canonicalProgresses, $courseStatusMap
             ) {
                 $course = $hydratedCourses->get($basicCourse->id);
                 if (!$course) return null;
 
-                $cachedProgress = $allCourseProgresses->get($course->id) ?? app(\App\Services\CourseProgressService::class)->getProgressWithCache($userId, $course->id);
-                $progressPercentage = (float) $cachedProgress->progress_percentage;
-                $totalCurriculumItems = $cachedProgress->total_items;
-                $completedCurriculumItems = $cachedProgress->completed_items;
-                $startedCurriculumItems = $cachedProgress->status === 'not_started' ? 0 : max(1, $completedCurriculumItems);
+                $canonicalProgress = $canonicalProgresses->get($course->id) ?? [];
+                $progressPercentage = (float) ($canonicalProgress['progress_percentage'] ?? 0);
+                $totalCurriculumItems = (int) ($canonicalProgress['total_items'] ?? 0);
+                $completedCurriculumItems = (int) ($canonicalProgress['completed_items'] ?? 0);
+                $startedCurriculumItems = (int) ($canonicalProgress['started_items'] ?? 0);
 
                 $currentChapterName = null;
                 if ($completedCurriculumItems > 0) {
@@ -349,12 +336,11 @@ trait ServesCourseLearning
                     if ($lastTracking && $lastTracking->chapter) {
                         $currentChapterName = trim(preg_replace('/^Chapters+d+:s*/i', '', $lastTracking->chapter->title));
                     }
-                } else {
-                    $firstChapter = $firstChapters->get($course->id)?->first();
-                    $currentChapterName = $firstChapter ? $firstChapter->title : null;
                 }
 
                 $orderDate = $purchaseDatesMap[$course->id] ?? null;
+                $enrolledAt = $enrolledDatesMap[$course->id] ?? null;
+                $accessStartedAt = $accessStartedDatesMap[$course->id] ?? null;
 
                 $isRefundEligible = false;
                 $refundDaysRemaining = 0;
@@ -371,7 +357,7 @@ trait ServesCourseLearning
                     $discountPercentage = round((($course->display_price - $course->display_discount_price) / $course->display_price) * 100);
                 }
 
-                $progressStatus = $courseStatusMap[$course->id] ?? $this->getProgressStatusWithStarted($progressPercentage, $startedCurriculumItems);
+                $progressStatus = $courseStatusMap[$course->id] ?? 'not_started';
 
                 return [
                     "id" => $course->id,
@@ -398,7 +384,8 @@ trait ServesCourseLearning
                     "discount_percentage" => $discountPercentage,
                     "is_wishlisted" => in_array($course->id, $wishlistedCourseIds),
                     "is_enrolled" => true,
-                    "enrolled_at" => $course->created_at,
+                    "enrolled_at" => $enrolledAt?->format("Y-m-d H:i:s"),
+                    "access_started_at" => $accessStartedAt?->format("Y-m-d H:i:s"),
                     "total_chapters" => 0,
                     "completed_chapters" => 0,
                     "current_chapter_name" => $currentChapterName,
@@ -429,41 +416,6 @@ trait ServesCourseLearning
             ApiResponseService::logErrorResponse($e, "API Course Controller -> getMyLearning Method");
             return ApiResponseService::errorResponse($e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
         }
-    }
-
-    /**
-     * Get progress status based on percentage
-     */
-    private function getProgressStatus($percentage)
-    {
-        if ($percentage == 0) {
-            return "not_started";
-        } elseif ($percentage < 25) {
-            return "just_started";
-        } elseif ($percentage < 50) {
-            return "in_progress";
-        } elseif ($percentage < 75) {
-            return "almost_done";
-        } elseif ($percentage < 100) {
-            return "nearly_complete";
-        } else {
-            return "completed";
-        }
-    }
-
-    /**
-     * Get progress status considering both completion percentage and started items.
-     * This ensures users who have watched videos (even partially) show as "in_progress".
-     */
-    private function getProgressStatusWithStarted($percentage, $startedItems)
-    {
-        // If user has started any item but hasn't completed any (0%), show as "just_started"
-        if ($percentage == 0 && $startedItems > 0) {
-            return "just_started";
-        }
-
-        // Otherwise use the standard progress status
-        return $this->getProgressStatus($percentage);
     }
 
     /**
@@ -525,7 +477,8 @@ trait ServesCourseLearning
         }
 
         try {
-            $userId = Auth::user()?->id;
+            $user = Auth::user();
+            $userId = $user?->id;
             $courseId = $request->course_id;
             $status = $request->status;
             // Check if course is free or paid

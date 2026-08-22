@@ -25,25 +25,48 @@ class ContactMessageAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('contact-messages-list');
 
-        $search = $request->input('search');
+        $validator = Validator::make($request->all(), [
+            'search' => 'nullable|string|max:255',
+            'status' => 'nullable|in:new,read,waiting_admin,replied,closed,completed,reopened',
+            'from_date' => 'nullable|date',
+            'to_date' => 'nullable|date|after_or_equal:from_date',
+            'per_page' => 'nullable|integer|min:1|max:100',
+            'page' => 'nullable|integer|min:1',
+        ]);
+        if ($validator->fails()) {
+            return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        $search = trim((string) $request->input('search', ''));
         $status = $request->input('status');
-        $perPage = min((int) $request->input('per_page', 15), 100);
+        $perPage = (int) $request->input('per_page', 15);
 
         $query = ContactMessage::query()
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $q->where('first_name', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('subject', 'like', "%{$search}%")
                     ->orWhere('message', 'like', "%{$search}%");
             }))
-            ->when($status, fn ($q) => $q->where('status', $status));
+            ->when($status, fn ($q) => $q->where('status', $status))
+            ->when($request->filled('from_date'), fn ($q) => $q->whereDate('created_at', '>=', $request->input('from_date')))
+            ->when($request->filled('to_date'), fn ($q) => $q->whereDate('created_at', '<=', $request->input('to_date')));
 
         $messages = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         $newCount = ContactMessage::new()->count();
+        $pendingCount = ContactMessage::whereIn('status', ['new', 'read', 'waiting_admin', 'reopened'])->count();
+        $completedCount = ContactMessage::whereIn('status', ['closed', 'completed'])->count();
+        $totalCount = ContactMessage::count();
 
         return $this->jsonSuccess(__('Contact messages retrieved'), [
             'messages' => $messages,
             'new_count' => $newCount,
+            'status_counts' => [
+                'pending' => $pendingCount,
+                'completed' => $completedCount,
+                'total' => $totalCount,
+            ],
         ]);
     }
 
@@ -108,8 +131,13 @@ class ContactMessageAdminApiController extends AdminCrudApiController
             'success' => true,
             'data' => [
                 'id' => $message->id,
-                'subject' => \Illuminate\Support\Str::limit($message->message, 50),
+                'first_name' => $message->first_name,
+                'email' => $message->email,
+                'subject' => $message->subject ?: \Illuminate\Support\Str::limit($message->message, 50),
                 'status' => $message->status,
+                'message' => $message->message,
+                'metadata' => $message->metadata,
+                'created_at' => $message->created_at,
                 'conversation' => $conversation,
             ]
         ]);
@@ -157,14 +185,14 @@ class ContactMessageAdminApiController extends AdminCrudApiController
         $this->checkPermission('contact-messages-edit');
 
         $validator = Validator::make($request->all(), [
-            'message' => 'required|string|min:2',
+            'message' => 'required|string|min:2|max:5000',
         ]);
 
         if ($validator->fails()) {
             // Check legacy reply_message as fallback for backward compatibility
             if ($request->has('reply_message')) {
                 $validator = Validator::make($request->all(), [
-                    'reply_message' => 'required|string|min:2',
+                    'reply_message' => 'required|string|min:2|max:5000',
                 ]);
                 if ($validator->fails()) {
                     return $this->jsonError($validator->errors()->first(), 422);
@@ -177,6 +205,11 @@ class ContactMessageAdminApiController extends AdminCrudApiController
             $replyMessage = $request->message;
         }
 
+        $replyMessage = trim(strip_tags((string) $replyMessage));
+        if (mb_strlen($replyMessage) < 2) {
+            return $this->jsonError('Reply must contain at least two visible characters.', 422);
+        }
+
         $message = ContactMessage::find($id);
         if (!$message) {
             return $this->jsonError(__('Contact message not found'), 404);
@@ -184,6 +217,7 @@ class ContactMessageAdminApiController extends AdminCrudApiController
 
         try {
             $appName      = \App\Services\HelperService::systemSettings('app_name') ?? 'LMS';
+            $recipientUser = $message->user_id ? \App\Models\User::find($message->user_id) : null;
 
             // 1️⃣ Save the reply in contact_message_replies
             \App\Models\ContactMessageReply::create([
@@ -194,7 +228,11 @@ class ContactMessageAdminApiController extends AdminCrudApiController
             ]);
 
             // 2️⃣ Send email reply
-            if (in_array('mail', NotificationSettingsService::getChannelsFor('ContactReplyNotification', ['mail', 'database']), true)) {
+            if (in_array('mail', NotificationSettingsService::getChannelsFor(
+                'ContactReplyNotification',
+                ['mail'],
+                $recipientUser,
+            ), true)) {
                 try {
                     Mail::queue(
                     'emails.contact-reply',
@@ -217,24 +255,31 @@ class ContactMessageAdminApiController extends AdminCrudApiController
             }
 
             // 3️⃣ Send in-app + FCM notification to the user (only if logged-in user sent the message)
-            if ($message->user_id && in_array('database', NotificationSettingsService::getChannelsFor('ContactReplyNotification', ['mail', 'database']), true)) {
-                // Create support_reply notification
-                \App\Models\UserNotification::create([
-                    'user_id' => $message->user_id,
-                    'type' => 'support_reply',
-                    'title' => 'تم الرد على رسالتك',
-                    'message' => 'قام فريق الدعم بالرد على استفسارك',
-                    'url' => '/contact-us?tab=conversations',
-                ]);
-
-                $user = \App\Models\User::find($message->user_id);
+            if ($message->user_id) {
+                $user = $recipientUser;
                 if ($user) {
                     try {
-                        $user->notify(new \App\Notifications\ContactReplyNotification(
+                        if (in_array('database', NotificationSettingsService::getChannelsFor(
+                            'ContactReplyNotification',
+                            ['database'],
+                            $user,
+                        ), true)) {
+                            \App\Models\UserNotification::create([
+                                'user_id' => $message->user_id,
+                                'contact_message_id' => $message->id,
+                                'type' => 'support_reply',
+                                'title' => 'تم الرد على رسالتك',
+                                'message' => 'قام فريق الدعم بالرد على استفسارك',
+                                'url' => '/messages?ticket=' . $message->id,
+                            ]);
+                        }
+
+                        $notification = new \App\Notifications\ContactReplyNotification(
                             $message,
                             $replyMessage,
                             $appName,
-                        ));
+                        );
+                        $notification->sendPushTo($user);
                     } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                         throw $e;
                     } catch (\Exception $e) {

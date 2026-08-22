@@ -135,7 +135,7 @@ class KnowledgeIngestionStabilityTest extends TestCase
             $this->assertStringContainsString('--queue=ingestion', $configuration);
             $this->assertStringContainsString('--timeout=7200', $configuration);
             $this->assertStringContainsString('--tries=3', $configuration);
-            $this->assertStringContainsString('--memory=384', $configuration);
+            $this->assertStringContainsString('--memory=192', $configuration);
             $this->assertMatchesRegularExpression('/numprocs\s*=\s*1/', $configuration);
         }
     }

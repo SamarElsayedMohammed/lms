@@ -31,7 +31,7 @@ class ChatbotApiController extends Controller
             'chatbot_icon',
         ]);
 
-        $enabled = !empty($settings['chatbot_enabled']) && $settings['chatbot_enabled'] !== '0' && $settings['chatbot_enabled'] !== 'false';
+        $enabled = $this->isEnabledSetting($settings['chatbot_enabled'] ?? null);
 
         if (!$enabled) {
             return response()->json([
@@ -91,7 +91,7 @@ class ChatbotApiController extends Controller
 
         // Global subscriber bot setting check
         $globalEnabled = CachingService::getSystemSettings('chatbot_enabled');
-        $isGlobalEnabled = !empty($globalEnabled) && $globalEnabled !== '0' && $globalEnabled !== 'false';
+        $isGlobalEnabled = $this->isEnabledSetting($globalEnabled);
 
         if (!$isGlobalEnabled) {
             return response()->json([
@@ -194,8 +194,16 @@ class ChatbotApiController extends Controller
      */
     public function getFaqAnswer(Request $request): JsonResponse
     {
+        if (!$this->isEnabledSetting(CachingService::getSystemSettings('chatbot_enabled'))) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Chatbot is currently disabled'),
+            ], 403, [], JSON_UNESCAPED_UNICODE);
+        }
+
         $validator = Validator::make($request->all(), [
             'faq_id' => 'required|integer|exists:chatbot_faqs,id',
+            'conversation_id' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
@@ -206,7 +214,10 @@ class ChatbotApiController extends Controller
         }
 
         $service = new ChatBotService();
-        $result = $service->getFaqAnswer((int) $request->input('faq_id'));
+        $result = $service->getFaqAnswer(
+            (int) $request->input('faq_id'),
+            $request->filled('conversation_id') ? (int) $request->input('conversation_id') : null,
+        );
 
         if (!$result) {
             return response()->json([
@@ -227,7 +238,7 @@ class ChatbotApiController extends Controller
     public function sendMessage(Request $request): JsonResponse
     {
         $enabled = CachingService::getSystemSettings('chatbot_enabled');
-        if (empty($enabled) || $enabled === '0' || $enabled === 'false') {
+        if (!$this->isEnabledSetting($enabled)) {
             return response()->json([
                 'status' => false,
                 'message' => __('Chatbot is currently disabled'),
@@ -292,6 +303,37 @@ class ChatbotApiController extends Controller
             ], 403, [], JSON_UNESCAPED_UNICODE);
         }
 
+        if (!$this->isEnabledSetting(CachingService::getSystemSettings('chatbot_enabled'))) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Chatbot is currently disabled'),
+            ], 403, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        $knowledgeStatus = $course->ai_processing_status
+            ?: (empty($course->ai_knowledge_content) && empty($course->ai_knowledge_file) ? 'not_configured' : 'ready');
+
+        if (in_array($knowledgeStatus, ['processing', 'queued'], true)) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Course assistant knowledge is still processing'),
+            ], 409, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        if ($knowledgeStatus === 'failed') {
+            return response()->json([
+                'status' => false,
+                'message' => __('Course assistant knowledge processing failed'),
+            ], 503, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        if ($knowledgeStatus === 'not_configured') {
+            return response()->json([
+                'status' => false,
+                'message' => __('Course assistant knowledge is not configured'),
+            ], 409, [], JSON_UNESCAPED_UNICODE);
+        }
+
         $user = Auth::guard('sanctum')->user() ?: Auth::user();
         if (!$user) {
             return response()->json([
@@ -328,9 +370,21 @@ class ChatbotApiController extends Controller
      */
     public function getConversations(Request $request): JsonResponse
     {
-        $userId = Auth::id();
+        $userId = Auth::guard('sanctum')->id() ?: Auth::id();
         if (!$userId) {
             return response()->json(['status' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'type' => 'nullable|in:general,course',
+            'course_id' => 'nullable|integer|exists:courses,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors()->first(),
+            ], 422, [], JSON_UNESCAPED_UNICODE);
         }
 
         $type = $request->input('type');
@@ -355,7 +409,7 @@ class ChatbotApiController extends Controller
      */
     public function getConversationMessages(int $id): JsonResponse
     {
-        $userId = Auth::id();
+        $userId = Auth::guard('sanctum')->id() ?: Auth::id();
         if (!$userId) {
             return response()->json(['status' => false, 'message' => 'Unauthorized'], 401);
         }
@@ -386,7 +440,28 @@ class ChatbotApiController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $messages,
+            'data' => [
+                'conversation' => $conversation->only([
+                    'id',
+                    'user_id',
+                    'course_id',
+                    'title',
+                    'type',
+                    'last_message_at',
+                    'created_at',
+                    'updated_at',
+                ]),
+                'messages' => $messages,
+            ],
         ], 200, [], JSON_UNESCAPED_UNICODE);
+    }
+
+    private function isEnabledSetting(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return !in_array(strtolower(trim((string) $value)), ['', '0', 'false', 'off', 'no'], true);
     }
 }

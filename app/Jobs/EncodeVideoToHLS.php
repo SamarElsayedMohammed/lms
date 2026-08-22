@@ -191,6 +191,9 @@ final class EncodeVideoToHLS implements ShouldQueue
             $command = [
                 'ffmpeg',
                 '-y', // Overwrite without asking
+                // Keep a single encode from consuming every core on the shared host.
+                '-threads',
+                '1',
                 '-i',
                 $originalPath,
                 '-map',
@@ -201,6 +204,8 @@ final class EncodeVideoToHLS implements ShouldQueue
                 'scale=ceil(iw/2)*2:ceil(ih/2)*2', // Ensure even dimensions for libx264
                 '-c:v',
                 'libx264',
+                '-x264-params',
+                'threads=1',
                 '-preset',
                 'medium',
                 '-crf',

@@ -36,7 +36,7 @@ final class StudentDashboardStatisticsService
     /**
      * Resolves all accessible/enrolled course progresses for the user.
      *
-     * @return Collection<int, array{course_id: int, course: mixed, purchase_date: mixed, source: string, progress_percentage: float, watched_seconds: int, is_started: bool}>
+     * @return Collection<int, array{course_id: int, course: mixed, enrolled_at: mixed, access_started_at: mixed, purchase_date: mixed, source: string, progress_percentage: float, completed_items: int, total_items: int, watched_seconds: int, is_started: bool, learning_status: string}>
      */
     public function getEnrolledCourseProgresses(User $user): Collection
     {
@@ -58,17 +58,37 @@ final class StudentDashboardStatisticsService
             ->selectRaw('course_chapters.course_id, SUM(video_progress.watched_seconds) as total_watched')
             ->pluck('total_watched', 'course_id');
 
+        $videoStartedItemsMap = DB::table('video_progress')
+            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+            ->where('video_progress.user_id', $user->id)
+            ->whereIn('course_chapters.course_id', $courseIds)
+            ->where('course_chapters.is_active', true)
+            ->where('course_chapter_lectures.is_active', true)
+            ->where('video_progress.watched_seconds', '>', 0)
+            ->groupBy('course_chapters.course_id')
+            ->selectRaw('course_chapters.course_id, COUNT(DISTINCT video_progress.lecture_id) as started_items')
+            ->pluck('started_items', 'course_id');
+
         return $enrolled
-            ->map(function (array $item) use ($user, $videoWatchedMap): array {
+            ->map(function (array $item) use ($user, $videoWatchedMap, $videoStartedItemsMap): array {
                 $courseId = (int) $item['course_id'];
                 $progressObj = $this->progressService->getProgressWithCache((int) $user->id, $courseId);
                 $progressPercentage = (float) $progressObj->progress_percentage;
+                $completedItems = (int) ($progressObj->completed_items ?? 0);
+                $totalItems = (int) ($progressObj->total_items ?? 0);
                 $watchedSeconds = (int) ($videoWatchedMap->get($courseId) ?? 0);
-                $isStarted = $progressPercentage > 0 || $watchedSeconds > 0 || $progressObj->completed_items > 0;
+                $startedItems = max($completedItems, (int) ($videoStartedItemsMap->get($courseId) ?? 0));
+                $isStarted = $progressPercentage > 0 || $watchedSeconds > 0 || $completedItems > 0;
+                $learningStatus = $this->progressService->resolveLearningStatus($progressObj, $watchedSeconds);
 
                 $item['progress_percentage'] = $progressPercentage;
+                $item['completed_items'] = $completedItems;
+                $item['total_items'] = $totalItems;
                 $item['watched_seconds'] = $watchedSeconds;
+                $item['started_items'] = $startedItems;
                 $item['is_started'] = $isStarted;
+                $item['learning_status'] = $learningStatus;
 
                 return $item;
             })
@@ -83,10 +103,8 @@ final class StudentDashboardStatisticsService
     public function getDashboardStatsForCourseProgresses(User $user, Collection $courseProgresses): array
     {
         $totalCourses = $courseProgresses->count();
-        $completedCourses = $courseProgresses->where('progress_percentage', '>=', 100)->count();
-        $inProgressCourses = $courseProgresses
-            ->filter(static fn (array $course): bool => ($course['progress_percentage'] > 0 || !empty($course['is_started'])) && $course['progress_percentage'] < 100)
-            ->count();
+        $completedCourses = $courseProgresses->where('learning_status', 'completed')->count();
+        $inProgressCourses = $courseProgresses->where('learning_status', 'in_progress')->count();
         $notStartedCourses = max(0, $totalCourses - $completedCourses - $inProgressCourses);
         $averageProgress = $totalCourses > 0
             ? round($courseProgresses->avg('progress_percentage'), 2)

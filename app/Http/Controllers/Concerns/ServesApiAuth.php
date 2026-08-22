@@ -318,6 +318,7 @@ trait ServesApiAuth
                     });
                     if ($hasReferredBy) {
                         $affiliateCode = $request->cookie('affiliate_code')
+                            ?? $request->cookie('referral_code')
                             ?? ($request->hasSession() ? $request->session()->get('affiliate_code') : null)
                             ?? $request->input('referral')
                             ?? $request->input('affiliate_code');
@@ -889,6 +890,7 @@ trait ServesApiAuth
             });
             if ($hasReferredBy) {
                 $affiliateCode = $request->cookie('affiliate_code')
+                    ?? $request->cookie('referral_code')
                     ?? ($request->hasSession() ? $request->session()->get('affiliate_code') : null)
                     ?? $request->input('referral')
                     ?? $request->input('affiliate_code');

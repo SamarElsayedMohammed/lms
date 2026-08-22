@@ -26,44 +26,54 @@ class PublicWebinarController extends Controller
     public function index(Request $request)
     {
         try {
+            $validated = $request->validate([
+                'course_id' => ['nullable', 'integer', 'min:1'],
+                'page' => ['nullable', 'integer', 'min:1'],
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+            ]);
             $user = Auth::guard('sanctum')->user();
 
             Webinar::syncPublishedLifecycleStatuses();
 
             $query = Webinar::with(['instructor:id,name', 'course:id,title'])
+                ->withCount([
+                    'registrations as registrations_count' => static fn ($registrationQuery) => $registrationQuery
+                        ->consumesCapacity(),
+                ])
                 ->where('is_published', true)
                 ->whereIn('status', ['scheduled', 'live']);
 
             if ($user) {
                 $query->withExists(['registrations as is_registered' => function ($q) use ($user) {
                     $q->where('user_id', $user->id)
-                      ->where(function ($sub) {
-                          $sub->whereIn('payment_status', ['paid', 'free'])
-                              ->orWhere(function ($p) {
-                                  $p->where('payment_status', 'pending')
-                                    ->where(function ($e) {
-                                        $e->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                                    });
-                              });
-                      });
+                      ->whereIn('payment_status', ['paid', 'free']);
                 }]);
             }
 
-            if ($request->has('course_id')) {
-                $query->where('course_id', $request->input('course_id'));
+            if (!empty($validated['course_id'])) {
+                $query->where('course_id', $validated['course_id']);
             }
 
-            $perPage = min((int) $request->input('per_page', 15), 50);
+            $perPage = (int) ($validated['per_page'] ?? 15);
             $webinars = $query->orderBy('start_at', 'asc')->paginate($perPage);
 
             $webinars->getCollection()->transform(function ($webinar) use ($user) {
                 if (isset($webinar->is_registered_exists)) {
                     $webinar->is_registered = (bool) $webinar->is_registered_exists;
                 }
+                $registrationCount = (int) ($webinar->registrations_count ?? 0);
+                $maxAttendees = (int) ($webinar->max_attendees ?? 0);
+                $webinar->registered_count = $registrationCount;
+                $webinar->spots_left = $maxAttendees > 0
+                    ? max(0, $maxAttendees - $registrationCount)
+                    : null;
+                $webinar->is_full = $maxAttendees > 0 && $registrationCount >= $maxAttendees;
                 return $this->accessService->sanitizeWebinarForResponse($webinar, $user);
             });
 
             return ApiResponseService::successResponse('Webinars retrieved successfully', $webinars);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -91,7 +101,7 @@ class PublicWebinarController extends Controller
 
             $isEntitled = $this->accessService->isUserEntitled($webinar, $user);
             $registration = $this->accessService->getRegistration($webinar, $user);
-            $isRegistered = $registration && ($registration->isConfirmed() || ($registration->isPending() && !$registration->isExpired()));
+            $isRegistered = $registration?->isConfirmed() ?? false;
 
             // Sanitize webinar model to eliminate any sensitive credential leaks
             $sanitizedWebinar = $this->accessService->sanitizeWebinarForResponse($webinar, $user);

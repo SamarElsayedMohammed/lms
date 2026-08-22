@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\Course\CourseChapter\Lecture\CourseLectureNote;
 use App\Services\ContentAccessService;
+use App\Services\VideoProgressService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,7 +17,8 @@ use Illuminate\Support\Facades\Validator;
 class LectureNoteApiController extends Controller
 {
     public function __construct(
-        protected ContentAccessService $contentAccessService
+        protected ContentAccessService $contentAccessService,
+        protected VideoProgressService $videoProgressService,
     ) {}
 
     /**
@@ -125,10 +127,7 @@ class LectureNoteApiController extends Controller
             ], 422);
         }
 
-        $timestamp = (int) $request->input('video_timestamp_seconds');
-        if ($lecture->duration_seconds > 0 && $timestamp > $lecture->duration_seconds) {
-            $timestamp = $lecture->duration_seconds;
-        }
+        $timestamp = $this->clampTimestamp($lecture, (int) $request->input('video_timestamp_seconds'));
 
         $note = CourseLectureNote::create([
             'user_id'                 => $user->id,
@@ -168,7 +167,7 @@ class LectureNoteApiController extends Controller
             ], 401);
         }
 
-        $note = CourseLectureNote::find($noteId);
+        $note = CourseLectureNote::with('lecture.chapter.course')->find($noteId);
         if (!$note) {
             return response()->json([
                 'success' => false,
@@ -182,6 +181,14 @@ class LectureNoteApiController extends Controller
                 'success' => false,
                 'status'  => false,
                 'message' => 'Unauthorized to update this note.',
+            ], 403);
+        }
+
+        if (!$note->lecture || !$this->contentAccessService->canAccessLecture($user, $note->lecture)) {
+            return response()->json([
+                'success' => false,
+                'status' => false,
+                'message' => 'Access denied to update this lecture note.',
             ], 403);
         }
 
@@ -201,7 +208,10 @@ class LectureNoteApiController extends Controller
 
         $note->note_text = trim((string) $request->input('note_text'));
         if ($request->filled('video_timestamp_seconds')) {
-            $note->video_timestamp_seconds = (int) $request->input('video_timestamp_seconds');
+            $note->video_timestamp_seconds = $this->clampTimestamp(
+                $note->lecture,
+                (int) $request->input('video_timestamp_seconds'),
+            );
         }
         $note->save();
 
@@ -259,5 +269,14 @@ class LectureNoteApiController extends Controller
             'status'  => true,
             'message' => 'Note deleted successfully.',
         ]);
+    }
+
+    private function clampTimestamp(CourseChapterLecture $lecture, int $timestamp): int
+    {
+        $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
+
+        return $canonicalDuration > 0
+            ? min(max(0, $timestamp), $canonicalDuration)
+            : max(0, $timestamp);
     }
 }

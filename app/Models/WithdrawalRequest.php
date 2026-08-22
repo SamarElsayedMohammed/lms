@@ -12,12 +12,17 @@ class WithdrawalRequest extends Model
     protected $fillable = [
         'user_id',
         'amount',
+        'fee_amount',
+        'net_amount',
         'amount_egp',
+        'fee_amount_egp',
+        'net_amount_egp',
         'exchange_rate_snapshot',
         'currency_code',
         'status',
         'entry_type',
         'payment_method',
+        'method_snapshot',
         'payment_details',
         'notes',
         'admin_notes',
@@ -27,7 +32,13 @@ class WithdrawalRequest extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'fee_amount' => 'decimal:2',
+        'net_amount' => 'decimal:2',
+        'amount_egp' => 'decimal:2',
+        'fee_amount_egp' => 'decimal:2',
+        'net_amount_egp' => 'decimal:2',
         'payment_details' => 'array',
+        'method_snapshot' => 'array',
         'processed_at' => 'datetime',
     ];
 

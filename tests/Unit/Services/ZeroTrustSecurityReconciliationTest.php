@@ -302,6 +302,6 @@ final class ZeroTrustSecurityReconciliationTest extends TestCase
         $request->headers->set('X-User-Country', 'AE');
         $request->headers->set('X-Vercel-IP-Country', 'KW');
 
-        $this->assertSame('SA', $service->detect($request));
+        $this->assertSame('EG', $service->detect($request));
     }
 }

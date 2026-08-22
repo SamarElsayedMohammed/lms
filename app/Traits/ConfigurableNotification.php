@@ -22,6 +22,10 @@ trait ConfigurableNotification
     public function via(object $notifiable): array
     {
         $defaultChannels = property_exists($this, 'defaultChannels') ? $this->defaultChannels : ['mail', 'database'];
-        return NotificationSettingsService::getChannelsFor(class_basename(self::class), $defaultChannels);
+        return NotificationSettingsService::getChannelsFor(
+            class_basename(self::class),
+            $defaultChannels,
+            $notifiable,
+        );
     }
 }

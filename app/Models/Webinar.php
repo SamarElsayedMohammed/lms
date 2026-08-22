@@ -80,16 +80,8 @@ class Webinar extends Model
     public function activeRegistrationsCount(): int
     {
         return $this->registrations()
-            ->where(function ($q) {
-                $q->whereIn('payment_status', ['paid', 'free'])
-                  ->orWhere(function ($sub) {
-                      $sub->where('payment_status', 'pending')
-                          ->where(function ($exp) {
-                              $exp->whereNull('expires_at')
-                                  ->orWhere('expires_at', '>', now());
-                          });
-                  });
-            })->count();
+            ->consumesCapacity()
+            ->count();
     }
 
     // Accessor for spots left

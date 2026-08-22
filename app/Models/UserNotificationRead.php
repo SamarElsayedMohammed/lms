@@ -10,10 +10,12 @@ class UserNotificationRead extends Model
         'user_id',
         'notification_id',
         'read_at',
+        'hidden_at',
     ];
 
     protected $casts = [
         'read_at' => 'datetime',
+        'hidden_at' => 'datetime',
     ];
 
     public function user()

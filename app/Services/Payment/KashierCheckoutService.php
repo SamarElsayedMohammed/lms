@@ -111,7 +111,7 @@ class KashierCheckoutService implements PaymentGatewayContract
         $config = $this->getConfig();
         $this->validateConfig($config);
 
-        $orderId = 'wlt_' . $user->id . '_' . time();
+        $orderId = 'wlt_' . $user->id . '_' . now()->format('YmdHis') . '_' . bin2hex(random_bytes(3));
         $currency = 'EGP';
         $amountFormatted = number_format((float) $amount, 2, '.', '');
 
@@ -162,7 +162,8 @@ class KashierCheckoutService implements PaymentGatewayContract
         $config = $this->getConfig();
         $this->validateConfig($config);
 
-        $orderId = 'webinar_' . $webinarId . '_' . $user->id . '_' . time();
+        $orderId = 'webinar_' . $webinarId . '_' . $user->id . '_' . now()->format('YmdHis')
+            . '_' . strtolower(\Illuminate\Support\Str::random(6));
         $currency = strtoupper($currency);
         $amountFormatted = number_format((float) $amount, 2, '.', '');
 

@@ -11,6 +11,7 @@ class AffiliateWithdrawal extends Model
         'affiliate_id',
         'amount',
         'commission_ids',
+        'commission_allocations',
         'status',
         'requested_at',
         'processed_at',
@@ -21,6 +22,7 @@ class AffiliateWithdrawal extends Model
     protected $casts = [
         'amount' => 'float',
         'commission_ids' => 'array',
+        'commission_allocations' => 'array',
         'requested_at' => 'datetime',
         'processed_at' => 'datetime',
     ];

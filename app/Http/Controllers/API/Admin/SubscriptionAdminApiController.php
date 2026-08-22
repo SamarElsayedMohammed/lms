@@ -294,7 +294,10 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 return ApiResponseService::errorResponse('لا يوجد عملية دفع معلقة لهذا الاشتراك.');
             }
 
-            if ($payment->wallet_amount > 0) {
+            $walletAmountEgp = (float) ($payment->wallet_amount_egp
+                ?? ((float) $payment->wallet_amount * max(0.0001, (float) ($payment->exchange_rate_snapshot ?? 1))));
+
+            if ($walletAmountEgp > 0) {
                 $alreadyDebited = \App\Models\WalletHistory::where('user_id', $user->id)
                     ->where('reference_id', $subscription->id)
                     ->where('reference_type', \App\Models\Subscription::class)
@@ -305,7 +308,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                     try {
                         \App\Services\WalletService::debitWallet(
                             $user->id,
-                            $payment->wallet_amount,
+                            $walletAmountEgp,
                             'subscription',
                             "Subscription payment for subscription #{$subscription->id}",
                             $subscription->id,
@@ -559,11 +562,22 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             }
 
             // Refund wallet hold if used
-            if ($payment->wallet_amount > 0) {
+            $walletAmountEgp = (float) ($payment->wallet_amount_egp
+                ?? ((float) $payment->wallet_amount * max(0.0001, (float) ($payment->exchange_rate_snapshot ?? 1))));
+            $walletDebit = $walletAmountEgp > 0
+                ? \App\Models\WalletHistory::where('user_id', $subscription->user_id)
+                    ->where('reference_id', $subscription->id)
+                    ->where('reference_type', \App\Models\Subscription::class)
+                    ->where('type', 'debit')
+                    ->lockForUpdate()
+                    ->first()
+                : null;
+
+            if ($walletDebit !== null) {
                 try {
                     \App\Services\WalletService::creditWallet(
                         $subscription->user_id,
-                        (float) $payment->wallet_amount,
+                        (float) ($walletDebit->amount_egp ?? $walletAmountEgp),
                         'refund',
                         "استرداد مبلغ الاشتراك اليدوي المرفوض #{$subscription->id}",
                         $subscription->id,
@@ -574,7 +588,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                     Log::error('Failed to refund wallet on manual subscription rejection', [
                         'subscription_id' => $subscription->id,
                         'user_id' => $subscription->user_id,
-                        'amount' => $payment->wallet_amount,
+                        'amount_egp' => $walletDebit->amount_egp ?? $walletAmountEgp,
                         'error' => $e->getMessage(),
                     ]);
                 }

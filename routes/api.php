@@ -126,10 +126,12 @@ Route::post('logout-others', [ApiController::class, 'userLogoutOthers'])->middle
  */
 Route::prefix('chatbot')->group(function (): void {
     Route::get('/config', [\App\Http\Controllers\API\ChatbotApiController::class, 'getConfig']);
-    Route::get('/config/{courseId}', [\App\Http\Controllers\API\ChatbotApiController::class, 'getCourseConfig']);
-    Route::post('/faq-answer', [\App\Http\Controllers\API\ChatbotApiController::class, 'getFaqAnswer']);
+    Route::get('/config/{courseId}', [\App\Http\Controllers\API\ChatbotApiController::class, 'getCourseConfig'])
+        ->middleware(OptionalAuth::class);
+    Route::post('/faq-answer', [\App\Http\Controllers\API\ChatbotApiController::class, 'getFaqAnswer'])
+        ->middleware([OptionalAuth::class, 'throttle:30,1']);
     Route::post('/message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendMessage'])
-        ->middleware('throttle:30,1'); // Rate limit: 30 messages per minute
+        ->middleware([OptionalAuth::class, 'throttle:30,1']); // Rate limit: 30 messages per minute
 });
 
 /********************************************************************************************* */
@@ -208,7 +210,8 @@ Route::prefix('helpdesk')->group(function (): void {
     Route::get('question', [HelpdeskApiController::class, 'showQuestion']);
     Route::get('search', [HelpdeskApiController::class, 'search']);
 });
-Route::post('contact-us', [ApiController::class, 'submitContactForm']); // Submit Contact Us Form
+Route::post('contact-us', [ApiController::class, 'submitContactForm'])
+    ->middleware([OptionalAuth::class, 'throttle:5,1']); // Submit Contact Us Form
 Route::post('become-instructor', [ApiController::class, 'submitBecomeInstructor']); // Submit Become an Instructor Form
 
 /**
@@ -269,19 +272,23 @@ if (app()->environment('local', 'staging', 'development')) {
  * Feature flag checked in controller; returns 404 when disabled.
  */
 Route::prefix('affiliate')->group(function (): void {
-    Route::get('status', [AffiliateApiController::class, 'status']);
+    Route::get('status', [AffiliateApiController::class, 'status'])->middleware(OptionalAuth::class);
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('my-link', [AffiliateApiController::class, 'getMyLink']);
         Route::get('stats', [AffiliateApiController::class, 'getStats']);
         Route::get('commissions', [AffiliateApiController::class, 'getCommissions']);
-        Route::post('withdraw', [AffiliateApiController::class, 'requestWithdrawal']);
-        Route::post('transfer-to-wallet', [AffiliateApiController::class, 'transferToWallet']);
+        Route::post('withdraw', [AffiliateApiController::class, 'requestWithdrawal'])
+            ->middleware(['throttle:5,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
+        Route::post('transfer-to-wallet', [AffiliateApiController::class, 'transferToWallet'])
+            ->middleware(['throttle:5,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
         Route::get('withdrawals', [AffiliateApiController::class, 'getWithdrawals']);
         Route::get('referrals', [AffiliateApiController::class, 'getReferrals']);
         Route::get('marketing-assets', [AffiliateApiController::class, 'getMarketingAssets']);
     });
 });
-Route::get('ref/{code}', [AffiliateApiController::class, 'trackReferral'])->where('code', '[A-Za-z0-9]+');
+Route::get('ref/{code}', [AffiliateApiController::class, 'trackReferral'])
+    ->where('code', '[A-Za-z0-9]+')
+    ->middleware('throttle:30,1');
 
 /********************************************************************************************* */
 
@@ -333,7 +340,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         'api.video.stream',
     )->middleware('throttle:10,1');
 
-    // Video progress tracking (85% rule)
+    // Video progress tracking (100% contiguous segment completion rule)
     Route::post('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'updateProgress'])
         ->middleware('throttle:10,1');
     Route::get('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'getProgress']);
@@ -451,8 +458,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     //order
     Route::get('/orders', [OrderApiController::class, 'getOrder']);
-    Route::post('/place_order', [OrderApiController::class, 'placeOrder']);
-    Route::post('/purchase-certificate', [OrderApiController::class, 'purchaseCertificate']);
+    Route::post('/place_order', [OrderApiController::class, 'placeOrder'])
+        ->middleware(['throttle:10,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
+    Route::post('/purchase-certificate', [OrderApiController::class, 'purchaseCertificate'])
+        ->middleware(['throttle:10,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
     Route::post('/download-invoice', [OrderApiController::class, 'downloadInvoice']);
     Route::get('/invoice-data', [OrderApiController::class, 'getInvoiceData']);
     Route::get('/test-invoice', [OrderApiController::class, 'testInvoiceDownload']);
@@ -463,7 +472,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/overview', [WalletApiController::class, 'getWalletSummary']); // Alias
         Route::get('/history', [WalletApiController::class, 'getWalletHistory']); // Get wallet history
         Route::get('/transactions', [WalletApiController::class, 'getWalletHistory']); // Alias
-        Route::post('/top-up', [WalletApiController::class, 'topUp']); // Wallet top-up via Kashier (T095)
+        Route::post('/top-up', [WalletApiController::class, 'topUp'])
+            ->middleware(['throttle:10,1', \App\Http\Middleware\IdempotencyMiddleware::class]); // Wallet top-up via Kashier (T095)
         
         // Withdrawals
         Route::get('/withdrawal-methods', [WalletApiController::class, 'getWithdrawalMethods']);
@@ -475,6 +485,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Manual Deposits
         Route::get('/manual-deposits/methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
         Route::get('/deposit-methods', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMethods']);
+        Route::get('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'getMyDeposits']);
         Route::post('/deposit-requests', [\App\Http\Controllers\API\ManualDepositApiController::class, 'submitDeposit'])->middleware('throttle:10,1');
         Route::get('/deposit-requests/{deposit}/receipt', [\App\Http\Controllers\API\ManualDepositApiController::class, 'downloadReceipt']);
     });
@@ -1134,7 +1145,8 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->middleware('role:S
      * Refund APIs
      */
     Route::prefix('refund')->group(function (): void {
-        Route::post('request', [RefundApiController::class, 'requestRefund']);
+        Route::post('request', [RefundApiController::class, 'requestRefund'])
+            ->middleware(['throttle:5,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
         Route::get('my-refunds', [RefundApiController::class, 'getUserRefunds']);
         Route::post('check-eligibility', [RefundApiController::class, 'checkRefundEligibility']);
     });

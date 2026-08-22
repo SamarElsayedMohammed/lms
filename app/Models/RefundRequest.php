@@ -30,6 +30,8 @@ class RefundRequest extends Model
 
     protected $casts = [
         'refund_amount' => 'decimal:2',
+        'amount_egp' => 'decimal:2',
+        'exchange_rate_snapshot' => 'decimal:4',
         'purchase_date' => 'datetime',
         'request_date' => 'datetime',
         'processed_at' => 'datetime',

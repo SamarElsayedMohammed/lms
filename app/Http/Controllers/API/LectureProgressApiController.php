@@ -87,6 +87,8 @@ final class LectureProgressApiController extends Controller
 
             return $this->ok(
                 data: [
+                    'watched_seconds' => $progress->watched_seconds,
+                    'total_seconds' => $progress->total_seconds,
                     'watch_percentage' => (float) $progress->watch_percentage,
                     'is_completed' => (bool) $progress->is_completed,
                     'completed_segments' => $progress->completed_segments,
@@ -158,9 +160,11 @@ final class LectureProgressApiController extends Controller
         $progress = $this->videoProgressService->getProgressWithSeekInfo($user, $lecture);
 
         if ($progress === null) {
+            $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
+
             return $this->ok(data: [
                 'watched_seconds' => 0,
-                'total_seconds' => 0,
+                'total_seconds' => $canonicalDuration,
                 'watch_percentage' => 0.0,
                 'last_position' => 0,
                 'is_completed' => false,

@@ -42,7 +42,7 @@ class RefundApiController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'course_id' => 'required|exists:courses,id',
-            'reason' => 'nullable|string|max:1000',
+            'reason' => 'required|string|max:1000',
             'user_media' => 'nullable|file|mimes:jpg,jpeg,png,gif,mp4,avi,mov,pdf,doc,docx|max:10240', // Max 10MB
         ]);
 
@@ -50,19 +50,21 @@ class RefundApiController extends Controller
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
+        $userMediaPath = null;
+
         try {
             $user = Auth::user();
             $courseId = $request->course_id;
 
             // Check if refunds are enabled
             $refundEnabled = Setting::where('name', 'refund_enabled')->first();
-            if (!$refundEnabled || !$refundEnabled->value) {
+            if (!$refundEnabled || !filter_var($refundEnabled->value, FILTER_VALIDATE_BOOLEAN)) {
                 return ApiResponseService::validationError('Refunds are currently disabled');
             }
 
             // Get refund period from settings
             $refundPeriodDays = Setting::where('name', 'refund_period_days')->first();
-            $refundPeriod = $refundPeriodDays ? (int) $refundPeriodDays->value : 7;
+            $refundPeriod = $refundPeriodDays ? max(0, (int) $refundPeriodDays->value) : 7;
 
             // Check if user has purchased this course through transactions->orders->order_courses
             $transaction = Transaction::whereHas('order', static function ($query) use ($user, $courseId): void {
@@ -74,6 +76,7 @@ class RefundApiController extends Controller
                     });
             })
                 ->where('status', 'completed')
+                ->latest('created_at')
                 ->first();
 
             if (!$transaction) {
@@ -81,9 +84,7 @@ class RefundApiController extends Controller
             }
 
             // Get the order course details for refund amount
-            $orderCourse = OrderCourse::whereHas('order', static function ($query) use ($user): void {
-                $query->where('user_id', $user?->id)->where('status', 'completed');
-            })
+            $orderCourse = OrderCourse::where('order_id', $transaction->order_id)
                 ->where('course_id', $courseId)
                 ->first();
 
@@ -115,7 +116,6 @@ class RefundApiController extends Controller
             }
 
             // Handle user media upload
-            $userMediaPath = null;
             if ($request->hasFile('user_media')) {
                 $userMediaPath = FileService::upload($request->file('user_media'), 'refunds/user-media');
             }
@@ -124,20 +124,64 @@ class RefundApiController extends Controller
             // Calculate refund amount: price (which is discounted price) + tax
             $refundAmount = $orderCourse->price + $orderCourse->tax_price;
             // Also calculate EGP refund if amount_egp is available, else fallback to refundAmount assuming it's EGP
-            $refundAmountEgp = $orderCourse->amount_egp !== null ? ($orderCourse->amount_egp + ($orderCourse->tax_price * ($orderCourse->exchange_rate_snapshot ?: 1))) : $refundAmount;
+            $exchangeRate = (float) ($orderCourse->exchange_rate_snapshot ?: 1);
+            $refundAmountEgp = round($refundAmount * $exchangeRate, 2);
+            if ($refundAmountEgp <= 0) {
+                return ApiResponseService::validationError('Free purchases are not eligible for a monetary refund');
+            }
 
-            $refundRequest = RefundRequest::create([
-                'user_id' => $user->id,
-                'course_id' => $courseId,
-                'transaction_id' => $transaction->id,
-                'refund_amount' => $refundAmount,
-                'amount_egp' => $refundAmountEgp,
-                'status' => 'pending',
-                'reason' => $request->reason,
-                'user_media' => $userMediaPath,
-                'purchase_date' => $purchaseDate,
-                'request_date' => Carbon::now(),
-            ]);
+            $refundRequest = DB::transaction(function () use (
+                $transaction,
+                $user,
+                $courseId,
+                $refundAmount,
+                $refundAmountEgp,
+                $orderCourse,
+                $exchangeRate,
+                $request,
+                $userMediaPath,
+                $purchaseDate,
+            ) {
+                // Serialize against the purchase so parallel browser tabs cannot
+                // create active refunds for the same transaction and course.
+                Transaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
+
+                $existingRefund = RefundRequest::where([
+                    'user_id' => $user->id,
+                    'course_id' => $courseId,
+                    'transaction_id' => $transaction->id,
+                ])->whereIn('status', ['pending', 'approved'])->first();
+
+                if ($existingRefund !== null) {
+                    return null;
+                }
+
+                return RefundRequest::create([
+                    'user_id' => $user->id,
+                    'course_id' => $courseId,
+                    'transaction_id' => $transaction->id,
+                    'refund_amount' => $refundAmount,
+                    'amount_egp' => $refundAmountEgp,
+                    'currency_code' => strtoupper((string) ($orderCourse->currency_code ?? 'EGP')),
+                    'exchange_rate_snapshot' => $exchangeRate,
+                    'status' => 'pending',
+                    'reason' => trim((string) $request->reason),
+                    'user_media' => $userMediaPath,
+                    'purchase_date' => $purchaseDate,
+                    'request_date' => Carbon::now(),
+                ]);
+            });
+
+            if ($refundRequest === null) {
+                if ($userMediaPath !== null) {
+                    FileService::delete($userMediaPath);
+                    $userMediaPath = null;
+                }
+
+                return ApiResponseService::validationError(
+                    'A refund request for this course is already pending or approved',
+                );
+            }
 
             return ApiResponseService::successResponse(
                 'Refund request submitted successfully. It will be reviewed by our team',
@@ -146,6 +190,9 @@ class RefundApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
+            if ($userMediaPath !== null) {
+                FileService::delete($userMediaPath);
+            }
             return ApiResponseService::errorResponse('Something went wrong: ' . $e->getMessage());
         }
     }
@@ -158,13 +205,14 @@ class RefundApiController extends Controller
         try {
             $user = Auth::user();
 
-            // Get per_page parameter with default of 10 records per page
-            $perPage = $request->get('per_page', 10);
+            $validated = $request->validate([
+                'page' => 'nullable|integer|min:1',
+                'per_page' => 'nullable|integer|min:1|max:50',
+                'status' => 'nullable|string|in:pending,approved,rejected',
+            ]);
 
-            // Validate per_page parameter (max 50 records per page)
-            if ($perPage > 50) {
-                $perPage = 50;
-            }
+            // Get per_page parameter with default of 10 records per page
+            $perPage = (int) ($validated['per_page'] ?? 10);
 
             $refunds = RefundRequest::with([
                 'course' => static function ($query): void {
@@ -178,6 +226,7 @@ class RefundApiController extends Controller
                 'transaction.order',
             ])
                 ->where('user_id', $user?->id)
+                ->when(isset($validated['status']), fn ($query) => $query->where('status', $validated['status']))
                 ->orderBy('created_at', 'desc')
                 ->paginate($perPage);
 
@@ -229,7 +278,7 @@ class RefundApiController extends Controller
 
             // Check if refunds are enabled
             $refundEnabled = Setting::where('name', 'refund_enabled')->first();
-            if (!$refundEnabled || !$refundEnabled->value) {
+            if (!$refundEnabled || !filter_var($refundEnabled->value, FILTER_VALIDATE_BOOLEAN)) {
                 return ApiResponseService::successResponse('Refund eligibility checked', [
                     'eligible' => false,
                     'reason' => 'Refunds are currently disabled',
@@ -238,7 +287,7 @@ class RefundApiController extends Controller
 
             // Get refund period from settings
             $refundPeriodDays = Setting::where('name', 'refund_period_days')->first();
-            $refundPeriod = $refundPeriodDays ? (int) $refundPeriodDays->value : 7;
+            $refundPeriod = $refundPeriodDays ? max(0, (int) $refundPeriodDays->value) : 7;
 
             // Check if user has purchased this course through transactions->orders->order_courses
             $transaction = Transaction::whereHas('order', static function ($query) use ($user, $courseId): void {
@@ -250,6 +299,7 @@ class RefundApiController extends Controller
                     });
             })
                 ->where('status', 'completed')
+                ->latest('created_at')
                 ->first();
 
             if (!$transaction) {
@@ -260,9 +310,7 @@ class RefundApiController extends Controller
             }
 
             // Get the order course details for refund amount
-            $orderCourse = OrderCourse::whereHas('order', static function ($query) use ($user): void {
-                $query->where('user_id', $user?->id)->where('status', 'completed');
-            })
+            $orderCourse = OrderCourse::where('order_id', $transaction->order_id)
                 ->where('course_id', $courseId)
                 ->first();
 
@@ -302,9 +350,19 @@ class RefundApiController extends Controller
             }
 
             $refundAmount = $orderCourse->price + $orderCourse->tax_price;
+            $exchangeRate = (float) ($orderCourse->exchange_rate_snapshot ?: 1);
+            $refundAmountEgp = round($refundAmount * $exchangeRate, 2);
+            if ($refundAmountEgp <= 0) {
+                return ApiResponseService::successResponse('Refund eligibility checked', [
+                    'eligible' => false,
+                    'reason' => 'Free purchases are not eligible for a monetary refund',
+                ]);
+            }
             return ApiResponseService::successResponse('Refund eligibility checked', [
                 'eligible' => true,
                 'refund_amount' => $refundAmount,
+                'refund_amount_egp' => $refundAmountEgp,
+                'currency_code' => strtoupper((string) ($orderCourse->currency_code ?? 'EGP')),
                 'days_left' => $daysLeft,
                 'refund_deadline' => $refundDeadline->toIso8601String(),
                 'purchase_date' => $purchaseDate->toIso8601String(),
@@ -358,9 +416,14 @@ class RefundApiController extends Controller
                     $courseTitle = $course?->title ?? 'Course #' . $refundRequest->course_id;
 
                     // 1. Credit amount to student's wallet using WalletService with EGP amount
+                    $refundAmountEgp = (float) ($refundRequest->amount_egp ?? $refundRequest->refund_amount);
+                    if ($refundAmountEgp <= 0) {
+                        return ApiResponseService::validationError('Refund amount must be greater than zero');
+                    }
+
                     WalletService::creditWallet(
                         $refundRequest->user_id,
-                        $refundRequest->amount_egp ?? $refundRequest->refund_amount,
+                        $refundAmountEgp,
                         'refund',
                         "Refund for course: {$courseTitle}",
                         $refundRequest->id,
@@ -425,13 +488,9 @@ class RefundApiController extends Controller
                             ->delete();
                     }
 
-                    // Leftover order_courses must not keep granting access after refund.
-                    OrderCourse::where('course_id', $refundRequest->course_id)
-                        ->whereHas('order', static function ($q) use ($refundRequest): void {
-                            $q->where('user_id', $refundRequest->user_id)
-                                ->where('status', 'completed');
-                        })
-                        ->delete();
+                    // Preserve immutable purchase rows for invoices and financial audit.
+                    // UserEnrollmentService excludes the refunded purchase by its
+                    // transaction/refund timeline and still honours a later repurchase.
 
                     // 4. Mark certificates as revoked
                     $certificates = \App\Models\Course\CourseCertificate::where('user_id', $refundRequest->user_id)
@@ -473,7 +532,7 @@ class RefundApiController extends Controller
                             'refund_request_id' => $refundRequest->id,
                             'user_id' => $refundRequest->user_id,
                             'course_id' => $refundRequest->course_id,
-                            'amount' => $refundRequest->amount_egp ?? $refundRequest->refund_amount,
+                            'amount_egp' => $refundAmountEgp,
                         ]
                     );
 
@@ -581,24 +640,35 @@ class RefundApiController extends Controller
         $this->ensureAdminPermission('finance-list');
 
         try {
+            $validated = $request->validate([
+                'page' => 'nullable|integer|min:1',
+                'per_page' => 'nullable|integer|min:1|max:100',
+                'status' => 'nullable|string|in:pending,approved,rejected',
+                'search' => 'nullable|string|max:255',
+            ]);
             $query = RefundRequest::with(['user', 'course', 'transaction', 'processedByUser']);
 
             // Filter by status if provided
-            if ($request->has('status') && $request->status) {
-                $query->where('status', $request->status);
+            if (!empty($validated['status'])) {
+                $query->where('status', $validated['status']);
             }
 
             // Search by user name or course title
-            if ($request->has('search') && $request->search) {
-                $search = $request->search;
-                $query->whereHas('user', static function ($q) use ($search): void {
-                    $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%");
-                })->orWhereHas('course', static function ($q) use ($search): void {
-                    $q->where('title', 'like', "%{$search}%");
+            if (!empty($validated['search'])) {
+                $search = $validated['search'];
+                $query->where(static function ($searchQuery) use ($search): void {
+                    $searchQuery
+                        ->whereHas('user', static function ($q) use ($search): void {
+                            $q->where('name', 'like', "%{$search}%")
+                                ->orWhere('email', 'like', "%{$search}%");
+                        })
+                        ->orWhereHas('course', static function ($q) use ($search): void {
+                            $q->where('title', 'like', "%{$search}%");
+                        });
                 });
             }
 
-            $refunds = $query->orderBy('created_at', 'desc')->paginate($request->get('per_page', 15));
+            $refunds = $query->orderBy('created_at', 'desc')->paginate((int) ($validated['per_page'] ?? 15));
 
             // Add media URLs to response
             $refunds

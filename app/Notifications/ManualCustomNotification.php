@@ -46,13 +46,23 @@ class ManualCustomNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         if ($this->forcedChannels !== null) {
-            return array_values(array_intersect($this->forcedChannels, ['mail', 'database']));
+            $channels = array_values(array_intersect($this->forcedChannels, ['mail', 'database']));
+            if (in_array('mail', $channels, true)
+                && !NotificationSettingsService::isUserChannelEnabled(
+                    $notifiable,
+                    class_basename(self::class),
+                    'email',
+                )) {
+                $channels = array_values(array_diff($channels, ['mail']));
+            }
+            return $channels;
         }
 
         $default = ['mail', 'database'];
         return NotificationSettingsService::getChannelsFor(
             class_basename(self::class),
-            $default
+            $default,
+            $notifiable,
         );
     }
 

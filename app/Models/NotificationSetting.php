@@ -12,4 +12,9 @@ class NotificationSetting extends Model
         'email_enabled',
         'push_enabled'
     ];
+
+    protected $casts = [
+        'email_enabled' => 'boolean',
+        'push_enabled' => 'boolean',
+    ];
 }

@@ -4,11 +4,10 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course\Course;
-use App\Models\OrderCourse;
-use App\Models\UserSubscription;
 use App\Models\Wishlist;
 use App\Services\ApiResponseService;
 use App\Services\PricingCalculationService;
+use App\Services\UserEnrollmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -20,6 +19,7 @@ class WishlistApiController extends Controller
 
     public function __construct(
         ?PricingCalculationService $pricingService = null,
+        private readonly ?UserEnrollmentService $enrollmentService = null,
     ) {
         $this->pricingService = $pricingService ?? app(PricingCalculationService::class);
     }
@@ -64,31 +64,16 @@ class WishlistApiController extends Controller
                 ->paginate($perPage);
 
             $pageItems = $paginator->getCollection();
-            $courseIds = $pageItems->pluck('course_id')->filter()->unique()->values();
-
-            // 1. Batch load direct purchases (completed orders) for current page
-            $purchasedCourseIds = OrderCourse::whereHas('order', static function ($q) use ($user): void {
-                $q->where('user_id', $user->id)->where('status', 'completed');
-            })
-                ->whereIn('course_id', $courseIds)
+            $enrolledCourseIds = ($this->enrollmentService ?? app(UserEnrollmentService::class))
+                ->resolveEnrolledCourseIds((int) $user->id)
                 ->pluck('course_id')
+                ->map(static fn ($courseId): int => (int) $courseId)
                 ->flip()
-                ->toArray();
+                ->all();
 
-            // 2. Batch check active subscription for user
-            $hasActiveSubscription = false;
-            if (class_exists(UserSubscription::class)) {
-                $hasActiveSubscription = UserSubscription::where('user_id', $user->id)
-                    ->where('status', 'active')
-                    ->where(function ($q) {
-                        $q->whereNull('end_date')->orWhere('end_date', '>=', now());
-                    })
-                    ->exists();
-            }
-
-            // 3. Format and enrich page items
+            // Format and enrich page items using the same enrollment/access source as My Learning.
             $formattedItems = $pageItems
-                ->map(function ($item) use ($purchasedCourseIds, $hasActiveSubscription, $user) {
+                ->map(function ($item) use ($enrolledCourseIds, $user) {
                     $course = $item->course;
 
                     if (!$course) {
@@ -96,27 +81,13 @@ class WishlistApiController extends Controller
                     }
 
                     $isDeleted = $course->trashed();
-                    $isActive = (int) ($course->status ?? 0) === 1;
-                    $isApproved = (int) ($course->is_approved ?? 0) === 1;
+                    $isActive = (bool) $course->is_active && $course->status === 'publish';
+                    $isApproved = $course->approval_status === 'approved';
                     $isAvailable = !$isDeleted && $isActive && $isApproved;
                     $availabilityStatus = $isDeleted ? 'removed' : (!$isActive ? 'inactive' : (!$isApproved ? 'unapproved' : 'available'));
 
-                    // Calculate discount percentage
-                    $discountPercentage = 0;
-                    if (isset($course->has_discount) && $course->has_discount) {
-                        if ($course->price > 0) {
-                            $discountPercentage = round(
-                                (($course->price - $course->discount_price) / $course->price) * 100,
-                                2,
-                            );
-                        }
-                    }
-
-                    // Canonical access state (FG-018 aligned)
-                    $isPurchased = isset($purchasedCourseIds[$course->id]);
-                    $isFree = ($course->course_type ?? 'free') === 'free';
-                    $hasAccess = $isPurchased || $isFree || ($hasActiveSubscription && $isAvailable);
-                    $isEnrolled = $hasAccess;
+                    $isEnrolled = $isAvailable && isset($enrolledCourseIds[(int) $course->id]);
+                    $hasAccess = $isAvailable && ($isEnrolled || $course->isFreeNow());
 
                     // Safe pricing calculation: do not crash on soft-deleted or partial course relations
                     if ($isAvailable) {
@@ -143,6 +114,12 @@ class WishlistApiController extends Controller
                             'is_country_specific' => false,
                         ];
                     }
+
+                    $originalPrice = (float) ($pricing['original_price'] ?? 0);
+                    $courseDiscount = (float) ($pricing['course_discount'] ?? 0);
+                    $discountPercentage = $originalPrice > 0
+                        ? round(($courseDiscount / $originalPrice) * 100, 2)
+                        : 0.0;
 
                     return $this->pricingService->formatCourseWithPricing($course, $pricing, true, [
                         'category_id' => $course->category->id ?? null,
@@ -205,7 +182,11 @@ class WishlistApiController extends Controller
             if ($status === 1) {
                 // Verify course exists, is public, active, and approved before adding
                 $course = Course::find($courseId);
-                if (!$course || $course->trashed() || (int) ($course->status ?? 0) !== 1 || (int) ($course->is_approved ?? 0) !== 1) {
+                if (!$course
+                    || !(bool) $course->is_active
+                    || $course->status !== 'publish'
+                    || $course->approval_status !== 'approved'
+                ) {
                     return ApiResponseService::validationError('Course is not available to be added to wishlist.');
                 }
 

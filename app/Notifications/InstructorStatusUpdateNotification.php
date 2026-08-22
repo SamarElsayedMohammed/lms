@@ -129,6 +129,14 @@ class InstructorStatusUpdateNotification extends Notification implements ShouldQ
     private function sendFcmNotification($notifiable)
     {
         try {
+            if (!\App\Services\NotificationSettingsService::isUserChannelEnabled(
+                $notifiable,
+                class_basename(self::class),
+                'push',
+            )) {
+                return;
+            }
+
             $title = $this->getStatusTitle();
             $message = $this->getStatusMessage();
 

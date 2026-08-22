@@ -20,6 +20,11 @@ class WalletService
         $referenceType = null,
         $entryType = null,
     ) {
+        $amount = (float) $amount;
+        if (! is_finite($amount) || $amount <= 0) {
+            throw new \InvalidArgumentException('Wallet credit amount must be greater than zero');
+        }
+
         return DB::transaction(static function () use (
             $userId,
             $amount,
@@ -92,6 +97,11 @@ class WalletService
         $entryType = null,
         bool $allowNegative = false,
     ) {
+        $amount = (float) $amount;
+        if (! is_finite($amount) || $amount <= 0) {
+            throw new \InvalidArgumentException('Wallet debit amount must be greater than zero');
+        }
+
         return DB::transaction(static function () use (
             $userId,
             $amount,

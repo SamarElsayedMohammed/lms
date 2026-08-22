@@ -118,7 +118,9 @@ class CertificateController extends Controller
             return ApiResponseService::errorResponse(__('Course not found.'), null, 404);
         }
 
-        $isEnrolled = CourseCertificate::userIsEnrolled($user->id, $courseId, $user);
+        $certificateService = app(\App\Services\CertificateService::class);
+        $eligibility = $certificateService->getCourseEligibility($user, $course);
+        $isEnrolled = $eligibility['is_enrolled'];
         if (!$isEnrolled) {
             return response()->json([
                 'success' => true,
@@ -135,22 +137,23 @@ class CertificateController extends Controller
             ]);
         }
 
-        $progressData = app(\App\Services\CourseProgressService::class)->getDetailedProgress($user->id, $courseId);
-        $totalItems = (int) ($progressData['summary']['total_items'] ?? 0);
-        $completedItems = (int) ($progressData['summary']['completed_items'] ?? 0);
-        $progressPct = (float) ($progressData['course']['progress_percentage'] ?? 0);
+        $totalItems = $eligibility['total_items'];
+        $completedItems = $eligibility['completed_items'];
+        $progressPct = $eligibility['progress_percentage'];
         $remainingItems = max(0, $totalItems - $completedItems);
 
-        $isCompleted = $this->isCourseCompleted($user->id, $courseId);
         $existingCert = CourseCertificate::where('user_id', $user->id)
             ->where('course_id', $courseId)
             ->active()
             ->first();
 
-        $eligible = $isEnrolled && $isCompleted && $totalItems > 0 && $completedItems === $totalItems;
-        $reasonCode = $eligible
-            ? 'eligible'
-            : ($progressPct > 0 ? 'course_incomplete' : 'not_started');
+        $eligible = $eligibility['eligible'];
+        $reasonCode = match (true) {
+            !$eligibility['certificate_enabled'] => 'certificate_disabled',
+            !$eligibility['is_completed'] => $progressPct > 0 ? 'course_incomplete' : 'not_started',
+            !$eligibility['certificate_fee_paid'] => 'certificate_fee_required',
+            default => 'eligible',
+        };
 
         return response()->json([
             'success' => true,
@@ -166,8 +169,10 @@ class CertificateController extends Controller
                 'issued_at' => $existingCert?->issued_date?->format('Y-m-d'),
                 'all_curriculum_completed' => $eligible,
                 'all_assignments_submitted' => true,
-                'certificate' => 'free',
-                'certificate_fee_paid' => true,
+                'certificate' => $eligibility['certificate_fee'] > 0 ? 'paid' : 'free',
+                'certificate_fee' => $eligibility['certificate_fee'],
+                'certificate_enabled' => $eligibility['certificate_enabled'],
+                'certificate_fee_paid' => $eligibility['certificate_fee_paid'],
                 'student_name' => $user->name,
                 'instructor_name' => $course->user->name ?? 'Instructor',
                 'course_name_ar' => $course->title,

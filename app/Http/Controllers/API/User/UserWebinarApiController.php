@@ -26,28 +26,37 @@ class UserWebinarApiController extends Controller
     public function myWebinars(Request $request)
     {
         try {
+            $validated = $request->validate([
+                'status' => ['nullable', 'in:all,upcoming,completed,past,cancelled'],
+                'page' => ['nullable', 'integer', 'min:1'],
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+            ]);
             $user = Auth::guard('sanctum')->user();
             if (!$user) {
                 return ApiResponseService::errorResponse('Unauthorized.', [], 401);
             }
+
+            Webinar::syncPublishedLifecycleStatuses();
 
             $query = WebinarRegistration::with(['webinar.instructor:id,name', 'webinar.course:id,title'])
                 ->where('user_id', $user->id)
                 ->whereIn('payment_status', ['paid', 'free'])
                 ->whereHas('webinar');
 
-            $filter = $request->input('status', 'all');
+            $filter = $validated['status'] ?? 'all';
             if ($filter === 'upcoming') {
                 $query->whereHas('webinar', function ($q) {
-                    $q->whereIn('status', ['scheduled', 'live'])
-                      ->where('start_at', '>=', now()->subHours(2));
+                    $q->where(function ($statusQuery) {
+                        $statusQuery->where('status', 'live')
+                            ->orWhere(function ($scheduledQuery) {
+                                $scheduledQuery->where('status', 'scheduled')
+                                    ->where('start_at', '>=', now());
+                            });
+                    });
                 });
             } elseif ($filter === 'completed' || $filter === 'past') {
                 $query->whereHas('webinar', function ($q) {
-                    $q->where(function ($sub) {
-                        $sub->where('status', 'completed')
-                            ->orWhere('start_at', '<', now()->subHours(2));
-                    });
+                    $q->where('status', 'completed');
                 });
             } elseif ($filter === 'cancelled') {
                 $query->whereHas('webinar', function ($q) {
@@ -55,7 +64,7 @@ class UserWebinarApiController extends Controller
                 });
             }
 
-            $perPage = min((int) $request->input('per_page', 15), 50);
+            $perPage = (int) ($validated['per_page'] ?? 15);
             $registrations = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
             $registrations->getCollection()->transform(function ($registration) use ($user) {
@@ -100,6 +109,8 @@ class UserWebinarApiController extends Controller
                     'total' => $registrations->total(),
                 ],
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {

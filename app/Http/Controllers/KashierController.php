@@ -41,16 +41,16 @@ final class KashierController extends Controller
 
         $this->kashierLog('Kashier webhook/redirect received', [
             'method' => $request->method(),
-            'url' => $request->fullUrl(),
             'ip' => $request->ip(),
-            'headers' => $request->headers->all(),
-            'payload' => $payload,
-            'data' => $data,
+            'payload_keys' => array_keys($payload),
+            'data_keys' => array_keys($data),
+            'has_signature' => !empty($payload['signature'] ?? $data['signature'] ?? null),
         ]);
 
         Log::info('Kashier webhook/redirect received', [
             'method' => $request->method(),
-            'data' => $data
+            'payload_keys' => array_keys($payload),
+            'data_keys' => array_keys($data),
         ]);
 
         // Initialize variables to prevent undefined variable errors
@@ -158,8 +158,11 @@ final class KashierController extends Controller
             $pending = Cache::get('kashier_pending_' . $orderId);
 
             // Look up durable pending payment record by transaction_id or cache payment_id
-            $pendingPayment = SubscriptionPayment::where('transaction_id', $orderId)
-                ->orWhere('transaction_id', $transactionId)
+            $pendingPayment = SubscriptionPayment::where('user_id', $userId)
+                ->where(function ($query) use ($orderId, $transactionId) {
+                    $query->where('transaction_id', $orderId)
+                        ->orWhere('transaction_id', $transactionId);
+                })
                 ->first();
 
             if (!$pendingPayment && !empty($pending['payment_id'])) {
@@ -181,6 +184,17 @@ final class KashierController extends Controller
                 ? (float) $pendingPayment->wallet_amount
                 : (float) ($pending['wallet_amount'] ?? 0);
 
+            $walletAmountEgp = (float) ($pending['wallet_amount_egp'] ?? 0);
+            if ($walletAmountEgp <= 0 && $walletAmount > 0) {
+                $snapshotRate = (float) ($pendingPayment?->exchange_rate_snapshot ?? 0);
+                $walletAmountEgp = $snapshotRate > 0
+                    ? round($walletAmount * $snapshotRate, 2)
+                    : app(\App\Services\CurrencyConversionService::class)->convertToEgp(
+                        $walletAmount,
+                        (string) ($pendingPayment?->currency_code ?? 'EGP'),
+                    );
+            }
+
             if ($this->isSuccessfulStatus($status)) {
                 // Verify amount if provided in callback
                 $incomingAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? 0);
@@ -193,7 +207,7 @@ final class KashierController extends Controller
                     return $this->respond($request, 'Payment amount mismatch', 422, false, null, $orderId);
                 }
 
-                return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $gatewayAmount, $transactionId, array_merge($data, [
+                return $this->handleSuccess($request, $orderId, $user, $plan, $walletAmount, $walletAmountEgp, $gatewayAmount, $transactionId, array_merge($data, [
                     '_kashier_status_resolved' => $status,
                     '_kashier_verified' => $isVerified,
                 ]), $pendingPayment);
@@ -242,7 +256,7 @@ final class KashierController extends Controller
         }
     }
 
-    private function handleSuccess(Request $request, string $orderId, User $user, SubscriptionPlan $plan, float $walletAmount, float $gatewayAmount, string $transactionId, array $data, ?SubscriptionPayment $pendingPayment = null)
+    private function handleSuccess(Request $request, string $orderId, User $user, SubscriptionPlan $plan, float $walletAmount, float $walletAmountEgp, float $gatewayAmount, string $transactionId, array $data, ?SubscriptionPayment $pendingPayment = null)
     {
         $existingPayment = SubscriptionPayment::where('transaction_id', $transactionId)->where('status', SubscriptionPayment::STATUS_COMPLETED)->first();
         if ($existingPayment) {
@@ -257,7 +271,7 @@ final class KashierController extends Controller
         $paymentMethod = $walletAmount > 0 ? 'wallet_and_kashier' : 'kashier';
 
         try {
-            $subscription = DB::transaction(function () use ($user, $plan, $walletAmount, $gatewayAmount, $paymentMethod, $transactionId, $data, $pendingPayment) {
+            $subscription = DB::transaction(function () use ($user, $plan, $walletAmount, $walletAmountEgp, $gatewayAmount, $paymentMethod, $transactionId, $data, $pendingPayment) {
                 if ($pendingPayment) {
                     $lockedPayment = SubscriptionPayment::where('id', $pendingPayment->id)->lockForUpdate()->first();
                     if ($lockedPayment) {
@@ -305,15 +319,16 @@ final class KashierController extends Controller
                                 ->where('reference_type', \App\Models\Subscription::class)
                                 ->where('type', 'debit')
                                 ->exists();
-                            if (!$alreadyDebited && $user->wallet_balance >= $walletAmount) {
+                            if (!$alreadyDebited) {
                                 \App\Services\WalletService::debitWallet(
                                     $user->id,
-                                    $walletAmount,
+                                    $walletAmountEgp,
                                     'subscription',
                                     "Subscription payment for subscription #{$sub?->id}",
                                     $sub?->id,
                                     \App\Models\Subscription::class,
-                                    'user'
+                                    'user',
+                                    true,
                                 );
                             }
                         }
@@ -327,7 +342,11 @@ final class KashierController extends Controller
                     $plan,
                     $paymentMethod,
                     $walletAmount,
-                    $gatewayAmount
+                    $gatewayAmount,
+                    [
+                        'currency_code' => 'EGP',
+                        'wallet_amount_egp' => $walletAmountEgp,
+                    ],
                 );
 
                 $payment = $subscription->payments()->latest()->first();
@@ -414,9 +433,21 @@ final class KashierController extends Controller
             return $this->respond($request, 'Order not found', 404, false);
         }
 
+        $topUpAttempt = \App\Models\WalletTopUpAttempt::where('order_id', $orderId)
+            ->where('user_id', $userId)
+            ->first();
+
         // Extract amount - support multiple keys from Kashier
         $amount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? 0);
         $transactionId = $this->extractTransactionId($data) ?: $orderId;
+
+        if ($topUpAttempt) {
+            $expectedAmount = (float) $topUpAttempt->amount_egp;
+            if ($amount > 0 && abs($amount - $expectedAmount) > 0.05) {
+                return $this->respond($request, 'Payment amount mismatch', 422, false, null, $orderId);
+            }
+            $amount = $expectedAmount;
+        }
 
         // FALLBACK: If amount is missing (common in redirects), fetch it from Kashier API
         if ($amount <= 0 && !empty($transactionId) && $transactionId !== $orderId) {
@@ -442,6 +473,11 @@ final class KashierController extends Controller
 
         if ($this->isFailedStatus($status)) {
             Log::info('Kashier webhook: wallet top-up failed', ['orderId' => $orderId, 'status' => $status]);
+            $topUpAttempt?->update([
+                'status' => 'failed',
+                'provider_transaction_id' => $transactionId,
+                'gateway_response' => $data,
+            ]);
             
             // Notify user of failed payment
             try {
@@ -467,7 +503,7 @@ final class KashierController extends Controller
             // Idempotency: check and credit inside a DB transaction so the exists() check
             // and the WalletHistory insert are atomic, closing the concurrent double-top-up window.
             $alreadyProcessed = false;
-            DB::transaction(function () use ($userId, $amount, $transactionId, $orderId, &$alreadyProcessed) {
+            DB::transaction(function () use ($userId, $amount, $transactionId, $orderId, $data, &$alreadyProcessed) {
                 // Acquire exclusive row lock on parent User record FIRST to serialize all balance mutations
                 $user = User::lockForUpdate()->findOrFail($userId);
 
@@ -479,6 +515,13 @@ final class KashierController extends Controller
 
                 if ($existing !== null) {
                     Log::info('Kashier webhook: wallet top-up already processed', ['orderId' => $orderId]);
+                    \App\Models\WalletTopUpAttempt::where('order_id', $orderId)
+                        ->where('user_id', $userId)
+                        ->update([
+                            'status' => 'completed',
+                            'provider_transaction_id' => $transactionId,
+                            'gateway_response' => $data,
+                        ]);
                     $alreadyProcessed = true;
                     return;
                 }
@@ -492,6 +535,14 @@ final class KashierController extends Controller
                     'wallet_topup',
                     'user'
                 );
+
+                \App\Models\WalletTopUpAttempt::where('order_id', $orderId)
+                    ->where('user_id', $userId)
+                    ->update([
+                        'status' => 'completed',
+                        'provider_transaction_id' => $transactionId,
+                        'gateway_response' => $data,
+                    ]);
             });
 
             if ($alreadyProcessed) {
@@ -548,6 +599,11 @@ final class KashierController extends Controller
 
         if ($this->isFailedStatus($status)) {
             Log::info('Kashier webhook: webinar payment failed', ['orderId' => $orderId, 'status' => $status]);
+
+            \App\Models\WebinarRegistration::where('gateway_order_id', $orderId)
+                ->where('payment_status', 'pending')
+                ->delete();
+            Cache::forget('kashier_pending_' . $orderId);
             
             // Notify user of failed payment
             try {
@@ -571,11 +627,40 @@ final class KashierController extends Controller
         }
 
         try {
+            $pending = Cache::get('kashier_pending_' . $orderId);
+            $registrationSnapshot = \App\Models\WebinarRegistration::where('gateway_order_id', $orderId)->first();
+            if (!$registrationSnapshot) {
+                return $this->respond($request, 'Registration not found', 404, false);
+            }
+
+            $expectedAmount = (float) ($registrationSnapshot->gateway_amount ?: ($pending['expected_amount'] ?? 0));
+            $expectedCurrency = strtoupper((string) ($registrationSnapshot->currency_code ?: ($pending['expected_currency'] ?? 'EGP')));
+            $incomingAmount = (float) ($data['amount'] ?? $data['transactionAmount'] ?? data_get($data, 'queryString.transactionAmount') ?? 0);
+            $incomingCurrency = strtoupper((string) ($data['currency'] ?? $data['currencyCode'] ?? data_get($data, 'queryString.currency') ?? ''));
+
+            if ($incomingAmount <= 0 || $expectedAmount <= 0 || abs($incomingAmount - $expectedAmount) > 0.05) {
+                Log::warning('Kashier webinar payment amount mismatch rejected', [
+                    'orderId' => $orderId,
+                    'expected' => $expectedAmount,
+                    'received' => $incomingAmount,
+                ]);
+                return $this->respond($request, 'Payment amount mismatch', 422, false, null, $orderId);
+            }
+            if ($incomingCurrency !== '' && $incomingCurrency !== $expectedCurrency) {
+                Log::warning('Kashier webinar payment currency mismatch rejected', [
+                    'orderId' => $orderId,
+                    'expected' => $expectedCurrency,
+                    'received' => $incomingCurrency,
+                ]);
+                return $this->respond($request, 'Payment currency mismatch', 422, false, null, $orderId);
+            }
+
             // Use a DB transaction with a row-level lock so that concurrent webhook/redirect
             // calls cannot both pass the 'already paid' check before either commits.
             $alreadyProcessed = false;
-            DB::transaction(function () use ($userId, $webinarId, $orderId, $data, $user, $webinar, &$alreadyProcessed) {
-                $registration = \App\Models\WebinarRegistration::where('user_id', $userId)
+            DB::transaction(function () use ($userId, $webinarId, $orderId, $incomingAmount, &$alreadyProcessed) {
+                $registration = \App\Models\WebinarRegistration::where('gateway_order_id', $orderId)
+                    ->where('user_id', $userId)
                     ->where('webinar_id', $webinarId)
                     ->lockForUpdate()
                     ->first();
@@ -590,25 +675,9 @@ final class KashierController extends Controller
                     return;
                 }
 
-                // Deduct wallet if it was a split payment
-                $pending = Cache::get('kashier_pending_' . $orderId);
-                $walletAmount = (float) ($pending['wallet_amount'] ?? 0);
-                $paidAmount = (float) ($pending['expected_amount'] ?? $data['amount'] ?? $data['transactionAmount'] ?? $webinar->price);
-
-                if ($walletAmount > 0 && $user->wallet_balance >= $walletAmount) {
-                    \App\Services\WalletService::debitWallet(
-                        $user->id,
-                        $walletAmount,
-                        'webinar_payment',
-                        'Paid part of webinar via wallet: ' . $webinar->title,
-                        (string) $webinar->id,
-                        'webinar'
-                    );
-                }
-
                 $registration->update([
                     'payment_status' => 'paid',
-                    'paid_amount' => $paidAmount,
+                    'paid_amount' => $incomingAmount,
                     'expires_at' => null,
                 ]);
             });
@@ -871,18 +940,13 @@ final class KashierController extends Controller
             $this->kashierLog('Kashier starting saveCreditCardIfPresent', [
                 'user_id' => $user->id,
                 'data_keys' => array_keys($data),
-                'cardData' => $data['cardData'] ?? $data['card_data'] ?? $data['card'] ?? null,
-                'sourceOfFund' => $data['sourceOfFund'] ?? $data['source_of_fund'] ?? null,
-                'paymentMethod' => $data['paymentMethod'] ?? $data['payment_method'] ?? null,
+                'has_card_data' => isset($data['cardData']) || isset($data['card_data']) || isset($data['card']),
+                'has_source_of_fund' => isset($data['sourceOfFund']) || isset($data['source_of_fund']),
             ]);
 
             Log::info('Kashier starting saveCreditCardIfPresent', [
                 'user_id' => $user->id,
-                'cardData' => $data['cardData'] ?? null,
-                'card_data' => $data['card_data'] ?? null,
-                'card' => $data['card'] ?? null,
-                'sourceOfFund' => $data['sourceOfFund'] ?? null,
-                'paymentMethod' => $data['paymentMethod'] ?? null,
+                'data_keys' => array_keys($data),
             ]);
 
             $cardData = $data['cardData']
@@ -956,7 +1020,7 @@ final class KashierController extends Controller
                     'user_id' => $user->id,
                     'available_keys' => array_keys($flat),
                     'extracted_last_four' => $lastFour,
-                    'extracted_token' => $token,
+                    'has_gateway_token' => (bool) $token,
                 ]);
                 
                 Log::warning('Kashier card was not saved: missing last four digits', [
@@ -983,7 +1047,7 @@ final class KashierController extends Controller
                 'expMonth' => $expMonth,
                 'expYear' => $expYear,
                 'brand' => $brand,
-                'token' => $token,
+                'has_gateway_token' => (bool) $token,
             ]);
             
             Log::info('Kashier extracted card info', [

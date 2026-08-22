@@ -117,7 +117,17 @@ class VideoProgressService
             : 0;
 
         $wasAlreadyCompleted = $existing !== null && $existing->is_completed;
-        $isCompleted = $watchPercentage >= self::COMPLETION_THRESHOLD;
+        // The legacy watch-time payload is retained for resume compatibility,
+        // but a client-supplied counter must never be a completion authority for
+        // video content. Only contiguous segment tracking may complete a video.
+        $requiresVerifiedTracking = $this->requiresVerifiedTracking($lecture);
+        $isCompleted = $wasAlreadyCompleted || (
+            !$requiresVerifiedTracking
+            && $watchPercentage >= self::COMPLETION_THRESHOLD
+        );
+        if ($requiresVerifiedTracking && !$isCompleted) {
+            $watchPercentage = min(99.99, $watchPercentage);
+        }
         $completedAt = $isCompleted && !$wasAlreadyCompleted
             ? now()
             : $existing?->completed_at;

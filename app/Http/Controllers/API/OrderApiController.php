@@ -60,8 +60,8 @@ class OrderApiController extends Controller
 
         $validator = Validator::make($request->all(), [
             'payment_method' => $isFree
-                ? 'nullable|in:stripe,razorpay,flutterwave,wallet,free'
-                : 'required|in:stripe,razorpay,flutterwave,wallet',
+                ? 'nullable|in:stripe,razorpay,flutterwave,kashier,wallet,free'
+                : 'required|in:stripe,razorpay,flutterwave,kashier,wallet',
             'buy_now' => 'nullable|boolean', // For direct purchase
             'course_id' => 'nullable|required_if:buy_now,true|exists:courses,id', // Required when buy_now is true
             'promo_code_id' => 'nullable|exists:promo_codes,id', // Only one promo code allowed for both buy_now and cart orders
@@ -140,7 +140,10 @@ class OrderApiController extends Controller
 
             // Get refund settings
             $refundEnabled = HelperService::systemSettings('refund_enabled') == 1;
-            $refundPeriodDays = (int) HelperService::systemSettings('refund_period_days') ?? 7;
+            $refundPeriodSetting = HelperService::systemSettings('refund_period_days');
+            $refundPeriodDays = ($refundPeriodSetting === null || $refundPeriodSetting === '')
+                ? 7
+                : max(0, (int) $refundPeriodSetting);
 
             $orders = Order::with([
                 'orderCourses.course.user',
@@ -189,10 +192,13 @@ class OrderApiController extends Controller
                         return false;
                     });
 
+                    // Prices are already net of promo discounts. Keep the
+                    // discount as an informational snapshot; do not subtract it again.
+                    $totalDiscount = $validOrderCourses->sum('discount_amount');
+
                     // Recalculate pricing based on remaining courses (same as invoice logic)
                     $subtotal = $validOrderCourses->sum('price');
                     $taxAmount = $validOrderCourses->sum('tax_price');
-                    $totalDiscount = $order->discount_amount ?? 0;
 
                     // Calculate final total as sum of all courses' final_price
                     // final_price = price + tax_price for each course
@@ -201,9 +207,10 @@ class OrderApiController extends Controller
                     // Calculate total refund amount for this order (approved refunds only)
                     $courseIds = $order->orderCourses->pluck('course_id')->filter()->toArray();
                     $totalRefundAmount = 0;
-                    if (!empty($courseIds)) {
+                    if (!empty($courseIds) && $transactionId !== null) {
                         $totalRefundAmount = RefundRequest::where('user_id', $user->id)
                             ->whereIn('course_id', $courseIds)
+                            ->where('transaction_id', $transactionId)
                             ->where('status', 'approved')
                             ->sum('refund_amount');
                     }
@@ -213,7 +220,9 @@ class OrderApiController extends Controller
                     $refundDaysRemaining = 0;
                     if ($refundEnabled && $order->status === 'completed') {
                         // Calculate days since purchase (ensure positive value)
-                        $daysSincePurchase = abs(now()->diffInDays($orderDate, false));
+                        $daysSincePurchase = $orderDate->isFuture()
+                            ? $refundPeriodDays + 1
+                            : $orderDate->diffInDays(now());
 
                         if ($daysSincePurchase <= $refundPeriodDays) {
                             $isOrderRefundEligible = true;
@@ -231,6 +240,9 @@ class OrderApiController extends Controller
                         'tax_price' => round($taxAmount, 2),
                         'total_discount' => round($totalDiscount, 2),
                         'final_total' => round($finalTotal, 2),
+                        'amount_egp' => round((float) ($order->amount_egp ?? 0), 2),
+                        'currency_code' => strtoupper((string) ($order->currency_code ?? 'EGP')),
+                        'exchange_rate_snapshot' => (float) ($order->exchange_rate_snapshot ?? 1),
                         'refund_amount' => round($totalRefundAmount, 2),
                         'transaction_date' => $order->created_at,
                         'transaction_date_formatted' => $order->created_at->toIso8601String(),
@@ -260,7 +272,9 @@ class OrderApiController extends Controller
                                 && $oc->course->course_type !== 'free'
                             ) {
                                 // Calculate days since purchase (ensure positive value)
-                                $daysSincePurchase = abs(now()->diffInDays($order->created_at, false));
+                                $daysSincePurchase = $order->created_at->isFuture()
+                                    ? $refundPeriodDays + 1
+                                    : $order->created_at->diffInDays(now());
 
                                 if ($daysSincePurchase <= $refundPeriodDays) {
                                     $isRefundEligible = true;
@@ -322,6 +336,7 @@ class OrderApiController extends Controller
                                 'tax_price' => round($taxPrice, 2), // Tax amount
                                 'final_price' => round($finalPrice, 2), // Final price paid (price + tax)
                                 'price_with_tax' => round($finalPrice, 2), // Final price with tax - explicit field
+                                'currency_code' => strtoupper((string) ($oc->currency_code ?? $order->currency_code ?? 'EGP')),
                                 'course_current_price' => round($courseCurrentPrice, 2), // Course's current price (may differ from order time)
                                 'course_type' => $oc->course->course_type ?? null,
                                 'creator_name' => $creatorName,
@@ -422,9 +437,9 @@ class OrderApiController extends Controller
             }
 
             // Dynamically resolve currency based on user country
-            $countryCode = app(\App\Services\GeoLocationService::class)->getCountryCodeFromRequest($request);
+            $countryCode = null; // Historical invoice currency comes from the order snapshot.
             $currencySymbol = $appSettings['currency_symbol'] ?? '$';
-            $currencyCode = 'USD';
+            $currencyCode = strtoupper((string) ($order->currency_code ?? 'EGP'));
             
             if ($countryCode) {
                 $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
@@ -435,6 +450,11 @@ class OrderApiController extends Controller
                     $currencySymbol = 'ج.م';
                     $currencyCode = 'EGP';
                 }
+            }
+
+            $snapshotCurrency = \App\Models\SupportedCurrency::where('currency_code', $currencyCode)->first();
+            if ($snapshotCurrency) {
+                $currencySymbol = $snapshotCurrency->currency_symbol;
             }
 
             // Get approved refunds for this user with their approval dates
@@ -471,6 +491,9 @@ class OrderApiController extends Controller
             // Recalculate pricing based on remaining courses
             $subtotal = $validOrderCourses->sum('price');
             $taxAmount = $validOrderCourses->sum('tax_price');
+            $totalDiscount = $validOrderCourses->sum('discount_amount');
+            $totalDiscount = $validOrderCourses->sum('discount_amount');
+            $totalDiscount = $validOrderCourses->sum('discount_amount');
 
             // Prepare billing details
             $billingDetails = null;
@@ -512,9 +535,10 @@ class OrderApiController extends Controller
                 ]),
                 'pricing' => [
                     'subtotal' => $subtotal,
+                    'original_subtotal' => round($subtotal + $totalDiscount, 2),
                     'tax_amount' => $taxAmount,
                     'total_discount' => round($totalDiscount, 2),
-                    'final_total' => round(max(0, $subtotal + $taxAmount - $totalDiscount), 2),
+                    'final_total' => round(max(0, $subtotal + $taxAmount), 2),
                 ],
                 'applied_promo_codes' => collect($appliedPromoCodes),
                 'status' => $order->status,
@@ -631,9 +655,9 @@ class OrderApiController extends Controller
             }
 
             // Dynamically resolve currency based on user country
-            $countryCode = app(\App\Services\GeoLocationService::class)->getCountryCodeFromRequest($request);
+            $countryCode = null; // Historical invoice currency comes from the order snapshot.
             $currencySymbol = $appSettings['currency_symbol'] ?? '$';
-            $currencyCode = 'USD';
+            $currencyCode = strtoupper((string) ($order->currency_code ?? 'EGP'));
             
             if ($countryCode) {
                 $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
@@ -644,6 +668,11 @@ class OrderApiController extends Controller
                     $currencySymbol = 'ج.م';
                     $currencyCode = 'EGP';
                 }
+            }
+
+            $snapshotCurrency = \App\Models\SupportedCurrency::where('currency_code', $currencyCode)->first();
+            if ($snapshotCurrency) {
+                $currencySymbol = $snapshotCurrency->currency_symbol;
             }
 
             // Get approved refunds for this user with their approval dates
@@ -721,9 +750,10 @@ class OrderApiController extends Controller
                 ]),
                 'pricing' => [
                     'subtotal' => $subtotal,
+                    'original_subtotal' => round($subtotal + $totalDiscount, 2),
                     'tax_amount' => $taxAmount,
                     'total_discount' => round($totalDiscount, 2),
-                    'final_total' => round(max(0, $subtotal + $taxAmount - $totalDiscount), 2),
+                    'final_total' => round(max(0, $subtotal + $taxAmount), 2),
                 ],
                 'applied_promo_codes' => collect($appliedPromoCodes),
                 'status' => $order->status,
@@ -793,9 +823,9 @@ class OrderApiController extends Controller
             }
 
             // Dynamically resolve currency based on user country
-            $countryCode = app(\App\Services\GeoLocationService::class)->getCountryCodeFromRequest($request);
+            $countryCode = null; // Historical invoice currency comes from the order snapshot.
             $currencySymbol = $appSettings['currency_symbol'] ?? '$';
-            $currencyCode = 'USD';
+            $currencyCode = strtoupper((string) ($order->currency_code ?? 'EGP'));
             
             if ($countryCode) {
                 $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
@@ -806,6 +836,11 @@ class OrderApiController extends Controller
                     $currencySymbol = 'ج.م';
                     $currencyCode = 'EGP';
                 }
+            }
+
+            $snapshotCurrency = \App\Models\SupportedCurrency::where('currency_code', $currencyCode)->first();
+            if ($snapshotCurrency) {
+                $currencySymbol = $snapshotCurrency->currency_symbol;
             }
 
             // Get approved refunds for this user with their approval dates
@@ -884,9 +919,10 @@ class OrderApiController extends Controller
                 ]),
                 'pricing' => [
                     'subtotal' => $subtotal,
+                    'original_subtotal' => round($subtotal + $totalDiscount, 2),
                     'tax_amount' => $taxAmount,
                     'total_discount' => round($totalDiscount, 2),
-                    'final_total' => round(max(0, $subtotal + $taxAmount - $totalDiscount), 2),
+                    'final_total' => round(max(0, $subtotal + $taxAmount), 2),
                 ],
                 'applied_promo_codes' => collect($appliedPromoCodes),
                 'status' => $order->status,
@@ -1039,25 +1075,8 @@ class OrderApiController extends Controller
             return ApiResponseService::validationError('Course not found.');
         }
 
-        // Check if user already purchased this course (excluding approved refunds)
-        $existingOrder = Order::where('user_id', $user->id)
-            ->whereHas('orderCourses', static function ($query) use ($course): void {
-                $query->where('course_id', $course->id);
-            })
-            ->where('status', 'completed')
-            ->first();
-
-        if ($existingOrder) {
-            // Check if there's an approved refund for this course
-            $hasApprovedRefund = RefundRequest::where('user_id', $user->id)
-                ->where('course_id', $course->id)
-                ->where('status', 'approved')
-                ->exists();
-
-            // If no approved refund, user already purchased
-            if (!$hasApprovedRefund) {
-                return ApiResponseService::validationError('You have already purchased this course.');
-            }
+        if (in_array($course->id, $this->activePurchasedCourseIds($user->id, [$course->id]), true)) {
+            return ApiResponseService::validationError('You have already purchased this course.');
         }
 
         // Check if course is free
@@ -1066,6 +1085,14 @@ class OrderApiController extends Controller
         DB::beginTransaction();
 
         try {
+            DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+            if (in_array($course->id, $this->activePurchasedCourseIds($user->id, [$course->id]), true)) {
+                return ApiResponseService::validationError('You have already purchased this course.');
+            }
+            if ($this->recentPendingPurchasedCourseIds($user->id, [$course->id]) !== []) {
+                return ApiResponseService::validationError('A payment for this course is already pending.');
+            }
+
             // Create order
             $paymentMethod = $isFree ? 'free' : (string) $request->payment_method;
 
@@ -1174,6 +1201,9 @@ class OrderApiController extends Controller
                     'order_id' => $order->id,
                     'transaction_id' => $transactionId,
                     'amount' => 0,
+                    'amount_egp' => 0,
+                    'currency_code' => $order->currency_code ?? 'EGP',
+                    'exchange_rate_snapshot' => $order->exchange_rate_snapshot ?? 1,
                     'payment_method' => 'free',
                     'status' => 'completed',
                     'message' => 'Payment successful via 100% discount coupon',
@@ -1216,12 +1246,12 @@ class OrderApiController extends Controller
             if ($paymentMethod === 'wallet') {
                 // Check wallet balance
                 $walletBalance = WalletService::getWalletBalance($user->id);
-                if ($walletBalance < $finalPrice) {
+                if ($walletBalance < $orderAmountEgp) {
                     DB::rollBack();
 
                     return ApiResponseService::validationError(
                         'Insufficient wallet balance. Required: '
-                        . number_format($finalPrice, 2)
+                        . number_format($orderAmountEgp, 2)
                         . ', Available: '
                         . number_format($walletBalance, 2),
                     );
@@ -1230,7 +1260,7 @@ class OrderApiController extends Controller
                 // Deduct from wallet
                 WalletService::debitWallet(
                     $user->id,
-                    $finalPrice,
+                    $orderAmountEgp,
                     'order',
                     "Order payment for course: {$course->title}",
                     $order->id,
@@ -1246,6 +1276,9 @@ class OrderApiController extends Controller
                     'order_id' => $order->id,
                     'transaction_id' => $transactionId,
                     'amount' => $finalPrice,
+                    'amount_egp' => $orderAmountEgp,
+                    'currency_code' => $pricing['currency_code'],
+                    'exchange_rate_snapshot' => $orderExchangeRate,
                     'payment_method' => 'wallet',
                     'status' => 'completed',
                     'message' => 'Payment successful via Wallet',
@@ -1317,6 +1350,9 @@ class OrderApiController extends Controller
                 $this->formatPlaceOrderResponse($order, ['payment' => $paymentInit])
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             throw $e;
         } catch (Throwable $th) {
             if (DB::transactionLevel() > 0) {
@@ -1354,6 +1390,87 @@ class OrderApiController extends Controller
     }
 
     /**
+     * Return completed purchases that still grant access. Refunds are matched to
+     * their exact order through the transaction, so a historical refund does not
+     * make a later repurchase look refundable forever.
+     *
+     * @param array<int, int> $courseIds
+     * @return array<int, int>
+     */
+    private function activePurchasedCourseIds(int $userId, array $courseIds): array
+    {
+        $normalizedCourseIds = collect($courseIds)
+            ->map(static fn ($id) => (int) $id)
+            ->filter(static fn (int $id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($normalizedCourseIds->isEmpty()) {
+            return [];
+        }
+
+        $refundedPurchaseKeys = RefundRequest::query()
+            ->join('transactions', 'refund_requests.transaction_id', '=', 'transactions.id')
+            ->where('refund_requests.user_id', $userId)
+            ->where('refund_requests.status', 'approved')
+            ->whereIn('refund_requests.course_id', $normalizedCourseIds->all())
+            ->whereNotNull('transactions.order_id')
+            ->get(['transactions.order_id', 'refund_requests.course_id'])
+            ->mapWithKeys(static fn ($row) => [
+                ((int) $row->order_id) . ':' . ((int) $row->course_id) => true,
+            ]);
+
+        return OrderCourse::query()
+            ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+            ->where('orders.user_id', $userId)
+            ->where('orders.status', 'completed')
+            ->whereIn('order_courses.course_id', $normalizedCourseIds->all())
+            ->get(['order_courses.order_id', 'order_courses.course_id'])
+            ->reject(static fn ($row) => $refundedPurchaseKeys->has(
+                ((int) $row->order_id) . ':' . ((int) $row->course_id),
+            ))
+            ->pluck('course_id')
+            ->map(static fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Prevent parallel checkout tabs from creating multiple payable orders.
+     * Old pending orders are ignored so a failed gateway attempt cannot block
+     * the customer indefinitely.
+     *
+     * @param array<int, int> $courseIds
+     * @return array<int, int>
+     */
+    private function recentPendingPurchasedCourseIds(int $userId, array $courseIds): array
+    {
+        $normalizedCourseIds = collect($courseIds)
+            ->map(static fn ($id) => (int) $id)
+            ->filter(static fn (int $id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($normalizedCourseIds === []) {
+            return [];
+        }
+
+        return OrderCourse::query()
+            ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+            ->where('orders.user_id', $userId)
+            ->where('orders.status', 'pending')
+            ->where('orders.created_at', '>=', now()->subMinutes(30))
+            ->whereIn('order_courses.course_id', $normalizedCourseIds)
+            ->pluck('order_courses.course_id')
+            ->map(static fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
      * Handle Cart-Based Order (Original Logic)
      */
     private function handleCartOrder(Request $request, $user)
@@ -1366,36 +1483,19 @@ class OrderApiController extends Controller
 
         // 2. Check if user already purchased any of these courses (excluding approved refunds)
         $courseIds = $cartItems->pluck('course.id')->filter()->toArray();
-        $alreadyPurchased = Order::where('user_id', $user->id)
-            ->where('status', 'completed')
-            ->whereHas('orderCourses', static function ($query) use ($courseIds): void {
-                $query->whereIn('course_id', $courseIds);
-            })
-            ->with(['orderCourses' => static function ($query) use ($courseIds): void {
-                $query->whereIn('course_id', $courseIds)->with('course');
-            }])
-            ->first();
+        $activePurchasedIds = $this->activePurchasedCourseIds($user->id, $courseIds);
+        if ($activePurchasedIds !== []) {
+            $purchasedCourseNames = $cartItems
+                ->filter(static fn ($cart) => $cart->course && in_array($cart->course->id, $activePurchasedIds, true))
+                ->pluck('course.title')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
 
-        if ($alreadyPurchased) {
-            // Filter out courses with approved refunds
-            $purchasedCourses = $alreadyPurchased->orderCourses->filter(static function ($orderCourse) use ($user) {
-                $hasApprovedRefund = RefundRequest::where('user_id', $user->id)
-                    ->where('course_id', $orderCourse->course_id)
-                    ->where('status', 'approved')
-                    ->exists();
-
-                return !$hasApprovedRefund;
-            });
-
-            // If there are still courses without approved refunds, show error
-            if ($purchasedCourses->isNotEmpty()) {
-                $purchasedCourseNames = $purchasedCourses->pluck('course.title')->filter()->toArray();
-
-                $courseList = implode(', ', $purchasedCourseNames);
-
-                return ApiResponseService::validationError('You have already purchased the following course(s): '
-                . $courseList);
-            }
+            return ApiResponseService::validationError(
+                'You have already purchased the following course(s): ' . implode(', ', $purchasedCourseNames),
+            );
         }
 
         // 3. Check if all courses are free
@@ -1406,6 +1506,25 @@ class OrderApiController extends Controller
         DB::beginTransaction();
 
         try {
+            DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+            $activePurchasedIds = $this->activePurchasedCourseIds($user->id, $courseIds);
+            if ($activePurchasedIds !== []) {
+                $purchasedCourseNames = $cartItems
+                    ->filter(static fn ($cart) => $cart->course && in_array($cart->course->id, $activePurchasedIds, true))
+                    ->pluck('course.title')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                return ApiResponseService::validationError(
+                    'You have already purchased the following course(s): ' . implode(', ', $purchasedCourseNames),
+                );
+            }
+            if ($this->recentPendingPurchasedCourseIds($user->id, $courseIds) !== []) {
+                return ApiResponseService::validationError('A payment for one or more cart courses is already pending.');
+            }
+
             // 4. Create order
             $paymentMethod = $allCoursesAreFree ? 'free' : (string) $request->payment_method;
 
@@ -1566,6 +1685,9 @@ class OrderApiController extends Controller
                     'order_id' => $order->id,
                     'transaction_id' => $transactionId,
                     'amount' => 0,
+                    'amount_egp' => 0,
+                    'currency_code' => $orderCurrencyCode,
+                    'exchange_rate_snapshot' => $orderExchangeRate,
                     'payment_method' => 'free',
                     'status' => 'completed',
                     'message' => 'Payment successful via 100% discount coupon',
@@ -1611,12 +1733,12 @@ class OrderApiController extends Controller
             if ($paymentMethod === 'wallet') {
                 // Check wallet balance
                 $walletBalance = WalletService::getWalletBalance($user->id);
-                if ($walletBalance < $finalPrice) {
+                if ($walletBalance < $orderAmountEgp) {
                     DB::rollBack();
 
                     return ApiResponseService::validationError(
                         'Insufficient wallet balance. Required: '
-                        . number_format($finalPrice, 2)
+                        . number_format($orderAmountEgp, 2)
                         . ', Available: '
                         . number_format($walletBalance, 2),
                     );
@@ -1625,7 +1747,7 @@ class OrderApiController extends Controller
                 // Deduct from wallet
                 WalletService::debitWallet(
                     $user->id,
-                    $finalPrice,
+                    $orderAmountEgp,
                     'order',
                     "Order payment for order: {$order->order_number}",
                     $order->id,
@@ -1641,6 +1763,9 @@ class OrderApiController extends Controller
                     'order_id' => $order->id,
                     'transaction_id' => $transactionId,
                     'amount' => $finalPrice,
+                    'amount_egp' => $orderAmountEgp,
+                    'currency_code' => $orderCurrencyCode,
+                    'exchange_rate_snapshot' => $orderExchangeRate,
                     'payment_method' => 'wallet',
                     'status' => 'completed',
                     'message' => 'Payment successful via Wallet',
@@ -1721,6 +1846,9 @@ class OrderApiController extends Controller
                 $this->formatPlaceOrderResponse($order, ['payment' => $paymentInit])
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             throw $e;
         } catch (Throwable $th) {
             if (DB::transactionLevel() > 0) {
@@ -1833,7 +1961,7 @@ class OrderApiController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'course_id' => 'required|exists:courses,id',
-            'payment_method' => 'required|in:stripe,razorpay,flutterwave,wallet',
+            'payment_method' => 'required|in:stripe,razorpay,flutterwave,kashier,wallet',
             'type' => 'nullable|in:web,app',
         ]);
 
@@ -1866,15 +1994,11 @@ class OrderApiController extends Controller
                 return ApiResponseService::validationError('Certificate fee is not set for this course');
             }
 
-            // Check if user has completed the free course
-            $hasCompletedCourse = Order::where('user_id', $user?->id)
-                ->whereHas('orderCourses', static function ($query) use ($courseId): void {
-                    $query->where('course_id', $courseId);
-                })
-                ->where('status', 'completed')
-                ->exists();
-
-            if (!$hasCompletedCourse) {
+            // Completion is a learning-progress fact, not merely the existence
+            // of the free enrollment order.
+            $eligibility = app(\App\Services\CertificateService::class)
+                ->getCourseEligibility($user, $course);
+            if (!$eligibility['is_enrolled'] || !$eligibility['is_completed']) {
                 return ApiResponseService::validationError('You must enroll and complete the free course first');
             }
 
@@ -1892,9 +2016,7 @@ class OrderApiController extends Controller
                 );
             }
 
-            DB::beginTransaction();
-
-            $certificateFee = $course->certificate_fee;
+            $certificateFeeEgp = (float) $course->certificate_fee;
             // Get tax info for free courses
             $pricingService = app(PricingCalculationService::class);
             $countryCode = $pricingService->getCountryCodeFromRequest($request) ?? 'EG';
@@ -1902,12 +2024,44 @@ class OrderApiController extends Controller
             $currencyCode = (string) ($currencyMeta['code'] ?? 'EGP');
             $exchangeRate = app(\App\Services\CurrencyConversionService::class)->getExchangeRateToEgp($currencyCode);
             if ($exchangeRate <= 0) $exchangeRate = 1.0;
+            $certificateFee = app(\App\Services\CurrencyConversionService::class)
+                ->convertFromEgp($certificateFeeEgp, $currencyCode);
             $certificateTaxPercentage = $pricingService->getTaxPercentageFromRequest($request);
             $certificateTaxAmount = round(($certificateFee * $certificateTaxPercentage) / 100, 2);
             $certificateFinalPrice = round($certificateFee + $certificateTaxAmount, 2);
-            $certificateAmountEgp = round($certificateFinalPrice * $exchangeRate, 2);
+            $certificateAmountEgp = round($certificateFeeEgp * (1 + ($certificateTaxPercentage / 100)), 2);
+
+            DB::beginTransaction();
 
             try {
+                DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+
+                $alreadyPurchased = OrderCourse::where('course_id', $courseId)
+                    ->where('certificate_purchased', true)
+                    ->whereHas('order', static function ($query) use ($user): void {
+                        $query->where('user_id', $user->id)->where('status', 'completed');
+                    })
+                    ->exists();
+                if ($alreadyPurchased) {
+                    return ApiResponseService::validationError(
+                        'You have already purchased the certificate for this course',
+                    );
+                }
+
+                $pendingCertificatePayment = OrderCourse::where('course_id', $courseId)
+                    ->where('certificate_purchased', true)
+                    ->whereHas('order', static function ($query) use ($user): void {
+                        $query->where('user_id', $user->id)
+                            ->where('status', 'pending')
+                            ->where('created_at', '>=', now()->subMinutes(30));
+                    })
+                    ->exists();
+                if ($pendingCertificatePayment) {
+                    return ApiResponseService::validationError(
+                        'A certificate payment for this course is already pending',
+                    );
+                }
+
                 // Create order for certificate
                 $order = Order::create([
                     'user_id' => $user->id,
@@ -1935,18 +2089,20 @@ class OrderApiController extends Controller
                     'certificate_purchased' => true,
                     'certificate_fee' => $certificateFinalPrice,
                     'certificate_purchased_at' => now(),
+                    'currency_code' => $currencyCode,
+                    'exchange_rate_snapshot' => $exchangeRate,
                 ]);
 
                 // Handle wallet payment
                 if ($request->payment_method === 'wallet') {
                     // Check wallet balance
                     $walletBalance = WalletService::getWalletBalance($user->id);
-                    if ($walletBalance < $certificateFinalPrice) {
+                    if ($walletBalance < $certificateAmountEgp) {
                         DB::rollBack();
 
                         return ApiResponseService::validationError(
                             'Insufficient wallet balance. Required: '
-                            . number_format($certificateFinalPrice, 2)
+                            . number_format($certificateAmountEgp, 2)
                             . ', Available: '
                             . number_format($walletBalance, 2),
                         );
@@ -1955,7 +2111,7 @@ class OrderApiController extends Controller
                     // Deduct from wallet
                     WalletService::debitWallet(
                         $user->id,
-                        $certificateFinalPrice,
+                        $certificateAmountEgp,
                         'certificate',
                         "Certificate purchase for course: {$course->title}",
                         $order->id,
@@ -1971,6 +2127,9 @@ class OrderApiController extends Controller
                         'order_id' => $order->id,
                         'transaction_id' => $transactionId,
                         'amount' => $certificateFinalPrice,
+                        'amount_egp' => $certificateAmountEgp,
+                        'currency_code' => $currencyCode,
+                        'exchange_rate_snapshot' => $exchangeRate,
                         'payment_method' => 'wallet',
                         'status' => 'completed',
                         'message' => 'Certificate purchase payment successful via Wallet',
@@ -1994,7 +2153,12 @@ class OrderApiController extends Controller
                         'order_number' => $order->order_number,
                         'course_id' => $course->id,
                         'course_title' => $course->title,
-                        'certificate_fee' => (float) $certificateFinalPrice,
+                        'certificate_fee' => (float) $certificateFee,
+                        'tax_percentage' => (float) $certificateTaxPercentage,
+                        'tax_price' => (float) $certificateTaxAmount,
+                        'final_price' => (float) $certificateFinalPrice,
+                        'currency' => $currencyCode,
+                        'currency_symbol' => (string) ($currencyMeta['symbol'] ?? $currencyCode),
                         'payment_method' => 'wallet',
                         'transaction_id' => $transactionId,
                         'status' => 'completed',
@@ -2017,41 +2181,12 @@ class OrderApiController extends Controller
                 try {
                     $paymentService = app(PaymentFactory::class)->for($order->payment_method);
 
-                    // Get currency based on payment method
-                    $currencySettings = HelperService::systemSettings([
-                        'stripe_currency',
-                        'razorpay_currency',
-                        'flutterwave_currency',
-                        'currency_code',
-                    ]);
-
-                    // Format currency based on payment method requirements
+                    // Initiate with the exact currency snapshot used to calculate
+                    // this order; never replace it with a mutable global setting.
                     if ($order->payment_method === 'razorpay') {
-                        // Razorpay expects currency in array format with currency_code
-                        // First try payment method specific, then fallback to currency_code, then default
-                        $currencyCode = !empty($currencySettings['razorpay_currency'])
-                            ? $currencySettings['razorpay_currency']
-                            : (!empty($currencySettings['currency_code']) ? $currencySettings['currency_code'] : 'INR');
                         $currency = ['currency_code' => $currencyCode];
                     } else {
-                        // Stripe and Flutterwave expect currency as string
-                        if ($order->payment_method === 'stripe') {
-                            $currency = !empty($currencySettings['stripe_currency'])
-                                ? $currencySettings['stripe_currency']
-                                : (
-                                    !empty($currencySettings['currency_code'])
-                                        ? $currencySettings['currency_code']
-                                        : 'USD'
-                                );
-                        } else {
-                            $currency = !empty($currencySettings['flutterwave_currency'])
-                                ? $currencySettings['flutterwave_currency']
-                                : (
-                                    !empty($currencySettings['currency_code'])
-                                        ? $currencySettings['currency_code']
-                                        : 'NGN'
-                                );
-                        }
+                        $currency = $currencyCode;
                     }
 
                     $paymentInit = $paymentService->initiate($order, [
@@ -2080,7 +2215,9 @@ class OrderApiController extends Controller
                         'order_number' => $order->order_number,
                         'course_id' => $course->id,
                         'course_title' => $course->title,
-                        'certificate_fee' => (float) $course->certificate_fee,
+                        'certificate_fee' => (float) $certificateFee,
+                        'currency' => $currencyCode,
+                        'currency_symbol' => (string) ($currencyMeta['symbol'] ?? $currencyCode),
                         'tax_percentage' => (float) $certificateTaxPercentage,
                         'tax_price' => (float) $order->tax_price,
                         'final_price' => (float) $order->final_price,
@@ -2096,7 +2233,9 @@ class OrderApiController extends Controller
                         'order_number' => $order->order_number,
                         'course_id' => $course->id,
                         'course_title' => $course->title,
-                        'certificate_fee' => (float) $course->certificate_fee,
+                        'certificate_fee' => (float) $certificateFee,
+                        'currency' => $currencyCode,
+                        'currency_symbol' => (string) ($currencyMeta['symbol'] ?? $currencyCode),
                         'tax_percentage' => (float) $certificateTaxPercentage,
                         'tax_price' => (float) $order->tax_price,
                         'final_price' => (float) $order->final_price,
@@ -2112,9 +2251,14 @@ class OrderApiController extends Controller
                     $response,
                 );
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                if (DB::transactionLevel() > 0) {
+                    DB::rollBack();
+                }
                 throw $e;
             } catch (Exception $e) {
-                DB::rollBack();
+                if (DB::transactionLevel() > 0) {
+                    DB::rollBack();
+                }
                 throw $e;
             }
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {

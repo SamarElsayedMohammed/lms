@@ -128,11 +128,21 @@ class ManualDepositApiController extends Controller
      */
     public function getMyDeposits(Request $request)
     {
+        $validator = Validator::make($request->all(), [
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1|max:100',
+            'status' => 'nullable|in:pending,approved,rejected,completed',
+        ]);
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors()->first());
+        }
+
         $user = Auth::user();
-        $perPage = min((int) $request->input('per_page', 15), 50);
+        $perPage = (int) $request->input('per_page', 15);
         
         $deposits = ManualDeposit::with('method')
             ->where('user_id', $user->id)
+            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->input('status')))
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 

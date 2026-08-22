@@ -46,12 +46,12 @@ class WalletApiController extends Controller
             $pendingWithdrawals = WithdrawalRequest::where('user_id', $user->id)->whereIn('status', [
                 'pending',
                 'processing',
-            ])->sum('amount');
+            ])->selectRaw('SUM(COALESCE(amount_egp, amount)) as total')->value('total');
 
             $totalWithdrawals = WithdrawalRequest::where('user_id', $user->id)->whereIn('status', [
                 'approved',
                 'completed',
-            ])->sum('amount');
+            ])->selectRaw('SUM(COALESCE(amount_egp, amount)) as total')->value('total');
 
             $countryCode     = $this->pricingService->detectUserCountry($request);
             $currencyObj     = $this->pricingService->getCurrencyForCountry($countryCode);
@@ -125,6 +125,14 @@ class WalletApiController extends Controller
             $kashier = app(\App\Services\Payment\KashierCheckoutService::class);
             $result = $kashier->createWalletTopUpSession($user, $amount);
 
+            \App\Models\WalletTopUpAttempt::create([
+                'user_id' => $user->id,
+                'order_id' => $result['order_id'],
+                'amount_egp' => $amount,
+                'status' => 'pending',
+                'expires_at' => now()->addHours(4),
+            ]);
+
             return ApiResponseService::successResponse('Redirect to payment', [
                 'checkout_url' => $result['url'],
                 'order_id' => $result['order_id'],
@@ -144,6 +152,16 @@ class WalletApiController extends Controller
     public function getWalletHistory(Request $request)
     {
         try {
+            $validator = Validator::make($request->all(), [
+                'type' => 'nullable|in:credit,debit',
+                'page' => 'nullable|integer|min:1',
+                'per_page' => 'nullable|integer|min:1|max:100',
+                'payment' => 'nullable|string|max:100',
+            ]);
+            if ($validator->fails()) {
+                return ApiResponseService::validationError($validator->errors()->first());
+            }
+
             $user = Auth::user();
             if (!$user) {
                 return ApiResponseService::errorResponse('Authentication required.');
@@ -155,8 +173,8 @@ class WalletApiController extends Controller
             $displayCurrency = $currencyObj ? $currencyObj->currency_code  : 'EGP';
             $displaySymbol   = $currencyObj ? $currencyObj->currency_symbol : 'ج.م';
 
-            $perPage = $request->per_page ?? 15;
-            $currentPage = $request->page ?? 1;
+            $perPage = (int) $request->input('per_page', 15);
+            $currentPage = (int) $request->input('page', 1);
 
             // 1. Fetch WalletHistory entries
             $historyQuery = WalletHistory::where('user_id', $user->id)
@@ -235,7 +253,7 @@ class WalletApiController extends Controller
             foreach ($withdrawalRequests as $withdrawal) {
                 $refKey = \App\Models\WithdrawalRequest::class . ':' . $withdrawal->id;
                 if (!isset($recordedRefs[$refKey])) {
-                    $amt = (float) $withdrawal->amount;
+                    $amt = (float) ($withdrawal->amount_egp ?? $withdrawal->amount);
                     $localAmt = $this->pricingService->convertFromEgp($amt, $displayCurrency);
                     $unifiedList->push([
                         'id'              => 'withdrawal-' . $withdrawal->id,
@@ -258,7 +276,10 @@ class WalletApiController extends Controller
             }
 
             // 5. Sort and Paginate
-            $sortedList = $unifiedList->sortByDesc('created_at')->values();
+            $sortedList = $unifiedList
+                ->when($request->filled('type'), fn ($items) => $items->where('type', $request->input('type')))
+                ->sortByDesc('created_at')
+                ->values();
             $total = $sortedList->count();
             $pagedData = $sortedList->forPage($currentPage, $perPage)->values();
 
@@ -408,6 +429,7 @@ class WalletApiController extends Controller
             $validator = Validator::make($validationData, [
                 'amount' => 'required|numeric|min:1|max:999999.99',
                 'payment_method' => 'required|string|exists:withdrawal_methods,code',
+                'currency_code' => 'nullable|string|size:3',
                 'payment_details' => 'required|array|min:1',
                 'notes' => 'nullable|string|max:500',
             ]);
@@ -421,6 +443,42 @@ class WalletApiController extends Controller
             if (!$user) {
                 return ApiResponseService::errorResponse('Authentication required.');
             }
+
+            $withdrawalMethod = \App\Models\WithdrawalMethod::where('code', $request->payment_method)
+                ->where('is_active', true)
+                ->first();
+            if ($withdrawalMethod === null) {
+                return ApiResponseService::validationError('The selected withdrawal method is not available.');
+            }
+
+            $amount = (float) $request->amount;
+            $sourceCurrency = strtoupper((string) ($withdrawalMethod->currency ?: 'EGP'));
+            if ($request->filled('currency_code') && strtoupper((string) $request->currency_code) !== $sourceCurrency) {
+                return ApiResponseService::validationError('The withdrawal currency does not match the selected method.');
+            }
+
+            if ($withdrawalMethod->min_amount !== null && $amount < (float) $withdrawalMethod->min_amount) {
+                return ApiResponseService::validationError('The withdrawal amount is below the selected method minimum.');
+            }
+            if ($withdrawalMethod->max_amount !== null && $amount > (float) $withdrawalMethod->max_amount) {
+                return ApiResponseService::validationError('The withdrawal amount exceeds the selected method maximum.');
+            }
+
+            $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
+            if ($sourceCurrency !== 'EGP' && $currencyConversionService->getCurrency($sourceCurrency) === null) {
+                return ApiResponseService::validationError('The selected withdrawal currency is not supported.');
+            }
+            $exchangeRate = $currencyConversionService->getExchangeRateToEgp($sourceCurrency);
+            $amountEgp = $currencyConversionService->convertToEgp($amount, $sourceCurrency);
+            $fixedFee = max(0, (float) ($withdrawalMethod->fixed_fee ?? 0));
+            $percentFee = max(0, (float) ($withdrawalMethod->percent_fee ?? 0));
+            $feeAmount = round($fixedFee + ($amount * $percentFee / 100), 2);
+            $netAmount = round($amount - $feeAmount, 2);
+            if ($netAmount <= 0) {
+                return ApiResponseService::validationError('The net withdrawal amount after fees must be greater than zero.');
+            }
+            $feeAmountEgp = $currencyConversionService->convertToEgp($feeAmount, $sourceCurrency);
+            $netAmountEgp = $currencyConversionService->convertToEgp($netAmount, $sourceCurrency);
 
             // Validate payment details based on method
             $paymentDetails = $this->validatePaymentDetails($withdrawalMethod, $paymentDetailsInput);
@@ -438,7 +496,7 @@ class WalletApiController extends Controller
             }
 
             // Check if user has sufficient wallet balance under lock
-            if ((float) $lockedUser->wallet_balance < (float) $amount) {
+            if ((float) $lockedUser->wallet_balance < $amountEgp) {
                 DB::rollBack();
                 $currencySymbol = HelperService::systemSettings('currency_symbol') ?? '$';
                 return ApiResponseService::validationError('Insufficient wallet balance. Available: '
@@ -462,24 +520,27 @@ class WalletApiController extends Controller
             // Determine entry type (user)
             $entryType = 'user';
             
-            $countryCode = $lockedUser->country_code ?? 'EG';
-            $pricingService = app(\App\Services\PricingService::class);
-            $currencyObj = $pricingService->getCurrencyForCountry($countryCode);
-            $currencyCode = $currencyObj ? $currencyObj->currency_code : 'EGP';
-            
-            $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
-            $exchangeRate = $currencyConversionService->getExchangeRateToEgp($currencyCode);
-            $amountEgp = $amount; // Assuming amount is submitted in EGP
-
             // Create withdrawal request
             $withdrawalRequest = WithdrawalRequest::create([
                 'user_id' => $lockedUser->id,
                 'amount' => $amount,
+                'fee_amount' => $feeAmount,
+                'net_amount' => $netAmount,
                 'amount_egp' => $amountEgp,
+                'fee_amount_egp' => $feeAmountEgp,
+                'net_amount_egp' => $netAmountEgp,
                 'exchange_rate_snapshot' => $exchangeRate,
-                'currency_code' => $currencyCode,
+                'currency_code' => $sourceCurrency,
                 'entry_type' => $entryType,
                 'payment_method' => $request->payment_method,
+                'method_snapshot' => [
+                    'id' => $withdrawalMethod->id,
+                    'code' => $withdrawalMethod->code,
+                    'name' => $withdrawalMethod->name,
+                    'currency' => $sourceCurrency,
+                    'fixed_fee' => $fixedFee,
+                    'percent_fee' => $percentFee,
+                ],
                 'payment_details' => $paymentDetailsInput,
                 'notes' => $request->notes,
                 'status' => 'pending',
@@ -488,7 +549,7 @@ class WalletApiController extends Controller
             // Deduct the requested amount from user's wallet immediately to prevent double spending
             WalletService::debitWallet(
                 $lockedUser->id,
-                $amount,
+                $amountEgp,
                 'withdrawal',
                 "Withdrawal request #{$withdrawalRequest->id} submitted",
                 $withdrawalRequest->id,
@@ -504,6 +565,8 @@ class WalletApiController extends Controller
                 'withdrawal_request' => [
                     'id' => $withdrawalRequest->id,
                     'amount' => (float) $withdrawalRequest->amount,
+                    'fee_amount' => (float) $withdrawalRequest->fee_amount,
+                    'net_amount' => (float) $withdrawalRequest->net_amount,
                     'status' => $withdrawalRequest->status,
                     'payment_method' => $withdrawalRequest->payment_method,
                     'created_at' => $withdrawalRequest->created_at->format('Y-m-d H:i:s'),
@@ -561,8 +624,12 @@ class WalletApiController extends Controller
             // Format the response
             $formattedRequests = $withdrawalRequests->map(fn($wr) => [
                 'id'              => $wr->id,
-                'amount'          => (float) $wr->amount,
-                'local_amount'    => $this->pricingService->convertFromEgp((float) $wr->amount, $displayCurrency),
+                'amount'          => (float) ($wr->amount_egp ?? $wr->amount),
+                'fee_amount'      => (float) ($wr->fee_amount_egp ?? $wr->fee_amount ?? 0),
+                'net_amount'      => (float) ($wr->net_amount_egp ?? $wr->net_amount ?? $wr->amount_egp ?? $wr->amount),
+                'local_amount'    => $this->pricingService->convertFromEgp((float) ($wr->amount_egp ?? $wr->amount), $displayCurrency),
+                'local_fee_amount' => $this->pricingService->convertFromEgp((float) ($wr->fee_amount_egp ?? 0), $displayCurrency),
+                'local_net_amount' => $this->pricingService->convertFromEgp((float) ($wr->net_amount_egp ?? $wr->amount_egp ?? $wr->amount), $displayCurrency),
                 'currency'        => $displayCurrency,
                 'currency_symbol' => $displaySymbol,
                 'status'          => $wr->status,
@@ -696,8 +763,12 @@ class WalletApiController extends Controller
                 'currency_symbol' => $displaySymbol,
                 'withdrawal_request' => [
                     'id'           => $withdrawalRequest->id,
-                    'amount'       => (float) $withdrawalRequest->amount,
-                    'local_amount' => $this->pricingService->convertFromEgp((float) $withdrawalRequest->amount, $displayCurrency),
+                    'amount'       => (float) ($withdrawalRequest->amount_egp ?? $withdrawalRequest->amount),
+                    'fee_amount'   => (float) ($withdrawalRequest->fee_amount_egp ?? $withdrawalRequest->fee_amount ?? 0),
+                    'net_amount'   => (float) ($withdrawalRequest->net_amount_egp ?? $withdrawalRequest->net_amount ?? $withdrawalRequest->amount_egp ?? $withdrawalRequest->amount),
+                    'local_amount' => $this->pricingService->convertFromEgp((float) ($withdrawalRequest->amount_egp ?? $withdrawalRequest->amount), $displayCurrency),
+                    'local_fee_amount' => $this->pricingService->convertFromEgp((float) ($withdrawalRequest->fee_amount_egp ?? 0), $displayCurrency),
+                    'local_net_amount' => $this->pricingService->convertFromEgp((float) ($withdrawalRequest->net_amount_egp ?? $withdrawalRequest->amount_egp ?? $withdrawalRequest->amount), $displayCurrency),
                     'currency'     => $displayCurrency,
                     'currency_symbol' => $displaySymbol,
                     'status' => $withdrawalRequest->status,

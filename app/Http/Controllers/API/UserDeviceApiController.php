@@ -38,6 +38,16 @@ class UserDeviceApiController extends Controller
         $userTokens = DB::table('personal_access_tokens')
             ->where('tokenable_id', $user->id)
             ->where('tokenable_type', get_class($user))
+            ->where(function ($query) {
+                $query->where('token_type', 'access')
+                    ->orWhere(function ($legacyQuery) {
+                        $legacyQuery->whereNull('token_type')
+                            ->where('name', 'not like', '%-refresh');
+                    });
+            })
+            ->where(function ($query) {
+                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
             ->get()
             ->keyBy(function ($token) {
                 return str_replace('-refresh', '', $token->name);
@@ -86,6 +96,16 @@ class UserDeviceApiController extends Controller
 
         if (!$device) {
             return ApiResponseService::errorResponse('الجهاز غير موجود أو ليس لديك صلاحية لحذفه', null, 404);
+        }
+
+        $currentTokenName = $user->currentAccessToken()?->name ?? '';
+        $currentDeviceId = str_replace('-refresh', '', $currentTokenName);
+        if ($currentDeviceId !== '' && hash_equals($currentDeviceId, (string) $device->device_id)) {
+            return ApiResponseService::errorResponse(
+                'Use the logout action to end the current device session.',
+                ['error_code' => 'cannot_remove_current_device'],
+                422,
+            );
         }
 
         try {

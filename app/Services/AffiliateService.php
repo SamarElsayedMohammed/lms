@@ -78,7 +78,9 @@ class AffiliateService
 
         $plan = $subscription->plan;
         $payment = $subscription->payments()->where('status', 'completed')->first();
-        $paymentAmount = $payment ? (float) $payment->amount : (float) $plan->price;
+        $paymentAmount = $payment
+            ? (float) ($payment->amount_egp ?? $payment->amount)
+            : (float) $plan->price;
 
         $commissionRate = (float) ($plan->commission_rate ?? 0);
         $commissionType = $plan->commission_type ?? 'percentage';
@@ -104,12 +106,19 @@ class AffiliateService
             : $earnedDate->copy()->endOfMonth();
 
         return DB::transaction(function () use ($affiliateId, $referredUser, $subscription, $plan, $amount, $commissionType, $commissionRate, $earnedDate, $availableDate, $periodStart, $periodEnd) {
+            User::whereKey($referredUser->id)->lockForUpdate()->firstOrFail();
+            if (AffiliateCommission::where('referred_user_id', $referredUser->id)->exists()) {
+                return null;
+            }
+
             $commission = AffiliateCommission::create([
                 'affiliate_id' => $affiliateId,
                 'referred_user_id' => $referredUser->id,
                 'subscription_id' => $subscription->id,
                 'plan_id' => $plan->id,
                 'amount' => $amount,
+                'remaining_amount' => $amount,
+                'transferred_amount' => 0,
                 'commission_type' => $commissionType,
                 'commission_rate' => $commissionRate,
                 'status' => 'pending',
@@ -138,7 +147,7 @@ class AffiliateService
     {
         return (float) AffiliateCommission::forAffiliate($user->id)
             ->available()
-            ->sum('amount');
+            ->sum('remaining_amount');
     }
 
     public function getPendingBalance(User $user): float
@@ -166,17 +175,23 @@ class AffiliateService
             throw new \InvalidArgumentException('Affiliate system is not enabled.');
         }
 
+        $amount = round($amount, 2);
         $minAmount = $this->getMinimumWithdrawalAmount();
         if ($amount < $minAmount) {
             throw new \InvalidArgumentException("Minimum withdrawal amount is {$minAmount}.");
         }
 
-        $availableBalance = $this->getAvailableBalance($user);
-        if ($availableBalance < $amount) {
-            throw new \InvalidArgumentException('Insufficient available balance.');
-        }
-
         return DB::transaction(function () use ($user, $amount) {
+            // Serialize every balance-consuming affiliate operation for this user.
+            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+
+            if (AffiliateWithdrawal::where('affiliate_id', $user->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->lockForUpdate()
+                ->exists()) {
+                throw new \InvalidArgumentException('You already have a pending withdrawal request.');
+            }
+
             $commissions = AffiliateCommission::forAffiliate($user->id)
                 ->available()
                 ->orderBy('available_date')
@@ -184,35 +199,38 @@ class AffiliateService
                 ->lockForUpdate()
                 ->get();
 
-            $selected = [];
-            $sum = 0.0;
+            $allocations = [];
+            $remaining = $amount;
 
             foreach ($commissions as $commission) {
-                $selected[] = $commission;
-                $sum += (float) $commission->amount;
-                if ($sum >= $amount) {
+                $available = (float) $commission->remaining_amount;
+                $allocated = round(min($available, $remaining), 2);
+                if ($allocated <= 0) continue;
+
+                $newRemaining = round($available - $allocated, 2);
+                $commission->update([
+                    'remaining_amount' => $newRemaining,
+                    'status' => $newRemaining <= 0 ? 'withdrawn' : 'available',
+                    'withdrawn_at' => $newRemaining <= 0 ? now() : null,
+                ]);
+                $allocations[] = ['commission_id' => $commission->id, 'amount' => $allocated];
+                $remaining = round($remaining - $allocated, 2);
+                if ($remaining <= 0) {
                     break;
                 }
             }
 
-            if ($sum < $amount) {
+            if ($remaining > 0) {
                 throw new \InvalidArgumentException('Insufficient available balance.');
             }
 
-            $commissionIds = array_map(fn (AffiliateCommission $c) => $c->id, $selected);
-            $withdrawalAmount = round($sum, 2);
-
-            foreach ($selected as $commission) {
-                $commission->update([
-                    'status' => 'withdrawn',
-                    'withdrawn_at' => now(),
-                ]);
-            }
+            $commissionIds = array_column($allocations, 'commission_id');
 
             return AffiliateWithdrawal::create([
                 'affiliate_id' => $user->id,
-                'amount' => $withdrawalAmount,
+                'amount' => $amount,
                 'commission_ids' => $commissionIds,
+                'commission_allocations' => $allocations,
                 'status' => 'pending',
                 'requested_at' => now(),
             ]);
@@ -229,16 +247,16 @@ class AffiliateService
             throw new \InvalidArgumentException('Affiliate system is not enabled.');
         }
 
-        if ($amount <= 0) {
+        $amount = round($amount, 2);
+        if ($amount < 0.01) {
             throw new \InvalidArgumentException('Amount must be greater than zero.');
         }
 
-        $availableBalance = $this->getAvailableBalance($user);
-        if ($availableBalance < $amount) {
-            throw new \InvalidArgumentException('Insufficient available balance.');
-        }
-
         DB::transaction(function () use ($user, $amount) {
+            // Uses the same lock as withdrawal requests so a commission cannot be
+            // allocated to a withdrawal and a wallet transfer concurrently.
+            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+
             $commissions = AffiliateCommission::forAffiliate($user->id)
                 ->available()
                 ->orderBy('available_date')
@@ -246,33 +264,34 @@ class AffiliateService
                 ->lockForUpdate()
                 ->get();
 
-            $selected = [];
-            $sum = 0.0;
+            $remaining = $amount;
 
             foreach ($commissions as $commission) {
-                $selected[] = $commission;
-                $sum += (float) $commission->amount;
-                if ($sum >= $amount) {
+                $available = (float) $commission->remaining_amount;
+                $allocated = round(min($available, $remaining), 2);
+                if ($allocated <= 0) continue;
+
+                $newRemaining = round($available - $allocated, 2);
+                $commission->update([
+                    'remaining_amount' => $newRemaining,
+                    'transferred_amount' => round((float) $commission->transferred_amount + $allocated, 2),
+                    'status' => $newRemaining <= 0 ? 'transferred_to_wallet' : 'available',
+                    'withdrawn_at' => $newRemaining <= 0 ? now() : null,
+                ]);
+                $remaining = round($remaining - $allocated, 2);
+                if ($remaining <= 0) {
                     break;
                 }
             }
 
-            if ($sum < $amount) {
+            if ($remaining > 0) {
                 throw new \InvalidArgumentException('Insufficient available balance.');
             }
 
-            foreach ($selected as $commission) {
-                $commission->update([
-                    'status' => 'transferred_to_wallet',
-                    'withdrawn_at' => now(),
-                ]);
-            }
-
-            // The amount deducted from commission goes into wallet.
-            // Since we transfer whole discrete commission records, the user gets the exact sum of those records.
+            // The exact allocated amount deducted from commissions goes into the wallet.
             \App\Services\WalletService::creditWallet(
                 $user->id,
-                $sum,
+                $amount,
                 'commission',
                 'Affiliate commission transferred to wallet',
                 null,
@@ -344,11 +363,27 @@ class AffiliateService
                 'processed_by' => $admin->id,
             ]);
 
-            AffiliateCommission::whereIn('id', $lockedWithdrawal->commission_ids)
-                ->update([
-                    'status' => 'available',
-                    'withdrawn_at' => null,
-                ]);
+            $allocations = $lockedWithdrawal->commission_allocations;
+            if (is_array($allocations) && $allocations !== []) {
+                foreach ($allocations as $allocation) {
+                    $commission = AffiliateCommission::whereKey($allocation['commission_id'] ?? null)
+                        ->lockForUpdate()
+                        ->first();
+                    if (!$commission) continue;
+                    $commission->update([
+                        'remaining_amount' => round((float) $commission->remaining_amount + (float) ($allocation['amount'] ?? 0), 2),
+                        'status' => 'available',
+                        'withdrawn_at' => null,
+                    ]);
+                }
+            } else {
+                AffiliateCommission::whereIn('id', $lockedWithdrawal->commission_ids ?? [])
+                    ->update([
+                        'remaining_amount' => DB::raw('amount'),
+                        'status' => 'available',
+                        'withdrawn_at' => null,
+                    ]);
+            }
         });
     }
 

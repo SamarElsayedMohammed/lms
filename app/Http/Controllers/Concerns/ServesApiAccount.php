@@ -56,7 +56,6 @@ trait ServesApiAccount
                 'instructor_details.social_medias.social_media',
                 'instructor_details.other_details.custom_form_field',
                 'instructor_details.other_details.custom_form_field_option',
-                'activeSubscription.plan',
             ])->first();
 
             if (empty($user)) {
@@ -64,6 +63,10 @@ trait ServesApiAccount
             }
 
             // Refresh instructor_details relationship to get latest status
+
+            $activeSubscription = app(\App\Services\SubscriptionService::class)
+                ->getActiveSubscription($user);
+            $user->setRelation('activeSubscription', $activeSubscription);
 
             // Convert user to array to avoid model casting issues
             $userData = $user->toArray();
@@ -75,15 +78,10 @@ trait ServesApiAccount
             // Convert wallet_balance to float to ensure it's returned as a number, not string
             $userData['wallet_balance'] = $user->wallet_balance ?? 0;
 
-            if ($user->activeSubscription) {
-                $userData['active_subscription_type'] = ucfirst($user->activeSubscription->plan->billing_cycle ?? 'unknown');
-                $userData['active_subscription_plan_name'] = $user->activeSubscription->plan->name ?? null;
-                if ($user->activeSubscription->ends_at) {
-                    $days = \Illuminate\Support\Carbon::now()->diffInDays($user->activeSubscription->ends_at, false);
-                    $userData['active_subscription_days_left'] = $days > 0 ? (int) $days : 0;
-                } else {
-                    $userData['active_subscription_days_left'] = 'Lifetime';
-                }
+            if ($activeSubscription) {
+                $userData['active_subscription_type'] = ucfirst($activeSubscription->plan->billing_cycle ?? 'unknown');
+                $userData['active_subscription_plan_name'] = $activeSubscription->plan->name ?? null;
+                $userData['active_subscription_days_left'] = $activeSubscription->days_remaining;
             } else {
                 $userData['active_subscription_type'] = null;
                 $userData['active_subscription_plan_name'] = null;
@@ -158,11 +156,11 @@ trait ServesApiAccount
 
             // Build validation rules based on user type
             $validationRules = [
-                'name' => 'nullable|string|max:255',
+                'name' => 'sometimes|required|string|min:2|max:255',
                 'email' => 'nullable|email|unique:users,email,' . Auth::id(),
-                'mobile' => 'nullable|string|max:20',
-                'country_calling_code' => 'nullable|string|max:10',
-                'country_code' => 'nullable|string',
+                'mobile' => 'nullable|string|max:20|unique:users,mobile,' . Auth::id(),
+                'country_calling_code' => ['nullable', 'string', 'regex:/^\+?[0-9]{1,4}$/'],
+                'country_code' => 'nullable|string|size:2',
                 'profile' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
             ];
 
@@ -374,6 +372,8 @@ trait ServesApiAccount
                     || $request->has('skills')
                     || $request->has('bank_account_number')
                     || $request->has('bank_name')
+                    || $request->has('bank_account_holder_name')
+                    || $request->has('bank_ifsc_code')
                     || $request->has('about_me')
                     || $request->has('team_name')
                     || $request->hasFile('team_logo')
@@ -421,17 +421,22 @@ trait ServesApiAccount
                             'instructor_id',
                             $instructor->id,
                         )->first();
-                        $personalDetailsData = [
-                            'qualification' => $request->qualification,
-                            'years_of_experience' => $request->years_of_experience,
-                            'skills' => $request->skills,
-                            'bank_account_number' => $request->bank_account_number,
-                            'bank_name' => $request->bank_name,
-                            'bank_account_holder_name' => $request->bank_account_holder_name,
-                            'bank_ifsc_code' => $request->bank_ifsc_code,
-                            'team_name' => $request->team_name,
-                            'about_me' => $request->about_me,
-                        ];
+                        $personalDetailsData = [];
+                        foreach ([
+                            'qualification',
+                            'years_of_experience',
+                            'skills',
+                            'bank_account_number',
+                            'bank_name',
+                            'bank_account_holder_name',
+                            'bank_ifsc_code',
+                            'team_name',
+                            'about_me',
+                        ] as $field) {
+                            if ($request->has($field)) {
+                                $personalDetailsData[$field] = $request->input($field);
+                            }
+                        }
 
                         // Handle file uploads
                         $instructorPersonalDetailFolder = 'instructor/personal_details';
@@ -466,14 +471,16 @@ trait ServesApiAccount
                             );
                         }
 
-                        InstructorPersonalDetail::updateOrCreate([
-                            'instructor_id' => $instructor->id,
-                        ], $personalDetailsData);
+                        if ($personalDetailsData !== []) {
+                            InstructorPersonalDetail::updateOrCreate([
+                                'instructor_id' => $instructor->id,
+                            ], $personalDetailsData);
+                        }
 
                         // Update Social Media
-                        if ($request->has('social_medias') && !empty($request->social_medias)) {
+                        if ($request->has('social_medias')) {
                             $socialMediaData = [];
-                            foreach ($request->social_medias as $socialMedia) {
+                            foreach ((array) $request->social_medias as $socialMedia) {
                                 if (!(!empty($socialMedia['title']) && !empty($socialMedia['url']))) {
                                     continue;
                                 }
@@ -484,6 +491,7 @@ trait ServesApiAccount
                                     'url' => $socialMedia['url'],
                                 ];
                             }
+                            InstructorSocialMedia::where('instructor_id', $instructor->id)->delete();
                             if (!empty($socialMediaData)) {
                                 InstructorSocialMedia::upsert($socialMediaData, ['instructor_id', 'title'], ['url']);
                             }
@@ -494,7 +502,7 @@ trait ServesApiAccount
                             $otherDetailsData = [];
                             $instructorOtherDetailsOptionsFolder = 'instructor/other_details_options';
 
-                            foreach ($request->other_details as $otherDetail) {
+                            foreach ($request->other_details as $index => $otherDetail) {
                                 $customFormField = CustomFormField::find($otherDetail['id']);
                                 if (!$customFormField) {
                                     continue;
@@ -533,13 +541,17 @@ trait ServesApiAccount
                                             $existingFile = $fileData->getRawOriginal('value');
                                         }
 
-                                        if ($request->hasFile("other_details.{$otherDetail['id']}.file")) {
+                                        if ($request->hasFile("other_details.{$index}.file")) {
+                                            $uploadedFile = $request->file("other_details.{$index}.file");
                                             $baseData['value'] = FileService::compressAndReplace(
-                                                $otherDetail['file'],
+                                                $uploadedFile,
                                                 $instructorOtherDetailsOptionsFolder,
                                                 $existingFile,
                                             );
-                                            $baseData['extension'] = $otherDetail['file']->getClientOriginalExtension();
+                                            $baseData['extension'] = $uploadedFile->getClientOriginalExtension();
+                                        } elseif ($fileData !== null) {
+                                            $baseData['value'] = $existingFile;
+                                            $baseData['extension'] = $fileData->extension;
                                         }
                                         break;
 
@@ -741,22 +753,26 @@ trait ServesApiAccount
             }
 
             // Get pagination parameters
-            $perPage = $request->get('per_page', 10);
-            $page = $request->get('page', 1);
-            $type = $request->get('type', 'all'); // all, global, personal
-            $status = $request->get('status', 'all'); // all, read, unread
-
-            // Validate per_page parameter (max 50 records per page)
-            if ($perPage > 50) {
-                $perPage = 50;
+            $validator = Validator::make($request->query(), [
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+                'page' => ['nullable', 'integer', 'min:1'],
+                'type' => ['nullable', Rule::in(['all', 'global', 'personal'])],
+                'status' => ['nullable', Rule::in(['all', 'read', 'unread'])],
+            ]);
+            if ($validator->fails()) {
+                return ApiResponseService::validationError($validator->errors()->first());
             }
 
-            // Ensure per_page is at least 1 to avoid division by zero
-            if ($perPage < 1) {
-                $perPage = 10;
-            }
+            $validated = $validator->validated();
+            $perPage = (int) ($validated['per_page'] ?? 10);
+            $page = (int) ($validated['page'] ?? 1);
+            $type = $validated['type'] ?? 'all';
+            $status = $validated['status'] ?? 'all';
 
             $notifications = collect();
+            $globalTotal = 0;
+            $personalTotal = 0;
+            $sourceFetchLimit = max(1, (int) $page) * (int) $perPage;
             Carbon::setLocale('ar');
 
             $pickArabic = static function (array $data, string $enKey, string $arKey, string $fallback): string {
@@ -817,18 +833,35 @@ trait ServesApiAccount
             // Get global notifications (legacy_notifications table)
             if ($type === 'all' || $type === 'global') {
                 // Get all read notification IDs for this user
-                $readNotificationIds = \App\Models\UserNotificationRead::where('user_id', $user->id)
-                    ->pluck('notification_id')
-                    ->toArray();
+                $readNotificationRows = \App\Models\UserNotificationRead::where('user_id', $user->id)
+                    ->get(['notification_id', 'read_at', 'hidden_at'])
+                    ->keyBy('notification_id');
+                $hiddenNotificationIds = $readNotificationRows
+                    ->filter(static fn ($row): bool => $row->hidden_at !== null)
+                    ->keys()
+                    ->all();
+                $visibleReadNotificationRows = $readNotificationRows
+                    ->filter(static fn ($row): bool => $row->hidden_at === null);
+                $readNotificationIds = $visibleReadNotificationRows->keys()->all();
 
                 // Only show notifications sent after user registration date
                 $userRegistrationDate = $user->created_at ?? now();
 
-                $globalNotifications = \App\Models\Notification::where('date_sent', '>=', $userRegistrationDate)
+                $globalNotificationsQuery = \App\Models\Notification::where('date_sent', '>=', $userRegistrationDate)
+                    ->whereNotIn('id', $hiddenNotificationIds);
+
+                if ($status === 'read') {
+                    $globalNotificationsQuery->whereIn('id', $readNotificationIds);
+                } elseif ($status === 'unread') {
+                    $globalNotificationsQuery->whereNotIn('id', $readNotificationIds);
+                }
+
+                $globalTotal = (clone $globalNotificationsQuery)->count();
+                $globalNotifications = $globalNotificationsQuery
                     ->orderBy('date_sent', 'desc')
-                    ->limit(200)
+                    ->limit($sourceFetchLimit)
                     ->get()
-                    ->map(static function ($notification) use ($readNotificationIds, $user, $getNotificationIcon) {
+                    ->map(static function ($notification) use ($visibleReadNotificationRows, $getNotificationIcon) {
                         $slug = null;
 
                         // Get slug for course or instructor notification types
@@ -841,13 +874,8 @@ trait ServesApiAccount
                         }
 
                         // Check if this notification is read
-                        $isRead = in_array($notification->id, $readNotificationIds);
-                        $readRecord = null;
-                        if ($isRead) {
-                            $readRecord = \App\Models\UserNotificationRead::where('user_id', $user->id)
-                                ->where('notification_id', $notification->id)
-                                ->first();
-                        }
+                        $readRecord = $visibleReadNotificationRows->get($notification->id);
+                        $isRead = $readRecord !== null;
 
                         return [
                             'id'                => $notification->id,
@@ -868,15 +896,6 @@ trait ServesApiAccount
                             'is_read'           => $isRead,
                             'read_at'           => $readRecord ? $readRecord->read_at->format('Y-m-d H:i:s') : null,
                         ];
-                    })
-                    ->filter(static function ($notification) use ($status) {
-                        // Apply status filter
-                        if ($status === 'read') {
-                            return $notification['is_read'] === true;
-                        } elseif ($status === 'unread') {
-                            return $notification['is_read'] === false;
-                        }
-                        return true; // 'all' - return all notifications
                     });
 
                 $notifications = $notifications->merge($globalNotifications);
@@ -894,9 +913,10 @@ trait ServesApiAccount
                     $personalNotificationsQuery->whereNull('read_at');
                 }
 
+                $personalTotal = (clone $personalNotificationsQuery)->count();
                 $personalNotificationsRaw = $personalNotificationsQuery
                     ->orderByDesc('created_at')
-                    ->limit(200)
+                    ->limit($sourceFetchLimit)
                     ->get();
 
                 $personalNotifications = $personalNotificationsRaw->map(static function ($notification) use ($getNotificationIcon, $pickArabic) {
@@ -1008,35 +1028,12 @@ trait ServesApiAccount
             $notifications = $notifications->sortByDesc('date_sent');
 
             // Apply pagination
-            $total = $notifications->count();
+            $total = $globalTotal + $personalTotal;
             $notifications = $notifications->forPage($page, $perPage)->values()->toArray();
 
-            // Get unread count
-            // Count personal unread notifications
-            $personalUnreadCount = $user->unreadNotifications()->count();
-
-            // Count global unread notifications (if type is 'all' or 'global')
-            $globalUnreadCount = 0;
-            if ($type === 'all' || $type === 'global') {
-                // Only count notifications sent after user registration date
-                $userRegistrationDate = $user->created_at ?? now();
-
-                // Get global notification IDs sent after user registration
-                $allGlobalNotificationIds = \App\Models\Notification::where('date_sent', '>=', $userRegistrationDate)
-                    ->pluck('id')
-                    ->toArray();
-
-                // Get read notification IDs for this user
-                $readGlobalNotificationIds = \App\Models\UserNotificationRead::where('user_id', $user->id)
-                    ->pluck('notification_id')
-                    ->toArray();
-
-                // Count unread global notifications
-                $globalUnreadCount = count(array_diff($allGlobalNotificationIds, $readGlobalNotificationIds));
-            }
-
-            // Total unread count (always return total unread, regardless of status filter)
-            $unreadCount = $personalUnreadCount + $globalUnreadCount;
+            // The dashboard, header and notifications page share one unread
+            // definition instead of counting only their preferred table.
+            $unreadCount = app(\App\Services\UserNotificationService::class)->unreadCount($user);
 
             // Create pagination links
             $lastPage = max(1, (int) ceil($total / max(1, (int) $perPage)));
@@ -1373,7 +1370,11 @@ trait ServesApiAccount
             $user->unreadNotifications()->update(['read_at' => now()]);
 
             // Mark all global notifications as read
-            $allGlobalNotifications = \App\Models\Notification::pluck('id')->toArray();
+            $allGlobalNotifications = \App\Models\Notification::where(
+                'date_sent',
+                '>=',
+                $user->created_at ?? now(),
+            )->pluck('id')->toArray();
             $alreadyReadGlobalIds = \App\Models\UserNotificationRead::where('user_id', $user->id)
                 ->pluck('notification_id')
                 ->toArray();
@@ -1480,7 +1481,7 @@ trait ServesApiAccount
                         'user_id' => $user->id,
                         'notification_id' => $notificationIdInt,
                     ],
-                    ['read_at' => now()]
+                    ['read_at' => now(), 'hidden_at' => now()]
                 );
 
                 return ApiResponseService::successResponse('تم إخفاء الإشعار');
@@ -1526,20 +1527,24 @@ trait ServesApiAccount
             $user->refresh();
 
             // Check if user has money in wallet
-            if ($user->wallet_balance > 0) {
+            if (abs((float) $user->wallet_balance) >= 0.01) {
                 return ApiResponseService::validationError(
                     'You cannot delete your account because you have a remaining balance in your wallet. Please withdraw or spend your funds before deleting your account.',
                 );
             }
 
             // Check if user has pending financial operations
-            if (\App\Models\WithdrawalRequest::where('user_id', $user->id)->where('status', 'pending')->exists()) {
+            if (\App\Models\WithdrawalRequest::where('user_id', $user->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->exists()) {
                 return ApiResponseService::validationError(
                     'You cannot delete your account while you have a pending withdrawal request. Please wait for it to be processed or cancel it before deleting your account.',
                 );
             }
 
-            if (\App\Models\RefundRequest::where('user_id', $user->id)->where('status', 'pending')->exists()) {
+            if (\App\Models\RefundRequest::where('user_id', $user->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->exists()) {
                 return ApiResponseService::validationError(
                     'You cannot delete your account while you have a pending refund request. Please wait for it to be processed before deleting your account.',
                 );
@@ -1556,87 +1561,74 @@ trait ServesApiAccount
                 );
             }
 
-            // Verify authentication based on user type
-            $userType = $user->type;
+            // Require fresh proof through either the local password or the
+            // currently authenticated Firebase identity. This supports linked
+            // and passwordless email/mobile/social accounts consistently.
+            $identityVerified = false;
+            $password = trim((string) $request->input('password', ''));
+            if ($password !== '' && !empty($user->password)) {
+                $identityVerified = Hash::check($password, $user->password);
+            }
 
-            if (in_array($userType, ['email', 'mobile'])) {
-                // For email and mobile types, password is required
-                if (empty($request->password)) {
-                    return ApiResponseService::validationError('Password is required to confirm account deletion.');
-                }
-
-                // Verify password
-                $password = trim((string) $request->password);
-                if (empty($password)) {
-                    return ApiResponseService::validationError('Password is required to confirm account deletion.');
-                }
-
-                if (empty($user->password)) {
-                    return ApiResponseService::validationError('Account password not set. Please contact support.');
-                }
-
-                if (!Hash::check($password, $user->password)) {
-                    return ApiResponseService::validationError(
-                        'Incorrect password. Please enter your current password to confirm account deletion.',
-                    );
-                }
-            } elseif (in_array($userType, ['google', 'apple'])) {
-                // For google and apple types, firebase_token is required
-                if (empty($request->firebase_token)) {
-                    return ApiResponseService::validationError(
-                        'Firebase token is required to confirm account deletion.',
-                    );
-                }
-
+            if (!$identityVerified && $request->filled('firebase_token')) {
                 try {
-                    // Verify firebase token
                     $verifiedToken = ApiService::verifyFirebaseToken($request->firebase_token);
                     $firebaseId = $verifiedToken->claims()->get('sub');
-
-                    // Verify that the firebase_id matches the user's social login
-                    $socialLogin = \App\Models\SocialLogin::where('user_id', $user->id)
-                        ->where('type', $userType)
+                    $identityVerified = \App\Models\SocialLogin::where('user_id', $user->id)
                         ->where('firebase_id', $firebaseId)
-                        ->first();
-
-                    if (empty($socialLogin)) {
-                        return ApiResponseService::validationError(
-                            'Invalid firebase token. Please provide a valid token to confirm account deletion.',
-                        );
-                    }
+                        ->exists();
                 } catch (\Throwable) {
-                    return ApiResponseService::validationError(
-                        'Invalid firebase token. Please provide a valid token to confirm account deletion.',
-                    );
-                }
-            } else {
-                // Unknown type or null type - fallback to password check if available
-                if (!empty($user->password)) {
-                    if (empty($request->password)) {
-                        return ApiResponseService::validationError('Password is required to confirm account deletion.');
-                    }
-
-                    $password = trim((string) $request->password);
-                    if (empty($password) || !Hash::check($password, $user->password)) {
-                        return ApiResponseService::validationError(
-                            'Incorrect password. Please enter your current password to confirm account deletion.',
-                        );
-                    }
-                } else {
-                    return ApiResponseService::validationError(
-                        'Unable to verify account deletion. Please contact support.',
-                    );
+                    $identityVerified = false;
                 }
             }
 
-            // Delete Firebase user account if user is google/apple type
-            if (in_array($userType, ['google', 'apple'])) {
+            if (!$identityVerified) {
+                return ApiResponseService::validationError(
+                    'Re-authentication is required. Enter your current password or sign in again with your linked provider.',
+                );
+            }
+
+            $hasPendingGatewayPayment = \App\Models\SubscriptionPayment::where('user_id', $user->id)
+                ->where('status', \App\Models\SubscriptionPayment::STATUS_PENDING)
+                ->where('created_at', '>', now()->subHours(4))
+                ->exists()
+                || \App\Models\Order::where('user_id', $user->id)
+                    ->where('status', 'pending')
+                    ->where('created_at', '>', now()->subHours(4))
+                    ->exists()
+                || \App\Models\WebinarRegistration::where('user_id', $user->id)
+                    ->where('payment_status', 'pending')
+                    ->where(function ($query) {
+                        $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                    })
+                    ->exists()
+                || \App\Models\WalletTopUpAttempt::where('user_id', $user->id)
+                    ->where('status', 'pending')
+                    ->where(function ($query) {
+                        $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                    })
+                    ->exists();
+
+            if ($hasPendingGatewayPayment) {
+                return ApiResponseService::validationError(
+                    'You cannot delete your account while an online payment is still pending. Complete it or wait for the checkout session to expire.',
+                );
+            }
+
+            if (\App\Models\ManualDeposit::where('user_id', $user->id)
+                ->where('status', 'pending')
+                ->exists()) {
+                return ApiResponseService::validationError(
+                    'You cannot delete your account while a wallet deposit is awaiting review.',
+                );
+            }
+
+            // Remove every linked Firebase identity before deleting its local links.
+            if (\App\Models\SocialLogin::where('user_id', $user->id)->whereNotNull('firebase_id')->exists()) {
                 try {
-                    // Get firebase_id from social_logins table before deleting
-                    $socialLogins = \App\Models\SocialLogin::where('user_id', $user->id)->where(
-                        'type',
-                        $userType,
-                    )->get();
+                    $socialLogins = \App\Models\SocialLogin::where('user_id', $user->id)
+                        ->whereNotNull('firebase_id')
+                        ->get();
 
                     foreach ($socialLogins as $socialLogin) {
                         if (empty($socialLogin->firebase_id)) {
@@ -1716,6 +1708,20 @@ trait ServesApiAccount
                 // Delete user's social login records
                 \App\Models\SocialLogin::where('user_id', $user->id)->delete();
 
+                // Stop renewals and queued activations before the user becomes inactive.
+                // Payment/audit rows remain intact for reconciliation.
+                \App\Models\Subscription::where('user_id', $user->id)
+                    ->whereNotIn('status', [
+                        \App\Models\Subscription::STATUS_EXPIRED,
+                        \App\Models\Subscription::STATUS_CANCELLED,
+                    ])
+                    ->update([
+                        'status' => \App\Models\Subscription::STATUS_CANCELLED,
+                        'auto_renew' => false,
+                        'cancelled_at' => now(),
+                        'cancellation_reason' => 'Account deleted by user',
+                    ]);
+
                 // Delete user's team memberships
                 \App\Models\TeamMember::where('user_id', $user->id)->delete();
 
@@ -1752,7 +1758,7 @@ trait ServesApiAccount
                 \App\Models\UserDevice::where('user_id', $user->id)->delete();
 
                 return ApiResponseService::successResponse(
-                    'Your account has been successfully deleted. All your data has been removed from our system.',
+                    'Your account has been deactivated and personal access has been removed. Financial records are retained where legally required.',
                 );
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
@@ -1783,7 +1789,15 @@ trait ServesApiAccount
     {
         $user = Auth::user();
         if (!$user) {
-            return ApiResponseService::errorResponse('Unauthenticated', 401);
+            return ApiResponseService::errorResponse('Unauthenticated', null, 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1|max:50',
+        ]);
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors()->first());
         }
 
         $perPage = (int) $request->input('per_page', 15);
@@ -1792,23 +1806,19 @@ trait ServesApiAccount
             ->withCount(['replies as unread_count' => function ($query) {
                 $query->where('sender_type', 'admin')->where('is_read', false);
             }])
+            ->withMax('replies as last_reply_at', 'created_at')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
         // Format for the frontend requirement
         $formatted = $messages->map(function ($msg) {
-            // Get the last reply time or creation time
-            $lastReply = \App\Models\ContactMessageReply::where('contact_message_id', $msg->id)
-                ->orderBy('created_at', 'desc')
-                ->first();
-                
             return [
                 'id' => $msg->id,
-                'subject' => \Illuminate\Support\Str::limit($msg->message, 50),
+                'subject' => $msg->subject ?: \Illuminate\Support\Str::limit($msg->message, 50),
                 'status' => $msg->status,
                 'unread_count' => $msg->unread_count,
                 'created_at' => $msg->created_at,
-                'last_reply_at' => $lastReply ? $lastReply->created_at : clone $msg->created_at,
+                'last_reply_at' => $msg->last_reply_at ?: $msg->created_at,
             ];
         });
 
@@ -1830,7 +1840,7 @@ trait ServesApiAccount
     {
         $user = Auth::user();
         if (!$user) {
-            return ApiResponseService::errorResponse('Unauthenticated', 401);
+            return ApiResponseService::errorResponse('Unauthenticated', null, 401);
         }
 
         $message = \App\Models\ContactMessage::where('id', $id)
@@ -1838,7 +1848,7 @@ trait ServesApiAccount
             ->first();
 
         if (!$message) {
-            return ApiResponseService::errorResponse('Conversation not found', 404);
+            return ApiResponseService::errorResponse('Conversation not found', code: 404);
         }
 
         // Mark unread admin replies as read
@@ -1885,8 +1895,9 @@ trait ServesApiAccount
             'success' => true,
             'data' => [
                 'id' => $message->id,
-                'subject' => \Illuminate\Support\Str::limit($message->message, 50),
+                'subject' => $message->subject ?: \Illuminate\Support\Str::limit($message->message, 50),
                 'status' => $message->status,
+                'created_at' => $message->created_at,
                 'conversation' => $conversation,
             ]
         ]);
@@ -1899,7 +1910,7 @@ trait ServesApiAccount
     {
         $user = Auth::user();
         if (!$user) {
-            return ApiResponseService::errorResponse('Unauthenticated', 401);
+            return ApiResponseService::errorResponse('Unauthenticated', null, 401);
         }
 
         $message = \App\Models\ContactMessage::where('id', $id)
@@ -1907,38 +1918,35 @@ trait ServesApiAccount
             ->first();
 
         if (!$message) {
-            return ApiResponseService::errorResponse('Conversation not found', 404);
+            return ApiResponseService::errorResponse('Conversation not found', code: 404);
         }
 
         if (in_array($message->status, ['closed', 'completed'])) {
-            return ApiResponseService::errorResponse('Cannot reply to a closed conversation', 403);
+            return ApiResponseService::errorResponse('Cannot reply to a closed conversation', code: 403);
         }
 
         $validator = Validator::make($request->all(), [
-            'message' => 'required|string|min:2',
+            'message' => 'required|string|min:2|max:5000',
         ]);
 
         if ($validator->fails()) {
             return ApiResponseService::validationError($validator->errors()->first());
         }
 
+        $cleanReply = trim(strip_tags((string) $request->message));
+        if (mb_strlen($cleanReply) < 2) {
+            return ApiResponseService::validationError('Reply must contain at least two visible characters.');
+        }
+
         \App\Models\ContactMessageReply::create([
             'contact_message_id' => $message->id,
             'user_id' => $user->id,
             'sender_type' => 'user',
-            'message' => $request->message ? strip_tags($request->message) : null,
+            'message' => $cleanReply,
             'is_read' => false,
         ]);
 
         $message->update(['status' => 'waiting_admin']);
-
-        \App\Models\UserNotification::create([
-            'user_id' => $user->id,
-            'type' => 'support_message',
-            'title' => 'تم إرسال ردك',
-            'message' => 'تم إرسال ردك لفريق الدعم',
-            'url' => '/contact-us?tab=conversations',
-        ]);
 
         // Optional: Notify admin here
 
@@ -1954,7 +1962,10 @@ trait ServesApiAccount
             $validator = Validator::make($request->all(), [
                 'first_name' => 'required|string|max:255',
                 'email'      => 'required|email|max:255',
+                'subject'    => 'nullable|string|max:255',
                 'message'    => 'required|string|max:2000',
+                'phone'      => 'nullable|string|max:30',
+                'message_type' => 'nullable|string|max:100',
             ]);
 
             if ($validator->fails()) {
@@ -1963,13 +1974,49 @@ trait ServesApiAccount
 
             // Detect authenticated user (optional — guests may also send)
             $authUser = Auth::guard('sanctum')->user();
+            $cleanMessage = trim(strip_tags((string) $request->message));
+            if ($cleanMessage === '') {
+                return ApiResponseService::validationError('Message must contain visible text.');
+            }
+
+            $allowedCustomKeys = CustomFormField::query()
+                ->pluck('name')
+                ->filter()
+                ->map(static fn ($name) => (string) $name)
+                ->all();
+            $metadataKeys = array_values(array_unique([
+                'phone',
+                'message_type',
+                ...$allowedCustomKeys,
+            ]));
+            $metadataKeys = array_values(array_diff($metadataKeys, [
+                'first_name', 'name', 'email', 'subject', 'message',
+            ]));
+            $metadata = [];
+            foreach (array_slice($metadataKeys, 0, 30) as $key) {
+                $value = $request->input($key);
+                if (!is_scalar($value)) {
+                    continue;
+                }
+
+                $rawValue = trim(strip_tags((string) $value));
+                if (mb_strlen($rawValue) > 2000) {
+                    return ApiResponseService::validationError("{$key} may not be greater than 2000 characters.");
+                }
+                $cleanValue = $rawValue;
+                if ($cleanValue !== '') {
+                    $metadata[$key] = $cleanValue;
+                }
+            }
 
             // Save to database
             $contactMessage = \App\Models\ContactMessage::create([
                 'user_id'    => $authUser?->id,
-                'first_name' => $request->first_name,
-                'email'      => $request->email,
-                'message'    => $request->message ? strip_tags($request->message) : null,
+                'first_name' => $authUser?->name ?: trim(strip_tags((string) $request->first_name)),
+                'email'      => $authUser?->email ?: strtolower(trim((string) $request->email)),
+                'subject'    => trim(strip_tags((string) $request->input('subject', ''))) ?: null,
+                'message'    => $cleanMessage,
+                'metadata'   => $metadata ?: null,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'status'     => 'new',
@@ -1980,10 +2027,11 @@ trait ServesApiAccount
             if ($authUser) {
                 \App\Models\UserNotification::create([
                     'user_id' => $authUser->id,
+                    'contact_message_id' => $contactMessage->id,
                     'type' => 'support_message',
                     'title' => 'تم إرسال رسالتك',
                     'message' => 'تم استلام رسالتك وسيتم الرد عليك قريبًا',
-                    'url' => '/contact-us?tab=conversations',
+                    'url' => '/messages?ticket=' . $contactMessage->id,
                 ]);
             }
 
@@ -2049,6 +2097,7 @@ trait ServesApiAccount
 
             return ApiResponseService::successResponse(
                 'Your message has been sent successfully! We will get back to you soon.',
+                ['id' => $contactMessage->id],
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;

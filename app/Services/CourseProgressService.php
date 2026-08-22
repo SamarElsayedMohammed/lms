@@ -57,14 +57,17 @@ class CourseProgressService
             $totalItems = $detailed['summary']['total_items'] ?? 0;
             $percentage = (float) ($detailed['course']['progress_percentage'] ?? 0);
             
-            // Invariant: Course is completed if and only if EVERY required item is 100% completed
-            $isCompleted = $totalItems > 0 && $completedItems === $totalItems;
-            if ($isCompleted) {
+            $watchedSeconds = $this->getWatchedSecondsForCourse($userId, $courseId);
+            $status = $this->resolveLearningStatusValues(
+                $percentage,
+                (int) $completedItems,
+                (int) $totalItems,
+                $watchedSeconds,
+            );
+            if ($status === 'completed') {
                 $percentage = 100.0;
-                $status = 'completed';
             } else {
                 $percentage = min(99.9, max(0.0, $percentage));
-                $status = $completedItems === 0 && $percentage === 0.0 ? 'not_started' : 'in_progress';
             }
 
             $attributes = [
@@ -87,7 +90,7 @@ class CourseProgressService
             // caused a 100% course to recursively calculate itself.
             Cache::put("user:{$userId}:course:{$courseId}:progress", $progress, self::CACHE_TTL);
 
-            if ($isCompleted) {
+            if ($status === 'completed') {
                 app(\App\Services\CertificateService::class)->autoGenerateCertificate($userId, $courseId);
             }
         } catch (\Throwable $e) {
@@ -95,6 +98,43 @@ class CourseProgressService
         }
 
         return $progress;
+    }
+
+    public function resolveLearningStatus(UserCourseProgress $progress, int $watchedSeconds = 0): string
+    {
+        return $this->resolveLearningStatusValues(
+            (float) ($progress->progress_percentage ?? 0),
+            (int) ($progress->completed_items ?? 0),
+            (int) ($progress->total_items ?? 0),
+            $watchedSeconds,
+        );
+    }
+
+    private function resolveLearningStatusValues(
+        float $percentage,
+        int $completedItems,
+        int $totalItems,
+        int $watchedSeconds,
+    ): string {
+        if ($totalItems > 0 && $completedItems >= $totalItems && $percentage >= 100) {
+            return 'completed';
+        }
+
+        return $percentage > 0 || $completedItems > 0 || $watchedSeconds > 0
+            ? 'in_progress'
+            : 'not_started';
+    }
+
+    private function getWatchedSecondsForCourse(int $userId, int $courseId): int
+    {
+        return (int) DB::table('video_progress')
+            ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+            ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+            ->where('video_progress.user_id', $userId)
+            ->where('course_chapters.course_id', $courseId)
+            ->where('course_chapters.is_active', true)
+            ->where('course_chapter_lectures.is_active', true)
+            ->sum('video_progress.watched_seconds');
     }
 
     /**
@@ -184,7 +224,10 @@ class CourseProgressService
      */
     public function hasStarted(int $userId, int $courseId): bool
     {
-        return $this->getProgressWithCache($userId, $courseId)->progress_percentage > 0;
+        return $this->resolveLearningStatus(
+            $this->getProgressWithCache($userId, $courseId),
+            $this->getWatchedSecondsForCourse($userId, $courseId),
+        ) !== 'not_started';
     }
 
     /**
@@ -298,7 +341,7 @@ class CourseProgressService
             
             $chaptersData[] = [
                 'chapter_id' => $chapter->id,
-                'chapter_name' => $chapter->name,
+                'chapter_name' => $chapter->title ?? $chapter->name ?? '',
                 'progress_percentage' => count($items) > 0 ? round(($chapterProgressScore / count($items)) * 100, 2) : 0,
                 'items' => $items,
             ];
@@ -314,10 +357,12 @@ class CourseProgressService
         return [
             'course' => [
                 'id' => $course->id,
-                'name' => $course->name,
+                'name' => $course->title ?? $course->name ?? '',
                 'thumbnail' => $course->thumbnail,
                 'progress_percentage' => $calculatedPercentage,
-                'status' => $completedItems === 0 ? 'not_started' : ($courseCompleted ? 'completed' : 'in_progress'),
+                'status' => $courseCompleted
+                    ? 'completed'
+                    : ($rawProgressScore > 0 ? 'in_progress' : 'not_started'),
             ],
             'chapters' => $chaptersData,
             'next_item' => $nextItem,

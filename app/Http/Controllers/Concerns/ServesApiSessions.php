@@ -83,14 +83,22 @@ trait ServesApiSessions
     {
         try {
             $user = Auth::user();
-            $sessions = $user->tokens->map(function ($token) use ($user) {
+            $currentTokenId = $user->currentAccessToken()?->id;
+            $sessions = $user->tokens()
+                ->where('name', 'not like', '%-refresh')
+                ->where(function ($query) {
+                    $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                })
+                ->latest('last_used_at')
+                ->get()
+                ->map(function ($token) use ($currentTokenId) {
                 return [
                     'id' => $token->id,
                     'name' => $token->name,
                     'ip_address' => $token->ip_address,
                     'user_agent' => $token->user_agent,
                     'last_used_at' => $token->last_used_at,
-                    'is_current' => $token->id === $user->currentAccessToken()->id,
+                    'is_current' => (int) $token->id === (int) $currentTokenId,
                 ];
             });
 
@@ -261,21 +269,33 @@ trait ServesApiSessions
     {
         try {
             $user = Auth::user();
-            $settings = \App\Models\NotificationSetting::where('user_id', $user->id)->get();
-            
-            // Default settings if empty
-            if ($settings->isEmpty()) {
-                $keys = ['course_updates', 'marketing', 'wallet_activity', 'new_messages'];
-                foreach ($keys as $key) {
-                    \App\Models\NotificationSetting::create([
+            $keys = [
+                'course_updates',
+                'marketing',
+                'wallet_activity',
+                'new_messages',
+                'promotions',
+                'new_courses',
+                'security_alerts',
+            ];
+
+            foreach ($keys as $key) {
+                \App\Models\NotificationSetting::firstOrCreate(
+                    ['user_id' => $user->id, 'setting_key' => $key],
+                    [
                         'user_id' => $user->id,
                         'setting_key' => $key,
                         'email_enabled' => true,
                         'push_enabled' => true,
-                    ]);
-                }
-                $settings = \App\Models\NotificationSetting::where('user_id', $user->id)->get();
+                    ]
+                );
             }
+
+            $settings = \App\Models\NotificationSetting::where('user_id', $user->id)
+                ->whereIn('setting_key', $keys)
+                ->get()
+                ->sortBy(static fn ($setting) => array_search($setting->setting_key, $keys, true))
+                ->values();
 
             return ApiResponseService::successResponse('Notification settings retrieved successfully', $settings);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -291,7 +311,19 @@ trait ServesApiSessions
             $user = Auth::user();
             $validator = Validator::make($request->all(), [
                 'settings' => 'required|array',
-                'settings.*.setting_key' => 'required|string',
+                'settings.*.setting_key' => [
+                    'required',
+                    'string',
+                    Rule::in([
+                        'course_updates',
+                        'marketing',
+                        'wallet_activity',
+                        'new_messages',
+                        'promotions',
+                        'new_courses',
+                        'security_alerts',
+                    ]),
+                ],
                 'settings.*.email_enabled' => 'required|boolean',
                 'settings.*.push_enabled' => 'required|boolean',
             ]);
@@ -328,6 +360,14 @@ trait ServesApiSessions
             return ApiResponseService::errorResponse('يجب تسجيل الدخول.', null, 401);
         }
 
+        $validator = \Illuminate\Support\Facades\Validator::make($request->query(), [
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1|max:50',
+        ]);
+        if ($validator->fails()) {
+            return ApiResponseService::validationError($validator->errors()->first());
+        }
+
         $perPage = (int) $request->input('per_page', 15);
         
         $notifications = \App\Models\UserNotification::where('user_id', $user->id)
@@ -336,11 +376,17 @@ trait ServesApiSessions
 
         return response()->json([
             'success' => true,
-            'data' => $notifications->items(),
+            'data' => collect($notifications->items())->map(static fn ($notification) => [
+                ...$notification->toArray(),
+                'time_ago' => $notification->created_at?->diffForHumans(),
+            ])->values(),
             'pagination' => [
                 'current_page' => $notifications->currentPage(),
                 'last_page' => $notifications->lastPage(),
                 'total' => $notifications->total(),
+                'unread_count' => \App\Models\UserNotification::where('user_id', $user->id)
+                    ->where('is_read', false)
+                    ->count(),
             ]
         ]);
     }
@@ -382,9 +428,11 @@ trait ServesApiSessions
             ->where('user_id', $user->id)
             ->first();
 
-        if ($notification) {
-            $notification->update(['is_read' => true]);
+        if (!$notification) {
+            return ApiResponseService::errorResponse('الإشعار غير موجود.', null, 404);
         }
+
+        $notification->update(['is_read' => true]);
 
         return response()->json(['success' => true]);
     }

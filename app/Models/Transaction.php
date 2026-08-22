@@ -33,6 +33,8 @@ class Transaction extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'amount_egp' => 'decimal:2',
+        'exchange_rate_snapshot' => 'decimal:4',
     ];
 
     public function user()

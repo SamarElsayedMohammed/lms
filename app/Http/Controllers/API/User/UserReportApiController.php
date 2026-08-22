@@ -72,12 +72,16 @@ class UserReportApiController extends Controller
             (int) $user->id,
             static fn ($query) => $query->with(['category', 'user'])
         );
+        $canonicalProgresses = app(\App\Services\StudentDashboardStatisticsService::class)
+            ->getEnrolledCourseProgresses($user)
+            ->keyBy('course_id');
 
-        return $enrolled->map(function ($item) use ($user) {
+        return $enrolled->map(function ($item) use ($user, $canonicalProgresses) {
             $course = $item['course'];
             if (!$course) return null;
 
-            $progress = (float) app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id)->progress_percentage;
+            $progressSnapshot = $canonicalProgresses->get($course->id) ?? [];
+            $progress = (float) ($progressSnapshot['progress_percentage'] ?? 0);
 
             $hasReviewed = Rating::where('user_id', $user->id)
                 ->where('rateable_id', $course->id)
@@ -89,10 +93,12 @@ class UserReportApiController extends Controller
                 'title'              => $course->title,
                 'category'           => $course->category->name ?? 'N/A',
                 'instructor'         => $course->user->name ?? 'N/A',
-                'enrolled_at'        => $item['purchase_date']->toDateTimeString(),
+                'enrolled_at'        => $item['enrolled_at']->toDateTimeString(),
+                'access_started_at'  => $item['access_started_at']->toDateTimeString(),
+                'purchase_date'      => $item['purchase_date']?->toDateTimeString(),
                 'enrollment_source'  => $item['source'],
                 'progress_percentage'=> round($progress, 2),
-                'status'             => $progress >= 100 ? 'completed' : ($progress > 0 ? 'in_progress' : 'not_started'),
+                'status'             => $progressSnapshot['learning_status'] ?? 'not_started',
                 'is_reviewed'        => $hasReviewed,
                 'last_activity'      => UserCurriculumTracking::where('user_id', $user->id)
                     ->whereHas('chapter', fn($q) => $q->where('course_id', $course->id))
@@ -262,6 +268,7 @@ class UserReportApiController extends Controller
             $result = [];
 
             $progressService = app(\App\Services\CourseProgressService::class);
+            $certificateService = app(\App\Services\CertificateService::class);
 
             foreach ($generatedCertificates as $cert) {
                 $progressPercentage = round(
@@ -270,7 +277,10 @@ class UserReportApiController extends Controller
                         ->progress_percentage,
                     2,
                 );
-                $eligibleByProgress = $progressPercentage >= 100;
+                $eligibleByProgress = $certificateService->checkCourseCompletionStatus(
+                    (int) $user->id,
+                    (int) $cert->course_id,
+                );
 
                 $result[] = [
                     'id'                 => $cert->id,
@@ -283,7 +293,7 @@ class UserReportApiController extends Controller
                     'thumbnail'          => $cert->course->thumbnail ?? '',
                     'author_name'        => $cert->instructor_name ?? ($cert->course->user->name ?? 'N/A'),
                     'course_title'       => $cert->course->title    ?? 'N/A',
-                    'issued_at'          => optional($cert->created_at)->toIso8601String(),
+                    'issued_at'          => optional($cert->issued_date)->toIso8601String(),
                     'certificate_url'    => $cert->verification_url ?? url("/verify-certificate?code={$cert->certificate_number}"),
                     'verification_token' => $cert->verification_token,
                     'download_url'       => url("/api/certificate/public/{$cert->certificate_number}/download"),
@@ -319,12 +329,22 @@ class UserReportApiController extends Controller
                     2,
                 );
 
-                if ($progressPercentage >= 100) {
+                $eligibility = $certificateService->getCourseEligibility($user, $course);
+
+                $readyByLearning = $eligibility['is_enrolled']
+                    && $eligibility['is_completed']
+                    && $eligibility['certificate_enabled'];
+
+                if ($readyByLearning) {
                     $result[] = [
                         'id'                 => null,
                         'is_issued'          => false,
                         'issuance_type'      => 'pending',
                         'eligible_by_progress' => true,
+                        'payment_required'     => !$eligibility['certificate_fee_paid'],
+                        'certificate_fee'      => (float) $eligibility['certificate_fee'],
+                        'certificate_fee_paid' => (bool) $eligibility['certificate_fee_paid'],
+                        'currency'             => 'EGP',
                         'course_id'          => $course->id,
                         'slug'               => $course->slug ?? '',
                         'title'              => $course->title ?? 'N/A',

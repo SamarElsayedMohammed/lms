@@ -23,7 +23,7 @@ class ChatBotService
     /**
      * Get FAQ answer directly — no AI involved
      */
-    public function getFaqAnswer(int $faqId): ?array
+    public function getFaqAnswer(int $faqId, ?int $conversationId = null): ?array
     {
         $faq = ChatbotFaq::active()->find($faqId);
 
@@ -31,16 +31,52 @@ class ChatBotService
             return null;
         }
 
+        $userId = Auth::guard('sanctum')->id() ?: Auth::id();
+        $sessionId = request()->header('X-Chat-Session-ID');
+        $conversation = null;
+
+        if ($userId) {
+            if ($conversationId) {
+                $conversation = ChatbotConversation::where('user_id', $userId)
+                    ->where('type', 'general')
+                    ->find($conversationId);
+            }
+
+            $conversation ??= ChatbotConversation::create([
+                'user_id' => $userId,
+                'title' => Str::limit($faq->question, 50),
+                'type' => 'general',
+            ]);
+        } elseif ($sessionId) {
+            if ($conversationId) {
+                $conversation = ChatbotConversation::where('session_id', $sessionId)
+                    ->where('type', 'general')
+                    ->find($conversationId);
+            }
+
+            $conversation ??= ChatbotConversation::create([
+                'session_id' => $sessionId,
+                'title' => Str::limit($faq->question, 50),
+                'type' => 'general',
+            ]);
+        }
+
+        if ($conversation) {
+            $conversation->update(['last_message_at' => now()]);
+        }
+
         $data = [
             'question' => $faq->question,
             'answer' => $faq->answer,
             'type' => 'faq',
+            'conversation_id' => $conversation?->id,
         ];
 
         // Log interaction
         ChatbotMessage::create([
-            'user_id' => Auth::id(),
-            'session_id' => request()->header('X-Chat-Session-ID'),
+            'user_id' => $userId,
+            'conversation_id' => $conversation?->id,
+            'session_id' => $sessionId,
             'message' => $faq->question,
             'reply' => $faq->answer,
             'type' => 'faq',
@@ -59,7 +95,7 @@ class ChatBotService
 
         // Check if visitor chatbot is enabled globally
         $enabled = $settings['chatbot_enabled'] ?? '1';
-        if (empty($enabled) || $enabled === '0' || $enabled === 'false') {
+        if (!$this->isEnabledSetting($enabled)) {
             return [
                 'reply' => 'عذراً، الشات بوت غير متاح حالياً. 🙏',
                 'type' => 'error',
@@ -98,13 +134,15 @@ class ChatBotService
             );
 
             // Manage Conversation
-            $userId = Auth::id();
+            $userId = Auth::guard('sanctum')->id() ?: Auth::id();
             $sessionId = request()->header('X-Chat-Session-ID');
             $conversation = null;
 
             if ($userId) {
                 if ($conversationId) {
-                    $conversation = ChatbotConversation::where('user_id', $userId)->find($conversationId);
+                    $conversation = ChatbotConversation::where('user_id', $userId)
+                        ->where('type', 'general')
+                        ->find($conversationId);
                 }
 
                 if (empty($conversation)) {
@@ -118,7 +156,9 @@ class ChatBotService
                 $conversation->update(['last_message_at' => now()]);
             } elseif ($sessionId) {
                 if ($conversationId) {
-                    $conversation = ChatbotConversation::where('session_id', $sessionId)->find($conversationId);
+                    $conversation = ChatbotConversation::where('session_id', $sessionId)
+                        ->where('type', 'general')
+                        ->find($conversationId);
                 }
 
                 if (empty($conversation)) {
@@ -226,6 +266,7 @@ class ChatBotService
             if ($userId) {
                 if ($conversationId) {
                     $conversation = ChatbotConversation::where('user_id', $userId)
+                        ->where('type', 'course')
                         ->where('course_id', $course->id)
                         ->find($conversationId);
                 }
@@ -269,10 +310,33 @@ class ChatBotService
             return [
                 'reply' => 'عذراً، حدثت مشكلة تقنية مؤقتة أثناء معالجة استفسارك. حاول مرة أخرى. 🙏',
                 'type' => 'error',
-                'conversation_id' => null,
+                'conversation_id' => $this->resolveOwnedCourseConversationId($conversationId, $course->id),
                 'course_id' => $course->id,
             ];
         }
+    }
+
+    private function resolveOwnedCourseConversationId(?int $conversationId, int $courseId): ?int
+    {
+        $userId = Auth::guard('sanctum')->id() ?: Auth::id();
+        if (!$userId || !$conversationId) {
+            return null;
+        }
+
+        return ChatbotConversation::whereKey($conversationId)
+            ->where('user_id', $userId)
+            ->where('type', 'course')
+            ->where('course_id', $courseId)
+            ->value('id');
+    }
+
+    private function isEnabledSetting(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return !in_array(strtolower(trim((string) $value)), ['', '0', 'false', 'off', 'no'], true);
     }
 
     /**

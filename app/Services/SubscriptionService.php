@@ -186,6 +186,18 @@ final class SubscriptionService
             : (float) $plan->price;
         $walletAmount = $walletAmount ?? 0;
         $gatewayAmount = $gatewayAmount ?? ($totalAmount - $walletAmount);
+        $currencyCode = strtoupper((string) ($discountMeta['currency_code'] ?? 'EGP'));
+        $conversion = app(CurrencyConversionService::class);
+        $amountEgp = isset($discountMeta['amount_egp'])
+            ? (float) $discountMeta['amount_egp']
+            : $conversion->convertToEgp($totalAmount, $currencyCode);
+        $walletAmountEgp = isset($discountMeta['wallet_amount_egp'])
+            ? (float) $discountMeta['wallet_amount_egp']
+            : $conversion->convertToEgp($walletAmount, $currencyCode);
+        $gatewayAmountEgp = isset($discountMeta['gateway_amount_egp'])
+            ? (float) $discountMeta['gateway_amount_egp']
+            : max(0.0, $amountEgp - $walletAmountEgp);
+        $exchangeRate = $totalAmount > 0 ? $amountEgp / $totalAmount : 1.0;
 
         $paymentAmount = $totalAmount;
 
@@ -195,6 +207,10 @@ final class SubscriptionService
             'amount' => $paymentAmount,
             'wallet_amount' => $walletAmount,
             'gateway_amount' => $gatewayAmount,
+            'amount_egp' => $amountEgp,
+            'wallet_amount_egp' => $walletAmountEgp,
+            'gateway_amount_egp' => $gatewayAmountEgp,
+            'exchange_rate_snapshot' => $exchangeRate,
             'status' => SubscriptionPayment::STATUS_COMPLETED,
             'payment_method' => $paymentMethod ?? 'wallet',
             'resolved_country' => $discountMeta['resolved_country'] ?? null,
@@ -296,6 +312,12 @@ final class SubscriptionService
             $walletAmount = $walletAmount ?? 0;
             $gatewayAmount = $gatewayAmount ?? ($totalAmount - $walletAmount);
             $currencyCode = strtoupper($currencyCode ?: 'EGP');
+            $conversion = app(CurrencyConversionService::class);
+            $amountEgp = $conversion->convertToEgp($totalAmount, $currencyCode);
+            $resolvedWalletAmountEgp = $walletAmountEgp
+                ?? $conversion->convertToEgp($walletAmount, $currencyCode);
+            $gatewayAmountEgp = max(0.0, $amountEgp - $resolvedWalletAmountEgp);
+            $exchangeRate = $totalAmount > 0 ? $amountEgp / $totalAmount : 1.0;
 
             SubscriptionPayment::create([
                 'subscription_id' => $subscription->id,
@@ -303,6 +325,10 @@ final class SubscriptionService
                 'amount' => $totalAmount,
                 'wallet_amount' => $walletAmount,
                 'gateway_amount' => $gatewayAmount,
+                'amount_egp' => $amountEgp,
+                'wallet_amount_egp' => $resolvedWalletAmountEgp,
+                'gateway_amount_egp' => $gatewayAmountEgp,
+                'exchange_rate_snapshot' => $exchangeRate,
                 'status' => SubscriptionPayment::STATUS_COMPLETED,
                 'payment_method' => $paymentMethod ?? 'wallet',
                 'currency_code' => $currencyCode,
@@ -313,7 +339,7 @@ final class SubscriptionService
             ]);
 
             if ($walletAmount > 0) {
-                $debitEgp = $walletAmountEgp ?? app(CurrencyConversionService::class)->convertToEgp($walletAmount, $currencyCode);
+                $debitEgp = $resolvedWalletAmountEgp;
                 WalletService::debitWallet(
                     $user->id,
                     $debitEgp,
@@ -405,6 +431,49 @@ final class SubscriptionService
         return Subscription::forUser($user->id)
             ->active()
             ->with('plan')
+            ->first();
+    }
+
+    /**
+     * Resolve the subscription that should represent the user's current state
+     * in overview surfaces. An active entitlement wins; otherwise expose the
+     * next queued plan or the latest request awaiting admin approval.
+     */
+    public function getPrimaryVisibleSubscription(User $user): ?Subscription
+    {
+        $active = $this->getActiveSubscription($user);
+        if ($active !== null) {
+            return $active;
+        }
+
+        $futureActive = Subscription::forUser($user->id)
+            ->where('status', Subscription::STATUS_ACTIVE)
+            ->whereNotNull('starts_at')
+            ->where('starts_at', '>', now())
+            ->with('plan')
+            ->orderBy('starts_at')
+            ->first();
+
+        if ($futureActive !== null) {
+            return $futureActive;
+        }
+
+        $queued = Subscription::forUser($user->id)
+            ->where('status', Subscription::STATUS_PENDING)
+            ->with('plan')
+            ->orderByRaw('starts_at IS NULL')
+            ->orderBy('starts_at')
+            ->orderBy('id')
+            ->first();
+
+        if ($queued !== null) {
+            return $queued;
+        }
+
+        return Subscription::forUser($user->id)
+            ->where('status', Subscription::STATUS_PENDING_APPROVAL)
+            ->with('plan')
+            ->latest('id')
             ->first();
     }
 
@@ -604,23 +673,32 @@ final class SubscriptionService
         return $count;
     }
 
+    private static array $hasSubscriptionColumnCache = [];
+
+    private static function hasSubscriptionColumn(string $column): bool
+    {
+        if (!array_key_exists($column, self::$hasSubscriptionColumnCache)) {
+            self::$hasSubscriptionColumnCache[$column] = \Illuminate\Support\Facades\Schema::hasColumn('subscriptions', $column);
+        }
+
+        return self::$hasSubscriptionColumnCache[$column];
+    }
+
     /**
      * Get subscriptions needing expiry notification for dynamic days
      */
     public function getSubscriptionsForNotificationDays(int $days): \Illuminate\Database\Eloquent\Collection
     {
+        $column = "notified_{$days}_days";
+        if (!self::hasSubscriptionColumn($column)) {
+            return new \Illuminate\Database\Eloquent\Collection();
+        }
+
         return Subscription::where('status', Subscription::STATUS_ACTIVE)
             ->whereNotNull('ends_at')
             ->where('ends_at', '>', now())
             ->where('ends_at', '<=', now()->addDays($days))
-            ->where(function($query) use ($days) {
-                $column = "notified_{$days}_days";
-                if (\Illuminate\Support\Facades\Schema::hasColumn('subscriptions', $column)) {
-                    $query->where($column, false);
-                } else {
-                    $query->whereNull('id');
-                }
-            })
+            ->where($column, false)
             ->with(['user', 'plan'])
             ->get();
     }
@@ -631,18 +709,16 @@ final class SubscriptionService
     public function markNotifiedDynamic(Subscription $subscription, int $thresholdDays): void
     {
         $field = "notified_{$thresholdDays}_days";
-        
-        if (\Illuminate\Support\Facades\Schema::hasColumn('subscriptions', $field)) {
+
+        if (self::hasSubscriptionColumn($field)) {
             $subscription->{$field} = true;
-            $subscription->save();
-        } else {
-            if (\Illuminate\Support\Facades\Schema::hasColumn('subscriptions', 'notified_intervals')) {
-                $intervals = $subscription->notified_intervals ?? [];
-                if (!in_array($thresholdDays, $intervals)) {
-                    $intervals[] = $thresholdDays;
-                    $subscription->notified_intervals = $intervals;
-                    $subscription->save();
-                }
+            $subscription->updateQuietly([$field => true]);
+        } elseif (self::hasSubscriptionColumn('notified_intervals')) {
+            $intervals = $subscription->notified_intervals ?? [];
+            if (!in_array($thresholdDays, $intervals)) {
+                $intervals[] = $thresholdDays;
+                $subscription->notified_intervals = $intervals;
+                $subscription->updateQuietly(['notified_intervals' => $intervals]);
             }
         }
     }

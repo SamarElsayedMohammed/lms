@@ -41,7 +41,9 @@ class ContactMessage extends Model
         'user_id',
         'first_name',
         'email',
+        'subject',
         'message',
+        'metadata',
         'reply_message',
         'ip_address',
         'user_agent',
@@ -51,6 +53,7 @@ class ContactMessage extends Model
     protected $casts = [
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'metadata' => 'array',
     ];
 
     /**
