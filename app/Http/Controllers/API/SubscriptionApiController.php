@@ -1529,6 +1529,32 @@ $totalAmount = (float) $countryPricing['price'];
                     ? (float) $payment->original_amount * $snapshotRate
                     : null;
                 $discountAmountEgp = (float) ($payment->discount_amount ?? 0) * $snapshotRate;
+                $subscription = $payment->subscription;
+                $subscriptionStatus = $subscription?->status;
+
+                // Payment completion is not subscription activation. Return the lifecycle state
+                // separately so a completed payment for an expired plan is never rendered as
+                // an unknown subscription status in the user's history.
+                if ($subscriptionStatus === \App\Models\Subscription::STATUS_ACTIVE
+                    && $subscription?->ends_at?->lte(now())) {
+                    $subscriptionStatus = \App\Models\Subscription::STATUS_EXPIRED;
+                }
+
+                $subscriptionStatus ??= match ($payment->status) {
+                    \App\Models\SubscriptionPayment::STATUS_PENDING => \App\Models\Subscription::STATUS_PENDING,
+                    \App\Models\SubscriptionPayment::STATUS_FAILED => 'failed',
+                    default => 'unknown',
+                };
+
+                $statusLabel = match ($subscriptionStatus) {
+                    \App\Models\Subscription::STATUS_ACTIVE => 'نشط',
+                    \App\Models\Subscription::STATUS_EXPIRED => 'منتهي الصلاحية',
+                    \App\Models\Subscription::STATUS_PENDING => 'قيد الانتظار',
+                    \App\Models\Subscription::STATUS_PENDING_APPROVAL => 'بانتظار موافقة الإدارة',
+                    \App\Models\Subscription::STATUS_CANCELLED => 'ملغي',
+                    'failed' => 'فشل الدفع',
+                    default => 'حالة غير متاحة',
+                };
 
                 return [
                     'id'                   => $payment->id,
@@ -1548,6 +1574,9 @@ $totalAmount = (float) $countryPricing['price'];
                     'currency'             => $histCurrency,
                     'currency_symbol'      => $histSymbol,
                     'status'               => $payment->status,
+                    'payment_status'       => $payment->status,
+                    'subscription_status'  => $subscriptionStatus,
+                    'status_label'         => $statusLabel,
                     'payment_method'       => $payment->payment_method,
                     'transaction_id'       => $payment->transaction_id,
                     'receipt_url'          => $receiptRaw ? route('subscription.receipt', ['payment' => $payment->id]) : null,
@@ -1556,6 +1585,8 @@ $totalAmount = (float) $countryPricing['price'];
                         'name'          => $payment->subscription->plan->name,
                         'billing_cycle' => $payment->subscription->plan->billing_cycle_label,
                     ] : null,
+                    'starts_at' => $subscription?->starts_at?->format('Y-m-d H:i:s'),
+                    'ends_at'   => $subscription?->ends_at?->format('Y-m-d H:i:s'),
                     'created_at' => $payment->created_at->format('Y-m-d H:i:s'),
                 ];
             });
