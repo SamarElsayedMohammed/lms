@@ -129,7 +129,7 @@ class ReportsController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate sales report: ' . $e->getMessage(),
+                'message' => 'Failed to generate sales report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -261,8 +261,8 @@ class ReportsController extends Controller
 
             // Calculate totals
             $totalCommissions = $commissions->count();
-            $totalAdminCommission = $commissions->sum(static fn($c) => $c->admin_commission_amount * ($c->order->exchange_rate_snapshot ?? 1));
-            $totalInstructorCommission = $commissions->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1));
+            $totalAdminCommission = $commissions->sum(static fn ($c) => $c->admin_commission_amount * ($c->order->exchange_rate_snapshot ?? 1));
+            $totalInstructorCommission = $commissions->sum(static fn ($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1));
             $pendingCommissions = $commissions->where('status', 'pending')->count();
             $paidCommissions = $commissions->where('status', 'paid')->count();
 
@@ -274,10 +274,10 @@ class ReportsController extends Controller
 
                     return [
                         'instructor' => $instructor,
-                        'total_commission' => $group->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
+                        'total_commission' => $group->sum(static fn ($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
                         'commission_count' => $group->count(),
-                        'pending_amount' => $group->where('status', 'pending')->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
-                        'paid_amount' => $group->where('status', 'paid')->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
+                        'pending_amount' => $group->where('status', 'pending')->sum(static fn ($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
+                        'paid_amount' => $group->where('status', 'paid')->sum(static fn ($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
                     ];
                 })
                 ->sortByDesc('total_commission')
@@ -292,11 +292,10 @@ class ReportsController extends Controller
 
                     return [
                         'course' => $course,
-                        'total_commission' =>
-                            $group->sum(static fn($c) => ($c->admin_commission_amount + $c->instructor_commission_amount) * ($c->order->exchange_rate_snapshot ?? 1)),
+                        'total_commission' => $group->sum(static fn ($c) => ($c->admin_commission_amount + $c->instructor_commission_amount) * ($c->order->exchange_rate_snapshot ?? 1)),
                         'commission_count' => $group->count(),
-                        'admin_commission' => $group->sum(static fn($c) => $c->admin_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
-                        'instructor_commission' => $group->sum(static fn($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
+                        'admin_commission' => $group->sum(static fn ($c) => $c->admin_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
+                        'instructor_commission' => $group->sum(static fn ($c) => $c->instructor_commission_amount * ($c->order->exchange_rate_snapshot ?? 1)),
                     ];
                 })
                 ->sortByDesc('total_commission')
@@ -343,7 +342,7 @@ class ReportsController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate commission report: ' . $e->getMessage(),
+                'message' => 'Failed to generate commission report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -452,7 +451,7 @@ class ReportsController extends Controller
 
             if ($reportType === 'performance') {
                 // For performance report, return courses with performance metrics
-                $performanceData = $courses->map(static fn($course) => [
+                $performanceData = $courses->map(static fn ($course) => [
                     'course' => $course,
                     'performance_metrics' => [
                         'enrollments' => 0, // Will calculate properly later
@@ -476,7 +475,7 @@ class ReportsController extends Controller
                     return $course
                         ->orderCourses
                         ->filter(
-                            static fn($orderCourse) => (
+                            static fn ($orderCourse) => (
                                 $orderCourse->order
                                 && $orderCourse->order->status === 'completed'
                             ),
@@ -489,12 +488,12 @@ class ReportsController extends Controller
 
             // Calculate average rating from all courses with ratings
             $coursesWithRatings = $courses->filter(
-                static fn($course) => $course->ratings && $course->ratings->count() > 0,
+                static fn ($course) => $course->ratings && $course->ratings->count() > 0,
             );
 
             $averageRating = 0;
             if ($coursesWithRatings->count() > 0) {
-                $totalRating = $coursesWithRatings->sum(static fn($course) => $course->ratings->avg('rating') ?: 0);
+                $totalRating = $coursesWithRatings->sum(static fn ($course) => $course->ratings->avg('rating') ?: 0);
                 $averageRating = $totalRating / $coursesWithRatings->count();
             }
 
@@ -514,7 +513,7 @@ class ReportsController extends Controller
             // Group courses by level for chart
             $coursesByLevel = $courses
                 ->groupBy('level')
-                ->map(static fn($group, $level) => [
+                ->map(static fn ($group, $level) => [
                     'level' => ucfirst((string) $level ?: 'Not Specified'),
                     'count' => $group->count(),
                 ])
@@ -552,7 +551,7 @@ class ReportsController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate course report: ' . $e->getMessage(),
+                'message' => 'Failed to generate course report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -745,7 +744,7 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            \Log::error('Error in getSalesChartData: ' . $e->getMessage());
+            \Log::error('Error in getSalesChartData: '.$e->getMessage());
 
             // Return sample data as fallback
             return [
@@ -801,7 +800,7 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return back()->withErrors(['error' => 'Failed to export report: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to export report: '.$e->getMessage()]);
         }
     }
 
@@ -810,11 +809,11 @@ class ReportsController extends Controller
      */
     private function exportExcel($orders, $request)
     {
-        $filename = 'sales_report_' . date('Y-m-d_H-i-s') . '.csv';
+        $filename = 'sales_report_'.date('Y-m-d_H-i-s').'.csv';
 
         $headers = [
             'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ];
 
         return response()->stream(
@@ -877,21 +876,21 @@ class ReportsController extends Controller
         ]);
 
         // Resolve names if IDs are present
-        if (!empty($filters['course_id'])) {
+        if (! empty($filters['course_id'])) {
             $course = \App\Models\Course\Course::find($filters['course_id']);
             if ($course) {
                 $filters['course_name'] = $this->sanitizeUtf8($course->title);
             }
         }
 
-        if (!empty($filters['instructor_id'])) {
+        if (! empty($filters['instructor_id'])) {
             $instructor = \App\Models\User::find($filters['instructor_id']);
             if ($instructor) {
                 $filters['instructor_name'] = $this->sanitizeUtf8($instructor->name);
             }
         }
 
-        if (!empty($filters['category_id'])) {
+        if (! empty($filters['category_id'])) {
             $category = \App\Models\Category::find($filters['category_id']);
             if ($category) {
                 $filters['category_name'] = $this->sanitizeUtf8($category->name);
@@ -899,7 +898,7 @@ class ReportsController extends Controller
         }
 
         // Remove empty values
-        $filters = array_filter($filters, static fn($value) => !empty($value));
+        $filters = array_filter($filters, static fn ($value) => ! empty($value));
 
         // Get system currency symbol
         $currencySymbol = \App\Services\HelperService::systemSettings('currency_symbol') ?? '₹';
@@ -936,7 +935,7 @@ class ReportsController extends Controller
 
             // Ensure temp directory exists
             $tempDir = storage_path('app/temp');
-            if (!file_exists($tempDir)) {
+            if (! file_exists($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
 
@@ -958,12 +957,12 @@ class ReportsController extends Controller
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
             } catch (\Exception $writeError) {
-                Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
+                Log::error('mPDF WriteHTML Error: '.$writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
                 $mpdf->WriteHTML($html);
             }
 
-            $filename = 'sales_report_' . now()->format('Y_m_d_H_i_s') . '.pdf';
+            $filename = 'sales_report_'.now()->format('Y_m_d_H_i_s').'.pdf';
 
             // Generate PDF content as string
             $pdfContent = $mpdf->Output('', 'S');
@@ -975,7 +974,7 @@ class ReportsController extends Controller
 
             return response($pdfContent, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Disposition' => 'attachment; filename="'.$filename.'"',
                 'Cache-Control' => 'no-cache, no-store, must-revalidate',
                 'Pragma' => 'no-cache',
                 'Expires' => '0',
@@ -984,9 +983,9 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            Log::error('PDF Export Error: ' . $e->getMessage());
+            Log::error('PDF Export Error: '.$e->getMessage());
 
-            return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to generate PDF: '.$e->getMessage()]);
         }
     }
 
@@ -1043,10 +1042,10 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            Log::error('Commission Export Error: ' . $e->getMessage());
-            Log::error('Commission Export Trace: ' . $e->getTraceAsString());
+            Log::error('Commission Export Error: '.$e->getMessage());
+            Log::error('Commission Export Trace: '.$e->getTraceAsString());
 
-            return back()->withErrors(['error' => 'Failed to export commission report: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to export commission report: '.$e->getMessage()]);
         }
     }
 
@@ -1055,11 +1054,11 @@ class ReportsController extends Controller
      */
     private function exportCommissionExcel($commissions, $request)
     {
-        $filename = 'commission_report_' . date('Y-m-d_H-i-s') . '.csv';
+        $filename = 'commission_report_'.date('Y-m-d_H-i-s').'.csv';
 
         $headers = [
             'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
             'Pragma' => 'no-cache',
             'Expires' => '0',
@@ -1078,7 +1077,7 @@ class ReportsController extends Controller
                 $currencySymbol = \App\Services\HelperService::systemSettings('currency_symbol') ?? '₹';
 
                 // Add BOM for UTF-8 to help Excel recognize encoding
-                fprintf($handle, chr(0xEF) . chr(0xBB) . chr(0xBF));
+                fprintf($handle, chr(0xEF).chr(0xBB).chr(0xBF));
 
                 // Add CSV headers
                 fputcsv($handle, [
@@ -1144,14 +1143,14 @@ class ReportsController extends Controller
         ]);
 
         // Resolve names if IDs are present
-        if (!empty($filters['course_id'])) {
+        if (! empty($filters['course_id'])) {
             $course = \App\Models\Course\Course::find($filters['course_id']);
             if ($course) {
                 $filters['course_name'] = $this->sanitizeUtf8($course->title);
             }
         }
 
-        if (!empty($filters['instructor_id'])) {
+        if (! empty($filters['instructor_id'])) {
             $instructor = \App\Models\User::find($filters['instructor_id']);
             if ($instructor) {
                 $filters['instructor_name'] = $this->sanitizeUtf8($instructor->name);
@@ -1159,7 +1158,7 @@ class ReportsController extends Controller
         }
 
         // Remove empty values
-        $filters = array_filter($filters, static fn($value) => !empty($value));
+        $filters = array_filter($filters, static fn ($value) => ! empty($value));
 
         // Get system currency symbol
         $currencySymbol = \App\Services\HelperService::systemSettings('currency_symbol') ?? '₹';
@@ -1190,7 +1189,7 @@ class ReportsController extends Controller
 
             // Ensure temp directory exists
             $tempDir = storage_path('app/temp');
-            if (!file_exists($tempDir)) {
+            if (! file_exists($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
 
@@ -1212,12 +1211,12 @@ class ReportsController extends Controller
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
             } catch (\Exception $writeError) {
-                Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
+                Log::error('mPDF WriteHTML Error: '.$writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
                 $mpdf->WriteHTML($html);
             }
 
-            $filename = 'commission_report_' . now()->format('Y_m_d_H_i_s') . '.pdf';
+            $filename = 'commission_report_'.now()->format('Y_m_d_H_i_s').'.pdf';
 
             // Generate PDF content as string
             $pdfContent = $mpdf->Output('', 'S');
@@ -1229,7 +1228,7 @@ class ReportsController extends Controller
 
             return response($pdfContent, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Disposition' => 'attachment; filename="'.$filename.'"',
                 'Cache-Control' => 'no-cache, no-store, must-revalidate',
                 'Pragma' => 'no-cache',
                 'Expires' => '0',
@@ -1238,9 +1237,9 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            Log::error('PDF Export Error: ' . $e->getMessage());
+            Log::error('PDF Export Error: '.$e->getMessage());
 
-            return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to generate PDF: '.$e->getMessage()]);
         }
     }
 
@@ -1321,7 +1320,7 @@ class ReportsController extends Controller
                     $course->revenue = $course
                         ->orderCourses
                         ->filter(
-                            static fn($orderCourse) => (
+                            static fn ($orderCourse) => (
                                 $orderCourse->order
                                 && $orderCourse->order->status === 'completed'
                             ),
@@ -1354,7 +1353,7 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return back()->withErrors(['error' => 'Failed to export course report: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to export course report: '.$e->getMessage()]);
         }
     }
 
@@ -1366,11 +1365,11 @@ class ReportsController extends Controller
         // Get system currency symbol
         $currencySymbol = \App\Services\HelperService::systemSettings('currency_symbol') ?? '₹';
 
-        $filename = 'course_report_' . now()->format('Y_m_d_H_i_s') . '.csv';
+        $filename = 'course_report_'.now()->format('Y_m_d_H_i_s').'.csv';
 
         $headers = [
             'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
             'Pragma' => 'no-cache',
             'Expires' => '0',
@@ -1386,7 +1385,7 @@ class ReportsController extends Controller
                 $file = fopen('php://output', 'w');
 
                 // Add BOM for UTF-8 to help Excel recognize encoding
-                fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+                fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
                 // Add CSV headers
                 fputcsv($file, [
@@ -1412,9 +1411,9 @@ class ReportsController extends Controller
                         $course->category->name ?? 'N/A',
                         ucfirst($course->level ?? 'Not Specified'),
                         ucfirst($course->course_type ?? 'N/A'),
-                        $course->price ? $currencySymbol . number_format($course->price, 2) : 'Free',
+                        $course->price ? $currencySymbol.number_format($course->price, 2) : 'Free',
                         $course->enrollments_count ?? 0,
-                        $currencySymbol . number_format($course->revenue ?? 0, 2),
+                        $currencySymbol.number_format($course->revenue ?? 0, 2),
                         $course->average_rating ?? '0.00',
                         $course->reviews_count ?? 0,
                         $course->is_active ? 'Active' : 'Inactive',
@@ -1447,7 +1446,7 @@ class ReportsController extends Controller
         ]);
 
         // Resolve category name if category_id is present
-        if (!empty($filters['category_id'])) {
+        if (! empty($filters['category_id'])) {
             $category = \App\Models\Category::find($filters['category_id']);
             if ($category) {
                 $filters['category_name'] = $this->sanitizeUtf8($category->name);
@@ -1455,7 +1454,7 @@ class ReportsController extends Controller
         }
 
         // Resolve instructor name if instructor_id is present
-        if (!empty($filters['instructor_id'])) {
+        if (! empty($filters['instructor_id'])) {
             $instructor = \App\Models\User::find($filters['instructor_id']);
             if ($instructor) {
                 $filters['instructor_name'] = $this->sanitizeUtf8($instructor->name);
@@ -1463,7 +1462,7 @@ class ReportsController extends Controller
         }
 
         // Remove empty values
-        $filters = array_filter($filters, static fn($value) => !empty($value));
+        $filters = array_filter($filters, static fn ($value) => ! empty($value));
 
         // Get system currency symbol
         $currencySymbol = \App\Services\HelperService::systemSettings('currency_symbol') ?? '₹';
@@ -1495,7 +1494,7 @@ class ReportsController extends Controller
 
             // Ensure temp directory exists
             $tempDir = storage_path('app/temp');
-            if (!file_exists($tempDir)) {
+            if (! file_exists($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
 
@@ -1518,7 +1517,7 @@ class ReportsController extends Controller
                 throw $e;
             } catch (\Exception $writeError) {
                 // Log the error with HTML snippet for debugging
-                Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage(), [
+                Log::error('mPDF WriteHTML Error: '.$writeError->getMessage(), [
                     'html_length' => strlen((string) $html),
                     'html_preview' => substr((string) $html, 0, 500),
                 ]);
@@ -1528,7 +1527,7 @@ class ReportsController extends Controller
                 $mpdf->WriteHTML($html);
             }
 
-            $filename = 'course_report_' . now()->format('Y_m_d_H_i_s') . '.pdf';
+            $filename = 'course_report_'.now()->format('Y_m_d_H_i_s').'.pdf';
 
             // Generate PDF content as string
             $pdfContent = $mpdf->Output('', 'S');
@@ -1540,7 +1539,7 @@ class ReportsController extends Controller
 
             return response($pdfContent, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Disposition' => 'attachment; filename="'.$filename.'"',
                 'Cache-Control' => 'no-cache, no-store, must-revalidate',
                 'Pragma' => 'no-cache',
                 'Expires' => '0',
@@ -1549,9 +1548,9 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            Log::error('PDF Export Error: ' . $e->getMessage());
+            Log::error('PDF Export Error: '.$e->getMessage());
 
-            return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to generate PDF: '.$e->getMessage()]);
         }
     }
 
@@ -1560,7 +1559,7 @@ class ReportsController extends Controller
      */
     private function sanitizeUtf8($string)
     {
-        if (!is_string($string)) {
+        if (! is_string($string)) {
             return $string;
         }
 
@@ -1571,7 +1570,7 @@ class ReportsController extends Controller
         $string = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $string);
 
         // Ensure valid UTF-8 encoding
-        if (!mb_check_encoding($string, 'UTF-8')) {
+        if (! mb_check_encoding($string, 'UTF-8')) {
             // Try to convert from various encodings
             $encodings = ['UTF-8', 'ISO-8859-1', 'Windows-1252', 'ASCII'];
             foreach ($encodings as $encoding) {
@@ -1599,7 +1598,7 @@ class ReportsController extends Controller
      */
     private function cleanHtmlForPdf($html)
     {
-        if (empty($html) || !is_string($html)) {
+        if (empty($html) || ! is_string($html)) {
             return '';
         }
 
@@ -1610,7 +1609,7 @@ class ReportsController extends Controller
         $html = str_replace("\0", '', $html);
 
         // Ensure UTF-8 encoding
-        if (!mb_check_encoding($html, 'UTF-8')) {
+        if (! mb_check_encoding($html, 'UTF-8')) {
             $detected = mb_detect_encoding($html, ['UTF-8', 'ISO-8859-1', 'Windows-1252', 'ASCII'], true);
             if ($detected) {
                 $html = mb_convert_encoding($html, 'UTF-8', $detected);
@@ -1631,7 +1630,7 @@ class ReportsController extends Controller
         }
 
         // Final check - if still invalid, try transliteration
-        if (!mb_check_encoding($html, 'UTF-8') && function_exists('iconv')) {
+        if (! mb_check_encoding($html, 'UTF-8') && function_exists('iconv')) {
             $html = @iconv('UTF-8', 'UTF-8//IGNORE//TRANSLIT', (string) $html);
             if ($html === false) {
                 $html = '';
@@ -1646,7 +1645,7 @@ class ReportsController extends Controller
      */
     private function forceCleanHtml($html)
     {
-        if (empty($html) || !is_string($html)) {
+        if (empty($html) || ! is_string($html)) {
             return '';
         }
 
@@ -1662,7 +1661,7 @@ class ReportsController extends Controller
         }
 
         // Final validation
-        if (!mb_check_encoding($html, 'UTF-8')) {
+        if (! mb_check_encoding($html, 'UTF-8')) {
             $html = mb_convert_encoding($html, 'UTF-8', 'UTF-8');
         }
 
@@ -1731,7 +1730,7 @@ class ReportsController extends Controller
                 $instructor->total_enrollments = 0;
                 if ($instructor->courses) {
                     $instructor->total_enrollments = $instructor->courses->sum(
-                        static fn($course) => $course->orderCourses ? $course->orderCourses->count() : 0,
+                        static fn ($course) => $course->orderCourses ? $course->orderCourses->count() : 0,
                     );
                 }
 
@@ -1744,10 +1743,10 @@ class ReportsController extends Controller
             $data = [
                 'total_instructors' => $instructors->count(),
                 'approved_instructors' => $instructors
-                    ->filter(static fn($instructor) => $instructor->instructor_details?->status === 'approved')
+                    ->filter(static fn ($instructor) => $instructor->instructor_details?->status === 'approved')
                     ->count(),
                 'individual_instructors' => $instructors
-                    ->filter(static fn($instructor) => $instructor->instructor_details?->type === 'individual')
+                    ->filter(static fn ($instructor) => $instructor->instructor_details?->type === 'individual')
                     ->count(),
                 'total_courses_created' => $instructors->sum('total_courses'),
                 'instructors' => $instructors->values(),
@@ -1763,7 +1762,7 @@ class ReportsController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate instructor report: ' . $e->getMessage(),
+                'message' => 'Failed to generate instructor report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -1827,7 +1826,7 @@ class ReportsController extends Controller
                 $instructor->total_enrollments = 0;
                 if ($instructor->courses) {
                     $instructor->total_enrollments = $instructor->courses->sum(
-                        static fn($course) => $course->orderCourses ? $course->orderCourses->count() : 0,
+                        static fn ($course) => $course->orderCourses ? $course->orderCourses->count() : 0,
                     );
                 }
 
@@ -1839,7 +1838,7 @@ class ReportsController extends Controller
                             return $course
                                 ->orderCourses
                                 ->filter(
-                                    static fn($orderCourse) => (
+                                    static fn ($orderCourse) => (
                                         $orderCourse->order
                                         && $orderCourse->order->status === 'completed'
                                     ),
@@ -1867,7 +1866,7 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return back()->withErrors(['error' => 'Failed to export instructor report: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to export instructor report: '.$e->getMessage()]);
         }
     }
 
@@ -1879,11 +1878,11 @@ class ReportsController extends Controller
         // Get system currency symbol
         $currencySymbol = \App\Services\HelperService::systemSettings('currency_symbol') ?? '₹';
 
-        $filename = 'instructor_report_' . now()->format('Y_m_d_H_i_s') . '.csv';
+        $filename = 'instructor_report_'.now()->format('Y_m_d_H_i_s').'.csv';
 
         $headers = [
             'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
             'Pragma' => 'no-cache',
             'Expires' => '0',
@@ -1895,11 +1894,11 @@ class ReportsController extends Controller
         }
 
         return response()->stream(
-            function () use ($instructors, $currencySymbol): void {
+            function () use ($instructors): void {
                 $file = fopen('php://output', 'w');
 
                 // Add BOM for UTF-8 to help Excel recognize encoding
-                fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+                fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
                 // Add CSV headers
                 fputcsv($file, [
@@ -1947,7 +1946,7 @@ class ReportsController extends Controller
         ]);
 
         // Resolve instructor name if instructor_id is present
-        if (!empty($filters['instructor_id'])) {
+        if (! empty($filters['instructor_id'])) {
             $instructor = \App\Models\User::find($filters['instructor_id']);
             if ($instructor) {
                 $filters['instructor_name'] = $this->sanitizeUtf8($instructor->name);
@@ -1955,7 +1954,7 @@ class ReportsController extends Controller
         }
 
         // Remove empty values
-        $filters = array_filter($filters, static fn($value) => !empty($value));
+        $filters = array_filter($filters, static fn ($value) => ! empty($value));
 
         // Get system currency symbol
         $currencySymbol = \App\Services\HelperService::systemSettings('currency_symbol') ?? '₹';
@@ -1981,7 +1980,7 @@ class ReportsController extends Controller
 
             // Ensure temp directory exists
             $tempDir = storage_path('app/temp');
-            if (!file_exists($tempDir)) {
+            if (! file_exists($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
 
@@ -2003,12 +2002,12 @@ class ReportsController extends Controller
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
             } catch (\Exception $writeError) {
-                Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
+                Log::error('mPDF WriteHTML Error: '.$writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
                 $mpdf->WriteHTML($html);
             }
 
-            $filename = 'instructor_report_' . now()->format('Y_m_d_H_i_s') . '.pdf';
+            $filename = 'instructor_report_'.now()->format('Y_m_d_H_i_s').'.pdf';
 
             // Generate PDF content as string
             $pdfContent = $mpdf->Output('', 'S');
@@ -2020,7 +2019,7 @@ class ReportsController extends Controller
 
             return response($pdfContent, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Disposition' => 'attachment; filename="'.$filename.'"',
                 'Cache-Control' => 'no-cache, no-store, must-revalidate',
                 'Pragma' => 'no-cache',
                 'Expires' => '0',
@@ -2029,9 +2028,9 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            Log::error('PDF Export Error: ' . $e->getMessage());
+            Log::error('PDF Export Error: '.$e->getMessage());
 
-            return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to generate PDF: '.$e->getMessage()]);
         }
     }
 
@@ -2094,35 +2093,52 @@ class ReportsController extends Controller
                 $query->whereDate('created_at', '<=', $request->date_to);
             }
 
-            // Get all enrollments for summary
-            $allEnrollments = $query->get();
+            // Keep report-wide aggregates in SQL; the detail collection below is
+            // paginated and must not require hydrating the entire matching table.
+            $totals = (clone $query)
+                ->setEagerLoads([])
+                ->toBase()
+                ->selectRaw('COUNT(*) as total_enrollments')
+                ->selectRaw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_enrollments")
+                ->selectRaw("SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_enrollments")
+                ->selectRaw("SUM(CASE WHEN status = 'started' THEN 1 ELSE 0 END) as started_enrollments")
+                ->first();
 
-            // Calculate summary statistics
-            $totalEnrollments = $allEnrollments->count();
-            $completedEnrollments = $allEnrollments->where('status', 'completed')->count();
-            $inProgressEnrollments = $allEnrollments->where('status', 'in_progress')->count();
-            $startedEnrollments = $allEnrollments->where('status', 'started')->count();
+            $totalEnrollments = (int) ($totals->total_enrollments ?? 0);
+            $completedEnrollments = (int) ($totals->completed_enrollments ?? 0);
+            $inProgressEnrollments = (int) ($totals->in_progress_enrollments ?? 0);
+            $startedEnrollments = (int) ($totals->started_enrollments ?? 0);
             $completionRate = $totalEnrollments > 0 ? round(($completedEnrollments / $totalEnrollments) * 100, 2) : 0;
 
             // Group by course
-            $enrollmentsByCourse = $allEnrollments
+            $enrollmentsByCourse = (clone $query)
+                ->setEagerLoads([])
+                ->select('course_id')
+                ->selectRaw('COUNT(*) as enrollment_count')
+                ->selectRaw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count")
+                ->with(['course.category', 'course.user'])
                 ->groupBy('course_id')
-                ->map(static function ($group) {
-                    $course = $group->first()->course;
-
+                ->orderByDesc('enrollment_count')
+                ->get()
+                ->map(static function ($row) {
                     return [
-                        'course' => $course,
-                        'enrollment_count' => $group->count(),
-                        'completed_count' => $group->where('status', 'completed')->count(),
+                        'course' => $row->course,
+                        'enrollment_count' => (int) $row->enrollment_count,
+                        'completed_count' => (int) $row->completed_count,
                     ];
                 })
-                ->sortByDesc('enrollment_count')
                 ->values();
 
             // Group by month
-            $enrollmentsByMonth = $allEnrollments->groupBy(
-                static fn($enrollment) => $enrollment->created_at->format('Y-m'),
-            )->map(static fn($group) => $group->count());
+            $enrollmentsByMonth = (clone $query)
+                ->setEagerLoads([])
+                ->toBase()
+                ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as period")
+                ->selectRaw('COUNT(*) as aggregate')
+                ->groupBy('period')
+                ->orderBy('period')
+                ->pluck('aggregate', 'period')
+                ->map(static fn ($count) => (int) $count);
 
             // Get paginated data for table
             $perPage = $request->get('per_page', 15);
@@ -2178,11 +2194,11 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            Log::error('Enrollment Report Error: ' . $e->getMessage());
+            Log::error('Enrollment Report Error: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate enrollment report: ' . $e->getMessage(),
+                'message' => 'Failed to generate enrollment report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -2278,7 +2294,7 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            return back()->withErrors(['error' => 'Failed to export enrollment report: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to export enrollment report: '.$e->getMessage()]);
         }
     }
 
@@ -2287,11 +2303,11 @@ class ReportsController extends Controller
      */
     private function exportEnrollmentExcel($enrollments, $request)
     {
-        $filename = 'enrollment_report_' . now()->format('Y_m_d_H_i_s') . '.csv';
+        $filename = 'enrollment_report_'.now()->format('Y_m_d_H_i_s').'.csv';
 
         $headers = [
             'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
             'Pragma' => 'no-cache',
             'Expires' => '0',
@@ -2307,7 +2323,7 @@ class ReportsController extends Controller
                 $file = fopen('php://output', 'w');
 
                 // Add BOM for UTF-8 to help Excel recognize encoding
-                fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+                fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
                 // Add CSV headers
                 fputcsv($file, [
@@ -2331,7 +2347,7 @@ class ReportsController extends Controller
                         $this->sanitizeUtf8($enrollment->course->category->name ?? 'N/A'),
                         $enrollment->created_at->format('d M Y'),
                         ucfirst($enrollment->status ?? 'N/A'),
-                        number_format($enrollment->progress ?? 0, 2) . '%',
+                        number_format($enrollment->progress ?? 0, 2).'%',
                     ]);
                 }
 
@@ -2358,21 +2374,21 @@ class ReportsController extends Controller
         ]);
 
         // Resolve names if IDs are present
-        if (!empty($filters['course_id'])) {
+        if (! empty($filters['course_id'])) {
             $course = \App\Models\Course\Course::find($filters['course_id']);
             if ($course) {
                 $filters['course_name'] = $this->sanitizeUtf8($course->title);
             }
         }
 
-        if (!empty($filters['instructor_id'])) {
+        if (! empty($filters['instructor_id'])) {
             $instructor = \App\Models\User::find($filters['instructor_id']);
             if ($instructor) {
                 $filters['instructor_name'] = $this->sanitizeUtf8($instructor->name);
             }
         }
 
-        if (!empty($filters['category_id'])) {
+        if (! empty($filters['category_id'])) {
             $category = \App\Models\Category::find($filters['category_id']);
             if ($category) {
                 $filters['category_name'] = $this->sanitizeUtf8($category->name);
@@ -2380,7 +2396,7 @@ class ReportsController extends Controller
         }
 
         // Remove empty values
-        $filters = array_filter($filters, static fn($value) => !empty($value));
+        $filters = array_filter($filters, static fn ($value) => ! empty($value));
 
         // Get system currency symbol
         $currencySymbol = \App\Services\HelperService::systemSettings('currency_symbol') ?? '₹';
@@ -2419,7 +2435,7 @@ class ReportsController extends Controller
 
             // Ensure temp directory exists
             $tempDir = storage_path('app/temp');
-            if (!file_exists($tempDir)) {
+            if (! file_exists($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
 
@@ -2441,12 +2457,12 @@ class ReportsController extends Controller
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
             } catch (\Exception $writeError) {
-                Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
+                Log::error('mPDF WriteHTML Error: '.$writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
                 $mpdf->WriteHTML($html);
             }
 
-            $filename = 'enrollment_report_' . now()->format('Y_m_d_H_i_s') . '.pdf';
+            $filename = 'enrollment_report_'.now()->format('Y_m_d_H_i_s').'.pdf';
 
             // Generate PDF content as string
             $pdfContent = $mpdf->Output('', 'S');
@@ -2458,7 +2474,7 @@ class ReportsController extends Controller
 
             return response($pdfContent, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Disposition' => 'attachment; filename="'.$filename.'"',
                 'Cache-Control' => 'no-cache, no-store, must-revalidate',
                 'Pragma' => 'no-cache',
                 'Expires' => '0',
@@ -2467,9 +2483,9 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            Log::error('PDF Export Error: ' . $e->getMessage());
+            Log::error('PDF Export Error: '.$e->getMessage());
 
-            return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to generate PDF: '.$e->getMessage()]);
         }
     }
 
@@ -2515,7 +2531,7 @@ class ReportsController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate revenue report: ' . $e->getMessage(),
+                'message' => 'Failed to generate revenue report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -2529,17 +2545,27 @@ class ReportsController extends Controller
         $query = $this->applyDateFilter($query, $request);
         $query = $this->applyRevenueFilters($query, $request);
 
-        $orders = $query->get();
+        $totals = (clone $query)
+            ->setEagerLoads([])
+            ->toBase()
+            ->selectRaw('COUNT(*) as total_orders')
+            ->selectRaw('COALESCE(SUM(COALESCE(amount_egp, final_price)), 0) as total_revenue')
+            ->selectRaw('COALESCE(AVG(COALESCE(amount_egp, final_price)), 0) as average_order_value')
+            ->first();
 
-        // Calculate basic metrics
-        $totalRevenue = $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price) ?: 0;
-        $totalOrders = $orders->count();
-        $averageOrderValue = $totalOrders > 0 ? $totalRevenue / $totalOrders : 0;
+        $totalRevenue = (float) ($totals->total_revenue ?? 0);
+        $totalOrders = (int) ($totals->total_orders ?? 0);
+        $averageOrderValue = (float) ($totals->average_order_value ?? 0);
 
         // Revenue by payment method
-        $revenueByPaymentMethod = $orders
+        $revenueByPaymentMethod = (clone $query)
+            ->setEagerLoads([])
+            ->toBase()
+            ->select('payment_method')
+            ->selectRaw('COALESCE(SUM(COALESCE(amount_egp, final_price)), 0) as aggregate')
             ->groupBy('payment_method')
-            ->map(static fn($orders) => $orders->sum(static fn($o) => $o->amount_egp ?? $o->final_price))
+            ->pluck('aggregate', 'payment_method')
+            ->map(static fn ($amount) => (float) $amount)
             ->toArray();
 
         // Ensure all payment methods are present
@@ -2555,14 +2581,14 @@ class ReportsController extends Controller
 
         // Revenue by category
         $revenueByCategory = [];
-        foreach ($orders as $order) {
+        foreach ($query->lazyById(200) as $order) {
             foreach ($order->orderCourses as $orderCourse) {
-                if (!($orderCourse->course && $orderCourse->course->category)) {
+                if (! ($orderCourse->course && $orderCourse->course->category)) {
                     continue;
                 }
 
                 $categoryName = $orderCourse->course->category->name;
-                if (!isset($revenueByCategory[$categoryName])) {
+                if (! isset($revenueByCategory[$categoryName])) {
                     $revenueByCategory[$categoryName] = 0;
                 }
                 $revenueByCategory[$categoryName] += $orderCourse->price ?: 0;
@@ -2611,7 +2637,7 @@ class ReportsController extends Controller
             ")->groupBy('period')->orderBy('period')->get()->toArray();
 
             // If we have data without date filter, return it
-            if (!empty($fallbackData)) {
+            if (! empty($fallbackData)) {
                 return $fallbackData;
             }
 
@@ -2755,9 +2781,9 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            Log::error('Revenue Export Error: ' . $e->getMessage());
+            Log::error('Revenue Export Error: '.$e->getMessage());
 
-            return back()->withErrors(['error' => 'Failed to export revenue report: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to export revenue report: '.$e->getMessage()]);
         }
     }
 
@@ -2766,13 +2792,13 @@ class ReportsController extends Controller
      */
     private function exportRevenueExcel($orders, $request)
     {
-        $filename = 'revenue_report_' . date('Y-m-d_H-i-s') . '.csv';
+        $filename = 'revenue_report_'.date('Y-m-d_H-i-s').'.csv';
 
         $currencySymbol = HelperService::systemSettings('currency_symbol') ?? '₹';
 
         $headers = [
             'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
             'Pragma' => 'no-cache',
             'Expires' => '0',
@@ -2788,7 +2814,7 @@ class ReportsController extends Controller
                 $file = fopen('php://output', 'w');
 
                 // Add UTF-8 BOM for Excel compatibility
-                fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+                fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
                 // Add CSV headers
                 fputcsv($file, [
@@ -2816,8 +2842,8 @@ class ReportsController extends Controller
                             $orderCourse->course->title ?? 'N/A',
                             $orderCourse->course->user->name ?? 'N/A',
                             $orderCourse->course->category->name ?? 'N/A',
-                            $currencySymbol . number_format($orderCourse->price ?? 0, 2),
-                            'EGP ' . number_format($order->amount_egp ?? $order->final_price ?? 0, 2),
+                            $currencySymbol.number_format($orderCourse->price ?? 0, 2),
+                            'EGP '.number_format($order->amount_egp ?? $order->final_price ?? 0, 2),
                             ucfirst($order->payment_method ?? 'N/A'),
                             ucfirst($order->status ?? 'N/A'),
                         ]);
@@ -2849,7 +2875,7 @@ class ReportsController extends Controller
                     'category_id',
                     'payment_method',
                 ]),
-                static fn($value) => $value !== null && $value !== '',
+                static fn ($value) => $value !== null && $value !== '',
             );
 
             // Resolve filter names for display
@@ -2890,12 +2916,12 @@ class ReportsController extends Controller
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
             } catch (\Exception $writeError) {
-                Log::error('mPDF WriteHTML Error: ' . $writeError->getMessage());
+                Log::error('mPDF WriteHTML Error: '.$writeError->getMessage());
                 $html = $this->forceCleanHtml($html);
                 $mpdf->WriteHTML($html);
             }
 
-            $filename = 'revenue_report_' . now()->format('Y_m_d_H_i_s') . '.pdf';
+            $filename = 'revenue_report_'.now()->format('Y_m_d_H_i_s').'.pdf';
 
             // Generate PDF content as string
             $pdfContent = $mpdf->Output('', 'S');
@@ -2907,7 +2933,7 @@ class ReportsController extends Controller
 
             return response($pdfContent, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Disposition' => 'attachment; filename="'.$filename.'"',
                 'Cache-Control' => 'no-cache, no-store, must-revalidate',
                 'Pragma' => 'no-cache',
                 'Expires' => '0',
@@ -2916,9 +2942,9 @@ class ReportsController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Exception $e) {
-            Log::error('PDF Export Error: ' . $e->getMessage());
+            Log::error('PDF Export Error: '.$e->getMessage());
 
-            return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to generate PDF: '.$e->getMessage()]);
         }
     }
 

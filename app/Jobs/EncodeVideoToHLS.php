@@ -13,7 +13,6 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
 final class EncodeVideoToHLS implements ShouldQueue
@@ -37,6 +36,8 @@ final class EncodeVideoToHLS implements ShouldQueue
 
     public function handle(): void
     {
+        $hlsDir = null;
+
         Log::info('EncodeVideoToHLS job started', [
             'lecture_id' => $this->lecture->id,
             'lecture_title' => $this->lecture->title,
@@ -44,14 +45,14 @@ final class EncodeVideoToHLS implements ShouldQueue
 
         try {
             // Check if FFmpeg is available on the server
-            if (!FFmpegService::isAvailable()) {
+            if (! FFmpegService::isAvailable()) {
                 $status = FFmpegService::getStatus();
                 $missingRequirements = $status['missing_requirements'];
 
                 $errorMessage =
                     'HLS encoding unavailable. Missing: '
-                    . implode(', ', $missingRequirements)
-                    . '. Direct video streaming will be used instead.';
+                    .implode(', ', $missingRequirements)
+                    .'. Direct video streaming will be used instead.';
 
                 Log::warning('FFmpeg/proc_open not available - skipping HLS encoding', [
                     'lecture_id' => $this->lecture->id,
@@ -70,6 +71,7 @@ final class EncodeVideoToHLS implements ShouldQueue
             // Validate lecture can be encoded
             if ($this->lecture->type !== 'file') {
                 Log::warning('Skipping non-file lecture', ['lecture_id' => $this->lecture->id]);
+
                 return;
             }
 
@@ -80,6 +82,7 @@ final class EncodeVideoToHLS implements ShouldQueue
                     'hls_status' => 'failed',
                     'hls_error_message' => 'No video file found',
                 ]);
+
                 return;
             }
 
@@ -89,7 +92,7 @@ final class EncodeVideoToHLS implements ShouldQueue
             // Get absolute path to original video
             $originalPath = Storage::disk('public')->path((string) $originalFile);
 
-            if (!file_exists($originalPath)) {
+            if (! file_exists($originalPath)) {
                 Log::error('Original video file not found - marking as failed', [
                     'lecture_id' => $this->lecture->id,
                     'expected_path' => $originalPath,
@@ -156,13 +159,16 @@ final class EncodeVideoToHLS implements ShouldQueue
             $hlsDir = "hls/lectures/{$this->lecture->id}";
             $hlsFullPath = Storage::disk('public')->path($hlsDir);
 
-            if (!is_dir($hlsFullPath)) {
+            // Remove stale segments from an interrupted or shorter previous encode.
+            Storage::disk('public')->deleteDirectory($hlsDir);
+
+            if (! is_dir($hlsFullPath)) {
                 mkdir($hlsFullPath, 0o755, true);
             }
 
             // HLS segment file pattern and manifest
-            $segmentPattern = $hlsFullPath . '/segment_%03d.ts';
-            $manifestPath = $hlsFullPath . '/master.m3u8';
+            $segmentPattern = $hlsFullPath.'/segment_%03d.ts';
+            $manifestPath = $hlsFullPath.'/master.m3u8';
 
             // FFmpeg command for single-quality HLS with robust encoding
             // Input handling:
@@ -245,20 +251,23 @@ final class EncodeVideoToHLS implements ShouldQueue
             // Execute FFmpeg
             $process = new Process($command);
             $process->setTimeout($this->timeout);
+            // FFmpeg writes progress continuously to stderr. Buffering it for a
+            // multi-hour encode can exhaust the queue worker's memory limit.
+            $process->disableOutput();
             $process->run();
 
-            if (!$process->isSuccessful()) {
-                throw new ProcessFailedException($process);
+            if (! $process->isSuccessful()) {
+                throw new \RuntimeException("FFmpeg exited with code {$process->getExitCode()}");
             }
 
             // Verify manifest was created
-            if (!file_exists($manifestPath)) {
+            if (! file_exists($manifestPath)) {
                 throw new \RuntimeException('HLS manifest not created');
             }
 
             // Fix permissions for web server access
             chmod($hlsFullPath, 0o775);
-            $files = glob($hlsFullPath . '/*');
+            $files = glob($hlsFullPath.'/*');
             if ($files !== false) {
                 foreach ($files as $file) {
                     chmod($file, 0o644);
@@ -266,7 +275,7 @@ final class EncodeVideoToHLS implements ShouldQueue
             }
 
             // Update lecture with success
-            $manifestRelativePath = $hlsDir . '/master.m3u8';
+            $manifestRelativePath = $hlsDir.'/master.m3u8';
             $this->lecture->updateQuietly([
                 'hls_status' => 'completed',
                 'hls_manifest_path' => $manifestRelativePath,
@@ -277,9 +286,12 @@ final class EncodeVideoToHLS implements ShouldQueue
             Log::info('EncodeVideoToHLS job completed', [
                 'lecture_id' => $this->lecture->id,
                 'manifest_path' => $manifestRelativePath,
-                'output' => $process->getOutput(),
             ]);
         } catch (\Throwable $e) {
+            if ($hlsDir !== null) {
+                Storage::disk('public')->deleteDirectory($hlsDir);
+            }
+
             Log::error('EncodeVideoToHLS job failed', [
                 'lecture_id' => $this->lecture->id,
                 'error' => $e->getMessage(),

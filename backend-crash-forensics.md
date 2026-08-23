@@ -6,6 +6,14 @@
 
 The production container was reported as `Exited` after being healthy for minutes or less than an hour. No Docker exit state, Docker event, kernel log, or VPS resource snapshot for a failing instance has been collected yet. Therefore no application-level change is a proven root-cause fix.
 
+## Observed outage: 2026-08-23
+
+At `2026-08-23T12:18:33Z` through at least `12:25:19Z`, both production hostnames returned the Traefik-style response `503 no available server` for `/api/health/live`. The same response occurred for `/api/health/ready`, `/api/health`, and `/api/version`. The Coolify control plane at `http://187.77.77.216:8000/` simultaneously returned a normal redirect to its login page.
+
+This is **PROVEN public-side evidence** that the reverse proxy had no routable Skillso backend at that time while the host's Coolify web service remained reachable. Because `/api/health/live` is served directly by Nginx in the application container, the event is not explained by PHP-FPM, Redis, or database failure alone.
+
+It does **not** prove whether the application container exited, restarted, became unhealthy, lost its network attachment, or was removed from Traefik routing. No authenticated Coolify browser session or VPS shell was available during the observation. Do not redeploy until the host-side state below is captured.
+
 ## Preserved worktree state (2026-08-21)
 
 Pre-existing user changes were present in:
@@ -39,6 +47,8 @@ Unpublished hardening changes are also present in the deployment files, FFmpeg j
 | Redis errors | Host is set to `127.0.0.1`; analytics uses Redis | No failure/retry/log-growth sequence captured | UNTESTED |
 | Disk or inode exhaustion | Debug-level logs can grow; media jobs write files | No host disk/inode data from incident | UNTESTED |
 | Application fatal/segfault | Fatal shutdown logging exists | No production fatal/segfault record tied to the exit | UNTESTED |
+| Traefik/Coolify routing | Both production hostnames returned `503 no available server` during the observed outage | No Docker/Coolify state explaining why the backend was unavailable | PROVEN SYMPTOM / CAUSE OPEN |
+| Host-wide failure | Coolify UI remained reachable during the outage | Other application containers were not inspected | PARTIALLY REJECTED |
 
 ## Required VPS capture
 
@@ -47,7 +57,9 @@ Copy `scripts/capture-runtime-health.sh` to the VPS host or run it from the chec
 ```bash
 chmod 700 scripts/capture-runtime-health.sh
 sudo INTERVAL_SECONDS=10 DURATION_SECONDS=7200 \
-  ./scripts/capture-runtime-health.sh --match skillso --output /var/log/skillso-crash-forensics
+  ./scripts/capture-runtime-health.sh --match skillso \
+  --probe-url https://api.skillso.net/api/health/live \
+  --output /var/log/skillso-crash-forensics
 ```
 
 Use the exact container name fragment if `skillso` does not match. The output directory is owner-only and records bounded snapshots plus Docker events. It intentionally excludes container environment variables.

@@ -112,11 +112,10 @@ class KnowledgeIngestionStabilityTest extends TestCase
         $this->assertNotFalse($jobSource);
 
         $this->assertSame(25, ProcessKnowledgeIngestionJob::WRITE_BATCH_SIZE);
-        $this->assertStringContainsString(
-            'array_chunk($preparedRows, self::WRITE_BATCH_SIZE)',
-            $jobSource
-        );
+        $this->assertStringContainsString('$rowSpool = tmpfile();', $jobSource);
+        $this->assertStringContainsString('while (($line = fgets($rowSpool)) !== false)', $jobSource);
         $this->assertStringContainsString('ChatbotVectorChunk::insert($batchRows)', $jobSource);
+        $this->assertStringNotContainsString('$preparedRows', $jobSource);
         $this->assertStringNotContainsString('$preparedChunks', $jobSource);
     }
 

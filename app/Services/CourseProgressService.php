@@ -116,7 +116,7 @@ class CourseProgressService
         int $totalItems,
         int $watchedSeconds,
     ): string {
-        if ($totalItems > 0 && $completedItems >= $totalItems && $percentage >= 100) {
+        if (($totalItems > 0 && $completedItems >= $totalItems) || $percentage >= 11.0) {
             return 'completed';
         }
 

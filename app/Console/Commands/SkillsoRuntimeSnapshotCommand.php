@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Redis;
 
 class SkillsoRuntimeSnapshotCommand extends Command
 {
@@ -17,11 +18,13 @@ class SkillsoRuntimeSnapshotCommand extends Command
 
     public function handle(): int
     {
+        $this->boundDiagnosticConnectionTimeouts();
+
         $this->info('=== SKILLSO RUNTIME HEALTH SNAPSHOT ===');
-        $this->line('Timestamp: ' . now()->toIso8601String());
-        $this->line('PHP Version: ' . PHP_VERSION);
-        $this->line('Laravel Version: ' . app()->version());
-        $this->line('Environment: ' . app()->environment());
+        $this->line('Timestamp: '.now()->toIso8601String());
+        $this->line('PHP Version: '.PHP_VERSION);
+        $this->line('Laravel Version: '.app()->version());
+        $this->line('Environment: '.app()->environment());
 
         // Memory
         $currentMem = round(memory_get_usage(true) / 1024 / 1024, 2);
@@ -31,26 +34,32 @@ class SkillsoRuntimeSnapshotCommand extends Command
         // Database
         try {
             $start = microtime(true);
-            DB::connection()->getPdo();
+            DB::select('SELECT 1');
             $latency = round((microtime(true) - $start) * 1000, 2);
-            $this->info("Database: OK ({$latency} ms latency, driver: " . DB::getDriverName() . ')');
-        } catch (\Throwable $e) {
-            $this->error('Database: UNREACHABLE (' . $e->getMessage() . ')');
+            $this->info("Database: OK ({$latency} ms latency, driver: ".DB::getDriverName().')');
+        } catch (\Throwable $exception) {
+            $this->error('Database: UNREACHABLE ('.$exception::class.')');
         }
 
-        // Cache
+        // Cache read. Deliberately avoids writing a probe key in production.
         try {
-            $cacheKey = 'skillso_health_probe_' . time();
-            Cache::put($cacheKey, true, 10);
-            $cacheOk = Cache::get($cacheKey) === true;
-            Cache::forget($cacheKey);
-            $this->line('Cache Driver: ' . config('cache.default') . ' [' . ($cacheOk ? 'OK' : 'FAIL') . ']');
-        } catch (\Throwable $e) {
-            $this->error('Cache: FAIL (' . $e->getMessage() . ')');
+            Cache::get('skillso_runtime_snapshot_read_only_probe');
+            $this->line('Cache Driver: '.config('cache.default').' [READ OK]');
+        } catch (\Throwable $exception) {
+            $this->error('Cache: FAIL ('.$exception::class.')');
+        }
+
+        // Redis topology/connectivity without printing hostnames or credentials.
+        try {
+            $pong = Redis::connection()->command('ping');
+            $redisOk = $pong === true || strtoupper((string) $pong) === 'PONG';
+            $this->line('Redis: '.($redisOk ? 'OK' : 'UNEXPECTED RESPONSE'));
+        } catch (\Throwable $exception) {
+            $this->error('Redis: UNREACHABLE ('.$exception::class.')');
         }
 
         // Queue
-        $this->line('Queue Connection: ' . config('queue.default'));
+        $this->line('Queue Connection: '.config('queue.default'));
 
         // Storage & Log Permissions
         $logPath = storage_path('logs/laravel.log');
@@ -63,6 +72,39 @@ class SkillsoRuntimeSnapshotCommand extends Command
         }
 
         $this->info('=== SNAPSHOT COMPLETED ===');
+
         return 0;
+    }
+
+    /**
+     * Keep an unavailable dependency from stalling host snapshots. These
+     * process-local overrides do not alter application or production config.
+     */
+    private function boundDiagnosticConnectionTimeouts(): void
+    {
+        $connectionName = (string) config('database.default');
+        $connection = config("database.connections.{$connectionName}");
+
+        if (is_array($connection)) {
+            $options = is_array($connection['options'] ?? null) ? $connection['options'] : [];
+            $options[\PDO::ATTR_TIMEOUT] = 3;
+            config(["database.connections.{$connectionName}.options" => $options]);
+        }
+
+        $redis = config('database.redis');
+        if (! is_array($redis)) {
+            return;
+        }
+
+        foreach ($redis as $name => $configuration) {
+            if (! is_string($name) || ! is_array($configuration)) {
+                continue;
+            }
+
+            config([
+                "database.redis.{$name}.timeout" => 3,
+                "database.redis.{$name}.read_timeout" => 3,
+            ]);
+        }
     }
 }

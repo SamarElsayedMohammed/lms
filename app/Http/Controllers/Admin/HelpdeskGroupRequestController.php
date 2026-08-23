@@ -33,7 +33,7 @@ class HelpdeskGroupRequestController extends Controller
 
             if ($request->filled('search')) {
                 $search = trim($request->search);
-                if (!empty($search)) {
+                if (! empty($search)) {
                     $query->where(static function ($q) use ($search): void {
                         $q->whereHas('user', static function ($userQuery) use ($search): void {
                             $userQuery->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%");
@@ -80,21 +80,19 @@ class HelpdeskGroupRequestController extends Controller
     public function show($id)
     {
         $request = HelpdeskGroupRequest::with(['group', 'user'])->findOrFail($id);
+
         return view('admin.helpdesk.group-requests.show', compact('request'), ['type_menu' => 'help-desk']);
     }
 
     public function updateStatus(Request $request, $id)
     {
-        // Add debugging
-        Log::info('UpdateStatus called with ID: ' . $id);
-        Log::info('Request data: ' . json_encode($request->all()));
-
         $validator = Validator::make($request->all(), [
             'status' => 'required|in:pending,approved,rejected',
         ]);
 
         if ($validator->fails()) {
-            Log::error('Validation failed: ' . json_encode($validator->errors()));
+            Log::error('Validation failed: '.json_encode($validator->errors()));
+
             return ResponseService::validationError($validator->errors()->first());
         }
 
@@ -102,13 +100,13 @@ class HelpdeskGroupRequestController extends Controller
             $groupRequest = HelpdeskGroupRequest::findOrFail($id);
             $groupRequest->update(['status' => $request->status]);
 
-            Log::info('Status updated successfully for ID: ' . $id);
             return ResponseService::successResponse('Status updated successfully');
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            Log::error('Error updating status: ' . $th->getMessage());
+            Log::error('Error updating status: '.$th->getMessage());
             ResponseService::logErrorRedirect($th, 'HelpdeskGroupRequestController -> updateStatus()');
+
             return ResponseService::errorResponse();
         }
     }

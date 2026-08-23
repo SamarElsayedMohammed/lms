@@ -28,6 +28,7 @@ class KashierCheckoutService implements PaymentGatewayContract
     }
 
     private const BASE_URL_TEST = 'https://checkout.kashier.io';
+
     private const BASE_URL_LIVE = 'https://checkout.kashier.io';
 
     /**
@@ -45,7 +46,7 @@ class KashierCheckoutService implements PaymentGatewayContract
         $config = $this->getConfig();
         $this->validateConfig($config);
 
-        $orderId = 'sub_' . $plan->id . '_' . $user->id . '_' . time();
+        $orderId = 'sub_'.$plan->id.'_'.$user->id.'_'.time();
         $currency = strtoupper($currency);
         $amountFormatted = number_format((float) $amount, 2, '.', '');
 
@@ -61,18 +62,18 @@ class KashierCheckoutService implements PaymentGatewayContract
         $callbackUrl = urlencode($this->buildCallbackUrl($orderId));
 
         $url = $baseUrl
-            . '?merchantId=' . $config['merchant_id']
-            . '&orderId=' . $orderId
-            . '&mode=' . $config['mode']
-            . '&amount=' . $amountFormatted
-            . '&currency=' . $currency
-            . '&hash=' . $hash
-            . '&merchantRedirect=' . $callbackUrl
-            . '&serverWebhook=' . $callbackUrl
-            . '&allowedMethods=card,wallet,bank'
-            . '&display=en'
-            . '&saveCard=false'
-            . '&customerReference=usr_' . $user->id;
+            .'?merchantId='.$config['merchant_id']
+            .'&orderId='.$orderId
+            .'&mode='.$config['mode']
+            .'&amount='.$amountFormatted
+            .'&currency='.$currency
+            .'&hash='.$hash
+            .'&merchantRedirect='.$callbackUrl
+            .'&serverWebhook='.$callbackUrl
+            .'&allowedMethods=card,wallet,bank'
+            .'&display=en'
+            .'&saveCard=false'
+            .'&customerReference=usr_'.$user->id;
 
         $this->kashierLog('Kashier checkout session created', [
             'type' => 'subscription',
@@ -111,7 +112,7 @@ class KashierCheckoutService implements PaymentGatewayContract
         $config = $this->getConfig();
         $this->validateConfig($config);
 
-        $orderId = 'wlt_' . $user->id . '_' . now()->format('YmdHis') . '_' . bin2hex(random_bytes(3));
+        $orderId = 'wlt_'.$user->id.'_'.now()->format('YmdHis').'_'.bin2hex(random_bytes(3));
         $currency = 'EGP';
         $amountFormatted = number_format((float) $amount, 2, '.', '');
 
@@ -127,17 +128,17 @@ class KashierCheckoutService implements PaymentGatewayContract
         $callbackUrl = urlencode($this->buildCallbackUrl($orderId));
 
         $url = $baseUrl
-            . '?merchantId=' . $config['merchant_id']
-            . '&orderId=' . $orderId
-            . '&mode=' . $config['mode']
-            . '&amount=' . $amountFormatted
-            . '&currency=' . $currency
-            . '&hash=' . $hash
-            . '&merchantRedirect=' . $callbackUrl
-            . '&allowedMethods=card,wallet,bank'
-            . '&display=en'
-            . '&saveCard=true'
-            . '&customerReference=usr_' . $user->id;
+            .'?merchantId='.$config['merchant_id']
+            .'&orderId='.$orderId
+            .'&mode='.$config['mode']
+            .'&amount='.$amountFormatted
+            .'&currency='.$currency
+            .'&hash='.$hash
+            .'&merchantRedirect='.$callbackUrl
+            .'&allowedMethods=card,wallet,bank'
+            .'&display=en'
+            .'&saveCard=true'
+            .'&customerReference=usr_'.$user->id;
 
         return [
             'url' => $url,
@@ -162,8 +163,8 @@ class KashierCheckoutService implements PaymentGatewayContract
         $config = $this->getConfig();
         $this->validateConfig($config);
 
-        $orderId = 'webinar_' . $webinarId . '_' . $user->id . '_' . now()->format('YmdHis')
-            . '_' . strtolower(\Illuminate\Support\Str::random(6));
+        $orderId = 'webinar_'.$webinarId.'_'.$user->id.'_'.now()->format('YmdHis')
+            .'_'.strtolower(\Illuminate\Support\Str::random(6));
         $currency = strtoupper($currency);
         $amountFormatted = number_format((float) $amount, 2, '.', '');
 
@@ -179,17 +180,17 @@ class KashierCheckoutService implements PaymentGatewayContract
         $callbackUrl = urlencode($this->buildCallbackUrl($orderId));
 
         $url = $baseUrl
-            . '?merchantId=' . $config['merchant_id']
-            . '&orderId=' . $orderId
-            . '&mode=' . $config['mode']
-            . '&amount=' . $amountFormatted
-            . '&currency=' . $currency
-            . '&hash=' . $hash
-            . '&merchantRedirect=' . $callbackUrl
-            . '&allowedMethods=card,wallet,bank'
-            . '&display=en'
-            . '&saveCard=true'
-            . '&customerReference=usr_' . $user->id;
+            .'?merchantId='.$config['merchant_id']
+            .'&orderId='.$orderId
+            .'&mode='.$config['mode']
+            .'&amount='.$amountFormatted
+            .'&currency='.$currency
+            .'&hash='.$hash
+            .'&merchantRedirect='.$callbackUrl
+            .'&allowedMethods=card,wallet,bank'
+            .'&display=en'
+            .'&saveCard=true'
+            .'&customerReference=usr_'.$user->id;
 
         return [
             'url' => $url,
@@ -239,18 +240,18 @@ class KashierCheckoutService implements PaymentGatewayContract
             if (in_array(strtolower($key), ['signature', 'mode'], true) || is_array($value)) {
                 continue;
             }
-            $queryParts[] = $key . '=' . $value;
+            $queryParts[] = $key.'='.$value;
         }
         $queryString = implode('&', $queryParts);
 
         $expectedSignature = hash_hmac('sha256', $queryString, $config['api_key'], false);
         $isValid = hash_equals($expectedSignature, $signature);
 
-        if (!$isValid) {
+        if (! $isValid) {
             Log::warning('Kashier signature verification failed', [
                 'expected' => $expectedSignature,
                 'received' => $signature,
-                'queryString' => $queryString
+                'queryString' => $queryString,
             ]);
         }
 
@@ -272,32 +273,33 @@ class KashierCheckoutService implements PaymentGatewayContract
             // Kashier Management API uses api.kashier.io
             $response = Http::connectTimeout(3)->timeout(10)->withHeaders([
                 'Authorization' => $config['api_key'],
-            ])->get('https://api.kashier.io/v1/transaction/' . $transactionId);
+            ])->get('https://api.kashier.io/v1/transaction/'.$transactionId);
 
             if ($response->successful()) {
                 $data = $response->json();
                 // Kashier API response structure: { "status": "success", "response": { "status": "captured", ... } }
                 // or similar. Let's be flexible and check common paths.
                 $status = $data['response']['status'] ?? $data['status'] ?? 'unknown';
-                
+
                 Log::info('Kashier API status check', [
                     'transactionId' => $transactionId,
-                    'status' => $status
+                    'status' => $status,
                 ]);
 
                 return strtolower((string) $status);
             }
-            
+
             Log::warning('Kashier API status check failed', [
                 'transactionId' => $transactionId,
-                'response' => $response->body()
+                'response' => $response->body(),
             ]);
         } catch (\Throwable $e) {
-            Log::warning('Kashier getPaymentStatus exception: ' . $e->getMessage());
+            Log::warning('Kashier getPaymentStatus exception: '.$e->getMessage());
         }
 
         return 'unknown';
     }
+
     /**
      * Get full payment details from Kashier API using a transaction id.
      */
@@ -313,7 +315,7 @@ class KashierCheckoutService implements PaymentGatewayContract
         try {
             $response = Http::connectTimeout(3)->timeout(10)->withHeaders([
                 'Authorization' => $config['api_key'],
-            ])->get($baseUrl . '/v1/transaction/' . $transactionId);
+            ])->get($baseUrl.'/v1/transaction/'.$transactionId);
 
             if ($response->successful()) {
                 return $this->parsePaymentDetails($response->json());
@@ -324,7 +326,7 @@ class KashierCheckoutService implements PaymentGatewayContract
                 'response' => $response->body(),
             ]);
         } catch (\Throwable $e) {
-            Log::warning('Kashier getPaymentDetails exception: ' . $e->getMessage());
+            Log::warning('Kashier getPaymentDetails exception: '.$e->getMessage());
         }
 
         return null;
@@ -343,9 +345,9 @@ class KashierCheckoutService implements PaymentGatewayContract
         $baseUrl = $config['mode'] === 'live' ? 'https://api.kashier.io' : 'https://test-api.kashier.io';
         $headers = ['Authorization' => $config['api_key']];
         $urls = [
-            $baseUrl . '/v1/transaction?merchantOrderId=' . urlencode($orderId),
-            $baseUrl . '/v1/transactions?merchantOrderId=' . urlencode($orderId),
-            $baseUrl . '/v1/transaction/order/' . urlencode($orderId),
+            $baseUrl.'/v1/transaction?merchantOrderId='.urlencode($orderId),
+            $baseUrl.'/v1/transactions?merchantOrderId='.urlencode($orderId),
+            $baseUrl.'/v1/transaction/order/'.urlencode($orderId),
         ];
 
         $startTime = microtime(true);
@@ -394,12 +396,11 @@ class KashierCheckoutService implements PaymentGatewayContract
         return null;
     }
 
-
     private function buildCallbackUrl(string $orderId): string
     {
         $appUrl = rtrim((string) config('app.url'), '/');
 
-        return $appUrl . '/api/webhooks/kashier?order_id=' . urlencode($orderId);
+        return $appUrl.'/api/webhooks/kashier?order_id='.urlencode($orderId);
     }
 
     private function parsePaymentDetails(array $data): ?array
@@ -410,7 +411,7 @@ class KashierCheckoutService implements PaymentGatewayContract
             $res = $res[0];
         }
 
-        if (!is_array($res)) {
+        if (! is_array($res)) {
             return null;
         }
 
@@ -439,22 +440,9 @@ class KashierCheckoutService implements PaymentGatewayContract
         ];
     }
 
-
     private function kashierLog(string $message, array $context = []): void
     {
-        $line = '[' . now()->format('Y-m-d H:i:s') . '] ' . $message . ' ' . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
-        $written = false;
-
-        try {
-            $written = @file_put_contents(storage_path('logs/kashier.log'), $line, FILE_APPEND | LOCK_EX) !== false;
-        } catch (\Throwable) {
-            $written = false;
-        }
-
-        if (!$written) {
-            @file_put_contents('/tmp/kashier.log', $line, FILE_APPEND | LOCK_EX);
-            error_log($line);
-        }
+        Log::channel('daily')->info($message, $context);
     }
 
     private function getConfig(): array
@@ -483,7 +471,7 @@ class KashierCheckoutService implements PaymentGatewayContract
 
     private function generateOrderHash(string $mid, string $orderId, string $amount, string $currency, string $secret): string
     {
-        $path = '/?payment=' . $mid . '.' . $orderId . '.' . $amount . '.' . $currency;
+        $path = '/?payment='.$mid.'.'.$orderId.'.'.$amount.'.'.$currency;
 
         return hash_hmac('sha256', $path, $secret, false);
     }

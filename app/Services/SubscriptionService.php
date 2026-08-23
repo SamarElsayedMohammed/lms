@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Models\User;
 use App\Models\Subscription;
-use App\Models\SubscriptionPlan;
 use App\Models\SubscriptionPayment;
+use App\Models\SubscriptionPlan;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
+use Illuminate\Support\LazyCollection;
 
 final class SubscriptionService
 {
@@ -41,17 +41,17 @@ final class SubscriptionService
                 ->first();
 
             $existingSubscription = $this->getActiveSubscription($user);
-            
+
             // 1. Same Plan Stacking (Extension)
             // If the last subscription in the queue is the same plan, extend it.
             if ($lastSubscription && $lastSubscription->plan_id === $plan->id) {
                 $baseDays = $plan->getDurationDays();
                 if ($baseDays) {
                     $lastSubscription->extend($baseDays);
-                    
+
                     // Create payment record for the extension
                     $this->createPaymentRecord($lastSubscription, $user, $plan, $paymentMethod, $walletAmount, $gatewayAmount, $discountMeta);
-                    
+
                     Log::info('Subscription extended (Stacked)', [
                         'user_id' => $user->id,
                         'plan_id' => $plan->id,
@@ -122,7 +122,7 @@ final class SubscriptionService
                 $debitEgp = isset($discountMeta['wallet_amount_egp'])
                     ? (float) $discountMeta['wallet_amount_egp']
                     : $walletAmount;
-                if (!empty($discountMeta['currency_code']) && !isset($discountMeta['wallet_amount_egp'])) {
+                if (! empty($discountMeta['currency_code']) && ! isset($discountMeta['wallet_amount_egp'])) {
                     $debitEgp = app(CurrencyConversionService::class)->convertToEgp(
                         $walletAmount,
                         (string) $discountMeta['currency_code'],
@@ -139,7 +139,7 @@ final class SubscriptionService
                 );
             }
 
-            Log::info('Subscription created' . ($status === Subscription::STATUS_PENDING ? ' (Queued)' : ''), [
+            Log::info('Subscription created'.($status === Subscription::STATUS_PENDING ? ' (Queued)' : ''), [
                 'user_id' => $user->id,
                 'plan_id' => $plan->id,
                 'subscription_id' => $subscription->id,
@@ -217,7 +217,7 @@ final class SubscriptionService
             'currency_code' => $discountMeta['currency_code'] ?? 'EGP',
             'price_source' => $discountMeta['price_source'] ?? 'default',
             'promo_code' => $discountMeta['promo_code'] ?? null,
-            'original_amount' => !empty($discountMeta['promo_code'])
+            'original_amount' => ! empty($discountMeta['promo_code'])
                 ? (float) ($discountMeta['original_amount'] ?? $totalAmount)
                 : null,
             'discount_amount' => $discountMeta['discount_amount'] ?? 0,
@@ -226,7 +226,7 @@ final class SubscriptionService
             'paid_at' => now(),
         ]);
 
-        if (!empty($discountMeta['promo_code'])) {
+        if (! empty($discountMeta['promo_code'])) {
             try {
                 app(\App\Services\SubscriptionPromoService::class)->consumePromo($payment->id, (string) $discountMeta['promo_code']);
             } catch (\Throwable $e) {
@@ -260,7 +260,7 @@ final class SubscriptionService
         ]);
         \App\Jobs\SendTrackingEventJob::dispatch('ga4', 'purchase', [
             'params' => [
-                'transaction_id' => 'SUB-' . $subscription->id,
+                'transaction_id' => 'SUB-'.$subscription->id,
                 'value' => (float) $plan->price,
                 'currency' => 'EGP',
                 'items' => [
@@ -344,7 +344,7 @@ final class SubscriptionService
                     $user->id,
                     $debitEgp,
                     'subscription',
-                    "Subscription renewal payment for plan: " . ($subscription->plan ? $subscription->plan->name : 'plan'),
+                    'Subscription renewal payment for plan: '.($subscription->plan ? $subscription->plan->name : 'plan'),
                     $subscription->id,
                     \App\Models\Subscription::class,
                     'user'
@@ -379,7 +379,7 @@ final class SubscriptionService
             ->update([
                 'status' => Subscription::STATUS_CANCELLED,
                 'cancelled_at' => now(),
-                'cancellation_reason' => 'Parent subscription was cancelled: ' . ($reason ?? 'No reason provided'),
+                'cancellation_reason' => 'Parent subscription was cancelled: '.($reason ?? 'No reason provided'),
             ]);
 
         Log::info('Subscription cancelled', [
@@ -486,15 +486,15 @@ final class SubscriptionService
             ->where(function ($query) {
                 $query->where(function ($q) {
                     $q->where('status', Subscription::STATUS_ACTIVE)
-                      ->whereNotNull('ends_at')
-                      ->where('ends_at', '<=', now());
+                        ->whereNotNull('ends_at')
+                        ->where('ends_at', '<=', now());
                 })->orWhere(function ($q) {
                     $q->where('status', Subscription::STATUS_PENDING)
-                      ->where('starts_at', '<=', now());
+                        ->where('starts_at', '<=', now());
                 });
             })->exists();
 
-        if (!$needsSync) {
+        if (! $needsSync) {
             return;
         }
 
@@ -516,7 +516,7 @@ final class SubscriptionService
                     ->where('status', Subscription::STATUS_PENDING)
                     ->exists();
 
-                if (!$hasQueued && $subscription->auto_renew && $subscription->plan) {
+                if (! $hasQueued && $subscription->auto_renew && $subscription->plan) {
                     $localPrice = (float) ($subscription->locked_price ?? $subscription->plan->price);
                     $currency = strtoupper((string) ($subscription->locked_currency ?? 'EGP'));
                     $priceEgp = app(CurrencyConversionService::class)->convertToEgp($localPrice, $currency);
@@ -524,12 +524,13 @@ final class SubscriptionService
                     if ($user->wallet_balance >= $priceEgp) {
                         try {
                             $this->renewWithPayment($user, $subscription, 'wallet', $localPrice, 0, $localPrice, $currency, $priceEgp);
-                            
+
                             Log::info('Subscription auto-renewed via wallet (Lazy Eval)', [
                                 'subscription_id' => $subscription->id,
                                 'user_id' => $user->id,
                                 'amount' => $localPrice,
                             ]);
+
                             continue; // successfully renewed, not expired
                         } catch (\Throwable $e) {
                             Log::warning('Auto-renewal failed (Lazy Eval), marking as expired', [
@@ -588,7 +589,7 @@ final class SubscriptionService
     {
         $subscription = $this->getActiveSubscription($user);
 
-        if (!$subscription) {
+        if (! $subscription) {
             return [
                 'has_access' => false,
                 'status' => 'no_subscription',
@@ -677,7 +678,7 @@ final class SubscriptionService
 
     private static function hasSubscriptionColumn(string $column): bool
     {
-        if (!array_key_exists($column, self::$hasSubscriptionColumnCache)) {
+        if (! array_key_exists($column, self::$hasSubscriptionColumnCache)) {
             self::$hasSubscriptionColumnCache[$column] = \Illuminate\Support\Facades\Schema::hasColumn('subscriptions', $column);
         }
 
@@ -687,11 +688,11 @@ final class SubscriptionService
     /**
      * Get subscriptions needing expiry notification for dynamic days
      */
-    public function getSubscriptionsForNotificationDays(int $days): \Illuminate\Database\Eloquent\Collection
+    public function getSubscriptionsForNotificationDays(int $days): LazyCollection
     {
         $column = "notified_{$days}_days";
-        if (!self::hasSubscriptionColumn($column)) {
-            return new \Illuminate\Database\Eloquent\Collection();
+        if (! self::hasSubscriptionColumn($column)) {
+            return LazyCollection::make();
         }
 
         return Subscription::where('status', Subscription::STATUS_ACTIVE)
@@ -700,7 +701,7 @@ final class SubscriptionService
             ->where('ends_at', '<=', now()->addDays($days))
             ->where($column, false)
             ->with(['user', 'plan'])
-            ->get();
+            ->lazyById(100);
     }
 
     /**
@@ -715,7 +716,7 @@ final class SubscriptionService
             $subscription->updateQuietly([$field => true]);
         } elseif (self::hasSubscriptionColumn('notified_intervals')) {
             $intervals = $subscription->notified_intervals ?? [];
-            if (!in_array($thresholdDays, $intervals)) {
+            if (! in_array($thresholdDays, $intervals)) {
                 $intervals[] = $thresholdDays;
                 $subscription->notified_intervals = $intervals;
                 $subscription->updateQuietly(['notified_intervals' => $intervals]);
@@ -730,7 +731,7 @@ final class SubscriptionService
     {
         $subscription = $this->getActiveSubscription($user);
 
-        if (!$subscription) {
+        if (! $subscription) {
             return null;
         }
 

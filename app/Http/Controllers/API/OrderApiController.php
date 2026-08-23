@@ -55,7 +55,7 @@ class OrderApiController extends Controller
             $cartItems = Cart::with('course')->where('user_id', $user?->id)->get();
             $isFree =
                 $cartItems->isNotEmpty()
-                && $cartItems->every(static fn($cart) => $cart->course && $cart->course->course_type === 'free');
+                && $cartItems->every(static fn ($cart) => $cart->course && $cart->course->course_type === 'free');
         }
 
         $validator = Validator::make($request->all(), [
@@ -75,7 +75,7 @@ class OrderApiController extends Controller
             ];
 
             foreach ($customMessages as $message) {
-                if (!($errors->has('course_id') && str_contains($errors->first('course_id'), 'required'))) {
+                if (! ($errors->has('course_id') && str_contains($errors->first('course_id'), 'required'))) {
                     continue;
                 }
 
@@ -90,7 +90,7 @@ class OrderApiController extends Controller
             $isBuyNow = $request->boolean('buy_now', false);
 
             // check if user has billing details, as it is required (for paid courses only).
-            if (!$isFree && $user->billingDetails === null) {
+            if (! $isFree && $user->billingDetails === null) {
                 return ApiResponseService::errorResponse(
                     'Billing details are required before placing an order.',
                     code: 422,
@@ -101,7 +101,7 @@ class OrderApiController extends Controller
             if ($request->filled('promo_code_id') || $request->filled('promo_code')) {
                 if ($request->filled('promo_code_id') && $request->filled('promo_code')) {
                     $promo = PromoCode::find($request->promo_code_id);
-                    if (!$promo || strtolower(trim($promo->promo_code)) !== strtolower(trim((string) $request->promo_code))) {
+                    if (! $promo || strtolower(trim($promo->promo_code)) !== strtolower(trim((string) $request->promo_code))) {
                         return ApiResponseService::validationError('Promo code and ID mismatch.');
                     }
                     $promoCodeId = $promo->id;
@@ -168,7 +168,7 @@ class OrderApiController extends Controller
                         ->map(
                             // Get the latest refund approval date for each course
 
-                            static fn($refunds) => $refunds->max('processed_at'),
+                            static fn ($refunds) => $refunds->max('processed_at'),
                         );
 
                     // Filter out courses with approved refunds that were approved before this order
@@ -176,7 +176,7 @@ class OrderApiController extends Controller
                         $approvedRefunds,
                         $orderDate,
                     ) {
-                        if (!$oc->course) {
+                        if (! $oc->course) {
                             return false;
                         }
 
@@ -184,7 +184,7 @@ class OrderApiController extends Controller
                         $refundApprovalDate = $approvedRefunds->get($courseId);
 
                         // If no refund or refund was approved after this order, include the course
-                        if (!$refundApprovalDate || $orderDate->gt($refundApprovalDate)) {
+                        if (! $refundApprovalDate || $orderDate->gt($refundApprovalDate)) {
                             return true;
                         }
 
@@ -202,12 +202,12 @@ class OrderApiController extends Controller
 
                     // Calculate final total as sum of all courses' final_price
                     // final_price = price + tax_price for each course
-                    $finalTotal = $validOrderCourses->sum(static fn($oc) => ($oc->price ?? 0) + ($oc->tax_price ?? 0));
+                    $finalTotal = $validOrderCourses->sum(static fn ($oc) => ($oc->price ?? 0) + ($oc->tax_price ?? 0));
 
                     // Calculate total refund amount for this order (approved refunds only)
                     $courseIds = $order->orderCourses->pluck('course_id')->filter()->toArray();
                     $totalRefundAmount = 0;
-                    if (!empty($courseIds) && $transactionId !== null) {
+                    if (! empty($courseIds) && $transactionId !== null) {
                         $totalRefundAmount = RefundRequest::where('user_id', $user->id)
                             ->whereIn('course_id', $courseIds)
                             ->where('transaction_id', $transactionId)
@@ -254,7 +254,7 @@ class OrderApiController extends Controller
                             $refundPeriodDays,
                             $transactionId,
                         ) {
-                            if (!$oc->course) {
+                            if (! $oc->course) {
                                 return null;
                             }
 
@@ -399,7 +399,7 @@ class OrderApiController extends Controller
                 ->where('status', 'completed')
                 ->first();
 
-            if (!$order) {
+            if (! $order) {
                 return ApiResponseService::errorResponse('Order not found or not completed');
             }
 
@@ -422,15 +422,15 @@ class OrderApiController extends Controller
 
             // Prepare logo as base64 for PDF rendering (relative URLs don't work in mPDF)
             $logoBase64 = null;
-            if (!empty($appSettings['horizontal_logo'])) {
-                $logoPath = storage_path('app/public/' . $appSettings['horizontal_logo']);
+            if (! empty($appSettings['horizontal_logo'])) {
+                $logoPath = storage_path('app/public/'.$appSettings['horizontal_logo']);
                 if (file_exists($logoPath)) {
                     $logoContent = file_get_contents($logoPath);
                     $logoMime = mime_content_type($logoPath);
-                    $logoBase64 = 'data:' . $logoMime . ';base64,' . base64_encode($logoContent);
+                    $logoBase64 = 'data:'.$logoMime.';base64,'.base64_encode($logoContent);
                     Log::info('Logo loaded as base64 for PDF');
                 } else {
-                    Log::warning('Logo file not found at: ' . $logoPath);
+                    Log::warning('Logo file not found at: '.$logoPath);
                 }
             } else {
                 Log::info('No horizontal_logo found in app settings');
@@ -440,7 +440,7 @@ class OrderApiController extends Controller
             $countryCode = null; // Historical invoice currency comes from the order snapshot.
             $currencySymbol = $appSettings['currency_symbol'] ?? '$';
             $currencyCode = strtoupper((string) ($order->currency_code ?? 'EGP'));
-            
+
             if ($countryCode) {
                 $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
                 if ($currency) {
@@ -465,14 +465,14 @@ class OrderApiController extends Controller
                 ->map(
                     // Get the latest refund approval date for each course
 
-                    static fn($refunds) => $refunds->max('processed_at'),
+                    static fn ($refunds) => $refunds->max('processed_at'),
                 );
 
             $orderDate = $order->created_at;
 
             // Filter out courses with approved refunds that were approved before this order
             $validOrderCourses = $order->orderCourses->filter(static function ($oc) use ($approvedRefunds, $orderDate) {
-                if (!$oc->course) {
+                if (! $oc->course) {
                     return false;
                 }
 
@@ -480,7 +480,7 @@ class OrderApiController extends Controller
                 $refundApprovalDate = $approvedRefunds->get($courseId);
 
                 // If no refund or refund was approved after this order, include the course
-                if (!$refundApprovalDate || $orderDate->gt($refundApprovalDate)) {
+                if (! $refundApprovalDate || $orderDate->gt($refundApprovalDate)) {
                     return true;
                 }
 
@@ -528,7 +528,7 @@ class OrderApiController extends Controller
                 ],
                 'billing_details' => $billingDetails,
                 'payment_method' => $order->payment_method,
-                'courses' => $validOrderCourses->map(static fn($oc) => [
+                'courses' => $validOrderCourses->map(static fn ($oc) => [
                     'course_id' => $oc->course ? $oc->course->id : null,
                     'title' => $oc->course ? $oc->course->title : 'Course not found',
                     'price' => $oc->price,
@@ -551,13 +551,13 @@ class OrderApiController extends Controller
                 } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                     throw $e;
                 } catch (Exception $viewError) {
-                    Log::error('View rendering error: ' . $viewError->getMessage());
-                    throw new Exception('Failed to render invoice template: ' . $viewError->getMessage());
+                    Log::error('View rendering error: '.$viewError->getMessage());
+                    throw new Exception('Failed to render invoice template: '.$viewError->getMessage());
                 }
 
                 // Ensure temp directory exists
                 $tempDir = storage_path('app/temp');
-                if (!file_exists($tempDir)) {
+                if (! file_exists($tempDir)) {
                     mkdir($tempDir, 0755, true);
                 }
 
@@ -577,7 +577,7 @@ class OrderApiController extends Controller
 
                 $mpdf->WriteHTML($html);
 
-                $filename = 'Invoice-' . $order->order_number . '-' . date('Y-m-d') . '.pdf';
+                $filename = 'Invoice-'.$order->order_number.'-'.date('Y-m-d').'.pdf';
 
                 // Generate PDF content as string
                 $pdfContent = $mpdf->Output('', 'S');
@@ -589,7 +589,7 @@ class OrderApiController extends Controller
 
                 return response($pdfContent, 200, [
                     'Content-Type' => 'application/pdf',
-                    'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                    'Content-Disposition' => 'attachment; filename="'.$filename.'"',
                     'Cache-Control' => 'no-cache, no-store, must-revalidate',
                     'Pragma' => 'no-cache',
                     'Expires' => '0',
@@ -598,19 +598,19 @@ class OrderApiController extends Controller
             } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                 throw $e;
             } catch (Exception $e) {
-                Log::error('MPDF Error: ' . $e->getMessage());
+                Log::error('MPDF Error: '.$e->getMessage());
                 throw $e;
             }
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            Log::error('Invoice generation failed: ' . $th->getMessage(), [
+            Log::error('Invoice generation failed: '.$th->getMessage(), [
                 'order_id' => $request->order_id,
                 'user_id' => Auth::id(),
                 'trace' => $th->getTraceAsString(),
             ]);
 
-            return ApiResponseService::errorResponse('Failed to generate invoice: ' . $th->getMessage());
+            return ApiResponseService::errorResponse('Failed to generate invoice: '.$th->getMessage());
         }
     }
 
@@ -627,7 +627,7 @@ class OrderApiController extends Controller
                 'user.billingDetails',
             ])->where('status', 'completed')->first();
 
-            if (!$order) {
+            if (! $order) {
                 return ApiResponseService::errorResponse('No completed orders found for testing');
             }
 
@@ -650,7 +650,7 @@ class OrderApiController extends Controller
 
             // Prepare logo URL for API response (not base64 since this is JSON API)
             $logoUrl = null;
-            if (!empty($appSettings['horizontal_logo'])) {
+            if (! empty($appSettings['horizontal_logo'])) {
                 $logoUrl = url(Storage::url($appSettings['horizontal_logo']));
             }
 
@@ -658,7 +658,7 @@ class OrderApiController extends Controller
             $countryCode = null; // Historical invoice currency comes from the order snapshot.
             $currencySymbol = $appSettings['currency_symbol'] ?? '$';
             $currencyCode = strtoupper((string) ($order->currency_code ?? 'EGP'));
-            
+
             if ($countryCode) {
                 $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
                 if ($currency) {
@@ -683,14 +683,14 @@ class OrderApiController extends Controller
                 ->map(
                     // Get the latest refund approval date for each course
 
-                    static fn($refunds) => $refunds->max('processed_at'),
+                    static fn ($refunds) => $refunds->max('processed_at'),
                 );
 
             $orderDate = $order->created_at;
 
             // Filter out courses with approved refunds that were approved before this order
             $validOrderCourses = $order->orderCourses->filter(static function ($oc) use ($approvedRefunds, $orderDate) {
-                if (!$oc->course) {
+                if (! $oc->course) {
                     return false;
                 }
 
@@ -698,7 +698,7 @@ class OrderApiController extends Controller
                 $refundApprovalDate = $approvedRefunds->get($courseId);
 
                 // If no refund or refund was approved after this order, include the course
-                if (!$refundApprovalDate || $orderDate->gt($refundApprovalDate)) {
+                if (! $refundApprovalDate || $orderDate->gt($refundApprovalDate)) {
                     return true;
                 }
 
@@ -743,7 +743,7 @@ class OrderApiController extends Controller
                 ],
                 'billing_details' => $billingDetails,
                 'payment_method' => $order->payment_method,
-                'courses' => $validOrderCourses->map(static fn($oc) => [
+                'courses' => $validOrderCourses->map(static fn ($oc) => [
                     'course_id' => $oc->course ? $oc->course->id : null,
                     'title' => $oc->course ? $oc->course->title : 'Course not found',
                     'price' => $oc->price,
@@ -763,7 +763,7 @@ class OrderApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            return ApiResponseService::errorResponse('Test failed: ' . $th->getMessage());
+            return ApiResponseService::errorResponse('Test failed: '.$th->getMessage());
         }
     }
 
@@ -795,7 +795,7 @@ class OrderApiController extends Controller
                 ->where('status', 'completed')
                 ->first();
 
-            if (!$order) {
+            if (! $order) {
                 return ApiResponseService::errorResponse('Order not found or not completed');
             }
 
@@ -818,7 +818,7 @@ class OrderApiController extends Controller
 
             // Prepare logo URL for API response
             $logoUrl = null;
-            if (!empty($appSettings['horizontal_logo'])) {
+            if (! empty($appSettings['horizontal_logo'])) {
                 $logoUrl = url(Storage::url($appSettings['horizontal_logo']));
             }
 
@@ -826,7 +826,7 @@ class OrderApiController extends Controller
             $countryCode = null; // Historical invoice currency comes from the order snapshot.
             $currencySymbol = $appSettings['currency_symbol'] ?? '$';
             $currencyCode = strtoupper((string) ($order->currency_code ?? 'EGP'));
-            
+
             if ($countryCode) {
                 $currency = \App\Models\SupportedCurrency::where('country_code', $countryCode)->where('is_active', true)->first();
                 if ($currency) {
@@ -851,14 +851,14 @@ class OrderApiController extends Controller
                 ->map(
                     // Get the latest refund approval date for each course
 
-                    static fn($refunds) => $refunds->max('processed_at'),
+                    static fn ($refunds) => $refunds->max('processed_at'),
                 );
 
             $orderDate = $order->created_at;
 
             // Filter out courses with approved refunds that were approved before this order
             $validOrderCourses = $order->orderCourses->filter(static function ($oc) use ($approvedRefunds, $orderDate) {
-                if (!$oc->course) {
+                if (! $oc->course) {
                     return false;
                 }
 
@@ -866,7 +866,7 @@ class OrderApiController extends Controller
                 $refundApprovalDate = $approvedRefunds->get($courseId);
 
                 // If no refund or refund was approved after this order, include the course
-                if (!$refundApprovalDate || $orderDate->gt($refundApprovalDate)) {
+                if (! $refundApprovalDate || $orderDate->gt($refundApprovalDate)) {
                     return true;
                 }
 
@@ -912,7 +912,7 @@ class OrderApiController extends Controller
                 ],
                 'billing_details' => $billingDetails,
                 'payment_method' => $order->payment_method,
-                'courses' => $validOrderCourses->map(static fn($oc) => [
+                'courses' => $validOrderCourses->map(static fn ($oc) => [
                     'course_id' => $oc->course ? $oc->course->id : null,
                     'title' => $oc->course ? $oc->course->title : 'Course not found',
                     'price' => $oc->price,
@@ -932,14 +932,14 @@ class OrderApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            return ApiResponseService::errorResponse('Failed to retrieve invoice data: ' . $th->getMessage());
+            return ApiResponseService::errorResponse('Failed to retrieve invoice data: '.$th->getMessage());
         }
     }
 
     /**
      * Get real IP address from request (handles proxies and load balancers)
      */
-    private function getRealIpAddress(Request $request): null|string
+    private function getRealIpAddress(Request $request): ?string
     {
         // Check for IP in various headers (for proxies/load balancers)
         $ipHeaders = [
@@ -977,9 +977,9 @@ class OrderApiController extends Controller
     /**
      * Get country code from IP address
      */
-    private function getCountryCodeFromIp(null|string $ipAddress): null|string
+    private function getCountryCodeFromIp(?string $ipAddress): ?string
     {
-        if (!$ipAddress) {
+        if (! $ipAddress) {
             return null;
         }
 
@@ -1005,7 +1005,7 @@ class OrderApiController extends Controller
             $curlError = curl_error($ch);
             curl_close($ch);
 
-            if ($httpCode === 200 && !empty($response) && !$curlError) {
+            if ($httpCode === 200 && ! empty($response) && ! $curlError) {
                 $countryCode = trim($response);
                 // Validate country code (should be 2 letters)
                 if (strlen($countryCode) === 2 && ctype_alpha($countryCode)) {
@@ -1025,9 +1025,9 @@ class OrderApiController extends Controller
             $curlError = curl_error($ch);
             curl_close($ch);
 
-            if ($httpCode === 200 && !$curlError) {
+            if ($httpCode === 200 && ! $curlError) {
                 $data = json_decode($response, true);
-                if (isset($data['countryCode']) && !empty($data['countryCode'])) {
+                if (isset($data['countryCode']) && ! empty($data['countryCode'])) {
                     $countryCode = strtoupper((string) $data['countryCode']);
                     if (strlen($countryCode) === 2 && ctype_alpha($countryCode)) {
                         return $countryCode;
@@ -1037,7 +1037,7 @@ class OrderApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Exception $e) {
-            Log::warning('Failed to get country from IP: ' . $e->getMessage(), [
+            Log::warning('Failed to get country from IP: '.$e->getMessage(), [
                 'ip' => $ipAddress,
             ]);
         }
@@ -1048,7 +1048,7 @@ class OrderApiController extends Controller
     /**
      * Get country code from request (IP-based with fallback to user's country)
      */
-    private function getCountryCodeForTax(Request $request, $user): null|string
+    private function getCountryCodeForTax(Request $request, $user): ?string
     {
         // Get country code from IP address if available
         $countryCode = null;
@@ -1058,7 +1058,7 @@ class OrderApiController extends Controller
         }
 
         // Fallback to user's country code if IP detection fails
-        if (!$countryCode) {
+        if (! $countryCode) {
             $countryCode = $user->country_code ?? null;
         }
 
@@ -1071,7 +1071,7 @@ class OrderApiController extends Controller
     private function handleBuyNowOrder(Request $request, $user)
     {
         $course = Course::find($request->course_id);
-        if (!$course) {
+        if (! $course) {
             return ApiResponseService::validationError('Course not found.');
         }
 
@@ -1087,9 +1087,13 @@ class OrderApiController extends Controller
         try {
             DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
             if (in_array($course->id, $this->activePurchasedCourseIds($user->id, [$course->id]), true)) {
+                DB::rollBack();
+
                 return ApiResponseService::validationError('You have already purchased this course.');
             }
             if ($this->recentPendingPurchasedCourseIds($user->id, [$course->id]) !== []) {
+                DB::rollBack();
+
                 return ApiResponseService::validationError('A payment for this course is already pending.');
             }
 
@@ -1098,7 +1102,7 @@ class OrderApiController extends Controller
 
             $order = Order::create([
                 'user_id' => $user->id,
-                'order_number' => 'ORD-' . strtoupper(uniqid()),
+                'order_number' => 'ORD-'.strtoupper(uniqid()),
                 'payment_method' => $paymentMethod,
                 'total_price' => 0,
                 'tax_price' => 0,
@@ -1116,10 +1120,10 @@ class OrderApiController extends Controller
             // 2. Resolve Promo Code (if any) and verify course applicability
             $promoCode = null;
             $resolvedPromoCodeId = $request->get('resolved_promo_code_id');
-            if (!$isFree && $resolvedPromoCodeId) {
+            if (! $isFree && $resolvedPromoCodeId) {
                 $candidatePromo = PromoCode::with('courses')->find($resolvedPromoCodeId);
                 if ($candidatePromo) {
-                    if (!$candidatePromo->courses()->exists() || $candidatePromo->courses->contains('id', $course->id)) {
+                    if (! $candidatePromo->courses()->exists() || $candidatePromo->courses->contains('id', $course->id)) {
                         $promoCode = $candidatePromo;
                     }
                 }
@@ -1136,12 +1140,12 @@ class OrderApiController extends Controller
 
             // Create order course with calculated values
             OrderCourse::create([
-                'order_id'               => $order->id,
-                'course_id'              => $course->id,
-                'price'                  => $isFree ? 0 : $pricing['subtotal'], // Price after promo, before tax
-                'tax_price'              => $isFree ? 0 : $pricing['tax_amount'],
-                'amount_egp'             => $isFree ? 0 : $pricing['price_egp'], // Base EGP price
-                'currency_code'          => $pricing['currency_code'],
+                'order_id' => $order->id,
+                'course_id' => $course->id,
+                'price' => $isFree ? 0 : $pricing['subtotal'], // Price after promo, before tax
+                'tax_price' => $isFree ? 0 : $pricing['tax_amount'],
+                'amount_egp' => $isFree ? 0 : $pricing['price_egp'], // Base EGP price
+                'currency_code' => $pricing['currency_code'],
                 'exchange_rate_snapshot' => $pricing['exchange_rate'],
             ]);
 
@@ -1149,7 +1153,9 @@ class OrderApiController extends Controller
             $finalPrice = $pricing['total'];
 
             $orderExchangeRate = (float) ($pricing['exchange_rate'] ?? 1);
-            if ($orderExchangeRate <= 0) $orderExchangeRate = 1;
+            if ($orderExchangeRate <= 0) {
+                $orderExchangeRate = 1;
+            }
             $orderAmountEgp = round($finalPrice * $orderExchangeRate, 2);
 
             // Update order totals + reporting normalization fields
@@ -1185,7 +1191,7 @@ class OrderApiController extends Controller
             // Handle 100% coupon discount (final price is 0 after promo code)
             if ($finalPrice <= 0) {
                 // Generate transaction ID
-                $transactionId = 'FREE-' . strtoupper(uniqid());
+                $transactionId = 'FREE-'.strtoupper(uniqid());
 
                 // Update order with free payment method and complete status
                 $order->update([
@@ -1208,8 +1214,6 @@ class OrderApiController extends Controller
                     'status' => 'completed',
                     'message' => 'Payment successful via 100% discount coupon',
                 ]);
-
-
 
                 // Create curriculum tracking entries
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);
@@ -1251,9 +1255,9 @@ class OrderApiController extends Controller
 
                     return ApiResponseService::validationError(
                         'Insufficient wallet balance. Required: '
-                        . number_format($orderAmountEgp, 2)
-                        . ', Available: '
-                        . number_format($walletBalance, 2),
+                        .number_format($orderAmountEgp, 2)
+                        .', Available: '
+                        .number_format($walletBalance, 2),
                     );
                 }
 
@@ -1268,7 +1272,7 @@ class OrderApiController extends Controller
                 );
 
                 // Generate transaction ID
-                $transactionId = 'WLT-' . strtoupper(uniqid());
+                $transactionId = 'WLT-'.strtoupper(uniqid());
 
                 // Create transaction record
                 Transaction::create([
@@ -1290,8 +1294,6 @@ class OrderApiController extends Controller
                     'is_payment' => 1,
                     'transaction_id' => $transactionId,
                 ]);
-
-
 
                 // Create curriculum tracking entries
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);
@@ -1366,13 +1368,13 @@ class OrderApiController extends Controller
     private function formatPlaceOrderResponse($order, array $additionalData = [])
     {
         $order->refresh();
-        
+
         $currencyCode = $order->currency_code ?? 'USD';
-        
+
         $currencyConversionService = app(\App\Services\CurrencyConversionService::class);
         $currency = $currencyConversionService->getCurrency($currencyCode);
         $displaySymbol = $currency ? $currency->currency_symbol : '$';
-        
+
         $formatted = [
             'order_id' => $order->id,
             'order_number' => $order->order_number,
@@ -1381,7 +1383,7 @@ class OrderApiController extends Controller
             'currency' => $currencyCode,
             'display_currency' => $currencyCode,
             'display_symbol' => $displaySymbol,
-            'formatted_total' => number_format($order->total_amount, 2) . ' ' . $displaySymbol,
+            'formatted_total' => number_format($order->total_amount, 2).' '.$displaySymbol,
             'payment_method' => $order->payment_method,
             'created_at' => clone $order->created_at,
         ];
@@ -1394,7 +1396,7 @@ class OrderApiController extends Controller
      * their exact order through the transaction, so a historical refund does not
      * make a later repurchase look refundable forever.
      *
-     * @param array<int, int> $courseIds
+     * @param  array<int, int>  $courseIds
      * @return array<int, int>
      */
     private function activePurchasedCourseIds(int $userId, array $courseIds): array
@@ -1417,7 +1419,7 @@ class OrderApiController extends Controller
             ->whereNotNull('transactions.order_id')
             ->get(['transactions.order_id', 'refund_requests.course_id'])
             ->mapWithKeys(static fn ($row) => [
-                ((int) $row->order_id) . ':' . ((int) $row->course_id) => true,
+                ((int) $row->order_id).':'.((int) $row->course_id) => true,
             ]);
 
         return OrderCourse::query()
@@ -1427,7 +1429,7 @@ class OrderApiController extends Controller
             ->whereIn('order_courses.course_id', $normalizedCourseIds->all())
             ->get(['order_courses.order_id', 'order_courses.course_id'])
             ->reject(static fn ($row) => $refundedPurchaseKeys->has(
-                ((int) $row->order_id) . ':' . ((int) $row->course_id),
+                ((int) $row->order_id).':'.((int) $row->course_id),
             ))
             ->pluck('course_id')
             ->map(static fn ($id) => (int) $id)
@@ -1441,7 +1443,7 @@ class OrderApiController extends Controller
      * Old pending orders are ignored so a failed gateway attempt cannot block
      * the customer indefinitely.
      *
-     * @param array<int, int> $courseIds
+     * @param  array<int, int>  $courseIds
      * @return array<int, int>
      */
     private function recentPendingPurchasedCourseIds(int $userId, array $courseIds): array
@@ -1494,13 +1496,13 @@ class OrderApiController extends Controller
                 ->all();
 
             return ApiResponseService::validationError(
-                'You have already purchased the following course(s): ' . implode(', ', $purchasedCourseNames),
+                'You have already purchased the following course(s): '.implode(', ', $purchasedCourseNames),
             );
         }
 
         // 3. Check if all courses are free
         $allCoursesAreFree = $cartItems->every(
-            static fn($cart) => $cart->course && $cart->course->course_type === 'free',
+            static fn ($cart) => $cart->course && $cart->course->course_type === 'free',
         );
 
         DB::beginTransaction();
@@ -1517,11 +1519,15 @@ class OrderApiController extends Controller
                     ->values()
                     ->all();
 
+                DB::rollBack();
+
                 return ApiResponseService::validationError(
-                    'You have already purchased the following course(s): ' . implode(', ', $purchasedCourseNames),
+                    'You have already purchased the following course(s): '.implode(', ', $purchasedCourseNames),
                 );
             }
             if ($this->recentPendingPurchasedCourseIds($user->id, $courseIds) !== []) {
+                DB::rollBack();
+
                 return ApiResponseService::validationError('A payment for one or more cart courses is already pending.');
             }
 
@@ -1530,7 +1536,7 @@ class OrderApiController extends Controller
 
             $order = Order::create([
                 'user_id' => $user->id,
-                'order_number' => 'ORD-' . strtoupper(uniqid()),
+                'order_number' => 'ORD-'.strtoupper(uniqid()),
                 'payment_method' => $paymentMethod,
                 'total_price' => 0,
                 'tax_price' => 0,
@@ -1556,25 +1562,29 @@ class OrderApiController extends Controller
             // Pre-resolve order-level promo code if passed
             $orderPromoCode = null;
             $resolvedPromoCodeId = $request->get('resolved_promo_code_id');
-            if (!$allCoursesAreFree && $resolvedPromoCodeId) {
+            if (! $allCoursesAreFree && $resolvedPromoCodeId) {
                 $orderPromoCode = PromoCode::with('courses')->find($resolvedPromoCodeId);
             }
 
             // 5. Calculate price and apply individual or order-level promo codes per course
             foreach ($cartItems as $cart) {
                 $course = $cart->course;
-                if (!$course) continue;
+                if (! $course) {
+                    continue;
+                }
 
                 $isFree = $course->course_type === 'free';
-                if ($isFree) $hasFreeCourses = true;
+                if ($isFree) {
+                    $hasFreeCourses = true;
+                }
 
                 // Determine promo code for this course
                 $promoCode = null;
-                if (!$isFree) {
+                if (! $isFree) {
                     if ($cart->promo_code_id && $cart->promoCode) {
                         $promoCode = $cart->promoCode;
                     } elseif ($orderPromoCode) {
-                        if (!$orderPromoCode->courses()->exists() || $orderPromoCode->courses->contains('id', $course->id)) {
+                        if (! $orderPromoCode->courses()->exists() || $orderPromoCode->courses->contains('id', $course->id)) {
                             $promoCode = $orderPromoCode;
                         }
                     }
@@ -1591,14 +1601,14 @@ class OrderApiController extends Controller
 
                 // Create order course with localized values
                 OrderCourse::create([
-                    'order_id'               => $order->id,
-                    'course_id'              => $course->id,
-                    'promo_code_id'          => $promoCode?->id,
-                    'price'                  => $isFree ? 0 : $pricing['subtotal'],
-                    'tax_price'              => $isFree ? 0 : $pricing['tax_amount'],
-                    'discount_amount'        => $isFree ? 0 : $pricing['promo_discount'],
-                    'amount_egp'             => $isFree ? 0 : $pricing['price_egp'],
-                    'currency_code'          => $pricing['currency_code'],
+                    'order_id' => $order->id,
+                    'course_id' => $course->id,
+                    'promo_code_id' => $promoCode?->id,
+                    'price' => $isFree ? 0 : $pricing['subtotal'],
+                    'tax_price' => $isFree ? 0 : $pricing['tax_amount'],
+                    'discount_amount' => $isFree ? 0 : $pricing['promo_discount'],
+                    'amount_egp' => $isFree ? 0 : $pricing['price_egp'],
+                    'currency_code' => $pricing['currency_code'],
                     'exchange_rate_snapshot' => $pricing['exchange_rate'],
                 ]);
 
@@ -1610,7 +1620,7 @@ class OrderApiController extends Controller
                 if ($candidateRate > 0) {
                     $orderExchangeRate = $candidateRate;
                 }
-                if (!empty($pricing['currency_code'])) {
+                if (! empty($pricing['currency_code'])) {
                     $orderCurrencyCode = (string) $pricing['currency_code'];
                 }
 
@@ -1623,7 +1633,7 @@ class OrderApiController extends Controller
             }
 
             // 6. Update order with promo code information
-            if (!empty($appliedPromoCodes) && !$allCoursesAreFree) {
+            if (! empty($appliedPromoCodes) && ! $allCoursesAreFree) {
                 // If multiple promo codes, store as comma-separated
                 $promoCodeNames = array_column($appliedPromoCodes, 'code');
                 $order->update([
@@ -1669,7 +1679,7 @@ class OrderApiController extends Controller
             // 8.5. Handle 100% coupon discount (final price is 0 after promo code)
             if ($finalPrice <= 0) {
                 // Generate transaction ID
-                $transactionId = 'FREE-' . strtoupper(uniqid());
+                $transactionId = 'FREE-'.strtoupper(uniqid());
 
                 // Update order with free payment method and complete status
                 $order->update([
@@ -1692,8 +1702,6 @@ class OrderApiController extends Controller
                     'status' => 'completed',
                     'message' => 'Payment successful via 100% discount coupon',
                 ]);
-
-
 
                 // Create curriculum tracking entries
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);
@@ -1738,9 +1746,9 @@ class OrderApiController extends Controller
 
                     return ApiResponseService::validationError(
                         'Insufficient wallet balance. Required: '
-                        . number_format($orderAmountEgp, 2)
-                        . ', Available: '
-                        . number_format($walletBalance, 2),
+                        .number_format($orderAmountEgp, 2)
+                        .', Available: '
+                        .number_format($walletBalance, 2),
                     );
                 }
 
@@ -1755,7 +1763,7 @@ class OrderApiController extends Controller
                 );
 
                 // Generate transaction ID
-                $transactionId = 'WLT-' . strtoupper(uniqid());
+                $transactionId = 'WLT-'.strtoupper(uniqid());
 
                 // Create transaction record
                 Transaction::create([
@@ -1777,8 +1785,6 @@ class OrderApiController extends Controller
                     'is_payment' => 1,
                     'transaction_id' => $transactionId,
                 ]);
-
-
 
                 // Create curriculum tracking entries
                 OrderTrackingService::createCurriculumTrackingEntries($order, $user);
@@ -1872,7 +1878,7 @@ class OrderApiController extends Controller
             ->with(['user.roles', 'courses'])
             ->first();
 
-        if (!$promoCode) {
+        if (! $promoCode) {
             return $total; // No valid promo code
         }
 
@@ -1897,7 +1903,7 @@ class OrderApiController extends Controller
             $isValidForCourse = in_array($course->id, $instructorCourses);
         }
 
-        if (!$isValidForCourse) {
+        if (! $isValidForCourse) {
             return $total; // No applicable promo code
         }
 
@@ -1975,7 +1981,7 @@ class OrderApiController extends Controller
 
             // Get course
             $course = Course::find($courseId);
-            if (!$course) {
+            if (! $course) {
                 return ApiResponseService::validationError('Course not found');
             }
 
@@ -1985,12 +1991,12 @@ class OrderApiController extends Controller
             }
 
             // Check if certificate is enabled for this course
-            if (!$course->certificate_enabled) {
+            if (! $course->certificate_enabled) {
                 return ApiResponseService::validationError('Certificate is not available for this course');
             }
 
             // Check if certificate fee is set
-            if (!$course->certificate_fee || $course->certificate_fee <= 0) {
+            if (! $course->certificate_fee || $course->certificate_fee <= 0) {
                 return ApiResponseService::validationError('Certificate fee is not set for this course');
             }
 
@@ -1998,7 +2004,7 @@ class OrderApiController extends Controller
             // of the free enrollment order.
             $eligibility = app(\App\Services\CertificateService::class)
                 ->getCourseEligibility($user, $course);
-            if (!$eligibility['is_enrolled'] || !$eligibility['is_completed']) {
+            if (! $eligibility['is_enrolled'] || ! $eligibility['is_completed']) {
                 return ApiResponseService::validationError('You must enroll and complete the free course first');
             }
 
@@ -2023,7 +2029,9 @@ class OrderApiController extends Controller
             $currencyMeta = $pricingService->resolveDisplayCurrency($countryCode);
             $currencyCode = (string) ($currencyMeta['code'] ?? 'EGP');
             $exchangeRate = app(\App\Services\CurrencyConversionService::class)->getExchangeRateToEgp($currencyCode);
-            if ($exchangeRate <= 0) $exchangeRate = 1.0;
+            if ($exchangeRate <= 0) {
+                $exchangeRate = 1.0;
+            }
             $certificateFee = app(\App\Services\CurrencyConversionService::class)
                 ->convertFromEgp($certificateFeeEgp, $currencyCode);
             $certificateTaxPercentage = $pricingService->getTaxPercentageFromRequest($request);
@@ -2065,7 +2073,7 @@ class OrderApiController extends Controller
                 // Create order for certificate
                 $order = Order::create([
                     'user_id' => $user->id,
-                    'order_number' => 'CERT-' . strtoupper(uniqid()),
+                    'order_number' => 'CERT-'.strtoupper(uniqid()),
                     'payment_method' => $request->payment_method,
                     'total_price' => $certificateFee,
                     'tax_price' => $certificateTaxAmount,
@@ -2102,9 +2110,9 @@ class OrderApiController extends Controller
 
                         return ApiResponseService::validationError(
                             'Insufficient wallet balance. Required: '
-                            . number_format($certificateAmountEgp, 2)
-                            . ', Available: '
-                            . number_format($walletBalance, 2),
+                            .number_format($certificateAmountEgp, 2)
+                            .', Available: '
+                            .number_format($walletBalance, 2),
                         );
                     }
 
@@ -2119,7 +2127,7 @@ class OrderApiController extends Controller
                     );
 
                     // Generate transaction ID
-                    $transactionId = 'WLT-' . strtoupper(uniqid());
+                    $transactionId = 'WLT-'.strtoupper(uniqid());
 
                     // Create a transaction record
                     Transaction::create([
@@ -2202,9 +2210,9 @@ class OrderApiController extends Controller
                 } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
                     throw $e;
                 } catch (Exception $e) {
-                    Log::error('Payment URL generation failed for certificate purchase: ' . $e->getMessage());
+                    Log::error('Payment URL generation failed for certificate purchase: '.$e->getMessage());
 
-                    return ApiResponseService::errorResponse('Failed to initialize payment: ' . $e->getMessage());
+                    return ApiResponseService::errorResponse('Failed to initialize payment: '.$e->getMessage());
                 }
 
                 // Build response based on type
@@ -2264,7 +2272,7 @@ class OrderApiController extends Controller
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            return ApiResponseService::errorResponse('Failed to purchase certificate: ' . $th->getMessage());
+            return ApiResponseService::errorResponse('Failed to purchase certificate: '.$th->getMessage());
         }
     }
 }

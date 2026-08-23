@@ -58,6 +58,7 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
         $targetCourseId = $this->courseId;
         $knowledgeEntry = null;
         $courseModel = null;
+        $rowSpool = null;
 
         if ($this->knowledgeBaseId) {
             $knowledgeEntry = ChatbotKnowledgeBase::find($this->knowledgeBaseId);
@@ -118,10 +119,15 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
                 throw new \RuntimeException('Could not create any chunks from knowledge text.');
             }
 
-            $timestamp = now();
-            $preparedRows = [];
+            $timestamp = now()->toDateTimeString();
+            $rowSpool = tmpfile();
+            if ($rowSpool === false) {
+                throw new \RuntimeException('Unable to create temporary ingestion spool.');
+            }
+
+            $chunkCount = 0;
             foreach ($chunks as $chunk) {
-                $preparedRows[] = [
+                $row = [
                     'bot_type' => $this->botType,
                     'course_id' => $targetCourseId,
                     'knowledge_base_id' => $this->knowledgeBaseId,
@@ -139,9 +145,17 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
                     'created_at' => $timestamp,
                     'updated_at' => $timestamp,
                 ];
+
+                $encodedRow = json_encode($row, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE).PHP_EOL;
+                if (fwrite($rowSpool, $encodedRow) !== strlen($encodedRow)) {
+                    throw new \RuntimeException('Unable to write the ingestion spool.');
+                }
+                $chunkCount++;
             }
 
-            $chunkCount = count($preparedRows);
+            unset($chunks);
+            rewind($rowSpool);
+
             $deleteQuery = ChatbotVectorChunk::where('bot_type', $this->botType);
             if ($this->knowledgeBaseId) {
                 $deleteQuery->where('knowledge_base_id', $this->knowledgeBaseId);
@@ -151,7 +165,7 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
 
             DB::transaction(function () use (
                 $deleteQuery,
-                $preparedRows,
+                $rowSpool,
                 $knowledgeEntry,
                 $courseModel,
                 $chunkCount,
@@ -160,7 +174,15 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
             ): void {
                 $deleteQuery->delete();
 
-                foreach (array_chunk($preparedRows, self::WRITE_BATCH_SIZE) as $batchRows) {
+                $batchRows = [];
+                while (($line = fgets($rowSpool)) !== false) {
+                    $batchRows[] = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+                    if (count($batchRows) === self::WRITE_BATCH_SIZE) {
+                        ChatbotVectorChunk::insert($batchRows);
+                        $batchRows = [];
+                    }
+                }
+                if ($batchRows !== []) {
                     ChatbotVectorChunk::insert($batchRows);
                 }
 
@@ -218,6 +240,10 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
             }
 
             throw $e;
+        } finally {
+            if (is_resource($rowSpool)) {
+                fclose($rowSpool);
+            }
         }
     }
 

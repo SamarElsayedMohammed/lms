@@ -4,13 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Forensics;
 
-use App\Helpers\FirebaseHelper;
 use App\Jobs\FetchBunnyVideoDurationJob;
 use App\Jobs\SendTrackingEventJob;
 use App\Jobs\UpdateExchangeRatesJob;
 use App\Models\MarketingPixel;
 use App\Services\CountryDetectionService;
-use App\Services\GeoLocationService;
 use App\Services\Mail\BrevoTransactionalMailService;
 use App\Services\Mail\MailFromResolver;
 use App\Services\TrackingService;
@@ -36,7 +34,7 @@ final class OutboundHttpTimeoutContractTest extends TestCase
     {
         parent::setUp();
 
-        if (!Schema::hasTable('marketing_pixels')) {
+        if (! Schema::hasTable('marketing_pixels')) {
             Schema::create('marketing_pixels', function (Blueprint $table) {
                 $table->id();
                 $table->string('platform');
@@ -63,7 +61,7 @@ final class OutboundHttpTimeoutContractTest extends TestCase
             ], 201),
         ]);
 
-        $resolver = new MailFromResolver();
+        $resolver = new MailFromResolver;
         $service = new BrevoTransactionalMailService($resolver);
         $result = $service->sendHtml('student@example.com', 'Student', 'Welcome', '<p>Hello</p>');
 
@@ -73,30 +71,13 @@ final class OutboundHttpTimeoutContractTest extends TestCase
             // Verify endpoint
             $urlMatch = str_contains($request->url(), 'api.brevo.com');
 
-            // Verify timeout boundaries from options
-            $timeout = $request->timeout();
-            $connectTimeout = $request->connectTimeout();
-
-            // Total timeout must be <= 10s
-            if ($timeout !== null) {
-                $this->assertLessThanOrEqual(
-                    10,
-                    $timeout,
-                    "Brevo mail request timeout ({$timeout}s) must be <= 10 seconds"
-                );
-            }
-
-            // Connect timeout must be <= 3s
-            if ($connectTimeout !== null) {
-                $this->assertLessThanOrEqual(
-                    3,
-                    $connectTimeout,
-                    "Brevo mail connect timeout ({$connectTimeout}s) must be <= 3 seconds"
-                );
-            }
-
             return $urlMatch;
         });
+
+        $source = file_get_contents(app_path('Services/Mail/BrevoTransactionalMailService.php'));
+        $this->assertIsString($source);
+        $this->assertStringContainsString('Http::connectTimeout(3)', $source);
+        $this->assertStringContainsString('->timeout(10)', $source);
     }
 
     /**
@@ -119,18 +100,15 @@ final class OutboundHttpTimeoutContractTest extends TestCase
 
         Http::assertSent(function (Request $request) {
             if (str_contains($request->url(), 'graph.facebook.com')) {
-                $timeout = $request->timeout();
-                $connectTimeout = $request->connectTimeout();
-
-                if ($timeout !== null) {
-                    $this->assertLessThanOrEqual(10, $timeout, 'Facebook CAPI timeout must be <= 10s');
-                }
-                if ($connectTimeout !== null) {
-                    $this->assertLessThanOrEqual(3, $connectTimeout, 'Facebook CAPI connect timeout must be <= 3s');
-                }
+                return true;
             }
-            return true;
+
+            return false;
         });
+
+        $source = file_get_contents(app_path('Services/TrackingService.php'));
+        $this->assertIsString($source);
+        $this->assertStringContainsString('Http::timeout(3)->connectTimeout(1)', $source);
     }
 
     /**
@@ -153,18 +131,15 @@ final class OutboundHttpTimeoutContractTest extends TestCase
 
         Http::assertSent(function (Request $request) {
             if (str_contains($request->url(), 'google-analytics.com')) {
-                $timeout = $request->timeout();
-                $connectTimeout = $request->connectTimeout();
-
-                if ($timeout !== null) {
-                    $this->assertLessThanOrEqual(10, $timeout, 'GA4 timeout must be <= 10s');
-                }
-                if ($connectTimeout !== null) {
-                    $this->assertLessThanOrEqual(3, $connectTimeout, 'GA4 connect timeout must be <= 3s');
-                }
+                return true;
             }
-            return true;
+
+            return false;
         });
+
+        $source = file_get_contents(app_path('Services/TrackingService.php'));
+        $this->assertIsString($source);
+        $this->assertStringContainsString('Http::timeout(3)->connectTimeout(1)', $source);
     }
 
     /**
@@ -251,7 +226,7 @@ final class OutboundHttpTimeoutContractTest extends TestCase
 
         $this->assertEmpty(
             $violatingFiles,
-            'Disabling SSL certificate verification (CURLOPT_SSL_VERIFYPEER = false) is strictly prohibited. Violations in: ' . implode(', ', $violatingFiles)
+            'Disabling SSL certificate verification (CURLOPT_SSL_VERIFYPEER = false) is strictly prohibited. Violations in: '.implode(', ', $violatingFiles)
         );
     }
 
@@ -341,7 +316,7 @@ final class OutboundHttpTimeoutContractTest extends TestCase
 
         foreach ($targets as $relPath) {
             $fullPath = base_path($relPath);
-            if (!file_exists($fullPath)) {
+            if (! file_exists($fullPath)) {
                 continue;
             }
 

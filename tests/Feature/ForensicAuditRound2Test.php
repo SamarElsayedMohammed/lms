@@ -31,8 +31,8 @@ class ForensicAuditRound2Test extends TestCase
         $approve = $this->methodBody($source, 'approve', 'downloadReceipt');
 
         $commitPos = strpos($approve, 'DB::commit()');
-        $facebookPos = strpos($approve, 'sendFacebookEvent');
-        $gaPos = strpos($approve, 'sendGA4Event');
+        $facebookPos = strpos($approve, "SendTrackingEventJob::dispatch('facebook'");
+        $gaPos = strpos($approve, "SendTrackingEventJob::dispatch('ga4'");
 
         $this->assertNotFalse($commitPos);
         $this->assertNotFalse($facebookPos);
@@ -77,7 +77,7 @@ class ForensicAuditRound2Test extends TestCase
         $source = $this->source('app/Http/Controllers/API/Admin/ChatbotAdminApiController.php');
 
         $this->assertStringNotContainsString(
-            "file_get_contents(\$file->getRealPath())",
+            'file_get_contents($file->getRealPath())',
             $source
         );
     }

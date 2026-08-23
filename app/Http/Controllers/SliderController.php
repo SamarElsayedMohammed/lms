@@ -8,7 +8,6 @@ use App\Models\Slider;
 use App\Services\BootstrapTableService;
 use App\Services\ResponseService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
 
@@ -36,18 +35,13 @@ class SliderController extends Controller
             })
             ->get();
 
-        // Debug: Log the data to see what's being passed
-        Log::info('Sliders data:', $sliders->toArray());
-        Log::info('Courses data:', $courses->toArray());
-        Log::info('Instructors data:', $instructors->toArray());
-
         // Convert to simple arrays to avoid serialization issues
-        $coursesArray = $courses->map(static fn($course) => [
+        $coursesArray = $courses->map(static fn ($course) => [
             'id' => $course->id,
             'title' => $course->title,
         ])->toArray();
 
-        $instructorsArray = $instructors->map(static fn($instructor) => [
+        $instructorsArray = $instructors->map(static fn ($instructor) => [
             'id' => $instructor->id,
             'user' => $instructor->user
                 ? [
@@ -67,7 +61,6 @@ class SliderController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-
     public function store(Request $request)
     {
         ResponseService::noPermissionThenSendJson('sliders-create');
@@ -113,7 +106,7 @@ class SliderController extends Controller
             $maxOrder = Slider::max('order');
             $newOrder = $maxOrder !== null ? (int) $maxOrder + 1 : 1;
 
-            $slider = new Slider();
+            $slider = new Slider;
             $slider->image = $imagePath;
             $slider->order = $newOrder;
 
@@ -182,7 +175,7 @@ class SliderController extends Controller
         });
 
         // Handle show_deleted parameter
-        if (!empty($showDeleted)) {
+        if (! empty($showDeleted)) {
             $query->onlyTrashed();
         }
 

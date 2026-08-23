@@ -11,7 +11,8 @@
     "require": {
         "php": "^8.3",
         "endroid/qr-code": "^6.0",
-        "google/apiclient": "2.15",
+        "google/apiclient": "^2.19.4",
+        "google/apiclient-services": "0.429.0",
         "intervention/image": "^2.7",
         "james-heinrich/getid3": "^1.9",
         "kreait/laravel-firebase": "^6.0",

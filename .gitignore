@@ -48,11 +48,6 @@ Homestead.yaml
 Homestead.json
 /.vagrant
 
-# Testing
-.phpunit.result.cache
-/coverage
-/tests/coverage
-coverage.txt
 /.phpunit.cache
 
 # Logs
@@ -81,6 +76,8 @@ yarn-error.log
 !/storage/framework/sessions/.gitkeep
 /storage/framework/views/*
 !/storage/framework/views/.gitkeep
+/storage/framework/testing/*
+!/storage/framework/testing/.gitkeep
 
 # Backups
 *.sql
@@ -98,11 +95,17 @@ backups/
 *.7z
 *.md
 !docs/AUTHENTICATION_BUG_REPORT_AR.md
+!docs/backend-production-stability-closure-report.md
+!docs/production-incident-runbook.md
+!docs/backend-code-level-stability-audit-report.md
+!docs/live-production-incident-root-cause-report.md
+!docs/backend-production-stability-certification-report.md
 !backend-crash-forensics.md
 
 *.sh
 !docker/*.sh
 !scripts/capture-runtime-health.sh
+!scripts/stability/*.sh
 
 # Public folder
 !/public/*
