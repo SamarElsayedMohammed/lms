@@ -192,6 +192,16 @@ class ProductExperienceAndAdminOperationsAdversarialTest extends TestCase
         $this->assertEquals('approved', $course2->fresh()->approval_status);
         $this->assertEquals(1, $course2->fresh()->is_active);
 
+        $this->actingAs($admin, 'sanctum')->postJson('/api/admin/courses/bulk-status', [
+            'ids'    => [$course1->id, $course2->id],
+            'status' => 'archive',
+        ])->assertOk();
+
+        $this->assertEquals('archive', $course1->fresh()->status);
+        $this->assertEquals(0, $course1->fresh()->is_active);
+        $this->assertEquals('archive', $course2->fresh()->status);
+        $this->assertEquals(0, $course2->fresh()->is_active);
+
         $this->assertDatabaseHas('admin_audit_logs', [
             'action' => 'courses_bulk_status_update',
         ]);
@@ -220,6 +230,74 @@ class ProductExperienceAndAdminOperationsAdversarialTest extends TestCase
             'approval_status' => 'approved',
             'is_active' => 1,
         ]);
+    }
+
+    public function test_course_editor_accepts_canonical_publish_and_archive_statuses(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $course = Course::factory()->create([
+            'status' => 'publish',
+            'approval_status' => 'approved',
+            'is_active' => true,
+        ]);
+
+        $payload = [
+            'title' => $course->title,
+            'category_id' => $course->category_id,
+        ];
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/courses/{$course->id}/update", $payload + ['status' => 'archive'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'archive')
+            ->assertJsonPath('data.is_active', false);
+
+        $this->assertDatabaseHas('courses', [
+            'id' => $course->id,
+            'status' => 'archive',
+            'is_active' => 0,
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/courses/{$course->id}/update", $payload + ['status' => 'publish'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'publish')
+            ->assertJsonPath('data.approval_status', 'approved')
+            ->assertJsonPath('data.is_active', true);
+    }
+
+    public function test_course_editor_persists_paid_course_pricing_and_rejects_a_zero_price(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $course = Course::factory()->create(['is_free' => true, 'course_type' => 'free']);
+
+        $payload = [
+            'title' => $course->title,
+            'category_id' => $course->category_id,
+            'is_free' => false,
+            'course_type' => 'paid',
+            'price' => 249.50,
+        ];
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/courses/{$course->id}/update", $payload)
+            ->assertOk()
+            ->assertJsonPath('data.is_free', false)
+            ->assertJsonPath('data.course_type', 'paid')
+            ->assertJsonPath('data.price', '249.50');
+
+        $this->assertDatabaseHas('courses', [
+            'id' => $course->id,
+            'is_free' => 0,
+            'course_type' => 'paid',
+            'price' => 249.50,
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/courses/{$course->id}/update", $payload + ['price' => 0])
+            ->assertStatus(422);
     }
 
     public function test_course_learning_outcomes_and_requirements_are_replaced_and_persisted(): void

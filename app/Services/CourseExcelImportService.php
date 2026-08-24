@@ -74,7 +74,7 @@ final class CourseExcelImportService
                 if (!in_array($level, ['beginner', 'intermediate', 'advanced'], true)) {
                     $level = 'beginner';
                 }
-                if (!in_array($status, ['draft', 'pending', 'publish'], true)) {
+                if (!in_array($status, ['draft', 'pending', 'publish', 'archive'], true)) {
                     $status = 'draft';
                 }
 
@@ -89,7 +89,7 @@ final class CourseExcelImportService
                     'discount_price' => null,
                     'status' => $status,
                     'approval_status' => $status === 'publish' ? 'approved' : null,
-                    'is_active' => false,
+                    'is_active' => $status === 'publish',
                     'is_free' => $isFree,
                     'short_description' => $shortDesc,
                     'meta_keywords' => $code,

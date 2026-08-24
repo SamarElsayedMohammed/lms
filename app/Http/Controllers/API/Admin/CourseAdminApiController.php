@@ -43,7 +43,10 @@ class CourseAdminApiController extends AdminCrudApiController
             'short_description'             => 'nullable|string',
             'description'                   => 'nullable|string',
             'level'                         => 'nullable|in:beginner,intermediate,advanced',
-            'status'                        => 'nullable|in:draft,pending,publish',
+            'status'                        => 'nullable|in:draft,pending,publish,archive',
+            'is_free'                       => 'nullable|boolean',
+            'course_type'                   => 'nullable|in:free,paid',
+            'price'                         => 'nullable|numeric|min:0',
             'instructor_id'                 => 'nullable|exists:users,id',
             'sequential_learning'           => 'nullable|boolean',
             'certificate_enabled'           => 'nullable|boolean',
@@ -97,12 +100,15 @@ class CourseAdminApiController extends AdminCrudApiController
 
         // ── Build course data ───────────────────────────────────────
         $instructorId  = (int) ($request->input('instructor_id') ?? Auth::id());
-        $isFree        = true;
-        $courseType    = 'free';
-        $price         = null;
+        $isFree        = $request->has('is_free') ? $request->boolean('is_free') : true;
+        $courseType    = $isFree ? 'free' : 'paid';
+        $price         = $isFree ? null : round((float) $request->input('price', 0), 2);
         $discountPrice = null;
+        if (!$isFree && $price <= 0) {
+            return $this->jsonError(__('A paid course requires a price greater than zero.'), 422);
+        }
         $status = $request->input('status', 'draft');
-        if (!in_array($status, ['draft', 'pending', 'publish'], true)) {
+        if (!in_array($status, ['draft', 'pending', 'publish', 'archive'], true)) {
             $status = 'draft';
         }
         $approvalStatus = $status === 'publish' ? 'approved' : null;
@@ -676,7 +682,10 @@ class CourseAdminApiController extends AdminCrudApiController
             'short_description'             => 'nullable|string',
             'description'                   => 'nullable|string',
             'level'                         => 'nullable|in:beginner,intermediate,advanced',
-            'status'                        => 'nullable|in:draft,pending,publish',
+            'status'                        => 'nullable|in:draft,pending,publish,archive',
+            'is_free'                       => 'nullable|boolean',
+            'course_type'                   => 'nullable|in:free,paid',
+            'price'                         => 'nullable|numeric|min:0',
             'instructor_id'                 => 'nullable|exists:users,id',
             'sequential_learning'           => 'nullable|boolean',
             'certificate_enabled'           => 'nullable|boolean',
@@ -731,17 +740,23 @@ class CourseAdminApiController extends AdminCrudApiController
 
         // ── Build course data ───────────────────────────────────────
         $instructorId  = (int) ($request->input('instructor_id') ?? $course->user_id);
-        $isFree        = true;
-        $courseType    = 'free';
-        $price         = null;
+        $isFree        = $request->has('is_free') ? $request->boolean('is_free') : (bool) $course->is_free;
+        $courseType    = $isFree ? 'free' : 'paid';
+        $price         = $isFree ? null : round((float) $request->input('price', $course->price ?? 0), 2);
         $discountPrice = null;
+        if (!$isFree && $price <= 0) {
+            return $this->jsonError(__('A paid course requires a price greater than zero.'), 422);
+        }
 
         $status = $request->input('status', $course->status);
-        if (!in_array($status, ['draft', 'pending', 'publish'], true)) {
+        if (!in_array($status, ['draft', 'pending', 'publish', 'archive'], true)) {
             $status = 'draft';
         }
         $approvalStatus = $status === 'publish' ? 'approved' : $course->approval_status;
-        $isActive       = ($status === 'publish' && $approvalStatus === 'approved') ? 1 : ($request->has('is_active') ? $request->boolean('is_active') : $course->is_active);
+        // Only published-and-approved courses are visible to learners. This
+        // prevents an archived course from remaining accessible because it was
+        // active before the status transition.
+        $isActive       = ($status === 'publish' && $approvalStatus === 'approved') ? 1 : 0;
 
         // Content structure determination
         $hasSections   = is_array($request->input('curriculum_sections')) && count($request->input('curriculum_sections')) > 0;
@@ -858,10 +873,12 @@ class CourseAdminApiController extends AdminCrudApiController
                     static fn ($t) => is_string($t) ? trim($t) : '',
                     $tags,
                 )));
-                if ($normalized !== []) {
-                    $tagIds = HelperService::getOrStoreTagId($normalized);
-                    $course->tags()->sync($tagIds);
-                }
+                // An explicit empty array means the operator removed every
+                // tag. Sync it too; otherwise the UI reports a saved edit
+                // while stale tags survive in the database.
+                $course->tags()->sync(
+                    $normalized === [] ? [] : HelperService::getOrStoreTagId($normalized),
+                );
             }
 
             // ── Instructor sync ─────────────────────────────────────
@@ -1075,7 +1092,7 @@ class CourseAdminApiController extends AdminCrudApiController
                     ]);
                 } elseif ($status === 'archive') {
                     $course->update([
-                        'status'    => 'draft',
+                        'status'    => 'archive',
                         'is_active' => 0,
                     ]);
                 } else {
