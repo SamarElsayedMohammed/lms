@@ -281,7 +281,9 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             if ($subscription->status !== Subscription::STATUS_PENDING_APPROVAL) {
                 DB::rollBack();
-                return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.');
+                return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.', [
+                    'reason' => 'SUBSCRIPTION_STATE_CONFLICT',
+                ], 409);
             }
 
             $payment = SubscriptionPayment::where('subscription_id', $subscription->id)
@@ -441,7 +443,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             if (DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
@@ -525,7 +527,9 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             if ($subscription->status !== Subscription::STATUS_PENDING_APPROVAL) {
                 DB::rollBack();
-                return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.');
+                return ApiResponseService::errorResponse('هذا الاشتراك ليس بانتظار الموافقة.', [
+                    'reason' => 'SUBSCRIPTION_STATE_CONFLICT',
+                ], 409);
             }
 
             $payment = SubscriptionPayment::where('subscription_id', $subscription->id)
@@ -607,7 +611,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             if (DB::transactionLevel() > 0) {
                 DB::rollBack();
             }

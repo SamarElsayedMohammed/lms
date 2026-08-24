@@ -519,7 +519,7 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            $this->promoService->reclaimExpiredReservations();
+            $this->promoService->reclaimExpiredReservations(null, $user->id);
 
             $plan = SubscriptionPlan::findOrFail($request->plan_id);
 
@@ -983,7 +983,7 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
-            $this->promoService->reclaimExpiredReservations();
+            $this->promoService->reclaimExpiredReservations(null, $user->id);
 
             $subscription = null;
             if ($request->filled('subscription_id')) {

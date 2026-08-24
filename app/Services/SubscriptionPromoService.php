@@ -515,7 +515,7 @@ class SubscriptionPromoService
     /**
      * Sweep and reclaim expired pending reservations older than RESERVATION_EXPIRY_HOURS.
      */
-    public function reclaimExpiredReservations(?int $hours = null): int
+    public function reclaimExpiredReservations(?int $hours = null, ?int $userId = null): int
     {
         $cutoff = now()->subHours($hours ?? self::RESERVATION_EXPIRY_HOURS);
 
@@ -523,6 +523,7 @@ class SubscriptionPromoService
         $expiredRedemptionsCount = 0;
         PromoRedemption::where('status', PromoRedemption::STATUS_RESERVED)
             ->where('reserved_at', '<', $cutoff)
+            ->when($userId !== null, fn ($query) => $query->where('user_id', $userId))
             ->chunkById(100, function ($expiredRedemptions) use (&$expiredRedemptionsCount) {
                 foreach ($expiredRedemptions as $r) {
                     $r->markAsExpired();
@@ -537,6 +538,7 @@ class SubscriptionPromoService
             // short-lived gateway intents are safe to expire automatically.
             ->whereIn('payment_method', ['kashier', 'wallet_and_kashier'])
             ->where('created_at', '<', $cutoff)
+            ->when($userId !== null, fn ($query) => $query->where('user_id', $userId))
             ->chunkById(100, function ($expiredPayments) use (&$reclaimedCount) {
                 foreach ($expiredPayments as $payment) {
                     DB::transaction(function () use ($payment, &$reclaimedCount) {
