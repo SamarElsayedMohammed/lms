@@ -331,15 +331,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             // Durable Promo Consumption
             if (!empty($payment->promo_code)) {
-                try {
-                    app(SubscriptionPromoService::class)->consumePromo($payment->id, $payment->promo_code);
-                } catch (\Throwable $e) {
-                    Log::error('SubscriptionAdminApiController: Promo consumption failed', [
-                        'payment_id' => $payment->id,
-                        'promo_code' => $payment->promo_code,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                app(SubscriptionPromoService::class)->consumePromo($payment->id, $payment->promo_code);
             }
 
             $startsAt = now();
@@ -554,11 +546,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
 
             // Release promo code quota if applied (DEF-01)
             if (!empty($payment->promo_code)) {
-                try {
-                    app(\App\Services\SubscriptionPromoService::class)->releasePromo($payment->promo_code, $payment->id);
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to release promo code quota on subscription rejection: ' . $e->getMessage());
-                }
+                app(\App\Services\SubscriptionPromoService::class)->releasePromo($payment->promo_code, $payment->id);
             }
 
             // Refund wallet hold if used
@@ -574,8 +562,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                 : null;
 
             if ($walletDebit !== null) {
-                try {
-                    \App\Services\WalletService::creditWallet(
+                \App\Services\WalletService::creditWallet(
                         $subscription->user_id,
                         (float) ($walletDebit->amount_egp ?? $walletAmountEgp),
                         'refund',
@@ -583,15 +570,7 @@ final class SubscriptionAdminApiController extends AdminCrudApiController
                         $subscription->id,
                         \App\Models\Subscription::class,
                         'user'
-                    );
-                } catch (\Throwable $e) {
-                    Log::error('Failed to refund wallet on manual subscription rejection', [
-                        'subscription_id' => $subscription->id,
-                        'user_id' => $subscription->user_id,
-                        'amount_egp' => $walletDebit->amount_egp ?? $walletAmountEgp,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                );
             }
 
             $subscription->status = Subscription::STATUS_CANCELLED;

@@ -112,4 +112,31 @@ final class StoreBillingDoubleBillingTest extends TestCase
             ->count();
         $this->assertEquals(0, $walletPayments);
     }
+
+    /** The read-path lazy synchronizer must obey the same no-double-billing rule. */
+    public function test_store_subscription_is_never_wallet_renewed_during_entitlement_read(): void
+    {
+        $sub = Subscription::create([
+            'user_id' => $this->user->id,
+            'plan_id' => $this->plan->id,
+            'status' => Subscription::STATUS_ACTIVE,
+            'starts_at' => now()->subDays(31),
+            'ends_at' => now()->subMinute(),
+            'auto_renew' => true,
+            'store_provider' => 'app_store',
+            'store_original_transaction_id' => 'orig_tx_lazy_read',
+        ]);
+
+        $initialWallet = (float) $this->user->wallet_balance;
+
+        $active = app(SubscriptionService::class)->getActiveSubscription($this->user);
+
+        $this->assertNull($active);
+        $this->assertEquals(Subscription::STATUS_EXPIRED, $sub->fresh()->status);
+        $this->assertEquals($initialWallet, (float) $this->user->fresh()->wallet_balance);
+        $this->assertDatabaseMissing('subscription_payments', [
+            'user_id' => $this->user->id,
+            'payment_method' => 'wallet',
+        ]);
+    }
 }

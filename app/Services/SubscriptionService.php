@@ -227,15 +227,12 @@ final class SubscriptionService
         ]);
 
         if (! empty($discountMeta['promo_code'])) {
-            try {
-                app(\App\Services\SubscriptionPromoService::class)->consumePromo($payment->id, (string) $discountMeta['promo_code']);
-            } catch (\Throwable $e) {
-                Log::error('SubscriptionService: Promo consumption failed', [
-                    'payment_id' => $payment->id,
-                    'promo_code' => $discountMeta['promo_code'],
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            // Completion and promo consumption are one financial action. A failure
+            // must abort the surrounding transaction.
+            app(\App\Services\SubscriptionPromoService::class)->consumePromo(
+                $payment->id,
+                (string) $discountMeta['promo_code'],
+            );
         }
     }
 
@@ -516,7 +513,7 @@ final class SubscriptionService
                     ->where('status', Subscription::STATUS_PENDING)
                     ->exists();
 
-                if (! $hasQueued && $subscription->auto_renew && $subscription->plan) {
+                if (! $hasQueued && $subscription->auto_renew && $subscription->plan && ! $subscription->isStoreSubscription()) {
                     $localPrice = (float) ($subscription->locked_price ?? $subscription->plan->price);
                     $currency = strtoupper((string) ($subscription->locked_currency ?? 'EGP'));
                     $priceEgp = app(CurrencyConversionService::class)->convertToEgp($localPrice, $currency);

@@ -236,7 +236,10 @@ final class KashierController extends Controller
                             }
 
                             if ($lockedPayment->promo_code) {
-                                app(\App\Services\SubscriptionPromoService::class)->releasePromo($lockedPayment->promo_code);
+                                app(\App\Services\SubscriptionPromoService::class)->releasePromo(
+                                    $lockedPayment->promo_code,
+                                    $lockedPayment->id,
+                                );
                             }
                         }
                     });
@@ -295,15 +298,10 @@ final class KashierController extends Controller
                         $lockedPayment->save();
 
                         if (! empty($lockedPayment->promo_code)) {
-                            try {
-                                app(\App\Services\SubscriptionPromoService::class)->consumePromo($lockedPayment->id, $lockedPayment->promo_code);
-                            } catch (\Throwable $e) {
-                                Log::error('KashierController: Promo consumption failed', [
-                                    'payment_id' => $lockedPayment->id,
-                                    'promo_code' => $lockedPayment->promo_code,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
+                            app(\App\Services\SubscriptionPromoService::class)->consumePromo(
+                                $lockedPayment->id,
+                                $lockedPayment->promo_code,
+                            );
                         }
 
                         $sub = $lockedPayment->subscription;

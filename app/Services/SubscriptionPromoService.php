@@ -533,8 +533,9 @@ class SubscriptionPromoService
         // 2. Expire old pending payments
         $reclaimedCount = 0;
         SubscriptionPayment::where('status', SubscriptionPayment::STATUS_PENDING)
-            ->whereNotNull('promo_code')
-            ->where('promo_code', '!=', '')
+            // Manual evidence can wait for an administrator. Only abandoned
+            // short-lived gateway intents are safe to expire automatically.
+            ->whereIn('payment_method', ['kashier', 'wallet_and_kashier'])
             ->where('created_at', '<', $cutoff)
             ->chunkById(100, function ($expiredPayments) use (&$reclaimedCount) {
                 foreach ($expiredPayments as $payment) {

@@ -519,6 +519,8 @@ final class SubscriptionApiController extends Controller
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
 
+            $this->promoService->reclaimExpiredReservations();
+
             $plan = SubscriptionPlan::findOrFail($request->plan_id);
 
             $countryCode = $this->countryDetectionService->detect($request);
@@ -980,6 +982,8 @@ final class SubscriptionApiController extends Controller
             if (!$user) {
                 return ApiResponseService::errorResponse('Authentication required.', [], 401);
             }
+
+            $this->promoService->reclaimExpiredReservations();
 
             $subscription = null;
             if ($request->filled('subscription_id')) {

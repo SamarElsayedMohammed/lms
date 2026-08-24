@@ -616,6 +616,46 @@ final class SubscriptionPromoLifecycleTest extends TestCase
         $this->assertEquals(PromoRedemption::STATUS_EXPIRED, $redemption->fresh()->status);
     }
 
+    public function test_abandoned_kashier_payment_without_promo_is_reclaimed(): void
+    {
+        $user = User::factory()->create();
+        $plan = $this->createPlan([
+            'name' => 'Abandoned No Promo Plan',
+            'slug' => 'abandoned-no-promo-plan',
+            'price' => 100.00,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+
+        $sub = Subscription::create([
+            'user_id' => $user->id,
+            'plan_id' => $plan->id,
+            'status' => Subscription::STATUS_PENDING,
+            'starts_at' => now(),
+        ]);
+
+        $payment = SubscriptionPayment::create([
+            'subscription_id' => $sub->id,
+            'user_id' => $user->id,
+            'amount' => 100.00,
+            'wallet_amount' => 0.00,
+            'gateway_amount' => 100.00,
+            'status' => SubscriptionPayment::STATUS_PENDING,
+            'payment_method' => 'kashier',
+            'promo_code' => null,
+        ]);
+
+        DB::table('subscription_payments')->where('id', $payment->id)->update([
+            'created_at' => now()->subHours(5),
+        ]);
+
+        $this->promoService->reclaimExpiredReservations(4);
+
+        $this->assertEquals(SubscriptionPayment::STATUS_FAILED, $payment->fresh()->status);
+        $this->assertEquals(Subscription::STATUS_CANCELLED, $sub->fresh()->status);
+    }
+
     /**
      * PT-17, PT-18 / LI-09, LI-10: Non-repeatable promo cannot be reused by same user.
      */
@@ -1007,4 +1047,3 @@ final class SubscriptionPromoLifecycleTest extends TestCase
         $this->assertEquals(180.00, (float) $payment->amount);
     }
 }
-
