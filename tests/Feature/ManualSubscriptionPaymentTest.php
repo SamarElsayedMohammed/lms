@@ -4,17 +4,24 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\ManualDepositMethod;
+use App\Models\Course\Course;
 use App\Models\PaymentMethod;
+use App\Models\Setting;
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Notifications\ManualSubscriptionStatusNotification;
+use App\Notifications\SubscriptionActivatedNotification;
+use App\Services\ContentAccessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
-use App\Notifications\SubscriptionActivatedNotification;
-use App\Notifications\ManualSubscriptionStatusNotification;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 final class ManualSubscriptionPaymentTest extends TestCase
@@ -24,19 +31,19 @@ final class ManualSubscriptionPaymentTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        \Illuminate\Support\Facades\Cache::flush();
+        Cache::flush();
         Storage::fake('private');
 
         // Seed roles & permissions for testing
         foreach (['web', 'sanctum', 'api'] as $guard) {
-            $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => $guard]);
+            $role = Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => $guard]);
             foreach (['finance-list', 'finance-edit', 'subscription-plans-list'] as $permName) {
-                $perm = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => $permName, 'guard_name' => $guard]);
+                $perm = Permission::firstOrCreate(['name' => $permName, 'guard_name' => $guard]);
                 $role->givePermissionTo($perm);
             }
         }
 
-        \App\Models\Setting::updateOrCreate(['name' => 'manual_payments_enabled'], ['value' => '1', 'type' => 'boolean']);
+        Setting::updateOrCreate(['name' => 'manual_payments_enabled'], ['value' => '1', 'type' => 'boolean']);
     }
 
     public function test_user_can_submit_manual_subscription_payment(): void
@@ -53,7 +60,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
             'duration_days' => 30,
             'is_active' => true,
         ]);
-        
+
         $method = PaymentMethod::create([
             'name' => 'Instapay Transfer',
             'type' => 'instapay',
@@ -66,7 +73,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
 
         // 2. Submit subscription request
         $receipt = UploadedFile::fake()->create('receipt.jpg', 100, 'image/jpeg');
-        $response = $this->actingAs($user, 'sanctum')->withHeader('Idempotency-Key', 'manual-submit-unique-' . uniqid())->post('/api/subscription/subscribe', [
+        $response = $this->actingAs($user, 'sanctum')->withHeader('Idempotency-Key', 'manual-submit-unique-'.uniqid())->post('/api/subscription/subscribe', [
             'plan_id' => $plan->id,
             'payment_method' => 'manual',
             'payment_method_id' => (string) $method->id,
@@ -81,6 +88,43 @@ final class ManualSubscriptionPaymentTest extends TestCase
         $response->assertJsonPath('data.subscription.status', Subscription::STATUS_PENDING_APPROVAL);
         $response->assertJsonPath('data.payment.payment_method', 'manual');
         $response->assertJsonPath('data.payment.total_amount', 150);
+    }
+
+    public function test_admin_can_list_manual_subscription_requests(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $student = User::factory()->create();
+        $plan = SubscriptionPlan::create([
+            'name' => 'Manual list plan',
+            'slug' => 'manual-list-plan',
+            'price' => 150.00,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+        $subscription = Subscription::create([
+            'user_id' => $student->id,
+            'plan_id' => $plan->id,
+            'starts_at' => now(),
+            'status' => Subscription::STATUS_PENDING_APPROVAL,
+        ]);
+        SubscriptionPayment::create([
+            'subscription_id' => $subscription->id,
+            'user_id' => $student->id,
+            'amount' => 150.00,
+            'wallet_amount' => 0.00,
+            'gateway_amount' => 150.00,
+            'status' => SubscriptionPayment::STATUS_PENDING,
+            'payment_method' => 'manual',
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/manual-subscriptions?page=1&per_page=15')
+            ->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.pagination.total', 1)
+            ->assertJsonPath('data.data.0.id', $subscription->id);
     }
 
     public function test_admin_can_approve_manual_subscription(): void
@@ -100,7 +144,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
             'duration_days' => 30,
             'is_active' => true,
         ]);
-        
+
         $method = PaymentMethod::create([
             'name' => 'Instapay Transfer',
             'type' => 'instapay',
@@ -156,6 +200,16 @@ final class ManualSubscriptionPaymentTest extends TestCase
 
         // Notification dispatched
         Notification::assertSentTo($user, SubscriptionActivatedNotification::class);
+
+        // A manually approved active plan grants the learner access to every
+        // published paid course through the same gate used by the classroom.
+        $publishedCourse = Course::factory()->create([
+            'course_type' => 'paid',
+            'status' => 'publish',
+            'approval_status' => 'approved',
+            'is_active' => true,
+        ]);
+        $this->assertTrue(app(ContentAccessService::class)->canAccessCourse($user, $publishedCourse));
     }
 
     public function test_admin_can_reject_manual_subscription(): void
@@ -175,7 +229,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
             'duration_days' => 30,
             'is_active' => true,
         ]);
-        
+
         $subscription = Subscription::create([
             'user_id' => $user->id,
             'plan_id' => $plan->id,
@@ -231,7 +285,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
             'is_active' => true,
         ]);
 
-        $depositMethod = \App\Models\ManualDepositMethod::create([
+        $depositMethod = ManualDepositMethod::create([
             'name' => 'Vodafone Cash Direct',
             'account_details' => '01012345678',
             'instructions' => 'Transfer to 01012345678',
@@ -240,7 +294,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
 
         $receipt = UploadedFile::fake()->create('receipt.png', 150, 'image/png');
         $response = $this->actingAs($user, 'sanctum')
-            ->withHeader('Idempotency-Key', 'manual-deposit-prefix-' . uniqid())
+            ->withHeader('Idempotency-Key', 'manual-deposit-prefix-'.uniqid())
             ->post('/api/subscription/subscribe', [
                 'plan_id' => $plan->id,
                 'payment_method' => 'manual',
@@ -283,7 +337,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
 
         $receipt = UploadedFile::fake()->create('receipt.jpg', 100, 'image/jpeg');
         $response = $this->actingAs($user, 'sanctum')
-            ->withHeader('Idempotency-Key', 'conflict-test-' . uniqid())
+            ->withHeader('Idempotency-Key', 'conflict-test-'.uniqid())
             ->post('/api/subscription/subscribe', [
                 'plan_id' => $plan->id,
                 'payment_method' => 'manual',
@@ -309,7 +363,7 @@ final class ManualSubscriptionPaymentTest extends TestCase
 
         $receipt = UploadedFile::fake()->create('receipt.jpg', 100, 'image/jpeg');
         $response = $this->actingAs($user, 'sanctum')
-            ->withHeader('Idempotency-Key', 'unavailable-test-' . uniqid())
+            ->withHeader('Idempotency-Key', 'unavailable-test-'.uniqid())
             ->post('/api/subscription/subscribe', [
                 'plan_id' => $plan->id,
                 'payment_method' => 'manual',

@@ -743,15 +743,22 @@ class ReportsApiController extends Controller
             ->orderBy('orders.created_at', 'desc')
             ->limit(10)
             ->get()
-            ->map(fn($o) => [
-                'id'             => $o->id,
-                'status'         => $o->status,
-                'final_price'    => (float) $o->final_price,
-                'amount'         => (float) ($o->amount_egp ?? (($o->final_price ?? 0) * ($o->exchange_rate_snapshot ?? 1))),
-                'payment_method' => $o->payment_method,
-                'created_at'     => $o->created_at,
-                'user'           => $o->user ? ['id' => $o->user->id, 'name' => $o->user->name, 'email' => $o->user->email] : null,
-            ]);
+            ->map(static function ($o): array {
+                $isCompleted = $o->status === 'completed';
+                $orderAmount = (float) ($o->amount_egp ?? (($o->final_price ?? 0) * ($o->exchange_rate_snapshot ?? 1)));
+
+                return [
+                    'id'             => $o->id,
+                    'status'         => $o->status,
+                    'final_price'    => (float) ($o->final_price ?? 0),
+                    'net_payable'    => (float) ($o->final_price ?? 0),
+                    'paid_amount'    => $isCompleted ? (float) ($o->final_price ?? 0) : 0.0,
+                    'amount'         => $isCompleted ? $orderAmount : 0.0,
+                    'payment_method' => $o->payment_method,
+                    'created_at'     => $o->created_at,
+                    'user'           => $o->user ? ['id' => $o->user->id, 'name' => $o->user->name, 'email' => $o->user->email] : null,
+                ];
+            });
 
         // Recent subscriptions (limit 10)
         $recentSubscriptions = collect();
@@ -760,16 +767,23 @@ class ReportsApiController extends Controller
                 ->orderByRaw(ReportMoneySql::subscriptionPaymentDateSql() . ' DESC')
                 ->limit(10)
                 ->get()
-                ->map(fn($s) => [
-                    'id'             => $s->id,
-                    'status'         => $s->status,
-                    'amount'         => (float) $s->final_amount,
-                    'payment_method' => $s->payment_method,
-                    'created_at'     => $s->paid_at ?? $s->created_at,
-                    'paid_at'        => $s->paid_at,
-                    'product_type'   => 'subscription',
-                    'course'         => 'اشتراك',
-                ]);
+                ->map(static function ($s): array {
+                    $isCompleted = $s->status === SubscriptionPayment::STATUS_COMPLETED;
+                    $finalAmount = (float) ($s->final_amount ?? $s->amount ?? 0);
+
+                    return [
+                        'id'             => $s->id,
+                        'status'         => $s->status,
+                        'amount'         => $isCompleted ? $finalAmount : 0.0,
+                        'net_payable'    => $finalAmount,
+                        'paid_amount'    => $isCompleted ? $finalAmount : 0.0,
+                        'payment_method' => $s->payment_method,
+                        'created_at'     => $s->paid_at ?? $s->created_at,
+                        'paid_at'        => $isCompleted ? $s->paid_at : null,
+                        'product_type'   => 'subscription',
+                        'course'         => 'اشتراك',
+                    ];
+                });
         }
 
         // Top courses via database SQL aggregation

@@ -8,6 +8,8 @@ use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\CourseChapter;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\Course\CourseChapter\Lecture\LectureResource;
+use App\Models\Course\CourseLearning;
+use App\Models\Course\CourseRequirement;
 use App\Models\Course\CourseLanguage;
 use App\Services\FileService;
 use App\Services\HelperService;
@@ -46,6 +48,7 @@ class CourseAdminApiController extends AdminCrudApiController
             'sequential_learning'           => 'nullable|boolean',
             'certificate_enabled'           => 'nullable|boolean',
             'certificate_fee'               => 'nullable|numeric|min:0',
+            'is_free_until'                 => 'nullable|date',
             'thumbnail_url'                 => 'nullable|url',
             'thumbnail'                     => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:2048',
             'promo_video_url'               => 'nullable|url',
@@ -55,6 +58,12 @@ class CourseAdminApiController extends AdminCrudApiController
             'meta_keywords'                 => 'nullable|string',
             'tags'                          => 'nullable|array',
             'tags.*'                        => 'nullable|string|max:255',
+            'learnings'                     => 'nullable|array|max:100',
+            'learnings.*.title'             => 'required_with:learnings|string|max:65535',
+            'requirements'                  => 'nullable|array|max:100',
+            'requirements.*.requirement'    => 'required_with:requirements|string|max:65535',
+            'replace_learnings'             => 'nullable|boolean',
+            'replace_requirements'          => 'nullable|boolean',
             'curriculum_sections'           => 'nullable|array',
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
@@ -69,6 +78,7 @@ class CourseAdminApiController extends AdminCrudApiController
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
             'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
+            'ai_knowledge_content'          => 'nullable|string',
             'chatbot_enabled'               => 'nullable|boolean',
             'chatbot_name'                  => 'nullable|string|max:100',
             'chatbot_welcome_message'       => 'nullable|string|max:500',
@@ -77,6 +87,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'initial_views'                 => 'nullable|integer|min:0',
             'initial_students'              => 'nullable|integer|min:0',
             'initial_rating'                => 'nullable|numeric|min:0|max:5',
+            'total_duration_override_seconds' => 'nullable|integer|min:0',
+            'total_lessons_override'        => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -163,6 +175,7 @@ class CourseAdminApiController extends AdminCrudApiController
                 'approval_status'    => $approvalStatus,
                 'is_active'          => $isActive,
                 'is_free'            => $isFree,
+                'is_free_until'      => $request->input('is_free_until'),
                 'sequential_access'  => $request->boolean('sequential_learning'),
                 'certificate_enabled' => $certificateEnabled,
                 'certificate_fee'    => $certificateFee,
@@ -177,9 +190,12 @@ class CourseAdminApiController extends AdminCrudApiController
                 'chatbot_welcome_message' => $request->input('chatbot_welcome_message'),
                 'chatbot_system_prompt'   => $request->input('chatbot_system_prompt'),
                 'chatbot_max_tokens'      => $request->filled('chatbot_max_tokens') ? (int) $request->input('chatbot_max_tokens') : null,
+                'ai_knowledge_content'    => $request->input('ai_knowledge_content'),
                 'initial_views'           => $request->filled('initial_views') ? (int) $request->input('initial_views') : 0,
                 'initial_students'        => $request->filled('initial_students') ? (int) $request->input('initial_students') : 0,
                 'initial_rating'          => $request->filled('initial_rating') ? (float) $request->input('initial_rating') : 0,
+                'duration_seconds'        => $request->filled('total_duration_override_seconds') ? (int) $request->input('total_duration_override_seconds') : null,
+                'lectures_count'          => $request->filled('total_lessons_override') ? (int) $request->input('total_lessons_override') : null,
             ]);
 
             // AI Knowledge Base file for course chatbot
@@ -213,6 +229,12 @@ class CourseAdminApiController extends AdminCrudApiController
             } else {
                 $course->instructors()->sync([$instructorId]);
             }
+
+            $this->replaceCourseDetails(
+                $course,
+                $request->input('learnings', []),
+                $request->input('requirements', []),
+            );
 
             // ── Curriculum: sections (chapters) ─────────────────────
             $sections = $request->input('curriculum_sections', []);
@@ -517,6 +539,40 @@ class CourseAdminApiController extends AdminCrudApiController
      * Build a structured course response that separates curriculum_sections
      * (real chapters) from standalone_lessons (the hidden 'standalone' chapter).
      */
+    /**
+     * Replace the two ordered course-detail collections within the current
+     * transaction, so an API success response always reflects persisted data.
+     */
+    private function replaceCourseDetails(Course $course, mixed $learnings, mixed $requirements): void
+    {
+        $this->replaceCourseLearnings($course, $learnings);
+        $this->replaceCourseRequirements($course, $requirements);
+    }
+
+    private function replaceCourseLearnings(Course $course, mixed $learnings): void
+    {
+        $course->learnings()->delete();
+
+        foreach (is_array($learnings) ? $learnings : [] as $learning) {
+            $title = trim((string) (is_array($learning) ? ($learning['title'] ?? '') : ''));
+            if ($title !== '') {
+                CourseLearning::create(['course_id' => $course->id, 'title' => $title]);
+            }
+        }
+    }
+
+    private function replaceCourseRequirements(Course $course, mixed $requirements): void
+    {
+        $course->requirements()->delete();
+
+        foreach (is_array($requirements) ? $requirements : [] as $requirement) {
+            $text = trim((string) (is_array($requirement) ? ($requirement['requirement'] ?? '') : ''));
+            if ($text !== '') {
+                CourseRequirement::create(['course_id' => $course->id, 'requirement' => $text]);
+            }
+        }
+    }
+
     private function buildCourseResponse(Course $course): array
     {
         $courseData = $course->toArray();
@@ -625,6 +681,7 @@ class CourseAdminApiController extends AdminCrudApiController
             'sequential_learning'           => 'nullable|boolean',
             'certificate_enabled'           => 'nullable|boolean',
             'certificate_fee'               => 'nullable|numeric|min:0',
+            'is_free_until'                 => 'nullable|date',
             'thumbnail_url'                 => 'nullable|url',
             'thumbnail'                     => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:2048',
             'promo_video_url'               => 'nullable|url',
@@ -634,6 +691,12 @@ class CourseAdminApiController extends AdminCrudApiController
             'meta_keywords'                 => 'nullable|string',
             'tags'                          => 'nullable|array',
             'tags.*'                        => 'nullable|string|max:255',
+            'learnings'                     => 'nullable|array|max:100',
+            'learnings.*.title'             => 'required_with:learnings|string|max:65535',
+            'requirements'                  => 'nullable|array|max:100',
+            'requirements.*.requirement'    => 'required_with:requirements|string|max:65535',
+            'replace_learnings'             => 'nullable|boolean',
+            'replace_requirements'          => 'nullable|boolean',
             'curriculum_sections'           => 'nullable|array',
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
@@ -648,6 +711,7 @@ class CourseAdminApiController extends AdminCrudApiController
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
             'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
+            'ai_knowledge_content'          => 'nullable|string',
             'remove_ai_knowledge'           => 'nullable|boolean',
             'chatbot_enabled'               => 'nullable|boolean',
             'chatbot_name'                  => 'nullable|string|max:100',
@@ -657,6 +721,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'initial_views'                 => 'nullable|integer|min:0',
             'initial_students'              => 'nullable|integer|min:0',
             'initial_rating'                => 'nullable|numeric|min:0|max:5',
+            'total_duration_override_seconds' => 'nullable|integer|min:0',
+            'total_lessons_override'        => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -739,6 +805,7 @@ class CourseAdminApiController extends AdminCrudApiController
                 'approval_status'    => $approvalStatus,
                 'is_active'          => $isActive,
                 'is_free'            => $isFree,
+                'is_free_until'      => $request->has('is_free_until') ? $request->input('is_free_until') : $course->is_free_until,
                 'sequential_access'  => $request->has('sequential_learning') ? $request->boolean('sequential_learning') : $course->sequential_access,
                 'certificate_enabled' => $certificateEnabled,
                 'certificate_fee'    => $certificateFee,
@@ -752,9 +819,12 @@ class CourseAdminApiController extends AdminCrudApiController
                 'chatbot_welcome_message' => $request->input('chatbot_welcome_message', $course->chatbot_welcome_message),
                 'chatbot_system_prompt'   => $request->input('chatbot_system_prompt', $course->chatbot_system_prompt),
                 'chatbot_max_tokens'      => $request->filled('chatbot_max_tokens') ? (int) $request->input('chatbot_max_tokens') : $course->chatbot_max_tokens,
+                'ai_knowledge_content'    => $request->has('ai_knowledge_content') ? $request->input('ai_knowledge_content') : $course->ai_knowledge_content,
                 'initial_views'           => $request->filled('initial_views') ? (int) $request->input('initial_views') : $course->initial_views,
                 'initial_students'        => $request->filled('initial_students') ? (int) $request->input('initial_students') : $course->initial_students,
                 'initial_rating'          => $request->filled('initial_rating') ? (float) $request->input('initial_rating') : $course->initial_rating,
+                'duration_seconds'        => $request->filled('total_duration_override_seconds') ? (int) $request->input('total_duration_override_seconds') : $course->duration_seconds,
+                'lectures_count'          => $request->filled('total_lessons_override') ? (int) $request->input('total_lessons_override') : $course->lectures_count,
             ]);
 
             // AI Knowledge Base file for course chatbot
@@ -803,6 +873,14 @@ class CourseAdminApiController extends AdminCrudApiController
             }
 
             // ── Curriculum: Purge and Recreate ──────────────────────
+            if ($request->boolean('replace_learnings')) {
+                $this->replaceCourseLearnings($course, $request->input('learnings', []));
+            }
+
+            if ($request->boolean('replace_requirements')) {
+                $this->replaceCourseRequirements($course, $request->input('requirements', []));
+            }
+
             if ($request->has('curriculum_sections') || $request->has('standalone_lessons')) {
                 // Delete old curriculum
                 $chapterIds = $course->chapters()->pluck('id');
@@ -886,7 +964,11 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Course not found'), 404);
         }
 
-        $course->update(['approval_status' => 'approved', 'is_active' => 1]);
+        $course->update([
+            'status' => 'publish',
+            'approval_status' => 'approved',
+            'is_active' => 1,
+        ]);
 
         \App\Services\AuditLogService::log(
             action: 'course_approved',

@@ -12,6 +12,11 @@ use App\Models\CourseChapterLecture;
 use App\Models\Instructor;
 use App\Models\Order;
 use App\Models\OrderCourse;
+use App\Models\RefundRequest;
+use App\Models\Subscription;
+use App\Models\SubscriptionPayment;
+use App\Models\SubscriptionPlan;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Models\UserCourseProgress;
 use App\Services\Reports\UnifiedSalesTransactionQuery;
@@ -681,4 +686,244 @@ final class ReportsApiControllerTest extends TestCase
         $this->assertNotEmpty($response->json('data.order_statuses'));
         $this->assertNotEmpty($response->json('data.payment_methods'));
     }
+
+    // ─── 9. Financial Reconciliation & Precision Invariants ─────────────────
+
+    public function test_failed_discounted_payment_renders_zero_paid_amount_and_zero_revenue_and_increments_failed_orders(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Premium Plan',
+            'slug' => 'premium-plan',
+            'price' => 5000.0,
+            'is_active' => true,
+        ]);
+
+        $sub = Subscription::create([
+            'user_id' => $this->student->id,
+            'plan_id' => $plan->id,
+            'starts_at' => Carbon::now(),
+            'status' => 'pending',
+        ]);
+
+        // Failed payment with discount: original 5000, discount 500, final payable 4500, status failed
+        $payment = SubscriptionPayment::create([
+            'subscription_id' => $sub->id,
+            'user_id' => $this->student->id,
+            'original_amount' => 5000.0,
+            'discount_amount' => 500.0,
+            'final_amount' => 4500.0,
+            'amount' => 4500.0,
+            'promo_code' => 'WELCOME',
+            'currency_code' => 'EGP',
+            'status' => SubscriptionPayment::STATUS_FAILED,
+            'payment_method' => 'manual',
+            'paid_at' => null,
+            'created_at' => Carbon::now(),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/reports/sales?report_type=detailed');
+
+        $response->assertOk();
+
+        // 1. Summary aggregations
+        $this->assertEquals(1, (int) $response->json('data.summary.total_orders'));
+        $this->assertEquals(0, (int) $response->json('data.summary.completed_orders'));
+        $this->assertEquals(1, (int) $response->json('data.summary.failed_orders'));
+        $this->assertEquals(0.0, (float) $response->json('data.summary.total_revenue'));
+
+        // 2. Row level truth
+        $row = collect($response->json('data.data'))->firstWhere('order_number', 'SUB-' . $payment->id);
+        $this->assertNotNull($row);
+        $this->assertSame('failed', $row['status']);
+        $this->assertEquals(5000.0, (float) $row['original_price']);
+        $this->assertEquals(500.0, (float) $row['discount_amount']);
+        $this->assertEquals(4500.0, (float) $row['final_price']);
+        $this->assertEquals(4500.0, (float) $row['net_payable_amount']);
+        $this->assertEquals(0.0, (float) $row['paid_amount']); // Actual paid MUST be 0.00
+        $this->assertEquals(0.0, (float) $row['amount']);      // Recognized revenue MUST be 0.00
+        $this->assertNull($row['paid_at']);
+    }
+
+    public function test_successful_discounted_payment_reports_correct_revenue_and_paid_amount(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Premium Plan',
+            'slug' => 'premium-plan-2',
+            'price' => 5000.0,
+            'is_active' => true,
+        ]);
+
+        $sub = Subscription::create([
+            'user_id' => $this->student->id,
+            'plan_id' => $plan->id,
+            'starts_at' => Carbon::now(),
+            'status' => 'active',
+        ]);
+
+        $payment = SubscriptionPayment::create([
+            'subscription_id' => $sub->id,
+            'user_id' => $this->student->id,
+            'original_amount' => 5000.0,
+            'discount_amount' => 500.0,
+            'final_amount' => 4500.0,
+            'amount' => 4500.0,
+            'promo_code' => 'WELCOME',
+            'currency_code' => 'EGP',
+            'status' => SubscriptionPayment::STATUS_COMPLETED,
+            'payment_method' => 'stripe',
+            'paid_at' => Carbon::now(),
+            'created_at' => Carbon::now(),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/reports/sales?report_type=detailed');
+
+        $response->assertOk();
+        $this->assertEquals(1, (int) $response->json('data.summary.completed_orders'));
+        $this->assertEquals(0, (int) $response->json('data.summary.failed_orders'));
+        $this->assertEquals(4500.0, (float) $response->json('data.summary.total_revenue'));
+
+        $row = collect($response->json('data.data'))->firstWhere('order_number', 'SUB-' . $payment->id);
+        $this->assertNotNull($row);
+        $this->assertEquals(4500.0, (float) $row['paid_amount']);
+        $this->assertEquals(4500.0, (float) $row['amount']);
+    }
+
+    public function test_100_percent_discount_free_order_reports_zero_cash_revenue_and_completed_order(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Free Trial Plan',
+            'slug' => 'free-trial-plan',
+            'price' => 5000.0,
+            'is_active' => true,
+        ]);
+
+        $sub = Subscription::create([
+            'user_id' => $this->student->id,
+            'plan_id' => $plan->id,
+            'starts_at' => Carbon::now(),
+            'status' => 'active',
+        ]);
+
+        $payment = SubscriptionPayment::create([
+            'subscription_id' => $sub->id,
+            'user_id' => $this->student->id,
+            'original_amount' => 5000.0,
+            'discount_amount' => 5000.0,
+            'final_amount' => 0.0,
+            'amount' => 0.0,
+            'promo_code' => 'AHMED',
+            'currency_code' => 'EGP',
+            'status' => SubscriptionPayment::STATUS_COMPLETED,
+            'payment_method' => 'wallet',
+            'paid_at' => Carbon::now(),
+            'created_at' => Carbon::now(),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/reports/sales?report_type=detailed');
+
+        $response->assertOk();
+        $this->assertEquals(1, (int) $response->json('data.summary.completed_orders'));
+        $this->assertEquals(0.0, (float) $response->json('data.summary.total_revenue'));
+
+        $row = collect($response->json('data.data'))->firstWhere('order_number', 'SUB-' . $payment->id);
+        $this->assertNotNull($row);
+        $this->assertSame('completed', $row['status']);
+        $this->assertEquals(0.0, (float) $row['paid_amount']);
+        $this->assertEquals(0.0, (float) $row['amount']);
+    }
+
+    public function test_refund_reduces_net_recognized_revenue_while_preserving_gross_and_details(): void
+    {
+        $order = Order::create([
+            'user_id' => $this->student->id,
+            'order_number' => 'ORD-REFUND-TEST',
+            'total_price' => 2000.0,
+            'final_price' => 2000.0,
+            'amount_egp' => 2000.0,
+            'exchange_rate_snapshot' => 1.0,
+            'payment_method' => 'stripe',
+            'status' => 'completed',
+            'created_at' => Carbon::now()->subDay(),
+        ]);
+        OrderCourse::create([
+            'order_id' => $order->id,
+            'course_id' => $this->course->id,
+            'price' => 2000.0,
+            'tax_price' => 0.0,
+        ]);
+
+        RefundRequest::create([
+            'user_id' => $this->student->id,
+            'course_id' => $this->course->id,
+            'order_id' => $order->id,
+            'refund_amount' => 500.0,
+            'amount_egp' => 500.0,
+            'status' => 'approved',
+            'reason' => 'Duplicate purchase',
+            'processed_at' => Carbon::now(),
+            'created_at' => Carbon::now(),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/reports/sales');
+
+        $response->assertOk();
+        $this->assertEquals(2000.0, (float) $response->json('data.gross_revenue'));
+        $this->assertEquals(500.0, (float) $response->json('data.total_refunds'));
+        $this->assertEquals(1500.0, (float) $response->json('data.total_revenue'));
+        $this->assertEquals(1500.0, (float) $response->json('data.net_revenue'));
+    }
+
+    public function test_detailed_sales_report_reconciles_total_orders_with_completed_pending_failed_cancelled(): void
+    {
+        // 1 Completed Order (1000)
+        $o1 = Order::create(['user_id' => $this->student->id, 'order_number' => 'ORD-C1', 'total_price' => 1000.0, 'final_price' => 1000.0, 'amount_egp' => 1000.0, 'payment_method' => 'stripe', 'status' => 'completed']);
+        OrderCourse::create(['order_id' => $o1->id, 'course_id' => $this->course->id, 'price' => 1000.0, 'tax_price' => 0.0]);
+
+        // 1 Pending Order (500)
+        $o2 = Order::create(['user_id' => $this->student->id, 'order_number' => 'ORD-P1', 'total_price' => 500.0, 'final_price' => 500.0, 'amount_egp' => 500.0, 'payment_method' => 'stripe', 'status' => 'pending']);
+        OrderCourse::create(['order_id' => $o2->id, 'course_id' => $this->course->id, 'price' => 500.0, 'tax_price' => 0.0]);
+
+        // 1 Cancelled Order (300)
+        $o3 = Order::create(['user_id' => $this->student->id, 'order_number' => 'ORD-X1', 'total_price' => 300.0, 'final_price' => 300.0, 'amount_egp' => 300.0, 'payment_method' => 'stripe', 'status' => 'cancelled']);
+        OrderCourse::create(['order_id' => $o3->id, 'course_id' => $this->course->id, 'price' => 300.0, 'tax_price' => 0.0]);
+
+        // 1 Failed Subscription Payment (4500)
+        $plan = SubscriptionPlan::create(['name' => 'Plan B', 'price' => 5000.0, 'is_active' => true]);
+        $sub = Subscription::create(['user_id' => $this->student->id, 'plan_id' => $plan->id, 'status' => 'pending']);
+        SubscriptionPayment::create([
+            'subscription_id' => $sub->id,
+            'user_id' => $this->student->id,
+            'original_amount' => 5000.0,
+            'discount_amount' => 500.0,
+            'final_amount' => 4500.0,
+            'amount' => 4500.0,
+            'status' => SubscriptionPayment::STATUS_FAILED,
+            'payment_method' => 'manual',
+            'created_at' => Carbon::now(),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/reports/sales');
+
+        $response->assertOk();
+        $summary = $response->json('data');
+
+        $totalOrders = (int) $summary['total_orders'];
+        $completed = (int) $summary['completed_orders'];
+        $pending = (int) $summary['pending_orders'];
+        $cancelled = (int) $summary['cancelled_orders'];
+        $failed = (int) $summary['failed_orders'];
+
+        $this->assertEquals(4, $totalOrders);
+        $this->assertEquals(1, $completed);
+        $this->assertEquals(1, $pending);
+        $this->assertEquals(1, $cancelled);
+        $this->assertEquals(1, $failed);
+        $this->assertEquals($totalOrders, $completed + $pending + $cancelled + $failed);
+    }
 }
+

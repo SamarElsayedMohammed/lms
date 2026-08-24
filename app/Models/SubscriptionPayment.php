@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Builder;
-use Carbon\Carbon;
 
 /**
  * @property int $id
@@ -31,6 +31,7 @@ use Carbon\Carbon;
  * @property-read Subscription $subscription
  * @property-read User $user
  * @property-read StoreTransaction|null $storeTransaction
+ * @property-read ManualDepositMethod|null $manualDepositMethod
  */
 final class SubscriptionPayment extends Model
 {
@@ -87,8 +88,11 @@ final class SubscriptionPayment extends Model
     ];
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_FAILED = 'failed';
+
     public const STATUS_REFUNDED = 'refunded';
 
     public function subscription(): BelongsTo
@@ -104,6 +108,15 @@ final class SubscriptionPayment extends Model
     public function storeTransaction(): BelongsTo
     {
         return $this->belongsTo(StoreTransaction::class, 'store_transaction_id');
+    }
+
+    /**
+     * Manual payment requests may retain the legacy deposit-method reference.
+     * The admin review list eagerly loads it to render the payment snapshot.
+     */
+    public function manualDepositMethod(): BelongsTo
+    {
+        return $this->belongsTo(ManualDepositMethod::class, 'manual_deposit_method_id');
     }
 
     /**

@@ -197,6 +197,108 @@ class ProductExperienceAndAdminOperationsAdversarialTest extends TestCase
         ]);
     }
 
+    public function test_approving_a_course_publishes_it_for_the_catalog(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $course = Course::factory()->create([
+            'status' => 'pending',
+            'approval_status' => null,
+            'is_active' => false,
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/courses/{$course->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'publish')
+            ->assertJsonPath('data.approval_status', 'approved')
+            ->assertJsonPath('data.is_active', true);
+
+        $this->assertDatabaseHas('courses', [
+            'id' => $course->id,
+            'status' => 'publish',
+            'approval_status' => 'approved',
+            'is_active' => 1,
+        ]);
+    }
+
+    public function test_course_learning_outcomes_and_requirements_are_replaced_and_persisted(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $course = Course::factory()->create();
+
+        $update = fn (array $payload) => $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/courses/{$course->id}/update", array_merge([
+                'title' => $course->title,
+                'category_id' => $course->category_id,
+            ], $payload));
+
+        $update([
+            'learnings' => [['title' => 'Build a complete project'], ['title' => 'Apply the core concepts']],
+            'requirements' => [['requirement' => 'A laptop'], ['requirement' => 'Basic knowledge']],
+            'replace_learnings' => true,
+            'replace_requirements' => true,
+            'ai_knowledge_content' => 'Course-specific assistant context',
+            'is_free_until' => '2030-01-01 00:00:00',
+            'total_duration_override_seconds' => 5400,
+            'total_lessons_override' => 12,
+        ])->assertOk()
+            ->assertJsonCount(2, 'data.learnings')
+            ->assertJsonCount(2, 'data.requirements');
+
+        $this->assertDatabaseHas('course_learnings', ['course_id' => $course->id, 'title' => 'Build a complete project']);
+        $this->assertDatabaseHas('course_requirements', ['course_id' => $course->id, 'requirement' => 'A laptop']);
+        $this->assertDatabaseHas('courses', [
+            'id' => $course->id,
+            'ai_knowledge_content' => 'Course-specific assistant context',
+            'duration_seconds' => 5400,
+            'lectures_count' => 12,
+        ]);
+
+        $update([
+            'learnings' => [],
+            'requirements' => [],
+            'replace_learnings' => true,
+            'replace_requirements' => true,
+        ])->assertOk()
+            ->assertJsonCount(0, 'data.learnings')
+            ->assertJsonCount(0, 'data.requirements');
+
+        $this->assertDatabaseMissing('course_learnings', ['course_id' => $course->id]);
+        $this->assertDatabaseMissing('course_requirements', ['course_id' => $course->id]);
+    }
+
+    public function test_course_details_editor_persists_only_the_requested_collection_for_an_authorized_editor(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $course = Course::factory()->create();
+
+        $this->actingAs($admin, 'sanctum')
+            ->putJson("/api/courses/{$course->id}/learning-details", [
+                'learnings' => ['Understand the workflow'],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.learnings.0', 'Understand the workflow')
+            ->assertJsonPath('data.requirements', []);
+
+        $this->actingAs($admin, 'sanctum')
+            ->putJson("/api/courses/{$course->id}/learning-details", [
+                'requirements' => ['A working browser'],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.learnings.0', 'Understand the workflow')
+            ->assertJsonPath('data.requirements.0', 'A working browser');
+
+        $student = User::factory()->create();
+        $this->actingAs($student, 'sanctum')
+            ->putJson("/api/courses/{$course->id}/learning-details", [
+                'learnings' => ['Unauthorized change'],
+            ])
+            ->assertForbidden();
+    }
+
     /**
      * @test
      * B4: Curriculum reordering atomic transaction & foreign ID rejection

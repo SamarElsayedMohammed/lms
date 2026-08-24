@@ -96,6 +96,14 @@ final class UnifiedSalesTransactionQuery
     {
         $productType = (string) $row->product_type;
         $sourceId = (int) $row->source_id;
+        $rawStatus = strtolower((string) ($row->status ?? ''));
+        $isCompleted = in_array($rawStatus, ['completed', 'paid', 'success'], true);
+
+        $originalPrice = (float) ($row->original_price ?? $row->final_price ?? 0);
+        $discountAmount = (float) ($row->discount_amount ?? 0);
+        $netPayableAmount = (float) ($row->final_price ?? 0);
+        $paidAmount = $isCompleted ? $netPayableAmount : 0.0;
+        $recognizedRevenue = $isCompleted ? (float) ($row->amount ?? 0) : 0.0;
 
         return [
             'id' => $productType === 'subscription' ? 'sub-' . $sourceId : $sourceId,
@@ -104,19 +112,19 @@ final class UnifiedSalesTransactionQuery
             'order_number' => $row->order_number,
             'status' => $row->status,
             'plan_name' => $productType === 'subscription' ? $row->course_title : null,
-            'plan_price' => $productType === 'subscription'
-                ? (float) ($row->original_price ?? $row->final_price)
-                : null,
-            'original_price' => (float) ($row->original_price ?? $row->final_price),
-            'discount_amount' => (float) ($row->discount_amount ?? 0),
+            'plan_price' => $productType === 'subscription' ? $originalPrice : null,
+            'original_price' => $originalPrice,
+            'discount_amount' => $discountAmount,
             'promo_code' => $row->promo_code ?? null,
             'currency_code' => $row->currency_code ?? 'EGP',
-            'final_price' => (float) $row->final_price,
-            'paid_amount' => (float) $row->final_price,
-            'amount' => (float) $row->amount,
+            'final_price' => $netPayableAmount,
+            'net_payable_amount' => $netPayableAmount,
+            'paid_amount' => $paidAmount,
+            'amount' => $recognizedRevenue,
+            'net_revenue' => $recognizedRevenue,
             'payment_method' => $row->payment_method,
             'created_at' => $row->event_at,
-            'paid_at' => $row->paid_at,
+            'paid_at' => $isCompleted ? ($row->paid_at ?? $row->event_at) : null,
             'course' => $row->course_title,
             'user' => $row->user_id ? [
                 'id' => (int) $row->user_id,

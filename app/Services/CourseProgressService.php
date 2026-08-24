@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Course\Course;
+use App\Models\User;
 use App\Models\UserCourseProgress;
 use App\Models\UserCurriculumTracking;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class CourseProgressService
 {
@@ -26,7 +28,7 @@ class CourseProgressService
                 ['total_items' => $this->getTotalItemsForCourse($courseId)]
             );
         } catch (\Throwable $e) {
-            Log::error('CourseProgressService::getProgress failed: ' . $e->getMessage(), [
+            Log::error('CourseProgressService::getProgress failed: '.$e->getMessage(), [
                 'user_id' => $userId,
                 'course_id' => $courseId,
             ]);
@@ -44,10 +46,10 @@ class CourseProgressService
     public function calculateAndUpdateProgress(int $userId, int $courseId, bool $touchLastAccessed = true): UserCourseProgress
     {
         $progress = $this->getProgress($userId, $courseId);
-        $user = \App\Models\User::find($userId);
+        $user = User::find($userId);
         $course = Course::find($courseId);
-        
-        if (!$user || !$course) {
+
+        if (! $user || ! $course) {
             return $progress;
         }
 
@@ -56,7 +58,7 @@ class CourseProgressService
             $completedItems = $detailed['summary']['completed_items'] ?? 0;
             $totalItems = $detailed['summary']['total_items'] ?? 0;
             $percentage = (float) ($detailed['course']['progress_percentage'] ?? 0);
-            
+
             $watchedSeconds = $this->getWatchedSecondsForCourse($userId, $courseId);
             $status = $this->resolveLearningStatusValues(
                 $percentage,
@@ -91,10 +93,10 @@ class CourseProgressService
             Cache::put("user:{$userId}:course:{$courseId}:progress", $progress, self::CACHE_TTL);
 
             if ($status === 'completed') {
-                app(\App\Services\CertificateService::class)->autoGenerateCertificate($userId, $courseId);
+                app(CertificateService::class)->autoGenerateCertificate($userId, $courseId);
             }
         } catch (\Throwable $e) {
-            Log::error('Error calculating progress: ' . $e->getMessage());
+            Log::error('Error calculating progress: '.$e->getMessage());
         }
 
         return $progress;
@@ -116,7 +118,7 @@ class CourseProgressService
         int $totalItems,
         int $watchedSeconds,
     ): string {
-        if (($totalItems > 0 && $completedItems >= $totalItems) || $percentage >= 11.0) {
+        if (($totalItems > 0 && $completedItems >= $totalItems) || $percentage >= 100.0) {
             return 'completed';
         }
 
@@ -186,12 +188,12 @@ class CourseProgressService
         return Cache::remember($cacheKey, 3600, function () use ($courseId) {
             try {
                 $course = Course::with([
-                    'chapters'              => fn($q) => $q->where('is_active', 1),
-                    'chapters.lectures'     => fn($q) => $q->where('is_active', 1),
-                    'chapters.resources'    => fn($q) => $q->where('is_active', 1),
+                    'chapters' => fn ($q) => $q->where('is_active', 1),
+                    'chapters.lectures' => fn ($q) => $q->where('is_active', 1),
+                    'chapters.resources' => fn ($q) => $q->where('is_active', 1),
                 ])->find($courseId);
 
-                if (!$course) {
+                if (! $course) {
                     return 0;
                 }
 
@@ -213,7 +215,7 @@ class CourseProgressService
     public function clearCache(int $userId, ?int $courseId = null): void
     {
         Cache::forget("user:{$userId}:all-progress");
-        
+
         if ($courseId) {
             Cache::forget("user:{$userId}:course:{$courseId}:progress");
         }
@@ -244,7 +246,7 @@ class CourseProgressService
             ])
                 ->findOrFail($courseId);
         } catch (\Throwable $e) {
-            Log::error('Error loading course with relationships: ' . $e->getMessage(), [
+            Log::error('Error loading course with relationships: '.$e->getMessage(), [
                 'course_id' => $courseId,
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -253,11 +255,11 @@ class CourseProgressService
 
         try {
             $tracking = UserCurriculumTracking::where('user_id', $userId)
-                ->whereHas('chapter', fn($q) => $q->where('course_id', $courseId))
+                ->whereHas('chapter', fn ($q) => $q->where('course_id', $courseId))
                 ->get()
-                ->keyBy(fn($item) => $item->model_type . ':' . $item->model_id);
+                ->keyBy(fn ($item) => $item->model_type.':'.$item->model_id);
         } catch (\Throwable $e) {
-            Log::error('Error loading tracking: ' . $e->getMessage());
+            Log::error('Error loading tracking: '.$e->getMessage());
             $tracking = collect();
         }
 
@@ -269,7 +271,7 @@ class CourseProgressService
                 ->get()
                 ->keyBy('lecture_id');
         } catch (\Throwable $e) {
-            Log::error('Error loading video progress: ' . $e->getMessage());
+            Log::error('Error loading video progress: '.$e->getMessage());
             $videoProgress = collect();
         }
 
@@ -281,13 +283,13 @@ class CourseProgressService
 
         foreach ($course->chapters as $chapter) {
             $items = [];
-            
+
             foreach ($chapter->lectures as $lecture) {
                 $totalItems++;
-                $key = get_class($lecture) . ':' . $lecture->id;
+                $key = get_class($lecture).':'.$lecture->id;
                 $track = $tracking->get($key);
                 $video = $videoProgress->get($lecture->id);
-                
+
                 $requiresVerifiedTracking = app(VideoProgressService::class)
                     ->requiresVerifiedTracking($lecture);
                 $isCompleted = $requiresVerifiedTracking
@@ -305,11 +307,11 @@ class CourseProgressService
                 if ($isCompleted) {
                     $completedItems++;
                     $rawProgressScore += 1;
-                } else if ($watchPercentage > 0) {
+                } elseif ($watchPercentage > 0) {
                     $rawProgressScore += ($watchPercentage / 100);
                 }
-                
-                if (!$nextItem && !$isCompleted) {
+
+                if (! $nextItem && ! $isCompleted) {
                     $nextItem = [
                         'chapter_id' => $chapter->id,
                         'item_id' => $lecture->id,
@@ -331,14 +333,14 @@ class CourseProgressService
             }
 
             $chapterProgressScore = 0;
-            foreach($items as $i) {
+            foreach ($items as $i) {
                 if ($i['status'] === 'completed') {
                     $chapterProgressScore += 1;
-                } else if ($i['type'] === 'lecture' && ($i['watch_percentage'] ?? 0) > 0) {
+                } elseif ($i['type'] === 'lecture' && ($i['watch_percentage'] ?? 0) > 0) {
                     $chapterProgressScore += ($i['watch_percentage'] / 100);
                 }
             }
-            
+
             $chaptersData[] = [
                 'chapter_id' => $chapter->id,
                 'chapter_name' => $chapter->title ?? $chapter->name ?? '',
@@ -436,8 +438,8 @@ class CourseProgressService
                         AND (s.ends_at IS NULL OR s.ends_at > NOW())
                     ) AS unique_students
                 ) as total_students');
-                
-            if (\Illuminate\Support\Facades\Schema::hasTable('video_progress')) {
+
+            if (Schema::hasTable('video_progress')) {
                 $query->selectRaw('(
                     SELECT COUNT(DISTINCT vp.user_id)
                     FROM video_progress vp
@@ -445,7 +447,7 @@ class CourseProgressService
                     JOIN course_chapters cc ON ccl.course_chapter_id = cc.id
                     WHERE cc.course_id = courses.id
                 ) as started_students')
-                ->selectRaw('(
+                    ->selectRaw('(
                     SELECT MAX(vp.updated_at)
                     FROM video_progress vp
                     JOIN course_chapter_lectures ccl ON vp.lecture_id = ccl.id
@@ -454,7 +456,7 @@ class CourseProgressService
                 ) as last_activity');
             } else {
                 $query->selectRaw('0 as started_students')
-                      ->selectRaw('NULL as last_activity');
+                    ->selectRaw('NULL as last_activity');
             }
 
             if ($search) {
@@ -469,7 +471,7 @@ class CourseProgressService
 
             // Transform results to calculate total_students and format response
             $data = collect($results->items())->map(function ($course) {
-                $purchased   = (int) $course->purchased_students;
+                $purchased = (int) $course->purchased_students;
                 $subscription = (int) $course->subscription_students;
                 $totalStudents = (int) $course->total_students;
 
@@ -485,19 +487,19 @@ class CourseProgressService
                 $avgProgress = $this->calculateCourseAvgProgress($course->course_id);
 
                 return [
-                    'course_id'          => $course->course_id,
-                    'course_name'        => $course->course_name,
-                    'thumbnail'          => $course->thumbnail,
-                    'course_status'      => $course->course_status,
-                    'total_students'     => $totalStudents,
-                    'purchased_count'    => $purchased,
+                    'course_id' => $course->course_id,
+                    'course_name' => $course->course_name,
+                    'thumbnail' => $course->thumbnail,
+                    'course_status' => $course->course_status,
+                    'total_students' => $totalStudents,
+                    'purchased_count' => $purchased,
                     'subscription_count' => $subscription,
-                    'completed_count'    => $completed,
-                    'in_progress_count'  => $inProgress,
-                    'not_started_count'  => $notStarted,
-                    'started_count'      => $started,
-                    'avg_progress'       => round($avgProgress, 2),
-                    'last_activity'      => $course->last_activity,
+                    'completed_count' => $completed,
+                    'in_progress_count' => $inProgress,
+                    'not_started_count' => $notStarted,
+                    'started_count' => $started,
+                    'avg_progress' => round($avgProgress, 2),
+                    'last_activity' => $course->last_activity,
                 ];
             });
 
@@ -509,9 +511,10 @@ class CourseProgressService
                 'last_page' => $results->lastPage(),
             ];
         } catch (\Throwable $e) {
-            Log::error('Error in getAdminOverview: ' . $e->getMessage(), [
+            Log::error('Error in getAdminOverview: '.$e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
+
             // Return detailed error for debugging
             return [
                 'error_detail' => [
@@ -537,7 +540,7 @@ class CourseProgressService
         try {
             // Get total curriculum items for course
             $totalItems = $this->getTotalItemsForCourse($courseId);
-            
+
             if ($totalItems === 0) {
                 return 0;
             }
@@ -561,7 +564,8 @@ class CourseProgressService
 
             return $totalPercentage / $userProgress->count();
         } catch (\Throwable $e) {
-            Log::error('Error calculating avg progress for course ' . $courseId . ': ' . $e->getMessage());
+            Log::error('Error calculating avg progress for course '.$courseId.': '.$e->getMessage());
+
             return 0;
         }
     }
@@ -591,7 +595,7 @@ class CourseProgressService
             if ($search) {
                 $query->whereHas('user', function ($q) use ($search) {
                     $q->where('name', 'LIKE', "%{$search}%")
-                      ->orWhere('email', 'LIKE', "%{$search}%");
+                        ->orWhere('email', 'LIKE', "%{$search}%");
                 });
             }
 
@@ -601,7 +605,7 @@ class CourseProgressService
 
             return $query->paginate(20)->toArray();
         } catch (\Throwable $e) {
-            Log::error('Error in getAdminCourseStudentProgress: ' . $e->getMessage(), [
+            Log::error('Error in getAdminCourseStudentProgress: '.$e->getMessage(), [
                 'course_id' => $courseId,
                 'trace' => $e->getTraceAsString(),
             ]);

@@ -331,6 +331,7 @@ Route::middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff'])->group(
 
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('course-reviews', [\App\Http\Controllers\API\RatingApiController::class, 'addRating']);
+    Route::put('courses/{course}/learning-details', [\App\Http\Controllers\API\CourseLearningDetailsApiController::class, 'update']);
 
     /**
      * HLS Video Streaming - Generate UUID token for authenticated users
