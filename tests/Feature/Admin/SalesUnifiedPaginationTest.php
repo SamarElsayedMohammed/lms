@@ -117,6 +117,9 @@ final class SalesUnifiedPaginationTest extends TestCase
         $this->assertTrue(collect($subsOnly->json('data.data'))->every(
             fn ($row) => ($row['product_type'] ?? '') === 'subscription'
         ));
+        $subsOnly->assertJsonPath('data.data.0.plan_name', 'Paged Sub');
+        $subsOnly->assertJsonPath('data.data.0.plan_price', 40);
+        $subsOnly->assertJsonPath('data.data.0.paid_amount', 40);
     }
 
     public function test_sales_export_returns_all_filtered_rows_not_the_current_page(): void

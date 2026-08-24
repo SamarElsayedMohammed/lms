@@ -1031,6 +1031,13 @@ class ReportsApiController extends Controller
             ->whereIn('order_courses.course_id', $courseIds)
             ->count();
 
+        $uniqueStudentsCount = (int) DB::table('order_courses')
+            ->join('orders', 'order_courses.order_id', '=', 'orders.id')
+            ->where('orders.status', 'completed')
+            ->whereIn('order_courses.course_id', $courseIds)
+            ->distinct()
+            ->count('orders.user_id');
+
         $progressCount = (int) UserCourseProgress::query()
             ->whereIn('course_id', $courseIds)
             ->count();
@@ -1087,7 +1094,8 @@ class ReportsApiController extends Controller
             'course_purchases_count' => $purchaseCount,
             'progress_records_count' => $progressCount,
             'enrollment_grain'     => 'completed_course_purchases_not_progress_rows',
-            'total_students'       => $purchaseCount,
+            'total_students'       => $uniqueStudentsCount,
+            'students_grain'       => 'unique_users_with_completed_course_purchases',
             'total_revenue_egp'    => round($totalRevenue, 2),
             'courses_by_category'  => $coursesByCategory,
             'courses_by_level'     => $coursesByLevel,

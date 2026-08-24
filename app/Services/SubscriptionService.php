@@ -632,7 +632,8 @@ final class SubscriptionService
                             return;
                         }
 
-                        if ($lockedSub->auto_renew && $lockedSub->plan) {
+                        // Store-managed subscriptions (App Store & Google Play) must NEVER be auto-renewed via Skillso wallet
+                        if ($lockedSub->auto_renew && $lockedSub->plan && ! $lockedSub->isStoreSubscription()) {
                             $user = $lockedSub->user;
                             $plan = $lockedSub->plan;
                             $localPrice = (float) ($lockedSub->locked_price ?? $plan->price);
@@ -753,5 +754,124 @@ final class SubscriptionService
             ->with('subscription.plan')
             ->orderByDesc('created_at')
             ->paginate($perPage);
+    }
+
+    /**
+     * Activate or extend canonical Skillso subscription from verified native store purchase.
+     * Preserves authoritative store dates, handles updates/stacking, creates payment record and links store transaction.
+     */
+    public function activateVerifiedStoreSubscription(
+        User $user,
+        SubscriptionPlan $plan,
+        \App\Services\Payment\DTO\StorePurchaseResult $storeResult,
+        \App\Models\StoreTransaction $storeTx
+    ): Subscription {
+        return DB::transaction(function () use ($user, $plan, $storeResult, $storeTx) {
+            // Lock user to prevent concurrent race conditions
+            User::where('id', $user->id)->lockForUpdate()->first();
+
+            $startsAt = $storeResult->purchasedAt;
+            $endsAt = $storeResult->expiresAt;
+            $price = $storeResult->amount ?? (float) $plan->price;
+            $currency = $storeResult->currency ?? 'USD';
+
+            // Check if user already has an active subscription for this store original transaction ID or plan
+            $existingSub = Subscription::where('user_id', $user->id)
+                ->where(function ($q) use ($storeResult, $plan) {
+                    if (!empty($storeResult->originalTransactionId)) {
+                        $q->where('store_original_transaction_id', $storeResult->originalTransactionId);
+                    }
+                    $q->orWhere(function ($subQ) use ($plan) {
+                        $subQ->where('status', Subscription::STATUS_ACTIVE)
+                             ->where('plan_id', $plan->id);
+                    });
+                })
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingSub) {
+                // Update existing subscription with store authoritative dates
+                $existingSub->status = Subscription::STATUS_ACTIVE;
+                if ($endsAt !== null) {
+                    if ($existingSub->ends_at === null || $endsAt->greaterThan($existingSub->ends_at)) {
+                        $existingSub->ends_at = $endsAt;
+                    }
+                }
+                $existingSub->auto_renew = $storeResult->autoRenew;
+                $existingSub->store_provider = $storeResult->store;
+                $existingSub->store_original_transaction_id = $storeResult->originalTransactionId;
+                $existingSub->save();
+
+                $subscription = $existingSub;
+            } else {
+                // Create new subscription record
+                $subscription = Subscription::create([
+                    'user_id' => $user->id,
+                    'plan_id' => $plan->id,
+                    'locked_price' => $price,
+                    'locked_currency' => $currency,
+                    'starts_at' => $startsAt,
+                    'ends_at' => $endsAt,
+                    'status' => Subscription::STATUS_ACTIVE,
+                    'auto_renew' => $storeResult->autoRenew,
+                    'store_provider' => $storeResult->store,
+                    'store_original_transaction_id' => $storeResult->originalTransactionId,
+                    'paid_at' => $startsAt,
+                ]);
+            }
+
+            // Check for existing payment to guarantee strict business idempotency
+            $payment = SubscriptionPayment::where('store_transaction_id', $storeTx->id)
+                ->orWhere(function ($q) use ($user, $storeResult) {
+                    $q->where('user_id', $user->id)
+                        ->where('payment_method', $storeResult->store)
+                        ->where('transaction_id', $storeResult->transactionId);
+                })
+                ->first();
+
+            if (! $payment) {
+                // Create completed payment record for store transaction
+                $conversion = app(CurrencyConversionService::class);
+                $amountEgp = $currency === 'EGP' ? $price : $conversion->convertToEgp($price, $currency);
+
+                $payment = SubscriptionPayment::create([
+                    'subscription_id' => $subscription->id,
+                    'user_id' => $user->id,
+                    'amount' => $price,
+                    'wallet_amount' => 0.00,
+                    'gateway_amount' => $price,
+                    'amount_egp' => $amountEgp,
+                    'wallet_amount_egp' => 0.00,
+                    'gateway_amount_egp' => $amountEgp,
+                    'exchange_rate_snapshot' => 1.0,
+                    'status' => SubscriptionPayment::STATUS_COMPLETED,
+                    'payment_method' => $storeResult->store,
+                    'currency_code' => $currency,
+                    'price_source' => 'store',
+                    'final_amount' => $price,
+                    'original_amount' => $price,
+                    'discount_amount' => 0.00,
+                    'transaction_id' => $storeResult->transactionId,
+                    'store_transaction_id' => $storeTx->id,
+                    'paid_at' => $startsAt,
+                    'gateway_response' => $storeResult->rawPayload,
+                ]);
+            }
+
+            // Link store transaction back to subscription and payment
+            $storeTx->subscription_id = $subscription->id;
+            $storeTx->subscription_payment_id = $payment->id;
+            $storeTx->save();
+
+            Log::info('Subscription verified and activated via native store billing', [
+                'user_id' => $user->id,
+                'store' => $storeResult->store,
+                'transaction_id' => $storeResult->transactionId,
+                'subscription_id' => $subscription->id,
+                'expires_at' => $endsAt?->toIso8601String(),
+            ]);
+
+            return $subscription;
+        });
     }
 }

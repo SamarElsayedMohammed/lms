@@ -107,7 +107,22 @@ class AuthRegistrationLoginTest extends TestCase
             'device_id' => 'device-wrong-1',
         ]);
 
-        $response->assertStatus(422);
+        $response->assertStatus(422)
+            ->assertJsonMissingPath('errors.error_code');
+    }
+
+    public function test_missing_user_login_returns_machine_readable_account_not_found_code()
+    {
+        $response = $this->postJson('/api/user-login', [
+            'type' => 'email',
+            'email' => 'missing@example.com',
+            'password' => 'Password123',
+            'device_type' => 'web',
+            'device_id' => 'device-missing-1',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('errors.error_code', 'ACCOUNT_NOT_FOUND');
     }
 
     public function test_protected_profile_endpoint_succeeds_with_bearer_token()

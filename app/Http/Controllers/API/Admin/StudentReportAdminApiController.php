@@ -271,6 +271,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'course_id' => 'nullable|exists:courses,id',
             'instructor_id' => 'nullable|exists:users,id',
             'category_id' => 'nullable|exists:categories,id',
+            'search' => 'nullable|string|max:255',
         ]);
         if ($validator->fails()) {
             return $this->jsonError($validator->errors()->first(), 422);
@@ -279,7 +280,7 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $eligibleCourseIds = $this->eligibleCourseIds($request);
 
         $studentQuery = $this->baseStudentQuery();
-        $this->applyStudentScope($studentQuery, $request, $eligibleCourseIds, false);
+        $this->applyStudentScope($studentQuery, $request, $eligibleCourseIds);
         $totalStudentsCount = $studentQuery->count();
         $scopedStudentIds = (clone $studentQuery)->select('users.id');
 
@@ -419,6 +420,9 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'total_students'                       => $totalStudentsCount,
             'students_with_enrollments'            => $studentsWithEnrollments,
             'completed_students'                   => $brackets['all_completed'],
+            'in_progress_students'                 => $brackets['in_progress'],
+            'not_started_students'                 => $brackets['not_started'],
+            'students_without_courses'             => $brackets['no_courses'],
             'completion_rate'                      => $studentsWithEnrollments > 0
                 ? round(($brackets['all_completed'] / $studentsWithEnrollments) * 100, 2)
                 : null,

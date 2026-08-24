@@ -537,7 +537,10 @@ trait ServesApiAuth
                     ->first();
 
                 if (!$user) {
-                    ApiResponseService::validationError('المستخدم غير موجود. يرجى إنشاء حساب أولاً.');
+                    ApiResponseService::validationError(
+                        'المستخدم غير موجود. يرجى إنشاء حساب أولاً.',
+                        ['error_code' => 'ACCOUNT_NOT_FOUND'],
+                    );
                 }
 
                 if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {

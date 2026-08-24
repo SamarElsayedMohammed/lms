@@ -550,7 +550,7 @@ class SubscriptionReportApiTest extends TestCase
         $countries = collect($response->json('data.country_breakdown'))->pluck('country_code');
         $this->assertTrue($countries->contains('UNASSIGNED'));
         $this->assertFalse($countries->contains('EG'));
-        $this->assertEquals(80.0, (float) $response->json('data.country_totals.total_revenue_egp'));
+        $this->assertEquals(80.0, (float) $response->json('data.country_totals.total_paid_amount_egp'));
         $this->assertEquals(80.0, (float) $response->json('data.summary.total_revenue_egp'));
     }
 
@@ -597,6 +597,48 @@ class SubscriptionReportApiTest extends TestCase
         $this->assertSame(999.0, (float) $planRow['catalog_price_egp']);
         $this->assertSame('current_catalog_price', $planRow['price_kind']);
         $this->assertSame(50.0, (float) $response->json('data.summary.total_revenue_egp'));
+    }
+
+    public function test_country_payment_breakdown_includes_renewals_for_subscriptions_started_before_period(): void
+    {
+        $plan = SubscriptionPlan::create([
+            'name' => 'Renewal Country Plan',
+            'slug' => 'renewal-country-plan',
+            'price' => 999,
+            'billing_cycle' => 'monthly',
+            'duration_days' => 30,
+            'is_active' => true,
+        ]);
+        $subscription = Subscription::create([
+            'user_id' => $this->user->id,
+            'plan_id' => $plan->id,
+            'status' => Subscription::STATUS_ACTIVE,
+            'starts_at' => now()->subDays(90),
+            'ends_at' => now()->addDays(30),
+        ]);
+        SubscriptionPayment::create([
+            'subscription_id' => $subscription->id,
+            'user_id' => $this->user->id,
+            'amount' => 240,
+            'final_amount' => 240,
+            'amount_egp' => 240,
+            'currency_code' => 'EGP',
+            'exchange_rate_snapshot' => 1,
+            'status' => SubscriptionPayment::STATUS_COMPLETED,
+            'payment_method' => 'card',
+            'resolved_country' => 'SA',
+            'paid_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson("/api/admin/reports/subscriptions/{$plan->id}?preset=30d");
+
+        $response->assertOk();
+        $this->assertSame(240.0, (float) $response->json('data.summary.total_revenue_egp'));
+        $this->assertSame(240.0, (float) $response->json('data.country_totals.total_paid_amount_egp'));
+        $this->assertSame(1, $response->json('data.country_totals.total_completed_payments'));
+        $this->assertSame('SA', $response->json('data.country_breakdown.0.country_code'));
+        $this->assertSame(240.0, (float) $response->json('data.country_breakdown.0.average_paid_amount_egp'));
     }
 
     public function test_plan_status_buckets_are_unique_people_and_do_not_invent_active_from_unique_minus_expired(): void

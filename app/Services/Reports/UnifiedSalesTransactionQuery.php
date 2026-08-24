@@ -103,11 +103,16 @@ final class UnifiedSalesTransactionQuery
             'product_type' => $productType,
             'order_number' => $row->order_number,
             'status' => $row->status,
+            'plan_name' => $productType === 'subscription' ? $row->course_title : null,
+            'plan_price' => $productType === 'subscription'
+                ? (float) ($row->original_price ?? $row->final_price)
+                : null,
             'original_price' => (float) ($row->original_price ?? $row->final_price),
             'discount_amount' => (float) ($row->discount_amount ?? 0),
             'promo_code' => $row->promo_code ?? null,
             'currency_code' => $row->currency_code ?? 'EGP',
             'final_price' => (float) $row->final_price,
+            'paid_amount' => (float) $row->final_price,
             'amount' => (float) $row->amount,
             'payment_method' => $row->payment_method,
             'created_at' => $row->event_at,

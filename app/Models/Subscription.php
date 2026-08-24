@@ -62,6 +62,8 @@ final class Subscription extends Model
         'paid_at',
         'locked_price',
         'locked_currency',
+        'store_provider',
+        'store_original_transaction_id',
     ];
 
     protected $casts = [
@@ -242,6 +244,14 @@ final class Subscription extends Model
     public function isLifetime(): bool
     {
         return $this->ends_at === null || $this->plan?->billing_cycle === 'lifetime';
+    }
+
+    /**
+     * Check if subscription is managed by external store (Apple App Store or Google Play)
+     */
+    public function isStoreSubscription(): bool
+    {
+        return !empty($this->store_provider);
     }
 
     /**

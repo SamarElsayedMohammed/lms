@@ -23,12 +23,14 @@ use Carbon\Carbon;
  * @property float|null $original_amount
  * @property float $discount_amount
  * @property string|null $transaction_id
+ * @property int|null $store_transaction_id
  * @property array|null $gateway_response
  * @property Carbon|null $paid_at
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property-read Subscription $subscription
  * @property-read User $user
+ * @property-read StoreTransaction|null $storeTransaction
  */
 final class SubscriptionPayment extends Model
 {
@@ -51,6 +53,7 @@ final class SubscriptionPayment extends Model
         'original_amount',
         'discount_amount',
         'transaction_id',
+        'store_transaction_id',
         'gateway_response',
         'paid_at',
         'manual_deposit_method_id',
@@ -78,9 +81,9 @@ final class SubscriptionPayment extends Model
         'gateway_amount_egp' => 'decimal:2',
         'exchange_rate_snapshot' => 'decimal:4',
         'gateway_response' => 'array',
-        'paid_at' => 'datetime',
         'method_snapshot' => 'array',
         'submitted_fields' => 'array',
+        'paid_at' => 'datetime',
     ];
 
     public const STATUS_PENDING = 'pending';
@@ -88,36 +91,27 @@ final class SubscriptionPayment extends Model
     public const STATUS_FAILED = 'failed';
     public const STATUS_REFUNDED = 'refunded';
 
-    /**
-     * Get the subscription
-     */
     public function subscription(): BelongsTo
     {
         return $this->belongsTo(Subscription::class);
     }
 
-    /**
-     * Get the user
-     */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * Get the manual deposit method used (legacy)
-     */
-    public function manualDepositMethod(): BelongsTo
+    public function storeTransaction(): BelongsTo
     {
-        return $this->belongsTo(ManualDepositMethod::class, 'manual_deposit_method_id');
+        return $this->belongsTo(StoreTransaction::class, 'store_transaction_id');
     }
 
     /**
-     * Get the payment method used
+     * Scope: Payments for a specific user
      */
-    public function paymentMethod(): BelongsTo
+    public function scopeForUser(Builder $query, int $userId): Builder
     {
-        return $this->belongsTo(PaymentMethod::class, 'payment_method_id');
+        return $query->where('user_id', $userId);
     }
 
     /**
@@ -137,40 +131,11 @@ final class SubscriptionPayment extends Model
     }
 
     /**
-     * Scope: Payments for a specific user
+     * Scope: Failed payments
      */
-    public function scopeForUser(Builder $query, int $userId): Builder
+    public function scopeFailed(Builder $query): Builder
     {
-        return $query->where('user_id', $userId);
-    }
-
-    /**
-     * Mark payment as completed
-     */
-    public function markAsCompleted(?string $transactionId = null): bool
-    {
-        $this->status = self::STATUS_COMPLETED;
-        $this->paid_at = now();
-        
-        if ($transactionId) {
-            $this->transaction_id = $transactionId;
-        }
-
-        return $this->save();
-    }
-
-    /**
-     * Mark payment as failed
-     */
-    public function markAsFailed(?array $response = null): bool
-    {
-        $this->status = self::STATUS_FAILED;
-        
-        if ($response) {
-            $this->gateway_response = $response;
-        }
-
-        return $this->save();
+        return $query->where('status', self::STATUS_FAILED);
     }
 
     /**
@@ -179,5 +144,29 @@ final class SubscriptionPayment extends Model
     public function isCompleted(): bool
     {
         return $this->status === self::STATUS_COMPLETED;
+    }
+
+    /**
+     * Check if payment is pending
+     */
+    public function isPending(): bool
+    {
+        return $this->status === self::STATUS_PENDING;
+    }
+
+    /**
+     * Check if payment is failed
+     */
+    public function isFailed(): bool
+    {
+        return $this->status === self::STATUS_FAILED;
+    }
+
+    /**
+     * Check if payment is refunded
+     */
+    public function isRefunded(): bool
+    {
+        return $this->status === self::STATUS_REFUNDED;
     }
 }

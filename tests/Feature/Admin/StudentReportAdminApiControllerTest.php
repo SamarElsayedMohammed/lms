@@ -376,6 +376,36 @@ final class StudentReportAdminApiControllerTest extends TestCase
         $this->assertGreaterThanOrEqual(1, (int) $response->json('data.total_completed_course_enrollments'));
     }
 
+    public function test_student_completion_stats_applies_search_to_every_global_metric(): void
+    {
+        $order = Order::create([
+            'user_id' => $this->student1->id,
+            'order_number' => 'ORD-SEARCH-STATS',
+            'total_price' => 500.0,
+            'final_price' => 500.0,
+            'amount_egp' => 500.0,
+            'exchange_rate_snapshot' => 1.0,
+            'payment_method' => 'stripe',
+            'status' => 'completed',
+        ]);
+        OrderCourse::create([
+            'order_id' => $order->id,
+            'course_id' => $this->course->id,
+            'price' => 500.0,
+            'tax_price' => 0,
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/students/completion-stats?search=Ahmed');
+
+        $response->assertOk();
+        $this->assertSame(1, (int) $response->json('data.total_students'));
+        $this->assertSame(1, (int) $response->json('data.students_with_enrollments'));
+        $this->assertSame(0, (int) $response->json('data.students_without_courses'));
+        $this->assertSame(0, (int) $response->json('data.completion_brackets.no_courses'));
+        $this->assertSame(1, (int) $response->json('data.completion_brackets.not_started'));
+    }
+
     public function test_completion_stats_uses_database_aggregates_instead_of_materializing_raw_rows(): void
     {
         $order = Order::create([

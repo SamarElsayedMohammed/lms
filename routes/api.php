@@ -1246,3 +1246,5 @@ Route::delete('remove-user', [ApiController::class, 'removeUser'])->middleware('
 /********************************************************************************************* */
 Route::match(['get', 'post'], 'webhooks/kashier', [\App\Http\Controllers\KashierController::class, 'handleWebhook'])->name('webhooks.kashier');
 Route::post('webhooks/bunny', [\App\Http\Controllers\API\Webhook\BunnyWebhookController::class, 'handle'])->name('webhooks.bunny');
+Route::post('webhooks/apple/app-store', [\App\Http\Controllers\API\Webhook\AppleStoreServerNotificationController::class, 'handle'])->name('webhooks.apple.app_store');
+Route::post('webhooks/google-play/rtdn', [\App\Http\Controllers\API\Webhook\GooglePlayRtdnWebhookController::class, 'handle'])->name('webhooks.google_play.rtdn');

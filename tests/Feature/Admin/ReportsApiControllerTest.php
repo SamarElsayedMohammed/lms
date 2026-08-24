@@ -458,6 +458,36 @@ final class ReportsApiControllerTest extends TestCase
         $this->assertGreaterThanOrEqual(1, (int) $response->json('data.paid_courses'));
     }
 
+    public function test_course_report_counts_unique_students_not_purchase_rows(): void
+    {
+        foreach (['ORD-UNIQUE-01', 'ORD-UNIQUE-02'] as $orderNumber) {
+            $order = Order::create([
+                'user_id' => $this->student->id,
+                'order_number' => $orderNumber,
+                'total_price' => 1000.0,
+                'final_price' => 1000.0,
+                'amount_egp' => 1000.0,
+                'exchange_rate_snapshot' => 1.0,
+                'payment_method' => 'stripe',
+                'status' => 'completed',
+            ]);
+            OrderCourse::create([
+                'order_id' => $order->id,
+                'course_id' => $this->course->id,
+                'price' => 1000.0,
+                'tax_price' => 0.0,
+            ]);
+        }
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/reports/course');
+
+        $response->assertOk();
+        $this->assertSame(2, (int) $response->json('data.total_enrollments'));
+        $this->assertSame(1, (int) $response->json('data.total_students'));
+        $this->assertSame('unique_users_with_completed_course_purchases', $response->json('data.students_grain'));
+    }
+
     public function test_course_report_defaults_to_published_active_courses_unless_all_is_explicit(): void
     {
         Course::factory()->create([

@@ -513,7 +513,9 @@ final class SubscriptionReportService
             'total_revenue_egp' => 'completed_subscription_payments_settled_in_period',
             'total_orders' => 'completed_subscription_payments_settled_in_period',
             'catalog_price_egp' => 'current_plan_catalog_price_not_historical_paid_amount',
-            'country_price_egp' => 'average_historical_paid_amount_egp_in_country',
+            'country_average_paid_amount_egp' => 'average_completed_payment_amount_egp_in_country',
+            'country_total_paid_amount_egp' => 'completed_subscription_payments_settled_in_period_by_country',
+            'country_completed_payments_count' => 'completed_subscription_payments_settled_in_period_by_country',
             'churned_subscribers' => 'not_defined_immediate_renewal_is_not_churn',
         ];
     }
@@ -706,33 +708,32 @@ final class SubscriptionReportService
             'users.country_code'
         );
 
-        $raw = DB::table('subscriptions')
-            ->join('users', 'subscriptions.user_id', '=', 'users.id')
-            ->leftJoin('subscription_payments', function ($join) use ($start, $end, $paymentDateSql) {
-                $join->on('subscription_payments.subscription_id', '=', 'subscriptions.id')
-                    ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
-                    ->whereRaw($paymentDateSql . ' BETWEEN ? AND ?', [$start, $end]);
-            })
-            ->select(
-                DB::raw("{$countryExpr} as country_code"),
-                DB::raw('COUNT(DISTINCT subscriptions.user_id) as subs_cnt'),
-                DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'active' THEN subscriptions.user_id END) as active_cnt"),
-                DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'expired' THEN subscriptions.user_id END) as expired_cnt"),
-                DB::raw("COUNT(DISTINCT CASE WHEN subscriptions.status = 'cancelled' THEN subscriptions.user_id END) as cancelled_cnt"),
-                DB::raw('COALESCE(SUM(' . $egpSql . '), 0) as rev_egp'),
-                DB::raw('COALESCE(AVG(' . $egpSql . '), 0) as avg_price_egp')
-            )
+        // Keep this table payment-grained. Mixing subscriptions that started in the
+        // period with payments settled in the period excluded renewals and made its
+        // total disagree with the report revenue KPI.
+        $paymentBase = DB::table('subscription_payments')
+            ->join('subscriptions', 'subscription_payments.subscription_id', '=', 'subscriptions.id')
+            ->join('users', 'subscription_payments.user_id', '=', 'users.id')
+            ->where('subscription_payments.status', SubscriptionPayment::STATUS_COMPLETED)
+            ->whereRaw($paymentDateSql . ' BETWEEN ? AND ?', [$start, $end])
             ->where('subscriptions.plan_id', $planId)
-            ->whereBetween('subscriptions.starts_at', [$start, $end])
             ->when($status !== 'all', fn($q) => $q->where('subscriptions.status', $status))
             ->when($paymentMethod, fn($q) => $q->where('subscription_payments.payment_method', $paymentMethod))
-            ->when($country, fn($q) => $q->whereRaw("{$countryExpr} = ?", [$country]))
+            ->when($country, fn($q) => $q->where('subscription_payments.resolved_country', $country));
+
+        $raw = (clone $paymentBase)
+            ->select(
+                DB::raw("{$countryExpr} as country_code"),
+                DB::raw('COUNT(subscription_payments.id) as payments_cnt'),
+                DB::raw('COUNT(DISTINCT subscription_payments.user_id) as payers_cnt'),
+                DB::raw('COALESCE(SUM(' . $egpSql . '), 0) as rev_egp'),
+                DB::raw('COALESCE(AVG(' . $egpSql . '), 0) as avg_paid_egp')
+            )
             ->groupBy(DB::raw($countryExpr))
             ->get();
 
         $table = [];
-        $totalSubscribers = 0;
-        $totalExpired = 0;
+        $totalPayments = 0;
         $totalRevenue = 0.0;
 
         foreach ($raw as $row) {
@@ -745,12 +746,11 @@ final class SubscriptionReportService
                 'color' => '#6b7280',
             ];
 
-            $subs = (int) $row->subs_cnt;
-            $exp = (int) $row->expired_cnt;
+            $payments = (int) $row->payments_cnt;
+            $payers = (int) $row->payers_cnt;
             $rev = (float) $row->rev_egp;
 
-            $totalSubscribers += $subs;
-            $totalExpired += $exp;
+            $totalPayments += $payments;
             $totalRevenue += $rev;
 
             $table[] = [
@@ -758,26 +758,24 @@ final class SubscriptionReportService
                 'country_name_ar' => $meta['name_ar'],
                 'country_name_en' => $meta['name_en'],
                 'flag_emoji' => $meta['flag'],
-                'price_egp' => round((float) $row->avg_price_egp, 2),
-                'price_kind' => 'average_historical_paid_amount',
-                'subscribers_count' => $subs,
-                'active_count' => (int) $row->active_cnt,
-                'expired_count' => $exp,
-                'cancelled_count' => (int) $row->cancelled_cnt,
-                'total_revenue_egp' => round($rev, 2),
+                'completed_payments_count' => $payments,
+                'paying_customers_count' => $payers,
+                'average_paid_amount_egp' => round((float) $row->avg_paid_egp, 2),
+                'total_paid_amount_egp' => round($rev, 2),
                 'percentage_share' => 0, // Populated after total
             ];
         }
 
-        // Calculate percentage shares & distribution
+        // The chart is payment distribution, so every completed payment belongs to
+        // exactly one country bucket and percentages always total 100%.
         $distribution = [];
         foreach ($table as &$row) {
-            $row['percentage_share'] = $totalSubscribers > 0 ? round(($row['subscribers_count'] / $totalSubscribers) * 100, 1) : 0;
+            $row['percentage_share'] = $totalPayments > 0 ? round(($row['completed_payments_count'] / $totalPayments) * 100, 1) : 0;
             $meta = self::COUNTRY_META[$row['country_code']] ?? ['color' => '#6b7280'];
             $distribution[] = [
                 'country_code' => $row['country_code'],
                 'country_name' => $row['country_name_ar'],
-                'subscribers_count' => $row['subscribers_count'],
+                'payments_count' => $row['completed_payments_count'],
                 'percentage' => $row['percentage_share'],
                 'color' => $meta['color'],
             ];
@@ -787,9 +785,14 @@ final class SubscriptionReportService
         return [
             'table' => $table,
             'totals' => [
-                'total_subscribers' => $totalSubscribers,
-                'total_expired' => $totalExpired,
-                'total_revenue_egp' => round($totalRevenue, 2),
+                'total_completed_payments' => $totalPayments,
+                'total_paying_customers' => (int) (clone $paymentBase)
+                    ->distinct('subscription_payments.user_id')
+                    ->count('subscription_payments.user_id'),
+                'average_paid_amount_egp' => $totalPayments > 0
+                    ? round($totalRevenue / $totalPayments, 2)
+                    : 0.0,
+                'total_paid_amount_egp' => round($totalRevenue, 2),
             ],
             'distribution' => $distribution,
         ];
