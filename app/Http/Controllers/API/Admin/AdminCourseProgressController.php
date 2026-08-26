@@ -83,7 +83,7 @@ class AdminCourseProgressController extends AdminCrudApiController
             $progress = $this->progressService->getAdminCourseStudentProgress($courseId, $search, $status);
 
             // Add course info
-            $course = \App\Models\Course\Course::select(['id', 'name', 'thumbnail'])->find($courseId);
+            $course = \App\Models\Course\Course::select(['id', 'title', 'thumbnail'])->find($courseId);
             
             return ApiResponseService::successResponse('Student progress retrieved successfully.', [
                 'course' => $course,

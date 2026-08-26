@@ -4,7 +4,10 @@ namespace App\Providers;
 
 use App\Services\HelperService;
 use App\Services\Mail\MailFromResolver;
+use App\Events\WebinarRegistered;
+use App\Listeners\SendWebinarRegisteredNotification;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -23,6 +26,8 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Model::preventLazyLoading(! $this->app->isProduction());
+
+        Event::listen(WebinarRegistered::class, SendWebinarRegisteredNotification::class);
 
         \Illuminate\Support\Facades\Gate::before(function ($user, $ability) {
             if ($user === null) {

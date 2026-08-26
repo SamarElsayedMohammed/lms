@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Course\Course;
 use App\Traits\ProtectsDemoData;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -85,6 +86,7 @@ final class User extends Authenticatable
         'profile',
         'wallet_balance',
         'type',
+        'is_webinar_guest',
         'referred_by',
         'allowed_devices_count',
     ];
@@ -107,6 +109,7 @@ final class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'wallet_balance' => 'decimal:2',
+        'is_webinar_guest' => 'boolean',
     ];
 
     /**
@@ -317,5 +320,20 @@ final class User extends Authenticatable
             'Moderator'
         ];
         return $this->hasAnyRole($adminRoles, 'web');
+    }
+
+    public function isWebinarGuest(): bool
+    {
+        return (bool) $this->is_webinar_guest;
+    }
+
+    /**
+     * Webinar guest leads must not inflate LMS student / dashboard user totals.
+     */
+    public function scopeWithoutWebinarGuests(Builder $query): Builder
+    {
+        return $query->where(function (Builder $q): void {
+            $q->whereNull('is_webinar_guest')->orWhere('is_webinar_guest', false);
+        });
     }
 }

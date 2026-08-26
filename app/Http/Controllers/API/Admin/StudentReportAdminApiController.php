@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -94,7 +95,23 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
             ->pluck('course_chapters.course_id')->unique()->toArray();
 
-        $enrolledCourseIds = array_unique(array_merge($purchasedIds, $trackedIds));
+        $progressIds = UserCourseProgress::where('user_id', $user->id)
+            ->pluck('course_id')
+            ->unique()
+            ->all();
+
+        $videoIds = [];
+        if (Schema::hasTable('video_progress')) {
+            $videoIds = DB::table('video_progress as vp')
+                ->join('course_chapter_lectures as ccl', 'vp.lecture_id', '=', 'ccl.id')
+                ->join('course_chapters as cc', 'ccl.course_chapter_id', '=', 'cc.id')
+                ->where('vp.user_id', $user->id)
+                ->distinct()
+                ->pluck('cc.course_id')
+                ->all();
+        }
+
+        $enrolledCourseIds = array_values(array_unique(array_merge($purchasedIds, $trackedIds, $progressIds, $videoIds)));
 
         if (empty($enrolledCourseIds)) {
             return $this->jsonSuccess('Student tracking report retrieved', [
@@ -175,6 +192,23 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->groupBy('cc.course_id')
             ->pluck('last_at', 'course_id');
 
+        $lastVideoMap = collect();
+        if (Schema::hasTable('video_progress')) {
+            $lastVideoMap = DB::table('video_progress as vp')
+                ->join('course_chapter_lectures as ccl', 'vp.lecture_id', '=', 'ccl.id')
+                ->join('course_chapters as cc', 'ccl.course_chapter_id', '=', 'cc.id')
+                ->where('vp.user_id', $user->id)
+                ->whereIn('cc.course_id', $enrolledCourseIds)
+                ->selectRaw('cc.course_id, MAX(vp.updated_at) as last_at')
+                ->groupBy('cc.course_id')
+                ->pluck('last_at', 'course_id');
+        }
+
+        $ucpByCourse = UserCourseProgress::where('user_id', $user->id)
+            ->whereIn('course_id', $enrolledCourseIds)
+            ->get()
+            ->keyBy('course_id');
+
         // Enrollment date per course (first completed order)
         $enrolledAtMap = DB::table('order_courses as oc')
             ->join('orders as o', 'oc.order_id', '=', 'o.id')
@@ -199,7 +233,10 @@ class StudentReportAdminApiController extends AdminCrudApiController
                    + ($resourceMap[$courseId] ?? 0);
 
             $completed = (int) ($completedItemsMap[$courseId] ?? 0);
-            $progress  = $total > 0 ? round(($completed / $total) * 100, 2) : 0;
+            $cached = $ucpByCourse->get($courseId);
+            $progress = $cached !== null
+                ? round(min(100.0, max(0.0, (float) $cached->progress_percentage)), 2)
+                : ($total > 0 ? round(($completed / $total) * 100, 2) : 0);
 
             $status = 'not_started';
             if ($progress >= 100) {
@@ -224,7 +261,11 @@ class StudentReportAdminApiController extends AdminCrudApiController
                 'status'              => $status,
                 'completed_items'     => $completed,
                 'total_items'         => $total,
-                'last_activity_at'    => $lastActivityMap[$courseId] ?? null,
+                'last_activity_at'    => $this->laterTimestamp(
+                    $lastActivityMap[$courseId] ?? null,
+                    $lastVideoMap[$courseId] ?? null,
+                    $cached?->updated_at,
+                ),
                 'enrolled_at'         => isset($enrolledAtMap[$courseId])
                     ? Carbon::parse($enrolledAtMap[$courseId])->toDateTimeString()
                     : null,
@@ -298,7 +339,12 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('cc.course_id', $eligibleCourseIds))
             ->select('uct.user_id', 'cc.course_id');
 
-        $enrolledPairs = $enrollmentsQuery->union($trackingEnrollments);
+        $progressEnrollments = DB::table('user_course_progress as ucp_enroll')
+            ->whereIn('ucp_enroll.user_id', clone $scopedStudentIds)
+            ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('ucp_enroll.course_id', $eligibleCourseIds))
+            ->select('ucp_enroll.user_id as user_id', 'ucp_enroll.course_id as course_id');
+
+        $enrolledPairs = $enrollmentsQuery->union($trackingEnrollments)->union($progressEnrollments);
         $progressByCourse = DB::table('user_course_progress as ucp')
             ->whereIn('ucp.user_id', clone $scopedStudentIds)
             ->when($eligibleCourseIds !== null, fn ($q) => $q->whereIn('ucp.course_id', $eligibleCourseIds))
@@ -546,6 +592,11 @@ class StudentReportAdminApiController extends AdminCrudApiController
                         ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
                         ->whereColumn('user_curriculum_trackings.user_id', 'users.id')
                         ->whereIn('course_chapters.course_id', $eligibleCourseIds);
+                })->orWhereExists(static function ($progress) use ($eligibleCourseIds): void {
+                    $progress->selectRaw('1')
+                        ->from('user_course_progress')
+                        ->whereColumn('user_course_progress.user_id', 'users.id')
+                        ->whereIn('user_course_progress.course_id', $eligibleCourseIds);
                 });
             });
         }
@@ -591,9 +642,16 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->groupBy('user_id')
             ->map(fn($rows) => $rows->pluck('course_id')->unique()->toArray());
 
+        $progressMap = UserCourseProgress::whereIn('user_id', $studentIds)
+            ->when($eligibleCourseIds !== null, fn ($query) => $query->whereIn('course_id', $eligibleCourseIds))
+            ->select('user_id', 'course_id', 'progress_percentage', 'status')
+            ->get()
+            ->groupBy('user_id');
+
         // Gather all relevant course IDs
         $allCourseIds = collect($purchasedMap->values()->toArray())
             ->merge(collect($trackedMap->values()->toArray()))
+            ->merge($progressMap->map(fn ($rows) => $rows->pluck('course_id')->all())->values()->toArray())
             ->flatten()->unique()->filter()->values()->toArray();
 
         $lectureCountMap = collect();
@@ -650,25 +708,35 @@ class StudentReportAdminApiController extends AdminCrudApiController
         }
 
         $items = collect($students->items())->map(function ($user) use (
-            $purchasedMap, $trackedMap, $lectureCountMap, $quizCountMap,
+            $purchasedMap, $trackedMap, $progressMap, $lectureCountMap, $quizCountMap,
             $assignmentCountMap, $resourceCountMap, $completedMap
         ) {
             $purchased = $purchasedMap->get($user->id, []);
             $tracked   = $trackedMap->get($user->id, []);
-            $enrolledIds = array_unique(array_merge($purchased, $tracked));
+            $progressRows = $progressMap->get($user->id, collect());
+            $progressCourseIds = $progressRows->pluck('course_id')->all();
+            $enrolledIds = array_unique(array_merge($purchased, $tracked, $progressCourseIds));
+            $ucpByCourse = $progressRows->keyBy('course_id');
 
             $completed = 0;
             $inProgress = 0;
 
             foreach ($enrolledIds as $courseId) {
-                $totalItems = ($lectureCountMap->get($courseId) ?? 0)
-                    + ($quizCountMap->get($courseId) ?? 0)
-                    + ($assignmentCountMap->get($courseId) ?? 0)
-                    + ($resourceCountMap->get($courseId) ?? 0);
-                if ($totalItems === 0) continue;
-                $completedItems = $completedMap->get($user->id)?->get($courseId) ?? 0;
-                $progress = ($completedItems / $totalItems) * 100;
-                if ($progress >= 100) {
+                $cached = $ucpByCourse->get($courseId);
+                if ($cached !== null) {
+                    $progress = (float) $cached->progress_percentage;
+                } else {
+                    $totalItems = ($lectureCountMap->get($courseId) ?? 0)
+                        + ($quizCountMap->get($courseId) ?? 0)
+                        + ($assignmentCountMap->get($courseId) ?? 0)
+                        + ($resourceCountMap->get($courseId) ?? 0);
+                    if ($totalItems === 0) {
+                        continue;
+                    }
+                    $completedItems = $completedMap->get($user->id)?->get($courseId) ?? 0;
+                    $progress = ($completedItems / $totalItems) * 100;
+                }
+                if ($progress >= 100 || $cached?->status === 'completed') {
                     $completed++;
                 } elseif ($progress > 0) {
                     $inProgress++;
@@ -940,9 +1008,25 @@ class StudentReportAdminApiController extends AdminCrudApiController
     {
         return [
             'account_grain' => 'student_role_accounts',
-            'access_grain' => 'completed_purchases_and_curriculum_tracking',
+            'access_grain' => 'completed_purchases_curriculum_tracking_and_course_progress',
             'progress_grain' => 'user_course_progress_or_completed_curriculum_item_ratio',
-            'subscription_catalog_access' => 'excluded_from_student_report_included_in_my_learning',
+            'subscription_catalog_access' => 'included_when_user_course_progress_or_video_progress_exists',
         ];
+    }
+
+    private function laterTimestamp(mixed ...$values): ?string
+    {
+        $latest = null;
+        foreach ($values as $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $parsed = Carbon::parse($value);
+            if ($latest === null || $parsed->gt($latest)) {
+                $latest = $parsed;
+            }
+        }
+
+        return $latest?->toDateTimeString();
     }
 }

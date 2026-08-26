@@ -74,7 +74,7 @@ final class ResumePointService
 
         $lecture = $chapter->lectures()
             ->where('is_active', true)
-            ->orderBy('lecture_order')
+            ->orderBy('chapter_order')
             ->first();
         if ($lecture === null) {
             return null;

@@ -10,6 +10,8 @@ use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\UserCurriculumTracking;
 use App\Models\UserCourseProgress;
 use App\Models\VideoProgress;
+use App\Models\Order;
+use App\Models\OrderCourse;
 use App\Services\CourseProgressService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -185,5 +187,57 @@ class CourseProgressServiceTest extends TestCase
         $progress = $this->service->getProgressWithCache($user->id, $course->id);
 
         $this->assertSame(100.0, (float) $progress->progress_percentage);
+    }
+
+    public function test_admin_overview_uses_course_progress_and_keeps_not_started_non_negative(): void
+    {
+        $buyer = User::factory()->create();
+        $inProgressUser = User::factory()->create();
+        $course = Course::factory()->create(['status' => 'publish']);
+
+        $order = Order::create([
+            'order_number' => 'ORD-' . uniqid(),
+            'user_id' => $buyer->id,
+            'status' => 'completed',
+            'payment_method' => 'wallet',
+            'total_price' => 100.00,
+            'final_price' => 100.00,
+        ]);
+        OrderCourse::create([
+            'order_id' => $order->id,
+            'course_id' => $course->id,
+            'price' => 100.00,
+            'tax_price' => 0.00,
+        ]);
+
+        UserCourseProgress::create([
+            'user_id' => $buyer->id,
+            'course_id' => $course->id,
+            'total_items' => 2,
+            'completed_items' => 2,
+            'progress_percentage' => 100,
+            'status' => 'completed',
+        ]);
+        UserCourseProgress::create([
+            'user_id' => $inProgressUser->id,
+            'course_id' => $course->id,
+            'total_items' => 2,
+            'completed_items' => 1,
+            'progress_percentage' => 50,
+            'status' => 'in_progress',
+        ]);
+
+        $overview = $this->service->getAdminOverview();
+        $row = collect($overview['data'])->firstWhere('course_id', $course->id);
+
+        $this->assertNotNull($row);
+        $this->assertSame(1, (int) $row['purchased_count']);
+        $this->assertSame(1, (int) $row['completed_count']);
+        $this->assertSame(1, (int) $row['in_progress_count']);
+        $this->assertGreaterThanOrEqual(0, (int) $row['not_started_count']);
+        $this->assertSame(
+            (int) $row['total_students'],
+            (int) $row['completed_count'] + (int) $row['in_progress_count'] + (int) $row['not_started_count']
+        );
     }
 }

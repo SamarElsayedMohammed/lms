@@ -188,9 +188,10 @@ Route::get('webinars/{webinar:slug}', [\App\Http\Controllers\API\PublicWebinarCo
 Route::get('webinars/{webinar:slug}/join', [\App\Http\Controllers\API\PublicWebinarController::class, 'join'])->middleware('auth:sanctum');
 Route::get('webinars/{webinar:slug}/recording', [\App\Http\Controllers\API\PublicWebinarController::class, 'recording'])->middleware('auth:sanctum');
 
+Route::post('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'register'])
+    ->middleware(['throttle:5,1', \App\Http\Middleware\OptionalAuth::class]);
+
 Route::middleware('auth:sanctum')->group(function () {
-    Route::post('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'register'])
-        ->middleware('throttle:5,1');
     Route::delete('webinars/{webinar:slug}/register', [\App\Http\Controllers\API\WebinarRegistrationController::class, 'cancelRegistration']);
     
     // User registered webinars (My Live Sessions / My Webinars)

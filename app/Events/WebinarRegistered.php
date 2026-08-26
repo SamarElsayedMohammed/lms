@@ -1,23 +1,19 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Events;
 
 use App\Models\WebinarRegistration;
-use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
 class WebinarRegistered
 {
-    use Dispatchable, InteractsWithSockets, SerializesModels;
+    use Dispatchable;
+    use SerializesModels;
 
-    public WebinarRegistration $registration;
-
-    /**
-     * Create a new event instance.
-     */
-    public function __construct(WebinarRegistration $registration)
+    public function __construct(public WebinarRegistration $registration)
     {
-        $this->registration = $registration;
     }
 }

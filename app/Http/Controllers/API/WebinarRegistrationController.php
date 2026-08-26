@@ -27,12 +27,12 @@ class WebinarRegistrationController extends Controller
     {
         try {
             $user = Auth::guard('sanctum')->user();
-            if (!$user) {
-                return ApiResponseService::errorResponse('Unauthorized.', [], 401);
-            }
 
             // Paid webinars use wallet only (no cart / no Kashier checkout from this endpoint).
             if (!$webinar->is_free && $webinar->price > 0) {
+                if (!$user) {
+                    return ApiResponseService::errorResponse('Unauthorized.', [], 401);
+                }
                 return ApiResponseService::errorResponse(
                     'التسجيل في الويبنار المدفوع يتم عبر رصيد المحفظة فقط.',
                     ['error_code' => 'wallet_required'],
@@ -40,15 +40,14 @@ class WebinarRegistrationController extends Controller
                 );
             }
 
-            // Extract dynamic custom field responses and UTM tracking
-            $payload = $request->all();
             $formResponses = is_array($request->input('form_responses'))
                 ? $request->input('form_responses')
                 : $request->except(['_token', 'use_wallet', 'utm_source', 'password', 'password_confirmation']);
             $utmSource = $request->input('utm_source');
 
-            // Free webinar registration
-            $this->registrationService->register($webinar, $user, 'free', 0.00, null, $formResponses, $utmSource);
+            $registrant = $this->registrationService->resolveRegistrant($user, is_array($formResponses) ? $formResponses : []);
+
+            $this->registrationService->register($webinar, $registrant, 'free', 0.00, null, is_array($formResponses) ? $formResponses : [], $utmSource);
 
             return ApiResponseService::successResponse('Successfully registered for the webinar.');
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -56,6 +55,12 @@ class WebinarRegistrationController extends Controller
                 $e->getMessage(),
                 $e->errors(),
                 422
+            );
+        } catch (\App\Services\WebinarRegistrationDeniedException $e) {
+            return ApiResponseService::errorResponse(
+                $e->getMessage(),
+                ['error_code' => $e->errorCode],
+                $e->getCode() ?: 400
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;

@@ -6,8 +6,10 @@ use App\Models\User;
 use App\Models\Webinar;
 use App\Models\WebinarRegistration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class WebinarSystemTest extends TestCase
@@ -41,12 +43,21 @@ class WebinarSystemTest extends TestCase
             'is_published' => true,
         ]);
 
-        // First registration should succeed
-        $response1 = $this->actingAs($user)->postJson("/api/webinars/{$webinar->slug}/register");
+        Sanctum::actingAs($user);
+        $response1 = $this->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => $user->name,
+            'email' => $user->email,
+            'whatsapp' => '01011111111',
+        ]);
         $response1->assertStatus(200);
 
-        // Second registration should fail due to capacity
-        $response2 = $this->actingAs($user2)->postJson("/api/webinars/{$webinar->slug}/register");
+        Auth::forgetGuards();
+        Sanctum::actingAs($user2);
+        $response2 = $this->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => $user2->name,
+            'email' => $user2->email,
+            'whatsapp' => '01022222222',
+        ]);
         $response2->assertStatus(409);
         $this->assertEquals('This webinar is full. No more registrations allowed.', $response2->json('message'));
     }
@@ -492,5 +503,438 @@ class WebinarSystemTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJsonValidationErrors(['company_name']);
+    }
+
+    public function test_guest_can_register_for_free_webinar_without_login(): void
+    {
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Guest Free Webinar',
+            'slug' => 'guest-free-webinar',
+            'start_at' => now()->addDays(3),
+            'duration' => 60,
+            'is_free' => true,
+            'price' => 0,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $response = $this->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'سارة الضيف',
+            'email' => 'sara.guest@example.com',
+            'whatsapp' => '01099887766',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertDatabaseHas('webinar_registrations', [
+            'webinar_id' => $webinar->id,
+        ]);
+        $this->assertDatabaseHas('users', [
+            'email' => 'sara.guest@example.com',
+            'is_webinar_guest' => 1,
+        ]);
+        $this->assertSame(0, User::withoutWebinarGuests()->where('email', 'sara.guest@example.com')->count());
+    }
+
+    public function test_guest_duplicate_email_is_rejected(): void
+    {
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Guest Dup Webinar',
+            'slug' => 'guest-dup-webinar',
+            'start_at' => now()->addDays(3),
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $payload = [
+            'name' => 'مكرر',
+            'email' => 'dup.guest@example.com',
+            'whatsapp' => '01055554444',
+        ];
+
+        $this->postJson("/api/webinars/{$webinar->slug}/register", $payload)->assertStatus(200);
+        $this->postJson("/api/webinars/{$webinar->slug}/register", $payload)->assertStatus(409);
+        $this->assertEquals(1, WebinarRegistration::where('webinar_id', $webinar->id)->count());
+    }
+
+    public function test_registration_rejects_invalid_select_option_and_unknown_field(): void
+    {
+        $user = User::factory()->create();
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Schema Strict',
+            'slug' => 'schema-strict',
+            'start_at' => now()->addDays(2),
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+            'config' => [
+                'form' => [
+                    'customFields' => [
+                        [
+                            'id' => 'level',
+                            'key' => 'experience_level',
+                            'name' => 'experience_level',
+                            'label' => 'المستوى',
+                            'type' => 'select',
+                            'options' => ['مبتدئ', 'متوسط', 'متقدم'],
+                            'required' => true,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $invalidOption = $this->actingAs($user)->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'أحمد',
+            'email' => 'ahmed.schema@example.com',
+            'whatsapp' => '01012345678',
+            'experience_level' => 'hacker',
+        ]);
+        $invalidOption->assertStatus(422);
+
+        $unknownField = $this->actingAs($user)->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'أحمد',
+            'email' => 'ahmed.schema@example.com',
+            'whatsapp' => '01012345678',
+            'experience_level' => 'متقدم',
+            'injected_field' => 'nope',
+        ]);
+        $unknownField->assertStatus(422);
+    }
+
+    public function test_registration_closed_flag_is_enforced_server_side(): void
+    {
+        $user = User::factory()->create();
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Closed Reg',
+            'slug' => 'closed-reg',
+            'start_at' => now()->addDays(4),
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+            'config' => [
+                'registration' => [
+                    'open' => false,
+                    'closedMessage' => 'التسجيل مغلق لهذا الويبنار.',
+                ],
+            ],
+        ]);
+
+        $response = $this->actingAs($user)->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'أحمد',
+            'email' => 'closed@example.com',
+            'whatsapp' => '01012345678',
+        ]);
+        $response->assertStatus(400);
+        $this->assertEquals('registration_closed', $response->json('data.error_code') ?? $response->json('errors.error_code'));
+    }
+
+    public function test_admin_config_round_trip_and_public_payload_hides_secrets(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+
+        $config = [
+            'hero' => ['title' => 'ويبنار أ', 'badge' => 'ويبنار مجاني'],
+            'event' => ['timezone' => 'Africa/Cairo', 'dateISO' => now()->addDays(5)->toIso8601String()],
+            'outcomes' => ['items' => [['title' => 'خطة عمل', 'description' => 'خطة']]],
+            'speakers' => [
+                ['name' => 'مدرب أول', 'role' => 'خبير'],
+                ['name' => 'مدرب ثاني', 'role' => 'ممارس'],
+            ],
+            'agenda' => ['items' => [['title' => 'افتتاح', 'startTime' => '8:00 م', 'enabled' => true]]],
+            'faq' => ['items' => [['question' => 'هل مجاني؟', 'answer' => 'نعم', 'enabled' => true]]],
+            'form' => [
+                'customFields' => [
+                    ['id' => 'goal', 'key' => 'goal', 'name' => 'goal', 'label' => 'الهدف', 'type' => 'textarea', 'required' => false],
+                ],
+            ],
+            'thankYou' => [
+                'title' => 'شكراً لك',
+                'buttons' => [['text' => 'واتساب', 'url' => 'https://wa.me/201000000000', 'icon' => 'whatsapp', 'enabled' => true]],
+            ],
+            'registration' => ['open' => true],
+        ];
+
+        $create = $this->actingAs($admin)->postJson('/api/admin/webinars', [
+            'instructor_id' => $this->instructor->id,
+            'title' => 'ويبنار أ',
+            'description' => 'وصف كامل',
+            'start_at' => now()->addDays(5)->toDateTimeString(),
+            'duration' => 90,
+            'is_free' => true,
+            'price' => 0,
+            'provider' => 'jitsi',
+            'join_url' => 'https://meet.jit.si/secret-room',
+            'meeting_password' => 'secret-pass',
+            'config' => $config,
+            'is_published' => true,
+        ]);
+        $create->assertStatus(201);
+
+        $slug = $create->json('data.slug');
+        $this->assertNotEmpty($slug);
+
+        $adminShow = $this->actingAs($admin)->getJson("/api/admin/webinars/{$slug}");
+        $adminShow->assertStatus(200);
+        $this->assertEquals('خطة عمل', $adminShow->json('data.config.outcomes.items.0.title'));
+        $this->assertCount(2, $adminShow->json('data.config.speakers'));
+        $this->assertEquals('واتساب', $adminShow->json('data.config.thankYou.buttons.0.text'));
+        $this->assertEquals('افتتاح', $adminShow->json('data.config.agenda.items.0.title'));
+
+        Webinar::where('slug', $slug)->update(['is_published' => true]);
+
+        $public = $this->getJson("/api/webinars/{$slug}");
+        $public->assertStatus(200);
+        $publicWebinar = $public->json('data.webinar');
+        $this->assertEquals('خطة عمل', $publicWebinar['config']['outcomes']['items'][0]['title']);
+        $this->assertCount(2, $publicWebinar['config']['speakers']);
+        $this->assertArrayNotHasKey('join_url', $publicWebinar);
+        $this->assertArrayNotHasKey('meeting_password', $publicWebinar);
+        $this->assertArrayNotHasKey('join_url', $publicWebinar['config'] ?? []);
+    }
+
+    public function test_second_webinar_can_use_different_form_and_thank_you_without_schema_change(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+
+        $createB = $this->actingAs($admin)->postJson('/api/admin/webinars', [
+            'instructor_id' => $this->instructor->id,
+            'title' => 'ويبنار ب',
+            'description' => 'تكوين مختلف',
+            'start_at' => now()->addDays(8)->toDateTimeString(),
+            'duration' => 60,
+            'is_free' => true,
+            'price' => 0,
+            'provider' => 'jitsi',
+            'config' => [
+                'hero' => ['title' => 'ويبنار ب'],
+                'speakers' => [['name' => 'متحدث واحد']],
+                'form' => [
+                    'customFields' => [
+                        ['id' => 'country', 'key' => 'country', 'name' => 'country', 'label' => 'الدولة', 'type' => 'text', 'required' => true],
+                        ['id' => 'goal', 'key' => 'goal', 'name' => 'goal', 'label' => 'الهدف', 'type' => 'textarea', 'required' => false],
+                    ],
+                ],
+                'thankYou' => [
+                    'title' => 'تم بنجاح',
+                    'buttons' => [
+                        ['text' => 'تيليجرام', 'url' => 'https://t.me/skillso', 'icon' => 'telegram', 'enabled' => true],
+                        ['text' => 'تحميل', 'url' => 'https://example.com/files.pdf', 'icon' => 'download', 'enabled' => true],
+                    ],
+                ],
+            ],
+        ]);
+        $createB->assertStatus(201);
+        $slugB = $createB->json('data.slug');
+        Webinar::where('slug', $slugB)->update(['is_published' => true]);
+
+        $guest = $this->postJson("/api/webinars/{$slugB}/register", [
+            'name' => 'ضيف ب',
+            'phone' => '01077776666',
+            'country' => 'مصر',
+            'goal' => 'تطوير المسار',
+        ]);
+        $guest->assertStatus(200);
+
+        $registration = WebinarRegistration::where('webinar_id', Webinar::where('slug', $slugB)->value('id'))->first();
+        $this->assertEquals('مصر', $registration->form_responses['country'] ?? null);
+        $this->assertEquals('تطوير المسار', $registration->form_responses['goal'] ?? null);
+        $this->assertIsArray($registration->form_responses['_schema'] ?? null);
+
+        $public = $this->getJson("/api/webinars/{$slugB}");
+        $public->assertStatus(200);
+        $this->assertCount(2, $public->json('data.webinar.config.thankYou.buttons'));
+        $this->assertCount(1, $public->json('data.webinar.config.speakers'));
+    }
+
+    public function test_guest_signup_converts_webinar_guest_without_duplicate_user(): void
+    {
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'تحويل حساب الضيف',
+            'slug' => 'guest-convert-webinar',
+            'start_at' => now()->addDays(4),
+            'duration' => 60,
+            'is_free' => true,
+            'price' => 0,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $this->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'ضيف للتحويل',
+            'email' => 'convert.guest@example.com',
+            'whatsapp' => '01011112222',
+        ])->assertStatus(200);
+
+        $guest = User::where('email', 'convert.guest@example.com')->first();
+        $this->assertNotNull($guest);
+        $this->assertTrue($guest->isWebinarGuest());
+        $registrationId = WebinarRegistration::where('user_id', $guest->id)->where('webinar_id', $webinar->id)->value('id');
+
+        $signup = $this->postJson('/api/user-signup', [
+            'type' => 'email',
+            'name' => 'حساب سكيلسو',
+            'email' => 'convert.guest@example.com',
+            'password' => 'Secret#123',
+            'confirm_password' => 'Secret#123',
+        ]);
+
+        $signup->assertSuccessful();
+        $this->assertSame(1, User::where('email', 'convert.guest@example.com')->count());
+        $converted = User::where('email', 'convert.guest@example.com')->first();
+        $this->assertFalse($converted->isWebinarGuest());
+        $this->assertFalse((bool) $converted->is_webinar_guest);
+        $this->assertSame($registrationId, WebinarRegistration::where('user_id', $converted->id)->where('webinar_id', $webinar->id)->value('id'));
+    }
+
+    public function test_historical_schema_label_survives_admin_field_rename(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'مخطط تاريخي',
+            'slug' => 'historical-schema-webinar',
+            'start_at' => now()->addDays(6),
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+            'config' => [
+                'form' => [
+                    'customFields' => [
+                        ['id' => 'experience', 'key' => 'experience', 'name' => 'experience', 'label' => 'مستوى الخبرة', 'type' => 'select', 'required' => true, 'options' => ['مبتدئ', 'محترف']],
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'مستخدم أ',
+            'email' => 'hist.a@example.com',
+            'whatsapp' => '01000001111',
+            'experience' => 'مبتدئ',
+        ])->assertStatus(200);
+
+        $this->actingAs($admin)->putJson("/api/admin/webinars/{$webinar->slug}", [
+            'title' => 'مخطط تاريخي',
+            'config' => [
+                'form' => [
+                    'customFields' => [
+                        ['id' => 'experience', 'key' => 'experience', 'name' => 'experience', 'label' => 'خبرتك الحالية', 'type' => 'select', 'required' => true, 'options' => ['مبتدئ', 'محترف']],
+                    ],
+                ],
+            ],
+        ])->assertOk();
+
+        $registrants = $this->actingAs($admin)->getJson("/api/admin/webinars/{$webinar->slug}/registrants");
+        $registrants->assertOk();
+        $row = collect($registrants->json('data.registrants'))->first();
+        $this->assertEquals('مبتدئ', $row['form_responses']['experience'] ?? null);
+        $schemaLabels = collect($row['form_responses']['_schema'])->pluck('label')->all();
+        $this->assertContains('مستوى الخبرة', $schemaLabels);
+        $this->assertNotContains('unknown_field_34', $schemaLabels);
+    }
+
+    public function test_multipart_config_json_string_does_not_become_object_object(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+
+        $create = $this->actingAs($admin)->postJson('/api/admin/webinars', [
+            'instructor_id' => $this->instructor->id,
+            'title' => 'ويبنار مرفقات',
+            'description' => 'وصف',
+            'start_at' => now()->addDays(8)->toDateTimeString(),
+            'duration' => 75,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'config' => [
+                'hero' => ['title' => 'عنوان محفوظ'],
+                'agenda' => ['items' => [['title' => 'افتتاح', 'enabled' => true]]],
+                'thankYou' => ['title' => 'شكراً بعد الرفع'],
+            ],
+            'is_published' => true,
+        ]);
+        $create->assertStatus(201);
+        $slug = $create->json('data.slug');
+
+        $configJson = json_encode([
+            'hero' => ['title' => 'عنوان محفوظ'],
+            'agenda' => ['items' => [['title' => 'افتتاح', 'enabled' => true]]],
+            'outcomes' => ['items' => [['title' => 'نتيجة']]],
+            'thankYou' => ['title' => 'شكراً بعد الرفع'],
+        ], JSON_UNESCAPED_UNICODE);
+
+        $update = $this->actingAs($admin)
+            ->call('PUT', "/api/admin/webinars/{$slug}", [
+                'title' => 'ويبنار مرفقات',
+                'description' => 'وصف',
+                'start_at' => now()->addDays(8)->toDateTimeString(),
+                'duration' => 75,
+                'config' => $configJson,
+            ], [], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        $update->assertOk();
+        $show = $this->actingAs($admin)->getJson("/api/admin/webinars/{$slug}");
+        $show->assertOk();
+        $this->assertSame('عنوان محفوظ', $show->json('data.config.hero.title'));
+        $this->assertSame('افتتاح', $show->json('data.config.agenda.items.0.title'));
+        $this->assertSame('شكراً بعد الرفع', $show->json('data.config.thankYou.title'));
+        $this->assertNotSame('[object Object]', $show->json('data.config.hero'));
+    }
+
+    public function test_registration_dispatches_notification_without_meeting_secrets(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'ويبنار إشعار',
+            'slug' => 'notify-webinar',
+            'start_at' => now()->addDays(2),
+            'duration' => 60,
+            'is_free' => true,
+            'provider' => 'jitsi',
+            'join_url' => 'https://meet.jit.si/secret-room',
+            'meeting_password' => 'secret-pass',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $this->postJson("/api/webinars/{$webinar->slug}/register", [
+            'name' => 'مستلم الإشعار',
+            'email' => 'notify.guest@example.com',
+            'whatsapp' => '01033334444',
+        ])->assertStatus(200);
+
+        $user = User::where('email', 'notify.guest@example.com')->first();
+        \Illuminate\Support\Facades\Notification::assertSentTo(
+            $user,
+            \App\Notifications\WebinarRegisteredNotification::class,
+            function (\App\Notifications\WebinarRegisteredNotification $notification) use ($user) {
+                $encoded = json_encode($notification->toArray($user));
+                return !str_contains((string) $encoded, 'secret-room')
+                    && !str_contains((string) $encoded, 'secret-pass')
+                    && !str_contains((string) $encoded, 'join_url');
+            }
+        );
     }
 }

@@ -51,7 +51,7 @@ class BunnyWebhookController extends Controller
         // Find the lecture. Since we don't have a direct reverse lookup easily, we can find by content_url or just dispatch the job to figure it out.
         // Actually, we can just dispatch the job. BUT the job requires lectureId.
         // So we must find the lectureId by looking up `file` or `content_url` containing the videoGuid.
-        $lecture = \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::where('type', 'video')
+        $lecture = \App\Models\Course\CourseChapter\Lecture\CourseChapterLecture::query()
             ->where(function ($q) use ($videoGuid) {
                 $q->where('file', 'like', "%{$videoGuid}%")
                   ->orWhere('youtube_url', 'like', "%{$videoGuid}%");

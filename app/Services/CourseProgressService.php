@@ -239,8 +239,8 @@ class CourseProgressService
     {
         try {
             $course = Course::with([
-                'chapters' => static fn ($query) => $query->where('is_active', true)->with([
-                    'lectures' => static fn ($query) => $query->where('is_active', true),
+                'chapters' => static fn ($query) => $query->where('is_active', true)->orderBy('chapter_order')->with([
+                    'lectures' => static fn ($query) => $query->where('is_active', true)->orderBy('chapter_order'),
                     'resources' => static fn ($query) => $query->where('is_active', true),
                 ]),
             ])
@@ -401,28 +401,54 @@ class CourseProgressService
                 ->selectRaw('(
                     SELECT COUNT(DISTINCT s.user_id)
                     FROM subscriptions s
-                    JOIN subscription_plans sp ON s.plan_id = sp.id
-                    JOIN user_curriculum_trackings uct_sub ON uct_sub.user_id = s.user_id
-                    JOIN course_chapters cc_sub ON uct_sub.course_chapter_id = cc_sub.id
-                    WHERE cc_sub.course_id = courses.id
-                    AND s.status = "active"
-                    AND (s.ends_at IS NULL OR s.ends_at > NOW())
-                ) as subscription_students')
-                ->selectRaw('(
+                    WHERE s.status = "active"
+                    AND (s.ends_at IS NULL OR s.ends_at > CURRENT_TIMESTAMP)
+                    AND (
+                        EXISTS (
+                            SELECT 1 FROM user_course_progress ucp_sub
+                            WHERE ucp_sub.user_id = s.user_id
+                            AND ucp_sub.course_id = courses.id
+                        )
+                        OR EXISTS (
+                            SELECT 1 FROM user_curriculum_trackings uct_sub
+                            JOIN course_chapters cc_sub ON uct_sub.course_chapter_id = cc_sub.id
+                            WHERE uct_sub.user_id = s.user_id
+                            AND cc_sub.course_id = courses.id
+                        )
+                    )
+                ) as subscription_students');
+
+            if (Schema::hasTable('user_course_progress')) {
+                $query->selectRaw('(
+                    SELECT COUNT(DISTINCT ucp.user_id)
+                    FROM user_course_progress ucp
+                    WHERE ucp.course_id = courses.id
+                    AND ucp.status = "completed"
+                ) as completed_students')
+                    ->selectRaw('(
+                    SELECT COUNT(DISTINCT ucp.user_id)
+                    FROM user_course_progress ucp
+                    WHERE ucp.course_id = courses.id
+                    AND ucp.status = "in_progress"
+                ) as in_progress_students');
+            } else {
+                $query->selectRaw('(
                     SELECT COUNT(DISTINCT uct.user_id)
                     FROM user_curriculum_trackings uct
                     JOIN course_chapters cc ON uct.course_chapter_id = cc.id
                     WHERE cc.course_id = courses.id
                     AND uct.status = "completed"
                 ) as completed_students')
-                ->selectRaw('(
+                    ->selectRaw('(
                     SELECT COUNT(DISTINCT uct.user_id)
                     FROM user_curriculum_trackings uct
                     JOIN course_chapters cc ON uct.course_chapter_id = cc.id
                     WHERE cc.course_id = courses.id
                     AND uct.status = "in_progress"
-                ) as in_progress_students')
-                ->selectRaw('(
+                ) as in_progress_students');
+            }
+
+            $query->selectRaw('(
                     SELECT COUNT(*) FROM (
                         SELECT o.user_id
                         FROM order_courses oc
@@ -431,11 +457,25 @@ class CourseProgressService
                         UNION
                         SELECT s.user_id
                         FROM subscriptions s
-                        JOIN user_curriculum_trackings uct_u ON uct_u.user_id = s.user_id
-                        JOIN course_chapters cc_u ON uct_u.course_chapter_id = cc_u.id
-                        WHERE cc_u.course_id = courses.id
-                        AND s.status = "active"
-                        AND (s.ends_at IS NULL OR s.ends_at > NOW())
+                        WHERE s.status = "active"
+                        AND (s.ends_at IS NULL OR s.ends_at > CURRENT_TIMESTAMP)
+                        AND (
+                            EXISTS (
+                                SELECT 1 FROM user_course_progress ucp_u
+                                WHERE ucp_u.user_id = s.user_id
+                                AND ucp_u.course_id = courses.id
+                            )
+                            OR EXISTS (
+                                SELECT 1 FROM user_curriculum_trackings uct_u
+                                JOIN course_chapters cc_u ON uct_u.course_chapter_id = cc_u.id
+                                WHERE uct_u.user_id = s.user_id
+                                AND cc_u.course_id = courses.id
+                            )
+                        )
+                        UNION
+                        SELECT ucp_all.user_id
+                        FROM user_course_progress ucp_all
+                        WHERE ucp_all.course_id = courses.id
                     ) AS unique_students
                 ) as total_students');
 
@@ -479,9 +519,7 @@ class CourseProgressService
                 $completed = (int) $course->completed_students;
                 $inProgress = (int) $course->in_progress_students;
                 $started = (int) $course->started_students;
-
-                // Calculate not_started (started but no progress tracking)
-                $notStarted = max(0, $started - $completed - $inProgress);
+                $notStarted = max(0, $totalStudents - $completed - $inProgress);
 
                 // Calculate average progress (approximation based on video progress)
                 $avgProgress = $this->calculateCourseAvgProgress($course->course_id);

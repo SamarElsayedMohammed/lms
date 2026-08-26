@@ -124,6 +124,7 @@ class WebinarAdminApiController extends AdminCrudApiController
             'provider'      => 'required|in:zoom,jitsi,google_meet,custom',
             'join_url'      => 'nullable|url',
             'features'      => 'nullable|array',
+            'config'        => 'nullable|array',
             'max_attendees' => 'nullable|integer|min:0',
             'tags'          => 'nullable|string',
         ]);
@@ -135,6 +136,12 @@ class WebinarAdminApiController extends AdminCrudApiController
         try {
             $data = $validator->validated();
             $this->extractLegacyConfig($data);
+            if (isset($data['config']) && is_array($data['config'])) {
+                $configErrors = app(\App\Services\WebinarConfigSanitizer::class)->validateAdminConfig($data['config']);
+                if ($configErrors !== []) {
+                    return $this->jsonError(reset($configErrors), 422);
+                }
+            }
 
             if (empty($data['instructor_id'])) {
                 $data['instructor_id'] = Auth::id();
@@ -219,6 +226,7 @@ class WebinarAdminApiController extends AdminCrudApiController
             'recording_url' => 'nullable|url',
             'join_url'      => 'nullable|url',
             'features'      => 'nullable|array',
+            'config'        => 'nullable|array',
             'max_attendees' => 'nullable|integer|min:0',
             'tags'          => 'nullable|string',
             'is_free'       => 'sometimes|boolean',
@@ -232,6 +240,12 @@ class WebinarAdminApiController extends AdminCrudApiController
         try {
             $data = $validator->validated();
             $this->extractLegacyConfig($data);
+            if (isset($data['config']) && is_array($data['config'])) {
+                $configErrors = app(\App\Services\WebinarConfigSanitizer::class)->validateAdminConfig($data['config']);
+                if ($configErrors !== []) {
+                    return $this->jsonError(reset($configErrors), 422);
+                }
+            }
 
             if (($data['is_free'] ?? false) === true) {
                 $data['price'] = 0;
@@ -516,7 +530,7 @@ class WebinarAdminApiController extends AdminCrudApiController
                     $jsonStr = substr($feature, strlen('__skillso_webinar_config_v1__:'));
                     $decoded = json_decode($jsonStr, true);
                     if (is_array($decoded)) {
-                        $extractedConfig = array_merge($extractedConfig, $decoded);
+                        $extractedConfig = array_merge($decoded, is_array($extractedConfig) ? $extractedConfig : []);
                     }
                 } else {
                     $cleanFeatures[] = $feature;

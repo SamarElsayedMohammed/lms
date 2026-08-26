@@ -102,6 +102,16 @@ class WebinarAccessService
             ];
         }
 
+        $registrationOpen = $webinar->config['registration']['open'] ?? true;
+        if ($registrationOpen === false) {
+            return [
+                'allowed' => false,
+                'reason' => $webinar->config['registration']['closedMessage'] ?? 'التسجيل مغلق لهذا الويبنار.',
+                'error_code' => 'registration_closed',
+                'code' => 400,
+            ];
+        }
+
         // Registration window enforcement: cannot register after start_at has passed
         if ($webinar->start_at && $webinar->start_at->isPast()) {
             return [
@@ -291,6 +301,10 @@ class WebinarAccessService
 
         if (!$entitled || $webinar->status !== 'completed' || empty($webinar->recording_url)) {
             $webinar->makeHidden(['recording_url']);
+        }
+
+        if (is_array($webinar->config)) {
+            $webinar->config = app(WebinarConfigSanitizer::class)->sanitizePublicConfig($webinar->config);
         }
 
         return $webinar;

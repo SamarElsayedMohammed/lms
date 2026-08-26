@@ -65,7 +65,7 @@ final class VideoStreamController extends Controller
                     return $this->forbidden('Subscription required');
                 }
 
-                if ($this->featureFlagService->isEnabled('video_progress_enforcement', true)) {
+                if ($this->featureFlagService->isEnabled('video_progress_enforcement', false)) {
                     if (!$this->videoProgressService->canAccessNextLesson($user, $courseChapterLecture)) {
                         return $this->forbidden('Complete the previous lesson first (100% required)');
                     }
@@ -123,7 +123,7 @@ final class VideoStreamController extends Controller
 
         return $this->ok(
             data: [
-                'manifest_url' => url("/api/hls/{$uuid}"),
+                'manifest_url' => url("/api/hls/{$uuid}/master.m3u8"),
                 'type' => 'hls',
                 'file_type' => 'hls',
                 'lecture_id' => $lecture->id,

@@ -324,6 +324,8 @@ final class SubscriptionCourseAccessTest extends TestCase
             (bool) ($data['is_subscribed'] ?? $data['is_purchased'] ?? false),
             'getCourse API must return is_subscribed=true (or is_purchased=true) for an active subscriber.'
         );
+        $this->assertTrue((bool) ($data['has_access'] ?? false), 'Active subscriber must receive has_access=true.');
+        $this->assertTrue((bool) ($data['is_enrolled'] ?? false), 'Active subscriber must receive is_enrolled=true.');
     }
 
     // =========================================================================

@@ -2,20 +2,93 @@
 
 namespace App\Services;
 
+use App\Models\User;
 use App\Models\Webinar;
 use App\Models\WebinarRegistration;
 use Exception;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Events\WebinarRegistered;
 
 class WebinarRegistrationService
 {
     protected WebinarAccessService $accessService;
+    protected WebinarFormSchemaValidator $formValidator;
 
-    public function __construct(WebinarAccessService $accessService)
+    public function __construct(WebinarAccessService $accessService, WebinarFormSchemaValidator $formValidator)
     {
         $this->accessService = $accessService;
+        $this->formValidator = $formValidator;
+    }
+
+    /**
+     * Resolve the registrant account. Authenticated users win.
+     * Free-webinar guests are matched or created by email so later join/notifications keep working.
+     */
+    public function resolveRegistrant(?User $authUser, array $formResponses): User
+    {
+        if ($authUser) {
+            return $authUser;
+        }
+
+        $email = $this->extractScalar($formResponses, ['email']);
+        $phone = $this->extractScalar($formResponses, ['whatsapp', 'phone', 'mobile']);
+        $name = $this->extractScalar($formResponses, ['name']) ?: 'مشارك';
+
+        if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $existing = User::query()->where('email', $email)->first();
+            if ($existing) {
+                return $existing;
+            }
+        } elseif ($phone) {
+            $normalizedPhone = preg_replace('/\D+/', '', $phone) ?: $phone;
+            $email = 'guest+' . $normalizedPhone . '@webinar.skillso.local';
+            $existing = User::query()
+                ->where('mobile', $phone)
+                ->orWhere('email', $email)
+                ->first();
+            if ($existing) {
+                return $existing;
+            }
+        } else {
+            throw ValidationException::withMessages([
+                'email' => ['البريد الإلكتروني أو رقم الهاتف مطلوب لإتمام التسجيل.'],
+            ]);
+        }
+
+        $slugBase = Str::slug($name);
+        if ($slugBase === '') {
+            $slugBase = 'guest';
+        }
+
+        return User::create([
+            'name' => $name,
+            'email' => $email,
+            'mobile' => $phone,
+            'password' => Hash::make(Str::random(40)),
+            'slug' => $slugBase . '-' . Str::random(8),
+            'is_active' => true,
+            'type' => 'email',
+            'is_webinar_guest' => true,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $formResponses
+     * @param  array<int, string>  $keys
+     */
+    protected function extractScalar(array $formResponses, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            $value = $formResponses[$key] ?? null;
+            if (is_scalar($value) && trim((string) $value) !== '') {
+                return trim((string) $value);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -43,11 +116,17 @@ class WebinarRegistrationService
         // Pre-transaction preliminary validation
         $check = $this->accessService->canRegister($webinar, $user);
         if (!$check['allowed']) {
-            throw new Exception($check['reason'], $check['code']);
+            throw new WebinarRegistrationDeniedException(
+                (string) $check['reason'],
+                (int) $check['code'],
+                (string) ($check['error_code'] ?? 'bad_request'),
+            );
         }
 
-        // Authoritative server-side validation against webinar's dynamic form schema
-        $this->validateCustomFields($webinar, $formResponses);
+        $validatedForm = $this->formValidator->validate($webinar, $formResponses);
+        $formResponses = array_merge($validatedForm['answers'], [
+            '_schema' => $validatedForm['snapshot'],
+        ]);
 
         // Set default 1 hour expiry for pending payments if not specified
         if ($paymentStatus === 'pending' && $expiresAt === null) {
@@ -140,51 +219,4 @@ class WebinarRegistrationService
         return $registration;
     }
 
-    /**
-     * Validate submitted responses against authoritative custom fields defined in webinar config.
-     */
-    protected function validateCustomFields(Webinar $webinar, array $formResponses): void
-    {
-        $customFields = $webinar->config['form']['customFields'] ?? [];
-        if (!is_array($customFields) || empty($customFields)) {
-            return;
-        }
-
-        $errors = [];
-
-        foreach ($customFields as $field) {
-            if (!is_array($field) || empty($field['name'])) {
-                continue;
-            }
-
-            $key = $field['name'];
-            $label = $field['label'] ?? $key;
-            $isRequired = !empty($field['required']);
-            $type = $field['type'] ?? 'text';
-            $val = $formResponses[$key] ?? null;
-
-            if ($isRequired && ($val === null || $val === '')) {
-                $errors[$key][] = "الحقل '{$label}' مطلوب لإتمام التسجيل.";
-                continue;
-            }
-
-            if ($val !== null && $val !== '') {
-                if ($type === 'email' && !filter_var($val, FILTER_VALIDATE_EMAIL)) {
-                    $errors[$key][] = "يرجى إدخال بريد إلكتروني صالح في حقل '{$label}'.";
-                }
-                if ($type === 'number' && !is_numeric($val)) {
-                    $errors[$key][] = "يجب أن تكون قيمة حقل '{$label}' رقماً صالحاً.";
-                }
-                if (in_array($type, ['select', 'radio']) && !empty($field['options']) && is_array($field['options'])) {
-                    if (!in_array($val, $field['options'], true)) {
-                        $errors[$key][] = "القيمة المحددة في '{$label}' غير صالحة.";
-                    }
-                }
-            }
-        }
-
-        if (!empty($errors)) {
-            throw ValidationException::withMessages($errors);
-        }
-    }
 }

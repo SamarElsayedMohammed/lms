@@ -120,7 +120,11 @@ class RoleManager
                 }
                 $q->orWhere(function (Builder $legacyQ) {
                     $legacyQ->whereDoesntHave('roles')
-                        ->whereDoesntHave('instructor_details');
+                        ->whereDoesntHave('instructor_details')
+                        ->where(function (Builder $typeQ) {
+                            $typeQ->whereNull('is_webinar_guest')
+                                ->orWhere('is_webinar_guest', false);
+                        });
                 });
             });
         }

@@ -772,6 +772,8 @@ trait ServesCourseCatalogList
                     "id" => $course->id,
                     "slug" => $course->slug,
                     "image" => $course->thumbnail,
+                    "intro_video" => $course->intro_video,
+                    "intro_video_type" => $course->intro_video_type,
                     "category_id" => $course->category->id ?? null,
                     "category_name" => $course->category->name ?? null,
                     "course_type" => $course->course_type,

@@ -205,17 +205,20 @@ trait ServesApiAuth
             // ── Resolve Firebase/OAuth/Email identity ────────────────────────
             $firebaseId = null;
 
+            $convertingGuest = null;
+
             if ($isEmailType) {
                 // ── Email / Password path — NO Firebase involved ─────────────
-                // Check if a user with this email already exists (signup = upsert)
-                $existingEmailUser = RoleManager::applyRoleFilter(User::where('email', $request->email)->withTrashed(), 'user')
-                    ->first();
+                $existingEmailUser = User::where('email', $request->email)->withTrashed()->first();
 
                 if ($existingEmailUser) {
                     if ($existingEmailUser->trashed() || (isset($existingEmailUser->is_active) && !$existingEmailUser->is_active)) {
                         ApiResponseService::validationError(
                             'تم تعطيل هذا الحساب. يرجى التواصل مع الدعم.',
                         );
+                    } elseif ($existingEmailUser->isWebinarGuest()) {
+                        // Same email later creating a Skillso account reuses the guest lead.
+                        $convertingGuest = $existingEmailUser;
                     } else {
                         ApiResponseService::validationError(
                             'يوجد حساب بهذا البريد الإلكتروني. يرجى تسجيل الدخول.',
@@ -223,8 +226,7 @@ trait ServesApiAuth
                     }
                 }
 
-                // New email user — no firebase_id needed, skip SocialLogin table
-                $firebaseId = null; // not used below for email type
+                $firebaseId = null;
 
             } elseif ($isWebOAuth && $request->type === 'google') {
                 // Web Google login: resolve via Socialite (no Firebase needed)
@@ -343,8 +345,23 @@ trait ServesApiAuth
                     }
 
                     if ($isEmailType) {
-                        $user = User::create($userData);
-                        $wasRecentlyCreated = true;
+                        if ($convertingGuest) {
+                            $convertingGuest->fill([
+                                'name' => $userData['name'] ?? $convertingGuest->name,
+                                'password' => $userData['password'] ?? $convertingGuest->password,
+                                'mobile' => $userData['mobile'] ?? $convertingGuest->mobile,
+                                'profile' => $userData['profile'] ?? $convertingGuest->profile,
+                                'is_active' => 1,
+                                'type' => 'email',
+                                'is_webinar_guest' => false,
+                            ]);
+                            $convertingGuest->save();
+                            $user = $convertingGuest;
+                            $wasRecentlyCreated = false;
+                        } else {
+                            $user = User::create($userData);
+                            $wasRecentlyCreated = true;
+                        }
                     } else {
                         $user = User::updateOrCreate($unique, $userData);
                         $wasRecentlyCreated = $user->wasRecentlyCreated;

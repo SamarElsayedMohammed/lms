@@ -783,6 +783,7 @@ trait ServesCourseCatalogDetail
                 "discount_percentage" => $discountPercentage,
                 "is_purchased" => $isPurchased,
                 "is_subscribed" => $isSubscribed,
+                "is_enrolled" => $hasAccess,
                 "has_access" => $hasAccess,
                 "is_wishlist" => $isWishlist,
                 "has_ai_assistant" => !empty(

@@ -55,6 +55,11 @@ class ForceJsonResponseToSnakeCase
         $result = [];
 
         foreach ($array as $key => $value) {
+            if (is_string($key) && ($key === 'config' || $key === 'form_responses' || $key === '_schema')) {
+                $result[Str::snake($key)] = $value;
+                continue;
+            }
+
             if (is_string($key)) {
                 $key = Str::snake($key);
             }

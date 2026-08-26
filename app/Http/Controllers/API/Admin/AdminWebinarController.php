@@ -9,6 +9,7 @@ use App\Models\Webinar;
 use App\Models\WebinarRegistration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Services\WebinarConfigSanitizer;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -117,6 +118,7 @@ class AdminWebinarController extends AdminCrudApiController
     public function store(Request $request): JsonResponse
     {
         $this->ensureWebinarManager();
+        $this->prepareWebinarPayload($request);
 
         $validator = Validator::make($request->all(), [
             'title'         => 'required|string|max:255',
@@ -144,6 +146,12 @@ class AdminWebinarController extends AdminCrudApiController
 
         try {
             $data = $validator->validated();
+            if (isset($data['config']) && is_array($data['config'])) {
+                $configErrors = app(WebinarConfigSanitizer::class)->validateAdminConfig($data['config']);
+                if ($configErrors !== []) {
+                    return $this->jsonError(reset($configErrors), 422);
+                }
+            }
 
             // Instructor assignment authorization
             $user = Auth::user();
@@ -170,17 +178,7 @@ class AdminWebinarController extends AdminCrudApiController
                 $data['price'] = 0; // Price Constraint
             }
 
-            // The JSON Config Hack Migration
-            if (isset($data['features']) && is_array($data['features'])) {
-                foreach ($data['features'] as $key => $feature) {
-                    if (is_string($feature) && str_starts_with($feature, '__skillso_webinar_config_v1__:')) {
-                        $jsonConfig = substr($feature, strlen('__skillso_webinar_config_v1__:'));
-                        $data['config'] = json_decode($jsonConfig, true);
-                        unset($data['features'][$key]);
-                    }
-                }
-                $data['features'] = array_values($data['features']);
-            }
+            $this->extractLegacyConfigFeature($data);
 
             if ($request->provider === 'jitsi' && empty($request->join_url)) {
                 $data['join_url'] = 'https://meet.jit.si/' . $data['slug'];
@@ -241,6 +239,7 @@ class AdminWebinarController extends AdminCrudApiController
     public function update(Request $request, Webinar $webinar): JsonResponse
     {
         $this->ensureWebinarManager();
+        $this->prepareWebinarPayload($request);
 
         $denied = $this->ensureCanManageWebinar($webinar);
         if ($denied) {
@@ -273,6 +272,12 @@ class AdminWebinarController extends AdminCrudApiController
 
         try {
             $data = $validator->validated();
+            if (isset($data['config']) && is_array($data['config'])) {
+                $configErrors = app(WebinarConfigSanitizer::class)->validateAdminConfig($data['config']);
+                if ($configErrors !== []) {
+                    return $this->jsonError(reset($configErrors), 422);
+                }
+            }
 
             // Instructor reassignment authorization
             $user = Auth::user();
@@ -293,17 +298,7 @@ class AdminWebinarController extends AdminCrudApiController
                 $data['price'] = 0; // Price Constraint
             }
 
-            // The JSON Config Hack Migration
-            if (isset($data['features']) && is_array($data['features'])) {
-                foreach ($data['features'] as $key => $feature) {
-                    if (is_string($feature) && str_starts_with($feature, '__skillso_webinar_config_v1__:')) {
-                        $jsonConfig = substr($feature, strlen('__skillso_webinar_config_v1__:'));
-                        $data['config'] = json_decode($jsonConfig, true);
-                        unset($data['features'][$key]);
-                    }
-                }
-                $data['features'] = array_values($data['features']);
-            }
+            $this->extractLegacyConfigFeature($data);
 
             $oldStatus = $webinar->status;
             $webinar->update($data);
@@ -403,10 +398,30 @@ class AdminWebinarController extends AdminCrudApiController
         $customFieldHeaders = [];
         if (is_array($customFieldDefs)) {
             foreach ($customFieldDefs as $f) {
-                if (is_array($f) && !empty($f['name'])) {
-                    $customFieldKeys[] = $f['name'];
-                    $customFieldHeaders[] = $f['label'] ?? $f['name'];
+                if (!is_array($f)) {
+                    continue;
                 }
+                $key = trim((string) ($f['key'] ?? $f['name'] ?? $f['id'] ?? ''));
+                if ($key === '' || $key === '_schema') {
+                    continue;
+                }
+                $customFieldKeys[] = $key;
+                $customFieldHeaders[] = $f['label'] ?? $key;
+            }
+        }
+
+        foreach ($registrations as $reg) {
+            $snapshot = is_array($reg->form_responses['_schema'] ?? null) ? $reg->form_responses['_schema'] : [];
+            foreach ($snapshot as $field) {
+                if (!is_array($field)) {
+                    continue;
+                }
+                $key = trim((string) ($field['key'] ?? $field['id'] ?? ''));
+                if ($key === '' || $key === '_schema' || in_array($key, $customFieldKeys, true)) {
+                    continue;
+                }
+                $customFieldKeys[] = $key;
+                $customFieldHeaders[] = $field['label'] ?? $key;
             }
         }
 
@@ -473,5 +488,50 @@ class AdminWebinarController extends AdminCrudApiController
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * Decode JSON-string nested fields from multipart uploads before validation.
+     */
+    protected function prepareWebinarPayload(Request $request): void
+    {
+        $payload = $request->all();
+        foreach (['config', 'features'] as $field) {
+            if (!isset($payload[$field]) || !is_string($payload[$field])) {
+                continue;
+            }
+            $decoded = json_decode($payload[$field], true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $payload[$field] = $decoded;
+            }
+        }
+        $request->merge($payload);
+    }
+
+    /**
+     * Extract the legacy features JSON blob only when an explicit config array is absent.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    protected function extractLegacyConfigFeature(array &$data): void
+    {
+        $hasExplicitConfig = isset($data['config']) && is_array($data['config']) && $data['config'] !== [];
+
+        if (!isset($data['features']) || !is_array($data['features'])) {
+            return;
+        }
+
+        foreach ($data['features'] as $key => $feature) {
+            if (!is_string($feature) || !str_starts_with($feature, '__skillso_webinar_config_v1__:')) {
+                continue;
+            }
+            $decoded = json_decode(substr($feature, strlen('__skillso_webinar_config_v1__:')), true);
+            unset($data['features'][$key]);
+            if (!$hasExplicitConfig && is_array($decoded)) {
+                $data['config'] = $decoded;
+            }
+        }
+
+        $data['features'] = array_values($data['features']);
     }
 }

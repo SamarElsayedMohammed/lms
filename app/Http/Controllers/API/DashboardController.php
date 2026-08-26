@@ -298,8 +298,8 @@ class DashboardController extends Controller
 
             $revenueGrowth = $this->calculatePercentageChange($previousRevenue, $currentRevenue);
 
-            $userStatusStats = User::selectRaw('COUNT(CASE WHEN is_active = 1 THEN 1 END) as active, COUNT(CASE WHEN is_active = 0 THEN 1 END) as suspended')->first();
-            $totalUsers = User::where('created_at', '<=', $dates['end'])->count();
+            $userStatusStats = User::withoutWebinarGuests()->selectRaw('COUNT(CASE WHEN is_active = 1 THEN 1 END) as active, COUNT(CASE WHEN is_active = 0 THEN 1 END) as suspended')->first();
+            $totalUsers = User::withoutWebinarGuests()->where('created_at', '<=', $dates['end'])->count();
             $activeUsers = (int) ($userStatusStats->active ?? 0);
             $suspendedUsers = (int) ($userStatusStats->suspended ?? 0);
             $totalInstructors = Instructor::count();
@@ -1560,7 +1560,7 @@ class DashboardController extends Controller
     private function getTotalUsersCount(): int
     {
         if ($this->totalUsersCache === null) {
-            $this->totalUsersCache = User::count();
+            $this->totalUsersCache = User::withoutWebinarGuests()->count();
         }
         return $this->totalUsersCache;
     }
