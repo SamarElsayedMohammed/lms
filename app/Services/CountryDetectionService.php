@@ -383,15 +383,12 @@ final class CountryDetectionService
     private function logDetection(Request $request, string $country, string $source): void
     {
         $isDebug = function_exists('app') && app()->bound('config') ? (bool) config('app.debug') : false;
-        $isProd = (getenv('APP_ENV') === 'production')
-            || (function_exists('app') && app()->bound('config') && config('app.env') === 'production');
-
-        if (!$isDebug && $isProd) {
+        if (!$isDebug) {
             return;
         }
 
         if (function_exists('app') && app()->bound('log')) {
-            Log::info('CountryDetectionService: Country detected', [
+            Log::debug('CountryDetectionService: Country detected', [
                 'detected_country' => $country,
                 'detection_source' => $source,
                 'headers_received' => [

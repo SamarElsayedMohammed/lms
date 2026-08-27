@@ -135,7 +135,7 @@ final class PricingCalculationService
         $baseDiscountPriceEgp = (float) ($course->discount_price ?? 0);
 
         if ($course->course_type !== 'free' && $baseOriginalPriceEgp <= 0) {
-            Log::warning('Pricing error: Paid course has no price configured. Course ID: ' . $course->id);
+            Log::debug('Pricing: Paid course has no price configured. Course ID: ' . $course->id);
             $baseOriginalPriceEgp = 0;
         }
 
