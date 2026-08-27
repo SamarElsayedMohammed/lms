@@ -473,16 +473,55 @@ class CourseAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('courses-list');
 
+        $isTrashedOnly = $request->input('trashed') === 'only'
+            || $request->boolean('deleted')
+            || $request->input('trashed') === '1'
+            || $request->boolean('only_trashed')
+            || $request->input('filter') === 'trashed';
+
+        $isWithTrashed = $request->boolean('with_trashed') || $request->input('trashed') === 'with';
+
         $query = Course::without('taxes')
             ->with(['user', 'category'])
-            ->when($request->search, fn ($q) => $q->where('title', 'like', "%{$request->search}%"))
-            ->when($request->category_id, fn ($q) => $q->where('category_id', $request->category_id))
-            ->when($request->approval_status, fn ($q) => $q->where('approval_status', $request->approval_status))
-            ->when($request->status, fn ($q) => $q->where('status', $request->status))
-            ->when($request->with_trashed, fn ($q) => $q->withTrashed());
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $search = trim((string) $request->search);
+                $q->where(function ($sq) use ($search) {
+                    $sq->where('title', 'like', "%{$search}%")
+                       ->orWhere('slug', 'like', "%{$search}%");
+                });
+            })
+            ->when($request->filled('category_id'), fn ($q) => $q->where('category_id', $request->category_id))
+            ->when($request->filled('approval_status'), fn ($q) => $q->where('approval_status', $request->approval_status))
+            ->when($request->filled('status'), function ($q) use ($request) {
+                $status = strtolower((string) $request->status);
+                if ($status === 'published' || $status === 'publish') {
+                    $q->where(fn ($sq) => $sq->where('status', 'publish')->orWhere('status', 'published'));
+                } elseif ($status === 'pending') {
+                    $q->where(fn ($sq) => $sq->where('status', 'pending')->orWhere('approval_status', 'pending'));
+                } else {
+                    $q->where('status', $status);
+                }
+            })
+            ->when($request->filled('course_type') || $request->filled('type'), function ($q) use ($request) {
+                $type = strtolower((string) ($request->course_type ?? $request->type));
+                if ($type === 'free') {
+                    $q->where(fn ($sq) => $sq->where('course_type', 'free')->orWhere('is_free', true)->orWhere('price', 0)->orWhereNull('price'));
+                } elseif ($type === 'paid') {
+                    $q->where(fn ($sq) => $sq->where('course_type', 'paid')->where('is_free', false)->where('price', '>', 0));
+                }
+            })
+            ->when($isTrashedOnly, fn ($q) => $q->onlyTrashed())
+            ->when(!$isTrashedOnly && $isWithTrashed, fn ($q) => $q->withTrashed());
 
-        $perPage = min((int) $request->input('per_page', 15), 100);
+        $perPage = min((int) $request->input('per_page', 15), 250);
         $courses = $query->orderBy('id', 'desc')->paginate($perPage);
+
+        $courses->getCollection()->transform(function ($course) {
+            $courseArray = $course->toArray();
+            $courseArray['is_deleted'] = $course->trashed();
+            $courseArray['deleted_at'] = $course->deleted_at ? $course->deleted_at->toIso8601String() : null;
+            return $courseArray;
+        });
 
         return $this->jsonSuccess(__('Courses retrieved'), $courses);
     }

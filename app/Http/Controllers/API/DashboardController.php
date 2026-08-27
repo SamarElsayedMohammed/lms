@@ -778,74 +778,177 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get recent activities across the platform - returns exactly 6 items sorted by real time
+     * Get recent activities across the platform - returns up to 6 real persisted events
      */
-    private function getRecentActivities()
+    private function getRecentActivities(): array
     {
         try {
             $activities = [];
 
-            // Recent user registrations
-            $recentUsers = User::latest()->limit(4)->get();
-            foreach ($recentUsers as $user) {
-                $activities[] = [
-                    'type' => 'user_registration',
-                    'icon' => 'fas fa-user-plus',
-                    'color' => 'success',
-                    'title' => 'تسجيل طالب جديد',
-                    'subtitle' => $user->name . ' انضم للمنصة حديثاً',
-                    'description' => $user->name . ' انضم للمنصة حديثاً',
-                    'time' => $this->getTimeAgo($user->created_at),
-                    'raw_time' => $user->created_at,
-                    'link' => '/admin/students',
-                ];
+            // 1. Recent user registrations
+            try {
+                $recentUsers = User::withoutWebinarGuests()
+                    ->whereNotNull('created_at')
+                    ->latest('created_at')
+                    ->limit(6)
+                    ->get();
+                foreach ($recentUsers as $user) {
+                    $createdAt = $user->created_at ? Carbon::parse($user->created_at) : null;
+                    if (!$createdAt) continue;
+                    $activities[] = [
+                        'id' => 'user_' . $user->id,
+                        'type' => 'student_registered',
+                        'icon' => 'fas fa-user-plus',
+                        'color' => 'success',
+                        'title' => 'تسجيل طالب جديد',
+                        'subtitle' => $user->name . ' انضم للمنصة حديثاً',
+                        'description' => $user->name . ' انضم للمنصة حديثاً',
+                        'created_at' => $createdAt->toISOString(),
+                        'time' => $this->getTimeAgo($createdAt),
+                        'link' => '/admin/students',
+                        '_sort_time' => $createdAt->getTimestamp(),
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Dashboard activity users error: ' . $e->getMessage());
             }
 
-            // Recent course creations
-            $recentCourses = Course::without('taxes')->latest()->limit(4)->get();
-            foreach ($recentCourses as $course) {
-                $activities[] = [
-                    'type' => 'course_creation',
-                    'icon' => 'fas fa-graduation-cap',
-                    'color' => 'primary',
-                    'title' => 'إضافة دورة جديدة',
-                    'subtitle' => '"' . $course->title . '" تم إنشاؤها',
-                    'description' => '"' . $course->title . '" تم إنشاؤها',
-                    'time' => $this->getTimeAgo($course->created_at),
-                    'raw_time' => $course->created_at,
-                    'link' => '/admin/courses',
-                ];
+            // 2. Recent course creations
+            try {
+                $recentCourses = Course::without('taxes')
+                    ->whereNotNull('created_at')
+                    ->latest('created_at')
+                    ->limit(6)
+                    ->get();
+                foreach ($recentCourses as $course) {
+                    $createdAt = $course->created_at ? Carbon::parse($course->created_at) : null;
+                    if (!$createdAt) continue;
+                    $activities[] = [
+                        'id' => 'course_' . $course->id,
+                        'type' => 'course_creation',
+                        'icon' => 'fas fa-graduation-cap',
+                        'color' => 'primary',
+                        'title' => 'إضافة دورة جديدة',
+                        'subtitle' => '"' . $course->title . '" تم إنشاؤها',
+                        'description' => '"' . $course->title . '" تم إنشاؤها',
+                        'created_at' => $createdAt->toISOString(),
+                        'time' => $this->getTimeAgo($createdAt),
+                        'link' => '/admin/courses',
+                        '_sort_time' => $createdAt->getTimestamp(),
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Dashboard activity courses error: ' . $e->getMessage());
             }
 
-            // Recent orders
-            $recentOrders = Order::with('user')->latest()->limit(4)->get();
-            foreach ($recentOrders as $order) {
-                if (!$order->user) continue;
-                $activities[] = [
-                    'type' => 'new_order',
-                    'icon' => 'fas fa-shopping-cart',
-                    'color' => 'warning',
-                    'title' => 'طلب شراء جديد',
-                    'subtitle' => $order->user->name . ' قام بشراء طلب #' . $order->order_number,
-                    'description' => $order->user->name . ' قام بشراء طلب #' . $order->order_number,
-                    'time' => $this->getTimeAgo($order->created_at),
-                    'raw_time' => $order->created_at,
-                    'link' => '/admin/orders',
-                ];
+            // 3. Recent completed orders
+            try {
+                $recentOrders = Order::with('user')
+                    ->whereNotNull('created_at')
+                    ->where('status', 'completed')
+                    ->latest('created_at')
+                    ->limit(6)
+                    ->get();
+                foreach ($recentOrders as $order) {
+                    if (!$order->user) continue;
+                    $createdAt = $order->created_at ? Carbon::parse($order->created_at) : null;
+                    if (!$createdAt) continue;
+                    $orderNum = $order->order_number ?? $order->id;
+                    $activities[] = [
+                        'id' => 'order_' . $order->id,
+                        'type' => 'new_order',
+                        'icon' => 'fas fa-shopping-cart',
+                        'color' => 'warning',
+                        'title' => 'طلب شراء جديد',
+                        'subtitle' => $order->user->name . ' قام بشراء طلب #' . $orderNum,
+                        'description' => $order->user->name . ' قام بشراء طلب #' . $orderNum,
+                        'created_at' => $createdAt->toISOString(),
+                        'time' => $this->getTimeAgo($createdAt),
+                        'link' => '/admin/orders',
+                        '_sort_time' => $createdAt->getTimestamp(),
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Dashboard activity orders error: ' . $e->getMessage());
             }
 
-            $activities = collect($activities)
-                ->sortByDesc('raw_time')
+            // 4. Recent active subscriptions
+            try {
+                if (class_exists(Subscription::class)) {
+                    $recentSubs = Subscription::with(['user', 'plan'])
+                        ->whereNotNull('created_at')
+                        ->latest('created_at')
+                        ->limit(6)
+                        ->get();
+                    foreach ($recentSubs as $sub) {
+                        if (!$sub->user) continue;
+                        $createdAt = $sub->created_at ? Carbon::parse($sub->created_at) : null;
+                        if (!$createdAt) continue;
+                        $planName = $sub->plan?->name ?? 'باقة اشتراك';
+                        $activities[] = [
+                            'id' => 'sub_' . $sub->id,
+                            'type' => 'subscription_created',
+                            'icon' => 'fas fa-id-card',
+                            'color' => 'success',
+                            'title' => 'اشتراك جديد',
+                            'subtitle' => $sub->user->name . ' اشترك في ' . $planName,
+                            'description' => $sub->user->name . ' اشترك في ' . $planName,
+                            'created_at' => $createdAt->toISOString(),
+                            'time' => $this->getTimeAgo($createdAt),
+                            'link' => '/admin/subscription-plans',
+                            '_sort_time' => $createdAt->getTimestamp(),
+                        ];
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('Dashboard activity subscriptions error: ' . $e->getMessage());
+            }
+
+            // 5. Recent certificates issued
+            try {
+                if (class_exists(\App\Models\Course\CourseCertificate::class)) {
+                    $recentCerts = \App\Models\Course\CourseCertificate::with('user')
+                        ->whereNotNull('created_at')
+                        ->latest('created_at')
+                        ->limit(6)
+                        ->get();
+                    foreach ($recentCerts as $cert) {
+                        $createdAt = $cert->created_at ? Carbon::parse($cert->created_at) : null;
+                        if (!$createdAt) continue;
+                        $userName = $cert->user?->name ?? $cert->student_name ?? 'متدرب';
+                        $activities[] = [
+                            'id' => 'cert_' . $cert->id,
+                            'type' => 'certificate_issued',
+                            'icon' => 'fas fa-award',
+                            'color' => 'info',
+                            'title' => 'إصدار شهادة إتمام',
+                            'subtitle' => 'تم إصدار شهادة للمتدرب ' . $userName,
+                            'description' => 'تم إصدار شهادة للمتدرب ' . $userName,
+                            'created_at' => $createdAt->toISOString(),
+                            'time' => $this->getTimeAgo($createdAt),
+                            'link' => '/admin/certificates',
+                            '_sort_time' => $createdAt->getTimestamp(),
+                        ];
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('Dashboard activity certificates error: ' . $e->getMessage());
+            }
+
+            $sorted = collect($activities)
+                ->sortByDesc('_sort_time')
                 ->take(6)
                 ->map(function ($item) {
-                    unset($item['raw_time']);
+                    unset($item['_sort_time']);
                     return $item;
                 })
-                ->values();
+                ->values()
+                ->all();
 
-            return $activities;
-        } catch (\Exception) {
-            return $this->getDefaultActivities();
+            return $sorted;
+        } catch (\Exception $e) {
+            Log::error('Dashboard getRecentActivities Error: ' . $e->getMessage());
+            return [];
         }
     }
 
@@ -1538,22 +1641,51 @@ class DashboardController extends Controller
         }
     }
 
-    private function getTimeAgo($datetime)
+    private function getTimeAgo($datetime): string
     {
         try {
+            if (!$datetime) {
+                return '';
+            }
+            $carbonDate = $datetime instanceof Carbon ? $datetime : Carbon::parse($datetime);
             $now = Carbon::now();
-            $diff = $now->diffInMinutes($datetime);
+            $diffMinutes = $now->diffInMinutes($carbonDate, false);
 
-            if ($diff < 1)
+            // Very recent (< 1 minute)
+            if ($diffMinutes >= 0 && $diffMinutes < 1) {
                 return 'الآن';
-            if ($diff < 60)
-                return $diff . ' دقيقة';
-            if ($diff < 1440)
-                return round($diff / 60) . ' ساعة';
+            }
 
-            return round($diff / 1440) . ' يوم';
+            $absMinutes = abs((int) $diffMinutes);
+            if ($absMinutes < 1) {
+                return 'الآن';
+            }
+            if ($absMinutes < 60) {
+                if ($absMinutes === 1) return 'منذ دقيقة';
+                if ($absMinutes === 2) return 'منذ دقيقتين';
+                if ($absMinutes <= 10) return "منذ {$absMinutes} دقائق";
+                return "منذ {$absMinutes} دقيقة";
+            }
+            $absHours = (int) floor($absMinutes / 60);
+            if ($absHours < 24) {
+                if ($absHours === 1) return 'منذ ساعة';
+                if ($absHours === 2) return 'منذ ساعتين';
+                if ($absHours <= 10) return "منذ {$absHours} ساعات";
+                return "منذ {$absHours} ساعة";
+            }
+            $absDays = (int) floor($absHours / 24);
+            if ($absDays === 1) {
+                return 'أمس';
+            }
+            if ($absDays === 2) {
+                return 'منذ يومين';
+            }
+            if ($absDays <= 10) {
+                return "منذ {$absDays} أيام";
+            }
+            return $carbonDate->format('Y-m-d');
         } catch (\Exception) {
-            return 'الآن';
+            return '';
         }
     }
 
@@ -1751,20 +1883,9 @@ class DashboardController extends Controller
         ];
     }
 
-    private function getDefaultActivities()
+    private function getDefaultActivities(): array
     {
-        return [
-            [
-                'type' => 'system',
-                'icon' => 'fas fa-info-circle',
-                'color' => 'info',
-                'title' => 'حالة النظام',
-                'subtitle' => 'النظام يعمل بشكل طبيعي',
-                'description' => 'النظام يعمل بشكل طبيعي',
-                'time' => 'الآن',
-                'link' => '#',
-            ],
-        ];
+        return [];
     }
 
     private function getDefaultTopPerformers()

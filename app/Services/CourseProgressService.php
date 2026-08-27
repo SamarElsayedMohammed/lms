@@ -72,6 +72,20 @@ class CourseProgressService
                 $percentage = min(99.9, max(0.0, $percentage));
             }
 
+            // Monotonic progress protection: progress percentage and completed items count must never regress
+            $previousPercentage = (float) ($progress->progress_percentage ?? 0.0);
+            $previousCompleted = (int) ($progress->completed_items ?? 0);
+            if ($percentage < $previousPercentage && $previousPercentage > 0) {
+                $percentage = $previousPercentage;
+            }
+            if ($completedItems < $previousCompleted && $previousCompleted > 0) {
+                $completedItems = $previousCompleted;
+            }
+            if ($progress->status === 'completed') {
+                $status = 'completed';
+                $percentage = 100.0;
+            }
+
             $attributes = [
                 'completed_items' => $completedItems,
                 'total_items' => $totalItems,

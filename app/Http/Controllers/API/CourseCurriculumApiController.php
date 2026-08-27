@@ -43,6 +43,9 @@ class CourseCurriculumApiController extends Controller
         $totalLessons = 0;
         $completedLessons = 0;
 
+        $isSequential = (bool) ($course->sequential_access ?? false);
+        $previousLessonCompleted = true; // First lesson is always unlocked
+
         foreach ($detailed['chapters'] ?? [] as $chapter) {
             $lessons = [];
             foreach ($chapter['items'] ?? [] as $item) {
@@ -56,6 +59,13 @@ class CourseCurriculumApiController extends Controller
                     $completedLessons++;
                 }
 
+                $isLocked = $isSequential ? (!$previousLessonCompleted && !$isCompleted) : false;
+                if (!$isCompleted) {
+                    $previousLessonCompleted = false;
+                } else {
+                    $previousLessonCompleted = true;
+                }
+
                 $durationSeconds = (int) ($item['duration_seconds'] ?? 0);
                 $lessons[] = [
                     'id' => $item['item_id'],
@@ -63,7 +73,7 @@ class CourseCurriculumApiController extends Controller
                     'duration_minutes' => (int) ceil(max(0, $durationSeconds) / 60),
                     'type' => 'video',
                     'is_completed' => $isCompleted,
-                    'is_locked' => false,
+                    'is_locked' => $isLocked,
                     'model_id' => $item['item_id'],
                     'model_type' => 'lecture',
                     'course_chapter_id' => $chapter['chapter_id'],

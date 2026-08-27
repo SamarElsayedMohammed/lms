@@ -446,4 +446,79 @@ class VideoLearningProgressAdversarialTest extends TestCase
         $this->assertEquals($cert1->certificate_number, $cert2->certificate_number);
         $this->assertEquals(1, CourseCertificate::where('user_id', $user->id)->where('course_id', $course->id)->count());
     }
+
+    /**
+     * RECONCILIATION TEST:
+     * 27-lesson course with sequential access:
+     * 1. Lesson 1 completed -> Lesson 2 unlocks -> Progress is ~3.7% (not 15%)
+     * 2. Enter Lesson 2 -> return to Lesson 1 -> Lesson 2 stays unlocked (monotonicity)
+     * 3. Replay Lesson 1 from 00:00 -> Lesson 1 stays completed, progress does not decrease
+     * 4. Complete Lesson 2 -> Lesson 3 unlocks -> Progress is ~7.41%
+     */
+    public function test_reconciliation_27_lesson_sequential_progression_and_backward_navigation_monotonicity(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        [$course, $chapter, $lectures] = $this->createFullCourseWithLectures(27, 60);
+        $course->update(['sequential_access' => true]);
+
+        $videoProgressService = app(VideoProgressService::class);
+        $courseProgressService = app(CourseProgressService::class);
+
+        // 1. Initial State: Lesson 1 unlocked, 2..27 locked
+        $response = $this->actingAs($user, 'sanctum')->getJson("/api/courses/{$course->slug}/curriculum");
+        $response->assertOk()
+            ->assertJsonPath('data.total_lessons', 27)
+            ->assertJsonPath('data.completed_lessons', 0)
+            ->assertJsonPath('data.sections.0.lessons.0.is_locked', false)
+            ->assertJsonPath('data.sections.0.lessons.1.is_locked', true)
+            ->assertJsonPath('data.sections.0.lessons.26.is_locked', true);
+
+        $this->assertEqualsWithDelta(0.0, (float) $response->json('data.progress_percentage'), 0.01);
+
+        // 2. Complete Lesson 1
+        $this->recordLectureCompleted($user, $lectures[0]);
+        $courseProgressService->calculateAndUpdateProgress($user->id, $course->id);
+
+        $response = $this->actingAs($user, 'sanctum')->getJson("/api/courses/{$course->slug}/curriculum");
+        $response->assertOk()
+            ->assertJsonPath('data.completed_lessons', 1)
+            ->assertJsonPath('data.sections.0.lessons.0.is_completed', true)
+            ->assertJsonPath('data.sections.0.lessons.0.is_locked', false)
+            ->assertJsonPath('data.sections.0.lessons.1.is_locked', false) // Lesson 2 is UNLOCKED
+            ->assertJsonPath('data.sections.0.lessons.2.is_locked', true);  // Lesson 3 is locked
+
+        // Verify progress is 1/27 = 3.7% (NOT 15%)
+        $progressPct = (float) $response->json('data.progress_percentage');
+        $this->assertEqualsWithDelta(3.7, $progressPct, 0.1);
+
+        // 3. User navigates back to Lesson 1 and rewinds to 0 seconds
+        // Update playback position to 0 on Lesson 1
+        $videoProgressService->updateProgress($user, $lectures[0], 0, 0, 60, [
+            'progress_state' => 'playing',
+        ]);
+        $courseProgressService->calculateAndUpdateProgress($user->id, $course->id);
+
+        // 4. Verify Lesson 1 is STILL completed, Lesson 2 is STILL unlocked, progress did NOT decrease
+        $response = $this->actingAs($user, 'sanctum')->getJson("/api/courses/{$course->slug}/curriculum");
+        $response->assertOk()
+            ->assertJsonPath('data.completed_lessons', 1)
+            ->assertJsonPath('data.sections.0.lessons.0.is_completed', true)
+            ->assertJsonPath('data.sections.0.lessons.1.is_locked', false);
+
+        $this->assertTrue($videoProgressService->canAccessNextLesson($user, $lectures[1]));
+
+        // 5. Complete Lesson 2
+        $this->recordLectureCompleted($user, $lectures[1]);
+        $courseProgressService->calculateAndUpdateProgress($user->id, $course->id);
+
+        $response = $this->actingAs($user, 'sanctum')->getJson("/api/courses/{$course->slug}/curriculum");
+        $response->assertOk()
+            ->assertJsonPath('data.completed_lessons', 2)
+            ->assertJsonPath('data.sections.0.lessons.0.is_completed', true)
+            ->assertJsonPath('data.sections.0.lessons.1.is_completed', true)
+            ->assertJsonPath('data.sections.0.lessons.2.is_locked', false); // Lesson 3 is now UNLOCKED
+
+        $progressPct = (float) $response->json('data.progress_percentage');
+        $this->assertEqualsWithDelta(7.41, $progressPct, 0.1);
+    }
 }

@@ -119,7 +119,7 @@ class VideoProgressService
             ? min(100.0, max(0.0, round(($effectiveWatched / $totalSeconds) * 100, 2)))
             : 0;
 
-        $wasAlreadyCompleted = $existing !== null && $existing->is_completed;
+        $wasAlreadyCompleted = $existing !== null && (bool) $existing->is_completed;
         // The legacy watch-time payload is retained for resume compatibility,
         // but a client-supplied counter must never be a completion authority for
         // video content. Only contiguous segment tracking may complete a video.
@@ -128,7 +128,9 @@ class VideoProgressService
             ! $requiresVerifiedTracking
             && $watchPercentage >= self::COMPLETION_THRESHOLD
         );
-        if ($requiresVerifiedTracking && ! $isCompleted) {
+        if ($wasAlreadyCompleted && $existing?->watch_percentage !== null) {
+            $watchPercentage = max((float) $existing->watch_percentage, $watchPercentage);
+        } elseif ($requiresVerifiedTracking && ! $isCompleted) {
             $watchPercentage = min(99.99, $watchPercentage);
         }
         $completedAt = $isCompleted && ! $wasAlreadyCompleted
@@ -230,6 +232,19 @@ class VideoProgressService
             return true;
         }
 
+        // If this lecture is already completed, it is always accessible
+        $ownProgress = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
+        if ($ownProgress !== null && $ownProgress->is_completed) {
+            return true;
+        }
+        $ownTracking = UserCurriculumTracking::where('user_id', $user->id)
+            ->where('model_id', $lecture->id)
+            ->where('status', 'completed')
+            ->exists();
+        if ($ownTracking) {
+            return true;
+        }
+
         $previousLecture = $this->getPreviousLecture($lecture);
 
         if ($previousLecture === null) {
@@ -241,8 +256,13 @@ class VideoProgressService
         }
 
         $progress = VideoProgress::forUser($user->id)->forLecture($previousLecture->id)->first();
+        $isPreviousVideoCompleted = $progress !== null && $progress->is_completed;
+        $isPreviousTrackCompleted = UserCurriculumTracking::where('user_id', $user->id)
+            ->where('model_id', $previousLecture->id)
+            ->where('status', 'completed')
+            ->exists();
 
-        return $progress !== null && $progress->is_completed;
+        return $isPreviousVideoCompleted || $isPreviousTrackCompleted;
     }
 
     /**
@@ -438,10 +458,15 @@ class VideoProgressService
         ));
         $watchPercentage = round(($watchedSeconds / $canonicalDuration) * 100, 2);
 
-        // Check completion
-        $wasAlreadyCompleted = $progress->is_completed;
-        $isCompleted = $completedSegments === $progress->total_segments
-            && $watchPercentage >= self::COMPLETION_THRESHOLD;
+        // Check completion - Monotonic: once completed, always completed
+        $wasAlreadyCompleted = (bool) $progress->is_completed;
+        $isCompleted = $wasAlreadyCompleted || (
+            $completedSegments === $progress->total_segments
+            && $watchPercentage >= self::COMPLETION_THRESHOLD
+        );
+        if ($wasAlreadyCompleted && $progress->watch_percentage !== null) {
+            $watchPercentage = max((float) $progress->watch_percentage, $watchPercentage);
+        }
         $completedAt = $isCompleted && ! $wasAlreadyCompleted ? now() : $progress->completed_at;
 
         // Build update array

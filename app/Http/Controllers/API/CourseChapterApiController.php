@@ -862,12 +862,13 @@ class CourseChapterApiController extends Controller
                 ];
             }
 
-            // Overall progress based on content items rather than just chapters
-            $overallProgress = $totalCourseContent > 0 ? round(($totalCompletedContent / $totalCourseContent) * 100, 2) : 0;
-            
-            // Fallback for courses with no content but chapters
-            if ($totalCourseContent == 0 && $totalChapters > 0) {
-                 $overallProgress = round(($completedChapters / $totalChapters) * 100, 2);
+            $detailedProgress = app(\App\Services\CourseProgressService::class)->getDetailedProgress($userId, $courseId);
+            $overallProgress = (float) ($detailedProgress['course']['progress_percentage'] ?? 0);
+            if ($totalCourseContent > 0 && isset($detailedProgress['summary']['completed_items'])) {
+                $totalCompletedContent = (int) $detailedProgress['summary']['completed_items'];
+                $totalCourseContent = (int) ($detailedProgress['summary']['total_items'] ?? $totalCourseContent);
+            } elseif ($totalCourseContent == 0 && $totalChapters > 0) {
+                $overallProgress = round(($completedChapters / $totalChapters) * 100, 2);
             }
 
             $response = [

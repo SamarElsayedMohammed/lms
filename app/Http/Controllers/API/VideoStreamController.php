@@ -286,6 +286,13 @@ final class VideoStreamController extends Controller
             }
         }
 
+        $vimeoDomains = ['vimeo.com', 'player.vimeo.com'];
+        foreach ($vimeoDomains as $domain) {
+            if (str_contains($parsedHost, $domain)) {
+                return 'vimeo';
+            }
+        }
+
         return 'yt';
     }
 
@@ -451,8 +458,12 @@ final class VideoStreamController extends Controller
             $relativePath = substr($relativePath, strlen('storage/'));
         }
 
-        if ($relativePath === '' || str_contains($relativePath, '..') || preg_match('#^https?://#i', $fileUrl)) {
+        if ($relativePath === '' || str_contains($relativePath, '..')) {
             return $this->unprocessableEntity('Protected direct video file is unavailable');
+        }
+
+        if (preg_match('#^https?://#i', $fileUrl)) {
+            return redirect()->away($fileUrl);
         }
 
         $candidatePaths = [
