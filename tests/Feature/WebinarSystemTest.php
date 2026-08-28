@@ -85,6 +85,8 @@ class WebinarSystemTest extends TestCase
 
         $this->assertEquals(['Normal Feature'], $webinar->features);
         $this->assertEquals(['allow_chat' => true], $webinar->config);
+        $this->assertStringStartsWith('https://meet.jit.si/skillso-', (string) $webinar->join_url);
+        $this->assertStringNotContainsString($webinar->slug, (string) $webinar->join_url);
     }
 
     public function test_wallet_payment_fails_gracefully_on_insufficient_funds()
@@ -936,5 +938,70 @@ class WebinarSystemTest extends TestCase
                     && !str_contains((string) $encoded, 'join_url');
             }
         );
+    }
+    public function test_admin_registrants_are_paginated_and_searchable(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $attendee = User::factory()->create([
+            'name' => 'Registrant Search Name',
+            'email' => 'registrant-search@example.com',
+        ]);
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Registrants Report',
+            'slug' => 'registrants-report',
+            'start_at' => now()->addDays(2),
+            'duration' => 60,
+            'is_free' => false,
+            'price' => 150,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        WebinarRegistration::create([
+            'webinar_id' => $webinar->id,
+            'user_id' => $attendee->id,
+            'payment_status' => 'paid',
+            'paid_amount' => 150,
+            'attended' => true,
+            'form_responses' => ['name' => $attendee->name, 'email' => $attendee->email],
+        ]);
+
+        $response = $this->actingAs($admin)->getJson('/api/admin/webinars/registrants-report/registrants?limit=1&q=Search%20Name');
+
+        $response->assertOk()
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.current_page', 1)
+            ->assertJsonPath('data.per_page', 1)
+            ->assertJsonPath('data.items.0.email', 'registrant-search@example.com')
+            ->assertJsonPath('data.items.0.payment_method', 'wallet')
+            ->assertJsonPath('data.items.0.attended', true);
+    }
+
+    public function test_admin_can_delete_a_webinar_by_slug(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $webinar = Webinar::create([
+            'instructor_id' => $this->instructor->id,
+            'title' => 'Delete Webinar',
+            'slug' => 'delete-webinar-by-slug',
+            'start_at' => now()->addDays(2),
+            'duration' => 60,
+            'is_free' => true,
+            'price' => 0,
+            'provider' => 'jitsi',
+            'status' => 'scheduled',
+            'is_published' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->deleteJson('/api/admin/webinars/delete-webinar-by-slug')
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertSoftDeleted('webinars', ['id' => $webinar->id]);
     }
 }

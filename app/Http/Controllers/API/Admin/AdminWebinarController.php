@@ -181,7 +181,8 @@ class AdminWebinarController extends AdminCrudApiController
             $this->extractLegacyConfigFeature($data);
 
             if ($request->provider === 'jitsi' && empty($request->join_url)) {
-                $data['join_url'] = 'https://meet.jit.si/' . $data['slug'];
+                // A slug is public and predictable. The Jitsi room identifier must not be.
+                $data['join_url'] = 'https://meet.jit.si/skillso-' . Str::lower(Str::random(32));
             } elseif ($request->provider === 'zoom') {
                 try {
                     $zoomService  = app(\App\Services\ZoomService::class);
@@ -347,10 +348,32 @@ class AdminWebinarController extends AdminCrudApiController
             return $denied;
         }
 
-        $registrations = WebinarRegistration::with('user:id,name,email,mobile')
-            ->where('webinar_id', $webinar->id)
-            ->latest()
-            ->get()
+        $validated = $request->validate([
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'q' => ['nullable', 'string', 'max:100'],
+        ]);
+        $perPage = (int) ($validated['per_page'] ?? $validated['limit'] ?? 20);
+        $query = WebinarRegistration::with('user:id,name,email,mobile')
+            ->where('webinar_id', $webinar->id);
+
+        if (!empty($validated['q'])) {
+            $search = trim($validated['q']);
+            $query->where(function ($registrationQuery) use ($search) {
+                $registrationQuery->whereHas('user', function ($userQuery) use ($search) {
+                    $userQuery->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('mobile', 'like', "%{$search}%");
+                })->orWhere('form_responses->name', 'like', "%{$search}%")
+                    ->orWhere('form_responses->email', 'like', "%{$search}%")
+                    ->orWhere('form_responses->phone', 'like', "%{$search}%")
+                    ->orWhere('form_responses->whatsapp', 'like', "%{$search}%");
+            });
+        }
+
+        $paginator = $query->latest()->paginate($perPage);
+        $registrations = $paginator->getCollection()
             ->map(fn ($reg) => [
                 'id'             => $reg->id,
                 'user_id'        => $reg->user_id,
@@ -358,6 +381,7 @@ class AdminWebinarController extends AdminCrudApiController
                 'email'          => $reg->user?->email ?? ($reg->form_responses['email'] ?? 'N/A'),
                 'phone'          => $reg->user?->mobile ?? ($reg->form_responses['whatsapp'] ?? ($reg->form_responses['phone'] ?? 'N/A')),
                 'payment_status' => $reg->payment_status,
+                'payment_method' => $reg->payment_status === 'paid' ? 'wallet' : 'free',
                 'paid_amount'    => $reg->paid_amount,
                 'attended'       => (bool) $reg->attended,
                 'attended_at'    => $reg->attended_at ? $reg->attended_at->toDateTimeString() : null,
@@ -369,8 +393,13 @@ class AdminWebinarController extends AdminCrudApiController
         return $this->jsonSuccess('Registrants retrieved successfully', [
             'webinar_id'        => $webinar->id,
             'webinar_title'     => $webinar->title,
-            'total_registrants' => $registrations->count(),
-            'registrants'       => $registrations,
+            'total_registrants' => $paginator->total(),
+            'registrants'       => $registrations->values(),
+            'items'             => $registrations->values(),
+            'total'             => $paginator->total(),
+            'current_page'      => $paginator->currentPage(),
+            'per_page'          => $paginator->perPage(),
+            'last_page'         => $paginator->lastPage(),
         ]);
     }
 
