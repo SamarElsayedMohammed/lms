@@ -16,8 +16,10 @@ class FeatureSection extends Model
     protected $fillable = [
         'type',
         'title',
+        'subtitle',
         'limit',
         'row_order',
+        'mobile_row_order',
         'is_active',
         'layout',
         'grid_columns',
@@ -26,18 +28,22 @@ class FeatureSection extends Model
         'responsive_limits',
         'visibility_permissions',
         'visibility_devices',
+        'audience',
+        'config',
         'show_on_web',
         'show_on_mobile',
     ];
 
     protected $casts = [
         'is_active'              => 'boolean',
-        'limit'                  => 'integer',   // was arriving as string from MySQL
-        'row_order'              => 'integer',   // was arriving as string from MySQL
+        'limit'                  => 'integer',
+        'row_order'              => 'integer',
+        'mobile_row_order'       => 'integer',
         'grid_columns'           => 'integer',
         'responsive_limits'      => 'array',
         'visibility_permissions' => 'array',
         'visibility_devices'     => 'array',
+        'config'                 => 'array',
         'show_on_web'            => 'boolean',
         'show_on_mobile'         => 'boolean',
     ];

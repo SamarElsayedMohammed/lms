@@ -55,9 +55,11 @@ class StudentReportAdminApiController extends AdminCrudApiController
             'instructor_id' => 'nullable|exists:users,id',
             'category_id' => 'nullable|exists:categories,id',
             'search' => 'nullable|string|max:255',
-            'status'     => 'nullable|in:not_started,in_progress,completed',
+            'status'     => 'nullable|in:not_started,in_progress,completed,enrolled,no_courses,all',
             'per_page'   => 'nullable|integer|min:1|max:100',
             'report_type' => 'nullable|in:summary,detailed',
+            'sort_by'    => 'nullable|string|in:active,enrolled,completed,name,latest,created_at',
+            'sort_order' => 'nullable|string|in:asc,desc,ASC,DESC',
         ]);
 
         if ($validator->fails()) {
@@ -375,9 +377,13 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ->selectRaw("
                 COUNT(*) as students_with_enrollments,
                 SUM(CASE
-                    WHEN completed_courses = enrolled_courses THEN 1
+                    WHEN completed_courses = enrolled_courses AND enrolled_courses > 0 THEN 1
                     ELSE 0
                 END) as all_completed,
+                SUM(CASE
+                    WHEN completed_courses > 0 THEN 1
+                    ELSE 0
+                END) as any_completed,
                 SUM(CASE
                     WHEN completed_courses < enrolled_courses AND started_courses > 0 THEN 1
                     ELSE 0
@@ -391,12 +397,15 @@ class StudentReportAdminApiController extends AdminCrudApiController
 
         $studentsWithEnrollments = (int) ($bracketCounts->students_with_enrollments ?? 0);
         $noCoursesCount = max(0, $totalStudentsCount - $studentsWithEnrollments);
+        $anyCompletedCount = (int) ($bracketCounts->any_completed ?? 0);
+        $allCompletedCount = (int) ($bracketCounts->all_completed ?? 0);
 
         $brackets = [
             'no_courses'    => $noCoursesCount,
             'not_started'   => (int) ($bracketCounts->not_started ?? 0),
             'in_progress'   => (int) ($bracketCounts->in_progress ?? 0),
-            'all_completed' => (int) ($bracketCounts->all_completed ?? 0),
+            'all_completed' => $allCompletedCount,
+            'any_completed' => $anyCompletedCount,
         ];
 
         // Aggregate the scoped progress grain without loading individual rows.
@@ -462,15 +471,19 @@ class StudentReportAdminApiController extends AdminCrudApiController
             ])
             ->values();
 
+        $effectiveCompletedCount = $anyCompletedCount > 0 ? $anyCompletedCount : ($totalCompletedCourseEnrollments > 0 ? $totalCompletedCourseEnrollments : $allCompletedCount);
+
         return $this->jsonSuccess('Completion statistics retrieved', array_merge([
             'total_students'                       => $totalStudentsCount,
             'students_with_enrollments'            => $studentsWithEnrollments,
-            'completed_students'                   => $brackets['all_completed'],
-            'in_progress_students'                 => $brackets['in_progress'],
-            'not_started_students'                 => $brackets['not_started'],
+            'completed_students'                   => $effectiveCompletedCount,
+            'completed_any_student_count'          => $anyCompletedCount,
+            'completed_all_student_count'          => $allCompletedCount,
+            'in_progress_students'                 => (int) ($bracketCounts->in_progress ?? 0),
+            'not_started_students'                 => (int) ($bracketCounts->not_started ?? 0),
             'students_without_courses'             => $brackets['no_courses'],
             'completion_rate'                      => $studentsWithEnrollments > 0
-                ? round(($brackets['all_completed'] / $studentsWithEnrollments) * 100, 2)
+                ? round(($effectiveCompletedCount / $studentsWithEnrollments) * 100, 2)
                 : null,
             'completion_brackets'                  => $brackets,
             'total_completed_course_enrollments'   => $totalCompletedCourseEnrollments,
@@ -575,6 +588,48 @@ class StudentReportAdminApiController extends AdminCrudApiController
                         });
                     });
                 });
+            } elseif ($status === 'enrolled') {
+                $query->where(function ($enrolledQuery) use ($eligibleCourseIds) {
+                    $enrolledQuery->whereExists(function ($subOrders) use ($eligibleCourseIds) {
+                        $subOrders->selectRaw('1')
+                            ->from('orders')
+                            ->join('order_courses', 'orders.id', '=', 'order_courses.order_id')
+                            ->whereColumn('orders.user_id', 'users.id')
+                            ->where('orders.status', 'completed')
+                            ->when($eligibleCourseIds !== null, fn ($sq) => $sq->whereIn('order_courses.course_id', $eligibleCourseIds));
+                    })->orWhereExists(function ($subTracking) use ($eligibleCourseIds) {
+                        $subTracking->selectRaw('1')
+                            ->from('user_curriculum_trackings')
+                            ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+                            ->whereColumn('user_curriculum_trackings.user_id', 'users.id')
+                            ->when($eligibleCourseIds !== null, fn ($sq) => $sq->whereIn('course_chapters.course_id', $eligibleCourseIds));
+                    })->orWhereExists(function ($subProg) use ($eligibleCourseIds) {
+                        $subProg->selectRaw('1')
+                            ->from('user_course_progress')
+                            ->whereColumn('user_course_progress.user_id', 'users.id')
+                            ->when($eligibleCourseIds !== null, fn ($sq) => $sq->whereIn('user_course_progress.course_id', $eligibleCourseIds));
+                    });
+                });
+            } elseif ($status === 'no_courses') {
+                $query->whereNotExists(function ($subOrders) use ($eligibleCourseIds) {
+                    $subOrders->selectRaw('1')
+                        ->from('orders')
+                        ->join('order_courses', 'orders.id', '=', 'order_courses.order_id')
+                        ->whereColumn('orders.user_id', 'users.id')
+                        ->where('orders.status', 'completed')
+                        ->when($eligibleCourseIds !== null, fn ($sq) => $sq->whereIn('order_courses.course_id', $eligibleCourseIds));
+                })->whereNotExists(function ($subTracking) use ($eligibleCourseIds) {
+                    $subTracking->selectRaw('1')
+                        ->from('user_curriculum_trackings')
+                        ->join('course_chapters', 'user_curriculum_trackings.course_chapter_id', '=', 'course_chapters.id')
+                        ->whereColumn('user_curriculum_trackings.user_id', 'users.id')
+                        ->when($eligibleCourseIds !== null, fn ($sq) => $sq->whereIn('course_chapters.course_id', $eligibleCourseIds));
+                })->whereNotExists(function ($subProg) use ($eligibleCourseIds) {
+                    $subProg->selectRaw('1')
+                        ->from('user_course_progress')
+                        ->whereColumn('user_course_progress.user_id', 'users.id')
+                        ->when($eligibleCourseIds !== null, fn ($sq) => $sq->whereIn('user_course_progress.course_id', $eligibleCourseIds));
+                });
             }
         }
         if ($eligibleCourseIds !== null) {
@@ -608,7 +663,24 @@ class StudentReportAdminApiController extends AdminCrudApiController
         $eligibleCourseIds = $this->eligibleCourseIds($request);
         $this->applyStudentScope($query, $request, $eligibleCourseIds);
 
-        $perPage = min((int) $request->input('per_page', 20), 100);
+        // Sorting logic: prioritize active learners with courses/progress on Page 1
+        $sortBy = $request->input('sort_by', 'active');
+        $sortOrder = strtolower((string) $request->input('sort_order', 'desc')) === 'asc' ? 'asc' : 'desc';
+
+        if ($sortBy === 'name') {
+            $query->orderBy('users.name', $sortOrder);
+        } elseif ($sortBy === 'latest' || $sortBy === 'created_at') {
+            $query->orderBy('users.created_at', $sortOrder);
+        } elseif ($sortBy === 'enrolled') {
+            $query->orderByRaw('((SELECT COUNT(*) FROM orders JOIN order_courses ON orders.id = order_courses.order_id WHERE orders.user_id = users.id AND orders.status = "completed") + (SELECT COUNT(*) FROM user_course_progress WHERE user_course_progress.user_id = users.id)) ' . $sortOrder . ', users.id DESC');
+        } elseif ($sortBy === 'completed') {
+            $query->orderByRaw('(SELECT COUNT(*) FROM user_course_progress WHERE user_course_progress.user_id = users.id AND (user_course_progress.status = "completed" OR user_course_progress.progress_percentage >= 100)) ' . $sortOrder . ', users.id DESC');
+        } else {
+            // Default "active" / smart sort: prioritize students with course progress or enrollments first, then newest
+            $query->orderByRaw('((SELECT COUNT(*) FROM user_course_progress WHERE user_course_progress.user_id = users.id AND user_course_progress.progress_percentage > 0) * 10 + (SELECT COUNT(*) FROM orders JOIN order_courses ON orders.id = order_courses.order_id WHERE orders.user_id = users.id AND orders.status = "completed") * 5 + (SELECT COUNT(*) FROM user_curriculum_trackings WHERE user_curriculum_trackings.user_id = users.id)) DESC, users.created_at DESC');
+        }
+
+        $perPage = min((int) $request->input('per_page', 20), 250);
         $students = $query->select('id', 'name', 'email', 'created_at')->paginate($perPage);
 
         $studentIds = collect($students->items())->pluck('id')->toArray();

@@ -29,6 +29,9 @@ class LectureProgressSegmentsApiTest extends TestCase
         return CourseChapterLecture::factory()->create([
             'course_chapter_id' => $chapter->id,
             'duration_seconds' => $duration,
+            'hours' => (int) floor($duration / 3600),
+            'minutes' => (int) floor(($duration % 3600) / 60),
+            'seconds' => (int) ($duration % 60),
             'type' => 'file',
             'file_extension' => 'mp4',
             'is_active' => true,
@@ -220,5 +223,24 @@ class LectureProgressSegmentsApiTest extends TestCase
         $this->assertEquals(0, $response->json('data.watch_percentage'));
         $this->assertFalse($response->json('data.is_completed'));
         $this->assertEquals([], $response->json('data.watched_segments'));
+    }
+
+    public function test_update_progress_self_heals_unconfigured_lecture_duration(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $lecture = $this->createAccessibleLecture(0); // Lecture created with 0 duration
+
+        $response = $this->actingAs($user)->postJson("/api/lecture/{$lecture->id}/progress", [
+            'current_position' => 10,
+            'total_duration' => 120,
+            'newly_watched_segments' => [0],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.total_seconds', 120)
+            ->assertJsonPath('data.completed_segments', 1);
+
+        $lecture->refresh();
+        $this->assertEquals(120, $lecture->duration_seconds);
     }
 }

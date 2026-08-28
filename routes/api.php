@@ -218,7 +218,7 @@ Route::post('become-instructor', [ApiController::class, 'submitBecomeInstructor'
 /**
  * Subscription APIs
  */
-Route::prefix('subscription')->group(function (): void {
+$registerSubscriptionRoutes = function (): void {
     // Public - no auth required
     Route::get('/plans', [SubscriptionApiController::class, 'getPlans']);
     
@@ -226,7 +226,7 @@ Route::prefix('subscription')->group(function (): void {
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/payment-methods', [SubscriptionApiController::class, 'getPaymentMethods']);
         Route::get('/my-subscription', [SubscriptionApiController::class, 'getMySubscription']);
-        Route::get('/payments/{payment}/receipt', [SubscriptionApiController::class, 'downloadReceipt'])->name('subscription.receipt');
+        Route::get('/payments/{payment}/receipt', [SubscriptionApiController::class, 'downloadReceipt']);
         Route::post('/subscribe', [SubscriptionApiController::class, 'subscribe'])->middleware(['throttle:10,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
         Route::post('/validate-promo', [SubscriptionApiController::class, 'validatePromoCode'])->middleware('throttle:10,1');
         Route::post('/renew', [SubscriptionApiController::class, 'renew'])->middleware(['throttle:10,1', \App\Http\Middleware\IdempotencyMiddleware::class]);
@@ -234,7 +234,11 @@ Route::prefix('subscription')->group(function (): void {
         Route::get('/history', [SubscriptionApiController::class, 'getHistory']);
         Route::post('/settings', [SubscriptionApiController::class, 'updateSettings']);
     });
-});
+};
+
+Route::prefix('subscription')->group($registerSubscriptionRoutes);
+Route::prefix('v1/subscription')->group($registerSubscriptionRoutes);
+Route::prefix('v1/subscriptions')->group($registerSubscriptionRoutes);
 
 /**
  * Mobile In-App Store Billing & Entitlements Sync APIs
@@ -298,6 +302,9 @@ Route::get('ref/{code}', [AffiliateApiController::class, 'trackReferral'])
  */
 
 Route::middleware(OptionalAuth::class)->group(function (): void {
+    Route::get('mobile/home', [\App\Http\Controllers\API\MobileHomeApiController::class, 'getHome']);
+    Route::get('v1/mobile/home', [\App\Http\Controllers\API\MobileHomeApiController::class, 'getHome']);
+    Route::post('mobile/home/interact', [\App\Http\Controllers\API\MobileHomeApiController::class, 'interact']);
     Route::post('feature-sections/interact', [HomeApiController::class, 'interact']);
     Route::get('get-feature-sections', [HomeApiController::class, 'getFeatureSections']);
     Route::get('get-courses', [CourseApiController::class, 'getCourses']);
@@ -347,6 +354,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->middleware('throttle:10,1');
     Route::get('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'getProgress']);
     Route::get('/course/{courseId}/progress', [LectureProgressApiController::class, 'getCourseProgress']);
+
+    // Mobile Learning Space & Offline Systems
+    Route::get('mobile/learning-space', [\App\Http\Controllers\API\MobileLearningSpaceApiController::class, 'getLearningSpaceData']);
+    Route::get('v1/mobile/learning-space', [\App\Http\Controllers\API\MobileLearningSpaceApiController::class, 'getLearningSpaceData']);
+    Route::post('mobile/downloads/authorize', [\App\Http\Controllers\API\MobileLearningSpaceApiController::class, 'authorizeDownload']);
+    Route::post('mobile/learning/sync-progress', [\App\Http\Controllers\API\MobileLearningSpaceApiController::class, 'syncProgress']);
 
     // Lecture attachments (user-facing, gated by feature flag)
     Route::get('/lecture/{lectureId}/attachments', [CourseChapterApiController::class, 'getLectureAttachments']);
@@ -952,6 +965,29 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'update']);
         Route::delete('feature-sections/{id}', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'destroy']);
         Route::put('feature-sections/{id}/restore', [\App\Http\Controllers\API\Admin\FeatureSectionAdminApiController::class, 'restore']);
+
+        // Mobile Home CMS Admin
+        Route::prefix('mobile-home')->group(function (): void {
+            Route::get('overview', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'overview']);
+            Route::get('sections', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'getSections']);
+            Route::post('sections', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'storeSection']);
+            Route::put('sections/reorder', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'reorderSections']);
+            Route::put('sections/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'updateSection']);
+            Route::delete('sections/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'deleteSection']);
+            Route::get('banners', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'getBanners']);
+            Route::post('banners', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'storeBanner']);
+            Route::post('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'updateBanner']);
+            Route::put('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'updateBanner']);
+            Route::delete('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'deleteBanner']);
+            Route::get('preview', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'getPreview']);
+            Route::get('search-entities', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'searchEntities']);
+        });
+
+        // Mobile Learning & Offline Settings Admin
+        Route::prefix('mobile-learning')->group(function (): void {
+            Route::get('settings', [\App\Http\Controllers\API\MobileLearningSpaceApiController::class, 'getAdminSettings']);
+            Route::put('settings', [\App\Http\Controllers\API\MobileLearningSpaceApiController::class, 'updateAdminSettings']);
+        });
 
         // Instructor Requests
         Route::get('instructor-requests', [\App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::class, 'index']);

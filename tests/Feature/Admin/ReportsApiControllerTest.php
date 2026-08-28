@@ -694,6 +694,7 @@ final class ReportsApiControllerTest extends TestCase
         $plan = SubscriptionPlan::create([
             'name' => 'Premium Plan',
             'slug' => 'premium-plan',
+            'billing_cycle' => 'monthly',
             'price' => 5000.0,
             'is_active' => true,
         ]);
@@ -750,6 +751,7 @@ final class ReportsApiControllerTest extends TestCase
         $plan = SubscriptionPlan::create([
             'name' => 'Premium Plan',
             'slug' => 'premium-plan-2',
+            'billing_cycle' => 'monthly',
             'price' => 5000.0,
             'is_active' => true,
         ]);
@@ -795,6 +797,7 @@ final class ReportsApiControllerTest extends TestCase
         $plan = SubscriptionPlan::create([
             'name' => 'Free Trial Plan',
             'slug' => 'free-trial-plan',
+            'billing_cycle' => 'monthly',
             'price' => 5000.0,
             'is_active' => true,
         ]);
@@ -855,10 +858,18 @@ final class ReportsApiControllerTest extends TestCase
             'tax_price' => 0.0,
         ]);
 
+        $txn = Transaction::create([
+            'user_id' => $this->student->id,
+            'type' => 'course_purchase',
+            'amount' => 2000.0,
+            'status' => 'completed',
+        ]);
+
         RefundRequest::create([
             'user_id' => $this->student->id,
             'course_id' => $this->course->id,
             'order_id' => $order->id,
+            'transaction_id' => $txn->id,
             'refund_amount' => 500.0,
             'amount_egp' => 500.0,
             'status' => 'approved',
@@ -892,8 +903,8 @@ final class ReportsApiControllerTest extends TestCase
         OrderCourse::create(['order_id' => $o3->id, 'course_id' => $this->course->id, 'price' => 300.0, 'tax_price' => 0.0]);
 
         // 1 Failed Subscription Payment (4500)
-        $plan = SubscriptionPlan::create(['name' => 'Plan B', 'price' => 5000.0, 'is_active' => true]);
-        $sub = Subscription::create(['user_id' => $this->student->id, 'plan_id' => $plan->id, 'status' => 'pending']);
+        $plan = SubscriptionPlan::create(['name' => 'Plan B', 'slug' => 'plan-b', 'billing_cycle' => 'monthly', 'price' => 5000.0, 'is_active' => true]);
+        $sub = Subscription::create(['user_id' => $this->student->id, 'plan_id' => $plan->id, 'starts_at' => Carbon::now(), 'status' => 'pending']);
         SubscriptionPayment::create([
             'subscription_id' => $sub->id,
             'user_id' => $this->student->id,

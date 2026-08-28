@@ -60,14 +60,30 @@ final class LectureProgressApiController extends Controller
                 'newly_watched_segments' => 'required|array|max:' . VideoProgressService::MAX_SEGMENTS_PER_REQUEST,
                 'newly_watched_segments.*' => 'integer|min:0',
                 'total_duration' => 'nullable|integer|min:0',
+                'total_seconds' => 'nullable|integer|min:0',
             ]);
 
             $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
+            $reportedTotal = (int) ($validated['total_duration'] ?? $validated['total_seconds'] ?? 0);
+
             if ($canonicalDuration <= 0) {
-                return $this->error('Lecture duration is not configured on the server', null, 422);
+                if ($reportedTotal > 0) {
+                    $lecture->updateQuietly([
+                        'duration_seconds' => $reportedTotal,
+                        'hours' => (int) floor($reportedTotal / 3600),
+                        'minutes' => (int) floor(($reportedTotal % 3600) / 60),
+                        'seconds' => (int) ($reportedTotal % 60),
+                    ]);
+                    if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
+                        \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
+                    }
+                    $canonicalDuration = $reportedTotal;
+                } else {
+                    return $this->error('Lecture duration is not configured on the server', null, 422);
+                }
             }
 
-            $reportedTotal = (int) ($validated['total_duration'] ?? $canonicalDuration);
+            $reportedTotal = $reportedTotal > 0 ? $reportedTotal : $canonicalDuration;
             if ($reportedTotal < $canonicalDuration) {
                 return $this->error('The reported video duration cannot shrink canonical lecture duration.', null, 422);
             }
@@ -105,12 +121,28 @@ final class LectureProgressApiController extends Controller
             'watched_seconds' => 'nullable|integer|min:0',
             'last_position' => 'nullable|integer|min:0',
             'current_position' => 'nullable|integer|min:0',
+            'total_seconds' => 'nullable|integer|min:0',
+            'total_duration' => 'nullable|integer|min:0',
         ]);
 
         $lastPosition = (int) ($validated['last_position'] ?? $validated['current_position'] ?? 0);
         $watchedSeconds = (int) ($validated['watched_seconds'] ?? $lastPosition);
+        $reportedTotal = (int) ($validated['total_seconds'] ?? $validated['total_duration'] ?? 0);
 
         $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
+
+        if ($canonicalDuration <= 0 && $reportedTotal > 0) {
+            $lecture->updateQuietly([
+                'duration_seconds' => $reportedTotal,
+                'hours' => (int) floor($reportedTotal / 3600),
+                'minutes' => (int) floor(($reportedTotal % 3600) / 60),
+                'seconds' => (int) ($reportedTotal % 60),
+            ]);
+            if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
+                \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
+            }
+            $canonicalDuration = $reportedTotal;
+        }
 
         try {
             $progress = $this->videoProgressService->updateProgress(
@@ -122,7 +154,7 @@ final class LectureProgressApiController extends Controller
                 $metadata
             );
         } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), null, 422);
         }
 
         return $this->ok(

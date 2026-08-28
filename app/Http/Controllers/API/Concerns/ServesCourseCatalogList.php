@@ -232,7 +232,7 @@ trait ServesCourseCatalogList
         }
 
         if ($request->filled("search")) {
-            $search = $request->search;
+            $search = trim((string) $request->search);
 
             // Record search history (non-blocking)
             try {
@@ -243,32 +243,27 @@ trait ServesCourseCatalogList
                 Log::warning('SearchHistory: Failed to record search query', ['error' => $e->getMessage()]);
             }
 
-            $query->where(static function ($q) use ($search): void {
-                $q->where("title", "LIKE", "%{$search}%")
-                    ->orWhere("short_description", "LIKE", "%{$search}%")
-                    ->orWhere("level", "LIKE", "%{$search}%")
-                    ->orWhereHas("language", static function ($langQuery) use (
-                        $search,
-                    ): void {
-                        $langQuery->where("name", "LIKE", "%{$search}%");
-                    })
-                    ->orWhereHas("category", static function (
-                        $categoryQuery,
-                    ) use ($search): void {
-                        $categoryQuery->where("name", "LIKE", "%{$search}%");
-                    })
-                    ->orWhereHas("tags", static function ($tagQuery) use (
-                        $search,
-                    ): void {
-                        $tagQuery->where("tag", "LIKE", "%{$search}%");
-                    })
-                    ->orWhereHas("user", static function ($userQuery) use (
-                        $search,
-                    ): void {
-                        $userQuery
-                            ->where("name", "LIKE", "%{$search}%")
-                            ->orWhere("slug", "LIKE", "%{$search}%");
-                    });
+            $searchVariants = $this->buildArabicSearchVariants($search);
+
+            $query->where(static function ($q) use ($searchVariants): void {
+                foreach ($searchVariants as $term) {
+                    $q->orWhere("title", "LIKE", "%{$term}%")
+                        ->orWhere("short_description", "LIKE", "%{$term}%")
+                        ->orWhere("level", "LIKE", "%{$term}%")
+                        ->orWhereHas("language", static function ($langQuery) use ($term): void {
+                            $langQuery->where("name", "LIKE", "%{$term}%");
+                        })
+                        ->orWhereHas("category", static function ($categoryQuery) use ($term): void {
+                            $categoryQuery->where("name", "LIKE", "%{$term}%");
+                        })
+                        ->orWhereHas("tags", static function ($tagQuery) use ($term): void {
+                            $tagQuery->where("tag", "LIKE", "%{$term}%");
+                        })
+                        ->orWhereHas("user", static function ($userQuery) use ($term): void {
+                            $userQuery->where("name", "LIKE", "%{$term}%")
+                                ->orWhere("slug", "LIKE", "%{$term}%");
+                        });
+                }
             });
         }
 
@@ -827,4 +822,123 @@ trait ServesCourseCatalogList
         );
     }
 
+    /**
+     * Build search term variants for robust Arabic text search
+     */
+    protected function buildArabicSearchVariants(string $search): array
+    {
+        $raw = trim($search);
+        if ($raw === '') {
+            return [];
+        }
+
+        $variants = [$raw];
+
+        // Strip diacritics & tatweel
+        $cleaned = preg_replace('/[\x{064B}-\x{065F}\x{0670}\x{0640}]/u', '', $raw);
+        if ($cleaned !== null && $cleaned !== '' && $cleaned !== $raw) {
+            $variants[] = $cleaned;
+        }
+
+        $base = ($cleaned !== null && $cleaned !== '') ? $cleaned : $raw;
+
+        // Normalize Alef variants (أ, إ, آ -> ا)
+        $normalizedAlef = preg_replace('/[أإآ]/u', 'ا', $base);
+        if ($normalizedAlef !== null && !in_array($normalizedAlef, $variants, true)) {
+            $variants[] = $normalizedAlef;
+        }
+
+        // Generate Hamza variants for leading Alef
+        if (str_starts_with($base, 'ا')) {
+            $suffix = mb_substr($base, 1);
+            $variants[] = 'إ' . $suffix;
+            $variants[] = 'أ' . $suffix;
+            $variants[] = 'آ' . $suffix;
+            $variants[] = 'إ' . str_replace('ة', 'ه', $suffix);
+            $variants[] = 'أ' . str_replace('ة', 'ه', $suffix);
+            $variants[] = 'إ' . str_replace('ه', 'ة', $suffix);
+            $variants[] = 'أ' . str_replace('ه', 'ة', $suffix);
+        }
+
+        // Normalize Ta Marbuta (ة -> ه) and vice-versa
+        $normalizedTa = str_replace('ة', 'ه', $base);
+        if (!in_array($normalizedTa, $variants, true)) {
+            $variants[] = $normalizedTa;
+        }
+        $normalizedHa = str_replace('ه', 'ة', $base);
+        if (!in_array($normalizedHa, $variants, true)) {
+            $variants[] = $normalizedHa;
+        }
+
+        // Normalize Ya / Alef Maksura (ى -> ي) and vice-versa
+        $normalizedYa = str_replace('ى', 'ي', $base);
+        if (!in_array($normalizedYa, $variants, true)) {
+            $variants[] = $normalizedYa;
+        }
+        $normalizedMaksura = str_replace('ي', 'ى', $base);
+        if (!in_array($normalizedMaksura, $variants, true)) {
+            $variants[] = $normalizedMaksura;
+        }
+
+        // Full normalized combination
+        if ($normalizedAlef !== null) {
+            $fullNormalized = str_replace(['ة', 'ى'], ['ه', 'ي'], $normalizedAlef);
+            if (!in_array($fullNormalized, $variants, true)) {
+                $variants[] = $fullNormalized;
+            }
+            $fullNormalized2 = str_replace(['ه', 'ي'], ['ة', 'ى'], $normalizedAlef);
+            if (!in_array($fullNormalized2, $variants, true)) {
+                $variants[] = $fullNormalized2;
+            }
+        }
+
+        return array_values(array_unique(array_filter($variants)));
+    }
+
+    /**
+     * Get category IDs and all their children for given category slugs
+     */
+    protected function getCategoryIdsWithChildren(array $categorySlugs): array
+    {
+        $directCategoryIds = Category::whereIn('slug', $categorySlugs)
+            ->pluck('id')
+            ->map(static fn ($id) => (int) $id)
+            ->toArray();
+
+        $allCategoryIds = $directCategoryIds;
+        foreach ($directCategoryIds as $categoryId) {
+            $childIds = $this->getAllChildCategoryIds($categoryId);
+            $allCategoryIds = array_merge($allCategoryIds, $childIds);
+        }
+
+        return array_values(array_unique($allCategoryIds));
+    }
+
+    /**
+     * Recursively get all child category IDs for a given category ID (with cycle protection)
+     */
+    protected function getAllChildCategoryIds(int $categoryId, array &$visited = [], int $depth = 0): array
+    {
+        if ($depth > 10 || in_array($categoryId, $visited, true)) {
+            return [];
+        }
+        $visited[] = $categoryId;
+
+        $childIds = [];
+
+        // Get direct children
+        $children = Category::where("parent_category_id", $categoryId)->get(['id']);
+
+        foreach ($children as $child) {
+            $childId = (int) $child->id;
+            if (!in_array($childId, $visited, true)) {
+                $childIds[] = $childId;
+                // Recursively get grandchildren
+                $grandchildIds = $this->getAllChildCategoryIds($childId, $visited, $depth + 1);
+                $childIds = array_merge($childIds, $grandchildIds);
+            }
+        }
+
+        return array_values(array_unique($childIds));
+    }
 }

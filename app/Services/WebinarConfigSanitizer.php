@@ -20,6 +20,10 @@ class WebinarConfigSanitizer
 
         unset($config['join_url'], $config['meeting_id'], $config['meeting_password'], $config['internalNotes'], $config['adminNotes']);
 
+        if (!isset($config['event']['timezone']) || empty($config['event']['timezone'])) {
+            $config['event']['timezone'] = 'Africa/Cairo';
+        }
+
         return $config;
     }
 

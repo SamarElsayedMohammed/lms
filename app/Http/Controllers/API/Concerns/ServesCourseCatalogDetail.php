@@ -1306,7 +1306,7 @@ trait ServesCourseCatalogDetail
     /**
      * Format duration in seconds to human readable format
      */
-    private function formatDuration($seconds)
+    protected function formatDuration($seconds)
     {
         if ($seconds < 60) {
             return $seconds . "s";

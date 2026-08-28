@@ -555,6 +555,7 @@ final class StudentReportAdminApiControllerTest extends TestCase
                 'not_started' => 0,
                 'in_progress' => 0,
                 'all_completed' => 1,
+                'any_completed' => 1,
             ], $response->json('data.completion_brackets'));
             $this->assertSame(1, (int) $response->json('data.total_completed_course_enrollments'));
             $this->assertSame(0, (int) $response->json('data.total_in_progress_course_enrollments'));

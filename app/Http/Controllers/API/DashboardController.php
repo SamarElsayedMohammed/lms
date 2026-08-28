@@ -797,6 +797,8 @@ class DashboardController extends Controller
                     if (!$createdAt) continue;
                     $activities[] = [
                         'id' => 'user_' . $user->id,
+                        'entity_id' => $user->id,
+                        'entity_type' => 'user',
                         'type' => 'student_registered',
                         'icon' => 'fas fa-user-plus',
                         'color' => 'success',
@@ -805,7 +807,7 @@ class DashboardController extends Controller
                         'description' => $user->name . ' انضم للمنصة حديثاً',
                         'created_at' => $createdAt->toISOString(),
                         'time' => $this->getTimeAgo($createdAt),
-                        'link' => '/admin/students',
+                        'link' => '/admin/students?highlight=' . $user->id . '&search=' . urlencode($user->name),
                         '_sort_time' => $createdAt->getTimestamp(),
                     ];
                 }
@@ -825,6 +827,8 @@ class DashboardController extends Controller
                     if (!$createdAt) continue;
                     $activities[] = [
                         'id' => 'course_' . $course->id,
+                        'entity_id' => $course->id,
+                        'entity_type' => 'course',
                         'type' => 'course_creation',
                         'icon' => 'fas fa-graduation-cap',
                         'color' => 'primary',
@@ -833,7 +837,7 @@ class DashboardController extends Controller
                         'description' => '"' . $course->title . '" تم إنشاؤها',
                         'created_at' => $createdAt->toISOString(),
                         'time' => $this->getTimeAgo($createdAt),
-                        'link' => '/admin/courses',
+                        'link' => '/admin/courses?highlight=' . $course->id . '&search=' . urlencode($course->title),
                         '_sort_time' => $createdAt->getTimestamp(),
                     ];
                 }
@@ -856,6 +860,8 @@ class DashboardController extends Controller
                     $orderNum = $order->order_number ?? $order->id;
                     $activities[] = [
                         'id' => 'order_' . $order->id,
+                        'entity_id' => $order->id,
+                        'entity_type' => 'order',
                         'type' => 'new_order',
                         'icon' => 'fas fa-shopping-cart',
                         'color' => 'warning',
@@ -864,7 +870,7 @@ class DashboardController extends Controller
                         'description' => $order->user->name . ' قام بشراء طلب #' . $orderNum,
                         'created_at' => $createdAt->toISOString(),
                         'time' => $this->getTimeAgo($createdAt),
-                        'link' => '/admin/orders',
+                        'link' => '/admin/orders?highlight=' . $order->id . '&search=' . urlencode((string) $orderNum),
                         '_sort_time' => $createdAt->getTimestamp(),
                     ];
                 }
@@ -887,6 +893,8 @@ class DashboardController extends Controller
                         $planName = $sub->plan?->name ?? 'باقة اشتراك';
                         $activities[] = [
                             'id' => 'sub_' . $sub->id,
+                            'entity_id' => $sub->id,
+                            'entity_type' => 'subscription',
                             'type' => 'subscription_created',
                             'icon' => 'fas fa-id-card',
                             'color' => 'success',
@@ -895,7 +903,7 @@ class DashboardController extends Controller
                             'description' => $sub->user->name . ' اشترك في ' . $planName,
                             'created_at' => $createdAt->toISOString(),
                             'time' => $this->getTimeAgo($createdAt),
-                            'link' => '/admin/subscription-plans',
+                            'link' => '/admin/subscriptions?highlight=' . $sub->id . '&search=' . urlencode($sub->user->name),
                             '_sort_time' => $createdAt->getTimestamp(),
                         ];
                     }
@@ -918,6 +926,8 @@ class DashboardController extends Controller
                         $userName = $cert->user?->name ?? $cert->student_name ?? 'متدرب';
                         $activities[] = [
                             'id' => 'cert_' . $cert->id,
+                            'entity_id' => $cert->id,
+                            'entity_type' => 'certificate',
                             'type' => 'certificate_issued',
                             'icon' => 'fas fa-award',
                             'color' => 'info',
@@ -926,7 +936,7 @@ class DashboardController extends Controller
                             'description' => 'تم إصدار شهادة للمتدرب ' . $userName,
                             'created_at' => $createdAt->toISOString(),
                             'time' => $this->getTimeAgo($createdAt),
-                            'link' => '/admin/certificates',
+                            'link' => '/admin/certificates?highlight=' . $cert->id . '&search=' . urlencode($userName),
                             '_sort_time' => $createdAt->getTimestamp(),
                         ];
                     }
@@ -1149,6 +1159,7 @@ class DashboardController extends Controller
                 $pct = $totalSubRev > 0 ? round(($rev / $totalSubRev) * 100, 1) : 0;
 
                 $result[] = [
+                    'id' => (string) $plan->id,
                     'package_id' => $plan->id,
                     'package_name' => $plan->name,
                     'package_slug' => $plan->slug,
@@ -1162,8 +1173,16 @@ class DashboardController extends Controller
                     'name' => $plan->name,
                     'revenue' => round($rev, 2),
                     'color' => $palette[$index % count($palette)],
+                    'link' => '/admin/subscription-plans?highlight=' . $plan->id . '&search=' . urlencode($plan->name),
                 ];
             }
+
+            usort($result, function ($a, $b) {
+                if ($b['revenue'] != $a['revenue']) {
+                    return $b['revenue'] <=> $a['revenue'];
+                }
+                return $b['subscriptions_count'] <=> $a['subscriptions_count'];
+            });
 
             return $result;
         } catch (\Exception $e) {
@@ -1184,6 +1203,7 @@ class DashboardController extends Controller
                 'BH' => ['ar' => 'البحرين', 'en' => 'Bahrain', 'flag' => '🇧🇭'],
                 'OM' => ['ar' => 'عُمان', 'en' => 'Oman', 'flag' => '🇴🇲'],
                 'JO' => ['ar' => 'الأردن', 'en' => 'Jordan', 'flag' => '🇯🇴'],
+                'UNKNOWN' => ['ar' => 'دولي / غير محدد', 'en' => 'International', 'flag' => '🌐'],
             ];
 
             $countryRevenues = DB::table('subscription_payments')
@@ -1234,6 +1254,7 @@ class DashboardController extends Controller
 
                 return [
                     'country_code' => $code,
+                    'code' => $code,
                     'country_name_ar' => $info['ar'],
                     'country_name_en' => $info['en'],
                     'country' => $info['ar'],
@@ -1245,6 +1266,7 @@ class DashboardController extends Controller
                     'revenue' => round($rev, 2),
                     'percentage' => $pct,
                     'currency_code' => 'EGP',
+                    'link' => '/admin/countries?highlight=' . $code . '&search=' . urlencode($info['ar']),
                 ];
             })->values()->toArray();
         } catch (\Exception $e) {
@@ -1298,21 +1320,25 @@ class DashboardController extends Controller
                 ->where('courses.approval_status', 'approved')
                 ->with('user:id,name')
                 ->groupBy('courses.id')
-                ->having('enrollments_count', '>', 0)
                 ->orderBy('enrollments_count', 'desc')
+                ->orderBy('courses.id', 'desc')
                 ->limit(5)
                 ->get()
                 ->map(static fn($course) => [
+                    'id' => $course->id,
+                    'slug' => $course->slug,
                     'title' => $course->title,
                     'courseName' => $course->title,
                     'enrollments' => (int) $course->enrollments_count,
                     'instructor' => $course->user->name ?? 'مدرس',
                     'status' => $course->is_active ? 'نشطة' : 'مسودة',
+                    'link' => '/admin/courses?highlight=' . $course->id . '&search=' . urlencode($course->title),
                 ]);
 
             $this->mostPopularCoursesCache = $result;
             return $result;
-        } catch (\Exception) {
+        } catch (\Exception $e) {
+            Log::error('getMostPopularCourses error: ' . $e->getMessage());
             return collect([]);
         }
     }
@@ -1563,19 +1589,27 @@ class DashboardController extends Controller
                         ->count('orders.user_id');
 
                     return [
+                        'id' => $instructor->id,
                         'name' => $instructor->name,
                         'email' => $instructor->email,
                         'total_courses' => (int) $instructor->total_courses,
                         'courses' => (int) $instructor->total_courses,
                         'students' => $studentsCount,
                         'status' => $instructor->instructor_details->status ?? 'approved',
+                        'link' => '/admin/instructors?highlight=' . $instructor->id . '&search=' . urlencode($instructor->name),
                     ];
                 })
-                ->sortByDesc('students')
+                ->sort(function ($a, $b) {
+                    if ($b['students'] !== $a['students']) {
+                        return $b['students'] <=> $a['students'];
+                    }
+                    return $b['courses'] <=> $a['courses'];
+                })
                 ->take(5)
                 ->values()
                 ->toArray();
-        } catch (\Exception) {
+        } catch (\Exception $e) {
+            Log::error('getTopInstructors error: ' . $e->getMessage());
             return [];
         }
     }
@@ -1604,12 +1638,16 @@ class DashboardController extends Controller
                 ->limit(5)
                 ->get()
                 ->map(static fn($course) => [
+                    'id' => $course->id,
+                    'slug' => $course->slug,
                     'title' => $course->title,
                     'courseName' => $course->title,
                     'total_earnings' => round((float) $course->total_earnings, 2),
                     'instructor' => $course->user->name ?? 'مدرس',
+                    'link' => '/admin/courses?highlight=' . $course->id . '&search=' . urlencode($course->title),
                 ]);
-        } catch (\Exception) {
+        } catch (\Exception $e) {
+            Log::error('getTopEarningCourses error: ' . $e->getMessage());
             return [];
         }
     }

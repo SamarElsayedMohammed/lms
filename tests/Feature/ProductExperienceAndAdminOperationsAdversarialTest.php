@@ -296,7 +296,7 @@ class ProductExperienceAndAdminOperationsAdversarialTest extends TestCase
         ]);
 
         $this->actingAs($admin, 'sanctum')
-            ->postJson("/api/admin/courses/{$course->id}/update", $payload + ['price' => 0])
+            ->postJson("/api/admin/courses/{$course->id}/update", array_merge($payload, ['price' => 0]))
             ->assertStatus(422);
     }
 

@@ -49,7 +49,10 @@ class WebinarRegistrationController extends Controller
 
             $this->registrationService->register($webinar, $registrant, 'free', 0.00, null, is_array($formResponses) ? $formResponses : [], $utmSource);
 
-            return ApiResponseService::successResponse('Successfully registered for the webinar.');
+            return ApiResponseService::successResponse('Successfully registered for the webinar.', [
+                'redirect_url' => "/webinar/{$webinar->slug}/thank-you",
+                'slug'         => $webinar->slug,
+            ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return ApiResponseService::errorResponse(
                 $e->getMessage(),

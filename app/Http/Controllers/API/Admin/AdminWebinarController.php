@@ -220,9 +220,19 @@ class AdminWebinarController extends AdminCrudApiController
                 }
             }
 
+            if (empty($data['config']) || !is_array($data['config'])) {
+                $data['config'] = [
+                    'event' => [
+                        'timezone' => 'Africa/Cairo',
+                    ],
+                ];
+            }
+
+            $isPublished = $request->has('is_published') ? $request->boolean('is_published') : true;
+
             $webinar = Webinar::create(array_merge($data, [
                 'status' => 'scheduled',
-                'is_published' => false,
+                'is_published' => $isPublished,
             ]));
 
             return $this->jsonSuccess('Webinar created successfully', $webinar->fresh('instructor'), 201);

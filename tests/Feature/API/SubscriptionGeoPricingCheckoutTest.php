@@ -22,9 +22,11 @@ final class SubscriptionGeoPricingCheckoutTest extends TestCase
     {
         parent::setUp();
 
-        Setting::query()->create(['name' => 'kashier_merchant_id', 'value' => 'TEST_MERCHANT']);
-        Setting::query()->create(['name' => 'kashier_api_key', 'value' => 'TEST_API_KEY']);
-        Setting::query()->create(['name' => 'kashier_mode', 'value' => 'test']);
+        Setting::query()->updateOrCreate(['name' => 'kashier_merchant_id'], ['value' => 'TEST_MERCHANT']);
+        Setting::query()->updateOrCreate(['name' => 'kashier_api_key'], ['value' => 'TEST_API_KEY']);
+        Setting::query()->updateOrCreate(['name' => 'kashier_mode'], ['value' => 'test']);
+        Setting::query()->updateOrCreate(['name' => 'kashier_status'], ['value' => '1']);
+        Setting::query()->updateOrCreate(['name' => 'automatic_payments_enabled'], ['value' => '1']);
 
         $this->plan = SubscriptionPlan::create([
             'name' => 'Premium Plan',
@@ -71,6 +73,7 @@ final class SubscriptionGeoPricingCheckoutTest extends TestCase
 
         $response = $this->actingAs($user)->withHeaders([
             'X-Vercel-IP-Country' => $country,
+            'Idempotency-Key' => (string) \Illuminate\Support\Str::uuid(),
         ])->postJson('/api/v1/subscription/subscribe?test_country=' . $country, [
             'plan_id' => $this->plan->id,
             'payment_method' => 'kashier',
@@ -127,12 +130,12 @@ final class SubscriptionGeoPricingCheckoutTest extends TestCase
 
         $response = $this->actingAs($user)->withHeaders([
             'X-Vercel-IP-Country' => 'SA',
+            'Idempotency-Key' => (string) \Illuminate\Support\Str::uuid(),
         ])->postJson('/api/v1/subscription/subscribe?test_country=SA', [
             'plan_id' => $this->plan->id,
             'payment_method' => 'kashier',
             'use_wallet' => false,
         ]);
-
         $response->assertOk()
             ->assertJsonPath('data.checkout_url', 'https://checkout.kashier.io?currency=SAR&amount=600.00');
     }

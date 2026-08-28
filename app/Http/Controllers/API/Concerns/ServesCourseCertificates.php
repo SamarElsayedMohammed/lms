@@ -419,65 +419,8 @@ trait ServesCourseCertificates
         return $allCurriculumCompleted && $allAssignmentsSubmitted;
     }
 
-    /**
-     * Get category IDs including parent and all child categories (recursively)
-     */
-    private function getCategoryIdsWithChildren(array $categorySlugs): array
-    {
-        // Trim and filter empty slugs
-        $categorySlugs = array_filter(array_map("trim", $categorySlugs));
-
-        if (empty($categorySlugs)) {
-            return [];
-        }
-
-        // Find categories by slugs
-        $categories = Category::whereIn("slug", $categorySlugs)->get();
-
-        if ($categories->isEmpty()) {
-            return [];
-        }
-
-        $categoryIds = $categories->pluck("id")->toArray();
-
-        // Recursively get all child category IDs
-        $allCategoryIds = $categoryIds;
-        foreach ($categories as $category) {
-            $childIds = $this->getAllChildCategoryIds($category->id);
-            $allCategoryIds = array_merge($allCategoryIds, $childIds);
-        }
-
-        // Remove duplicates and return
-        return array_unique($allCategoryIds);
-    }
 
     /**
-     * Recursively get all child category IDs for a given category ID (with cycle protection)
-     */
-    private function getAllChildCategoryIds(int $categoryId, array &$visited = [], int $depth = 0): array
-    {
-        if ($depth > 10 || in_array($categoryId, $visited, true)) {
-            return [];
-        }
-        $visited[] = $categoryId;
-
-        $childIds = [];
-
-        // Get direct children
-        $children = Category::where("parent_category_id", $categoryId)->get();
-
-        foreach ($children as $child) {
-            $childId = (int) $child->id;
-            if (!in_array($childId, $visited, true)) {
-                $childIds[] = $childId;
-                // Recursively get grandchildren
-                $grandchildIds = $this->getAllChildCategoryIds($childId, $visited, $depth + 1);
-                $childIds = array_merge($childIds, $grandchildIds);
-            }
-        }
-
-        return array_unique($childIds);
-    }
 
     /**
      * Get detailed progress for a specific course (user)

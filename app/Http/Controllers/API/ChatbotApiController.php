@@ -310,8 +310,28 @@ class ChatbotApiController extends Controller
             ], 403, [], JSON_UNESCAPED_UNICODE);
         }
 
-        $knowledgeStatus = $course->ai_processing_status
-            ?: (empty($course->ai_knowledge_content) && empty($course->ai_knowledge_file) ? 'not_configured' : 'ready');
+        $user = Auth::guard('sanctum')->user() ?: Auth::user();
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Unauthenticated'),
+            ], 401, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        // Verify active course entitlement
+        $isAuthorized = $course->isUserEntitled($user);
+
+        if (!$isAuthorized) {
+            return response()->json([
+                'status' => false,
+                'message' => __('You must be enrolled in this course to use the assistant'),
+            ], 403, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        $knowledgeStatus = $course->ai_processing_status;
+        if (empty($knowledgeStatus) || (!empty($course->ai_knowledge_content) && $knowledgeStatus !== 'failed')) {
+            $knowledgeStatus = (!empty($course->ai_knowledge_content) || !empty($course->ai_knowledge_file)) ? 'ready' : 'not_configured';
+        }
 
         if (in_array($knowledgeStatus, ['processing', 'queued'], true)) {
             return response()->json([
@@ -334,24 +354,6 @@ class ChatbotApiController extends Controller
             ], 409, [], JSON_UNESCAPED_UNICODE);
         }
 
-        $user = Auth::guard('sanctum')->user() ?: Auth::user();
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => __('Unauthenticated'),
-            ], 401, [], JSON_UNESCAPED_UNICODE);
-        }
-
-        // Verify active course entitlement
-        $isAuthorized = $course->isUserEntitled($user);
-
-        if (!$isAuthorized) {
-            return response()->json([
-                'status' => false,
-                'message' => __('You must be enrolled in this course to use the assistant'),
-            ], 403, [], JSON_UNESCAPED_UNICODE);
-        }
-
         $service = new ChatBotService();
         $result = $service->processCourseMessage(
             $request->input('message'),
@@ -364,10 +366,6 @@ class ChatbotApiController extends Controller
             'data' => $result,
         ], 200, [], JSON_UNESCAPED_UNICODE);
     }
-
-    /**
-     * Get user's past conversations
-     */
     public function getConversations(Request $request): JsonResponse
     {
         $userId = Auth::guard('sanctum')->id() ?: Auth::id();
