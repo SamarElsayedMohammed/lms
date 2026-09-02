@@ -979,7 +979,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
             Route::post('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'updateBanner']);
             Route::put('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'updateBanner']);
             Route::delete('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'deleteBanner']);
-            Route::get('preview', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'getPreview']);
             Route::get('search-entities', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'searchEntities']);
         });
 

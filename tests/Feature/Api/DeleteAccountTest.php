@@ -32,10 +32,14 @@ class DeleteAccountTest extends TestCase
 
         $response
             ->assertStatus(200)
-            ->assertJson([
-                'status' => 200,
-                'message' => 'Your account has been successfully deleted. All your data has been removed from our system.',
-            ]);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('error', false)
+            ->assertJsonPath('code', 200)
+            ->assertJsonPath(
+                'message',
+                'Your account has been deactivated and personal access has been removed. Financial records are retained where legally required.',
+            );
 
         $this->assertSoftDeleted('users', ['id' => $user->id]);
     }
@@ -59,10 +63,14 @@ class DeleteAccountTest extends TestCase
 
         $response
             ->assertStatus(422)
-            ->assertJson([
-                'status' => 422,
-                'message' => 'You cannot delete your account because you have a remaining balance in your wallet. Please withdraw or spend your funds before deleting your account.',
-            ]);
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('status', false)
+            ->assertJsonPath('error', true)
+            ->assertJsonPath('code', 422)
+            ->assertJsonPath(
+                'message',
+                'You cannot delete your account because you have a remaining balance in your wallet. Please withdraw or spend your funds before deleting your account.',
+            );
 
         $this->assertNotSoftDeleted('users', ['id' => $user->id]);
     }

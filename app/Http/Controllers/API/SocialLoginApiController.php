@@ -49,7 +49,10 @@ class SocialLoginApiController extends ApiController
         $provider = strtolower(trim($provider));
 
         if (!in_array($provider, self::SUPPORTED_PROVIDERS, true)) {
-            return ApiResponseService::validationError('مزود تسجيل الدخول الاجتماعي غير مدعوم.');
+            return ApiResponseService::validationError(
+                'مزود تسجيل الدخول الاجتماعي غير مدعوم.',
+                ['error_code' => 'UNSUPPORTED_SOCIAL_PROVIDER'],
+            );
         }
 
         $firebaseToken = trim((string) $request->input('firebase_token', ''));

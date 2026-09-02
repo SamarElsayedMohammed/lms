@@ -23,6 +23,11 @@ final class ResetPasswordApiTest extends TestCase
         parent::setUp();
 
         Role::firstOrCreate(['name' => config('constants.SYSTEM_ROLES.USER'), 'guard_name' => 'web']);
+        config([
+            'mail.from.address' => 'tests@skillso.test',
+            'mail.from.name' => 'SkillsO Tests',
+        ]);
+        Mail::fake();
     }
 
     public function test_forgot_password_returns_generic_success_for_unknown_email(): void
@@ -53,7 +58,7 @@ final class ResetPasswordApiTest extends TestCase
         ]);
 
         $response->assertOk()->assertJsonPath('error', false);
-        Mail::assertQueued(ResetPasswordOtpMail::class);
+        Mail::assertSent(ResetPasswordOtpMail::class);
         $this->assertDatabaseHas('password_reset_tokens', ['email' => 'user@example.com']);
     }
 

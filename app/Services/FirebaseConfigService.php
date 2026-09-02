@@ -21,6 +21,11 @@ final class FirebaseConfigService
         'firebase_app_id',
     ];
 
+    /** Server-only settings persisted in admin but never returned on public client config. */
+    private const array SERVER_ONLY_SETTING_KEYS = [
+        'firebase_fcm_server_key',
+    ];
+
     private const array CLIENT_KEY_MAP = [
         'firebase_api_key' => 'apiKey',
         'firebase_auth_domain' => 'authDomain',
@@ -49,6 +54,10 @@ final class FirebaseConfigService
         $config = [];
 
         foreach (self::CLIENT_KEY_MAP as $settingKey => $sdkKey) {
+            if (in_array($settingKey, self::SERVER_ONLY_SETTING_KEYS, true)) {
+                continue;
+            }
+
             $value = trim((string) ($raw[$settingKey] ?? ''));
             if ($value !== '') {
                 $config[$sdkKey] = $value;

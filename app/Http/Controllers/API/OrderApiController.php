@@ -1379,11 +1379,11 @@ class OrderApiController extends Controller
             'order_id' => $order->id,
             'order_number' => $order->order_number,
             'status' => $order->status,
-            'total' => round($order->total_amount, 2),
+            'total' => round((float) $order->final_price, 2),
             'currency' => $currencyCode,
             'display_currency' => $currencyCode,
             'display_symbol' => $displaySymbol,
-            'formatted_total' => number_format($order->total_amount, 2).' '.$displaySymbol,
+            'formatted_total' => number_format((float) $order->final_price, 2).' '.$displaySymbol,
             'payment_method' => $order->payment_method,
             'created_at' => clone $order->created_at,
         ];

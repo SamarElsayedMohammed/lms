@@ -55,7 +55,8 @@ final class AuthenticationSecurityTest extends TestCase
             'country_calling_code' => '+1',
             'password' => 'Password#123',
         ])->assertStatus(422)
-            ->assertJsonPath('message', 'User Not Found');
+            ->assertJsonPath('error', true)
+            ->assertJsonPath('errors.error_code', 'ACCOUNT_NOT_FOUND');
     }
 
     public function test_user_login_allows_login_without_device_tracking_fields(): void
@@ -77,7 +78,7 @@ final class AuthenticationSecurityTest extends TestCase
         $this->assertDatabaseMissing('user_devices', ['user_id' => $user->id]);
     }
 
-    public function test_user_login_tracks_device_and_blocks_second_web_device(): void
+    public function test_user_login_tracks_device_and_evicts_the_oldest_device_at_the_limit(): void
     {
         $user = User::factory()->create([
             'email' => 'device-limit@example.com',
@@ -109,14 +110,18 @@ final class AuthenticationSecurityTest extends TestCase
             'password' => 'Password#123',
             'device_type' => 'web',
             'device_id' => 'browser-b',
-        ])->assertStatus(403)
-            ->assertJsonPath('error', true)
-            ->assertJsonPath('errors.error_code', 'DEVICE_LIMIT_EXCEEDED');
+        ])->assertOk()
+            ->assertJsonPath('error', false)
+            ->assertJsonPath('data.email', 'device-limit@example.com');
 
         $this->assertSame(1, UserDevice::where('user_id', $user->id)->count());
-        $this->assertDatabaseHas('user_devices', [
+        $this->assertDatabaseMissing('user_devices', [
             'user_id' => $user->id,
             'device_id' => 'browser-a',
+        ]);
+        $this->assertDatabaseHas('user_devices', [
+            'user_id' => $user->id,
+            'device_id' => 'browser-b',
         ]);
     }
 
@@ -153,10 +158,8 @@ final class AuthenticationSecurityTest extends TestCase
             'password' => 'Password#123',
             'confirm_password' => 'Password#123',
         ])->assertStatus(422)
-            ->assertJsonPath(
-                'message',
-                'An account with this email already exists. Please log in instead.',
-            );
+            ->assertJsonPath('error', true)
+            ->assertJsonPath('errors.error_code', 'EMAIL_ALREADY_REGISTERED');
     }
 
     public function test_unsupported_social_provider_is_rejected(): void
@@ -164,7 +167,8 @@ final class AuthenticationSecurityTest extends TestCase
         $this->postJson('/api/social-login/not-a-provider', [
             'access_token' => 'invalid',
         ])->assertStatus(422)
-            ->assertJsonPath('message', 'Unsupported social provider.');
+            ->assertJsonPath('error', true)
+            ->assertJsonPath('errors.error_code', 'UNSUPPORTED_SOCIAL_PROVIDER');
     }
 
     public function test_mobile_reset_requires_phone_identity_fields(): void

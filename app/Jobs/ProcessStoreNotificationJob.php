@@ -20,15 +20,11 @@ final class ProcessStoreNotificationJob implements ShouldQueue
 
     public int $tries = 3;
     public int $timeout = 60;
+    public array $backoff = [10, 60, 300];
 
     public function __construct(
         public readonly int $eventId
     ) {
-    }
-
-    public function backoff(): array
-    {
-        return [10, 60, 300];
     }
 
     public function handle(StoreSubscriptionLifecycleService $lifecycleService): void

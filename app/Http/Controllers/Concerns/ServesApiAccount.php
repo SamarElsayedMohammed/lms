@@ -1959,9 +1959,12 @@ trait ServesApiAccount
     public function submitContactForm(Request $request)
     {
         try {
+            // Authenticated support-center submissions already have a trusted
+            // identity. Guests still need to provide both contact fields.
+            $authUser = Auth::guard('sanctum')->user();
             $validator = Validator::make($request->all(), [
-                'first_name' => 'required|string|max:255',
-                'email'      => 'required|email|max:255',
+                'first_name' => ($authUser ? 'nullable' : 'required') . '|string|max:255',
+                'email'      => ($authUser ? 'nullable' : 'required') . '|email|max:255',
                 'subject'    => 'nullable|string|max:255',
                 'message'    => 'required|string|max:2000',
                 'phone'      => 'nullable|string|max:30',
@@ -1972,8 +1975,6 @@ trait ServesApiAccount
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
-            // Detect authenticated user (optional — guests may also send)
-            $authUser = Auth::guard('sanctum')->user();
             $cleanMessage = trim(strip_tags((string) $request->message));
             if ($cleanMessage === '') {
                 return ApiResponseService::validationError('Message must contain visible text.');

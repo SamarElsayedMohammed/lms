@@ -222,6 +222,7 @@ trait ServesApiAuth
                     } else {
                         ApiResponseService::validationError(
                             'يوجد حساب بهذا البريد الإلكتروني. يرجى تسجيل الدخول.',
+                            ['error_code' => 'EMAIL_ALREADY_REGISTERED'],
                         );
                     }
                 }
@@ -414,6 +415,7 @@ trait ServesApiAuth
                     if ($e->getCode() == 23000 || str_contains($e->getMessage(), '1062') || str_contains($e->getMessage(), 'users_email_unique')) {
                         ApiResponseService::validationError(
                             'يوجد حساب بهذا البريد الإلكتروني. يرجى تسجيل الدخول.',
+                            ['error_code' => 'EMAIL_ALREADY_REGISTERED'],
                         );
                     }
                     throw $e;
@@ -690,7 +692,10 @@ trait ServesApiAuth
             )->first();
 
             if (!$user) {
-                ApiResponseService::validationError('المستخدم غير موجود.');
+                ApiResponseService::validationError(
+                    'المستخدم غير موجود.',
+                    ['error_code' => 'ACCOUNT_NOT_FOUND'],
+                );
             }
 
             if ($user->trashed() || (isset($user->is_active) && !$user->is_active)) {

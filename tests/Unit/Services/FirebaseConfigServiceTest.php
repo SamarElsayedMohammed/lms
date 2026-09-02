@@ -44,6 +44,23 @@ final class FirebaseConfigServiceTest extends TestCase
         $config = $this->service->getClientConfig();
         $this->assertSame('abc', $config['apiKey']);
         $this->assertSame('demo-project', $config['projectId']);
+        $this->assertArrayNotHasKey('fcmServerKey', $config);
+    }
+
+    public function test_client_config_excludes_server_only_fcm_key_when_present(): void
+    {
+        foreach ([
+            'firebase_api_key' => 'abc',
+            'firebase_auth_domain' => 'demo.firebaseapp.com',
+            'firebase_project_id' => 'demo-project',
+            'firebase_app_id' => '1:123:web:abc',
+            'firebase_fcm_server_key' => 'server-only-secret',
+        ] as $name => $value) {
+            Setting::create(['name' => $name, 'value' => $value, 'type' => 'string']);
+        }
+
+        $config = $this->service->getClientConfig();
+        $this->assertArrayNotHasKey('fcmServerKey', $config);
     }
 
     public function test_parse_service_account_json_extracts_project_id(): void

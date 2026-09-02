@@ -458,6 +458,7 @@ class CartApiController extends Controller
         $coursePricingData = collect();
 
         $formattedCourses = $cart->map(function ($cartItem) use (
+            $user,
             $wishlistedCourseIds,
             &$promoDiscounts,
             &$coursePricingData,

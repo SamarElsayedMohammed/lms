@@ -1508,10 +1508,6 @@ class InstructorApiController extends Controller
         // ✅ Pagination
         $instructors = $query->paginate($request->per_page ?? 15);
 
-        if ($instructors->isEmpty()) {
-            return ApiResponseService::validationError('No Instructors Found');
-        }
-
         // Get authenticated user (if available)
         $authUser = Auth::user();
 
@@ -3145,7 +3141,7 @@ class InstructorApiController extends Controller
      */
     private function replacePaginationFormat($data, $currentPage, $perPage, $total)
     {
-        $lastPage = $perPage > 0 ? ceil($total / $perPage) : 0;
+        $lastPage = $perPage > 0 ? max(1, (int) ceil($total / $perPage)) : 1;
         $offset = ($currentPage - 1) * $perPage;
         $baseUrl = request()->url();
 

@@ -19,6 +19,17 @@ class Tax extends Model
      */
     protected static $taxCache = [];
 
+    /**
+     * Clear request-scoped tax totals after configuration changes.
+     *
+     * This is primarily useful for long-running processes and test fixtures
+     * that mutate tax configuration in a single PHP process.
+     */
+    public static function forgetCachedPercentages(): void
+    {
+        static::$taxCache = [];
+    }
+
     protected $fillable = [
         'name',
         'percentage',

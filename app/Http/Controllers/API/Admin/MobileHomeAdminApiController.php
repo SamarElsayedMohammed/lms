@@ -11,9 +11,6 @@ use App\Models\Slider;
 use App\Models\Webinar;
 use App\Services\ApiResponseService;
 use App\Services\HelperService;
-use App\Services\PricingCalculationService;
-use App\Services\CourseProgressService;
-use App\Services\UserEnrollmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -24,11 +21,8 @@ use Throwable;
 
 class MobileHomeAdminApiController extends AdminCrudApiController
 {
-    public function __construct(
-        private PricingCalculationService $pricingService,
-        private CourseProgressService $progressService,
-        private UserEnrollmentService $enrollmentService,
-    ) {
+    public function __construct()
+    {
         $this->middleware('auth:sanctum');
     }
 
@@ -127,7 +121,7 @@ class MobileHomeAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'subtitle' => 'nullable|string|max:255',
-            'type' => 'required|string|max:50',
+            'type' => 'required|in:hero,continue_learning,subscription_promo,featured_courses,free_courses,popular_courses,newly_added_courses,categories,podcasts,top_rated_instructors|max:50',
             'limit' => 'nullable|integer|min:1|max:50',
             'layout' => 'nullable|in:carousel,grid,pills,card',
             'audience' => 'nullable|in:everyone,guest,authenticated,subscriber,non_subscriber',
@@ -180,7 +174,7 @@ class MobileHomeAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|max:255',
             'subtitle' => 'nullable|string|max:255',
-            'type' => 'sometimes|required|string|max:50',
+            'type' => 'sometimes|required|in:hero,continue_learning,subscription_promo,featured_courses,free_courses,popular_courses,newly_added_courses,categories,podcasts,top_rated_instructors|max:50',
             'limit' => 'nullable|integer|min:1|max:50',
             'layout' => 'nullable|in:carousel,grid,pills,card',
             'audience' => 'nullable|in:everyone,guest,authenticated,subscriber,non_subscriber',
@@ -303,7 +297,7 @@ class MobileHomeAdminApiController extends AdminCrudApiController
             'mobile_image' => 'nullable|image|max:10240',
             'image_url' => 'nullable|string',
             'cta_label' => 'nullable|string|max:100',
-            'cta_type' => 'nullable|string|max:50',
+            'cta_type' => 'nullable|in:course,category,subscription_plans,search,podcast,webinar,approved_external_url,custom_link|max:50',
             'cta_target' => 'nullable|string|max:255',
             'audience' => 'nullable|in:everyone,guest,authenticated,subscriber,non_subscriber',
             'order' => 'nullable|integer',
@@ -357,7 +351,7 @@ class MobileHomeAdminApiController extends AdminCrudApiController
             'mobile_image' => 'nullable|image|max:10240',
             'image_url' => 'nullable|string',
             'cta_label' => 'nullable|string|max:100',
-            'cta_type' => 'nullable|string|max:50',
+            'cta_type' => 'nullable|in:course,category,subscription_plans,search,podcast,webinar,approved_external_url,custom_link|max:50',
             'cta_target' => 'nullable|string|max:255',
             'audience' => 'nullable|in:everyone,guest,authenticated,subscriber,non_subscriber',
             'order' => 'nullable|integer',
@@ -403,26 +397,6 @@ class MobileHomeAdminApiController extends AdminCrudApiController
         $banner->delete();
 
         return $this->jsonSuccess(__('Banner deleted successfully.'));
-    }
-
-    /**
-     * Live Preview simulator endpoint for Admin CMS.
-     */
-    public function getPreview(Request $request): JsonResponse
-    {
-        $this->ensureAdmin();
-        $this->checkPermission('feature-sections-list');
-
-        $audience = $request->query('audience', 'guest');
-
-        // Create a simulated controller call
-        $homeApiController = new \App\Http\Controllers\API\MobileHomeApiController(
-            $this->pricingService,
-            $this->progressService,
-            $this->enrollmentService,
-        );
-
-        return $homeApiController->getHome($request);
     }
 
     /**

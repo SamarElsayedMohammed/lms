@@ -81,6 +81,10 @@ trait ServesCourseCatalogList
             "duration_filter" => "nullable|string", // Comma separated: 1-4_weeks,4-12_weeks,3-6_months,6-12_months
             "feature_section_id" => "nullable|exists:feature_sections,id", // Optional: Filter by feature section
             "is_featured" => "nullable|boolean",
+            // A podcast is a course explicitly classified by its metadata or
+            // tags. Keep this as a boolean query contract rather than making
+            // clients infer it from an unfiltered catalog response.
+            "is_podcast" => "nullable|boolean",
         ]);
 
         if ($validator->fails()) {
@@ -109,6 +113,7 @@ trait ServesCourseCatalogList
         $query = Course::with([
             "category",
             "user",
+            "tags",
             "taxes",
             "chapters:id,course_id",
             "chapters.lectures:id,course_chapter_id,hours,minutes,seconds",
@@ -154,6 +159,10 @@ trait ServesCourseCatalogList
 
         if ($request->filled("course_type")) {
             $query->whereIn("course_type", explode(",", $request->course_type));
+        }
+
+        if ($request->boolean("is_podcast")) {
+            $this->applyPodcastFilter($query);
         }
 
         if ($request->filled("category_id")) {
@@ -796,6 +805,7 @@ trait ServesCourseCatalogList
                     "author_name" => $course->user->name ?? null,
                     "author_slug" => $course->user->slug ?? null,
                     "is_featured" => (bool) $course->is_featured,
+                    "is_podcast" => $this->isPodcastCourse($course),
                     "created_at" => $course->created_at,
                     ...$coursePricingData,
                     "discount_percentage" => $discountPercentage,
@@ -820,6 +830,56 @@ trait ServesCourseCatalogList
             "Courses retrieved successfully",
             $courses,
         );
+    }
+
+    /**
+     * Podcast courses are the existing course records that content managers
+     * classify with a podcast/podcourse marker in course metadata or tags.
+     * This matches the established web catalog convention while making the
+     * mobile query server-authoritative and paginatable.
+     */
+    private function applyPodcastFilter($query): void
+    {
+        $keywords = $this->podcastKeywords();
+
+        $query->where(function ($podcastQuery) use ($keywords): void {
+            foreach ($keywords as $keyword) {
+                $like = '%' . $keyword . '%';
+                $podcastQuery
+                    ->orWhere('title', 'like', $like)
+                    ->orWhere('slug', 'like', $like)
+                    ->orWhere('meta_keywords', 'like', $like)
+                    ->orWhereHas('tags', static function ($tagQuery) use ($like): void {
+                        $tagQuery->where('tag', 'like', $like);
+                    });
+            }
+        });
+    }
+
+    private function isPodcastCourse(Course $course): bool
+    {
+        $tagText = $course->relationLoaded('tags')
+            ? $course->tags->pluck('tag')->implode(' ')
+            : '';
+        $haystack = mb_strtolower(implode(' ', [
+            (string) $course->title,
+            (string) $course->slug,
+            (string) $course->meta_keywords,
+            $tagText,
+        ]), 'UTF-8');
+
+        foreach ($this->podcastKeywords() as $keyword) {
+            if (str_contains($haystack, mb_strtolower($keyword, 'UTF-8'))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function podcastKeywords(): array
+    {
+        return ['podcast', 'podcourse', 'بودكاست', 'بودكورس'];
     }
 
     /**

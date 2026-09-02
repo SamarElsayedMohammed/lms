@@ -6,6 +6,7 @@ namespace Tests\Feature\Api;
 
 use App\Models\Cart;
 use App\Models\Course\Course;
+use App\Models\Instructor;
 use App\Models\PromoCode;
 use App\Models\Role;
 use App\Models\Tax;
@@ -38,6 +39,11 @@ final class CartApiTest extends TestCase
         // Create instructor
         $this->instructor = User::factory()->create();
         $this->instructor->assignRole('Instructor');
+        Instructor::create([
+            'user_id' => $this->instructor->id,
+            'type' => 'individual',
+            'status' => 'approved',
+        ]);
 
         // Create regular user
         $this->user = User::factory()->create();
@@ -45,6 +51,7 @@ final class CartApiTest extends TestCase
 
         // Clear tax cache before each test
         Tax::query()->delete();
+        Tax::forgetCachedPercentages();
     }
 
     // ==================== EMPTY CART TESTS ====================
@@ -81,7 +88,6 @@ final class CartApiTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user, 'sanctum')->getJson('/api/cart');
-
         $response->assertOk();
 
         // Per-course assertions

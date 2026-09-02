@@ -119,5 +119,5 @@ return [
     | or mock verification without requiring active Apple / Google live API keys.
     |
     */
-    'mock_verification_enabled' => env('STORE_BILLING_MOCK_ENABLED', true),
+    'mock_verification_enabled' => env('STORE_BILLING_MOCK_ENABLED', false),
 ];
