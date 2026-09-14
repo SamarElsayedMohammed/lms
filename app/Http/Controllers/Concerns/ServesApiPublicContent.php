@@ -1075,4 +1075,79 @@ trait ServesApiPublicContent
             return ApiResponseService::errorResponse('Failed to fetch application status', exception: $th);
         }
     }
+
+    public function getInstructorRequestStatus(Request $request)
+    {
+        try {
+            $referenceCode = trim((string) $request->input('reference_code', $request->input('ref', '')));
+            $requestId = (int) $request->input('request_id', $request->input('id', 0));
+            $email = trim((string) $request->input('email', ''));
+            $userId = Auth::guard('sanctum')->id() ?? Auth::id();
+
+            $query = \App\Models\InstructorRequest::query();
+
+            if (!empty($referenceCode)) {
+                if (preg_match('/EXP-\d{4}-(\d+)/i', $referenceCode, $matches)) {
+                    $query->where('id', (int) $matches[1]);
+                } else {
+                    $query->where('id', (int) $referenceCode);
+                }
+            } elseif ($requestId > 0) {
+                $query->where('id', $requestId);
+            } elseif ($userId) {
+                $query->where('user_id', $userId);
+            } elseif (!empty($email)) {
+                $query->where('email', $email);
+            } else {
+                return ApiResponseService::validationError('يرجى تقديم الرقم المرجعي لمتابعة الطلب', [
+                    'reference_code' => ['الرقم المرجعي مطلوب']
+                ]);
+            }
+
+            $application = $query->latest('id')->first();
+
+            if (!$application) {
+                return ApiResponseService::errorResponse('لم يتم العثور على طلب بهذا الرقم المرجعي', [], 404);
+            }
+
+            return ApiResponseService::successResponse('تم جلب تفاصيل حالة الطلب بنجاح', [
+                'id' => $application->id,
+                'reference_code' => sprintf('EXP-%d-%04d', $application->created_at ? (int)$application->created_at->format('Y') : (int)date('Y'), $application->id),
+                'first_name' => $application->first_name,
+                'last_name' => $application->last_name,
+                'name' => $application->name,
+                'email' => $application->email,
+                'phone' => $application->phone,
+                'country' => $application->country,
+                'nationality' => $application->nationality,
+                'job_title' => $application->job_title,
+                'company' => $application->company,
+                'years_of_experience' => $application->years_of_experience,
+                'specialty' => $application->specialty,
+                'experience_bio' => $application->experience_bio,
+                'linkedin_url' => $application->linkedin_url,
+                'facebook_url' => $application->facebook_url,
+                'website_url' => $application->website_url,
+                'youtube_url' => $application->youtube_url,
+                'intro_video_type' => $application->intro_video_type,
+                'intro_video_url' => $application->intro_video_url,
+                'intro_video_resolved_url' => $application->intro_video_url_resolved,
+                'cv_url' => $application->cv_url,
+                'cv_original_name' => $application->cv_original_name,
+                'cv_size' => $application->cv_size,
+                'profile_image_url' => $application->profile_image_url,
+                'status' => $application->status,
+                'status_label' => $application->status_label,
+                'applicant_feedback' => $application->applicant_feedback,
+                'rejection_reason' => $application->rejection_reason,
+                'created_at' => $application->created_at?->toIso8601String(),
+                'reviewed_at' => $application->reviewed_at?->toIso8601String(),
+            ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $th) {
+            ApiResponseService::logErrorResponse($th, 'API Controller -> getInstructorRequestStatus Method');
+            return ApiResponseService::errorResponse('Failed to fetch instructor application status', exception: $th);
+        }
+    }
 }

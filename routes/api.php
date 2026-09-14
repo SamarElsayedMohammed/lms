@@ -214,6 +214,7 @@ Route::prefix('helpdesk')->group(function (): void {
 Route::post('contact-us', [ApiController::class, 'submitContactForm'])
     ->middleware([OptionalAuth::class, 'throttle:5,1']); // Submit Contact Us Form
 Route::post('become-instructor', [ApiController::class, 'submitBecomeInstructor']); // Submit Become an Instructor Form
+Route::get('instructor-request/status', [ApiController::class, 'getInstructorRequestStatus']); // Public Track Instructor Request Status
 
 /**
  * Subscription APIs
