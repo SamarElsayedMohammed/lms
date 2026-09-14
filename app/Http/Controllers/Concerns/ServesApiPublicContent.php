@@ -871,6 +871,7 @@ trait ServesApiPublicContent
                     'video_file' => 'nullable|file|mimes:mp4,webm,mov,quicktime|max:102400',
                     'cv' => 'nullable|file|mimes:pdf,doc,docx|max:15360',
                     'profile_image' => 'nullable|image|max:5120',
+                    'referral' => 'nullable|string|max:255',
                 ],
                 [
                     'facebook_url.required' => trans('رابط حساب الفيسبوك مطلوب'),
@@ -950,6 +951,7 @@ trait ServesApiPublicContent
                     'facebook_url' => $facebookUrl,
                     'website_url' => $request->input('website_url'),
                     'youtube_url' => $request->input('youtube_url'),
+                    'referral' => $request->input('referral', $existingRequest->referral),
                     'intro_video_type' => $introVideoType,
                     'intro_video_url' => $introVideoUrl,
                     'intro_video_path' => $introVideoPath,
@@ -980,6 +982,7 @@ trait ServesApiPublicContent
                     'facebook_url' => $facebookUrl,
                     'website_url' => $request->input('website_url'),
                     'youtube_url' => $request->input('youtube_url'),
+                    'referral' => $request->input('referral'),
                     'intro_video_type' => $introVideoType,
                     'intro_video_url' => $introVideoUrl,
                     'intro_video_path' => $introVideoPath,

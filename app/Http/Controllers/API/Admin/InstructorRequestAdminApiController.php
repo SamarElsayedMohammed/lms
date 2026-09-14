@@ -37,15 +37,26 @@ class InstructorRequestAdminApiController extends AdminCrudApiController
                 'user:id,name,email',
             ])
             ->when($search, function ($q) use ($search) {
-                $q->where(function ($sq) use ($search) {
-                    $sq->where('name', 'like', "%{$search}%")
-                        ->orWhere('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('specialty', 'like', "%{$search}%")
-                        ->orWhere('company', 'like', "%{$search}%")
-                        ->orWhere('job_title', 'like', "%{$search}%");
+                $cleanSearch = trim((string) $search);
+                $cleanSearch = strtr($cleanSearch, [
+                    '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+                    '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+                ]);
+                $q->where(function ($sq) use ($cleanSearch) {
+                    $sq->where('name', 'like', "%{$cleanSearch}%")
+                        ->orWhere('first_name', 'like', "%{$cleanSearch}%")
+                        ->orWhere('last_name', 'like', "%{$cleanSearch}%")
+                        ->orWhere('email', 'like', "%{$cleanSearch}%")
+                        ->orWhere('phone', 'like', "%{$cleanSearch}%")
+                        ->orWhere('specialty', 'like', "%{$cleanSearch}%")
+                        ->orWhere('company', 'like', "%{$cleanSearch}%")
+                        ->orWhere('job_title', 'like', "%{$cleanSearch}%");
+
+                    if (is_numeric($cleanSearch)) {
+                        $sq->orWhere('id', (int) $cleanSearch);
+                    } elseif (preg_match('/(?:EXP|REQ)?(?:-|\s)*(?:\d{4})?(?:-|\s)*(\d+)/i', $cleanSearch, $matches)) {
+                        $sq->orWhere('id', (int) ltrim($matches[1], '0'));
+                    }
                 });
             })
             ->when($status && $status !== 'all', function ($q) use ($status) {

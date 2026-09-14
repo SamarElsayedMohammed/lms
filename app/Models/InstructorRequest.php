@@ -42,6 +42,7 @@ class InstructorRequest extends Model
         'admin_notes',
         'applicant_feedback',
         'rejection_reason',
+        'referral',
         'user_id',
         'reviewer_id',
         'reviewed_at',
@@ -54,11 +55,21 @@ class InstructorRequest extends Model
     ];
 
     protected $appends = [
+        'reference_code',
         'status_label',
         'cv_url',
         'profile_image_url',
         'intro_video_url_resolved',
     ];
+
+    /**
+     * Get computed reference code (e.g. EXP-2026-0006)
+     */
+    public function getReferenceCodeAttribute(): string
+    {
+        $year = $this->created_at ? (int) $this->created_at->format('Y') : (int) date('Y');
+        return sprintf('EXP-%d-%04d', $year, $this->id);
+    }
 
     /**
      * Get the available status options
