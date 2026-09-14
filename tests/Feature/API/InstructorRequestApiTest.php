@@ -41,6 +41,7 @@ final class InstructorRequestApiTest extends TestCase
             'specialty' => 'تطوير الويب والذكاء الاصطناعي',
             'experience_bio' => 'خبرة تزيد عن 8 سنوات في تصميم وتطوير النظم السحابية وتدريب أكثر من 1000 مهندس.',
             'linkedin_url' => 'https://linkedin.com/in/ahmed-engineer',
+            'facebook_url' => 'https://facebook.com/ahmed.engineer',
             'website_url' => 'https://ahmed-engineer.dev',
             'intro_video_type' => 'url',
             'intro_video_url' => 'https://youtube.com/watch?v=dQw4w9WgXcQ',
@@ -67,6 +68,7 @@ final class InstructorRequestApiTest extends TestCase
             'first_name' => 'أحمد',
             'last_name' => 'المهندس',
             'name' => 'أحمد المهندس',
+            'facebook_url' => 'https://facebook.com/ahmed.engineer',
             'job_title' => 'كبير مهندسي البرمجيات',
             'company' => 'شركة التقنية المتقدمة',
             'status' => 'pending',
@@ -78,10 +80,84 @@ final class InstructorRequestApiTest extends TestCase
     {
         $response = $this->postJson('/api/become-instructor', [
             'first_name' => 'أحمد',
-            // Missing email and phone
+            // Missing email, phone, and facebook_url
         ]);
 
         $response->assertStatus(422);
+        $response->assertJsonPath('error', true);
+        $response->assertJsonStructure([
+            'errors' => [
+                'email',
+                'phone',
+                'facebook_url',
+            ],
+        ]);
+    }
+
+    public function test_submission_fails_when_facebook_url_is_missing(): void
+    {
+        $payload = [
+            'first_name' => 'أحمد',
+            'last_name' => 'المهندس',
+            'email' => 'ahmed.missingfb@example.com',
+            'phone' => '+966501234567',
+            'specialty' => 'تطوير الويب',
+            'experience_bio' => 'خبرة أكثر من عشر سنوات في التدريب والبرمجة والتطوير',
+        ];
+
+        $response = $this->postJson('/api/become-instructor', $payload);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('error', true);
+        $response->assertJsonStructure([
+            'errors' => [
+                'facebook_url',
+            ],
+        ]);
+    }
+
+    public function test_submission_fails_when_facebook_url_is_invalid_domain(): void
+    {
+        $payload = [
+            'first_name' => 'أحمد',
+            'last_name' => 'المهندس',
+            'email' => 'ahmed.badfb@example.com',
+            'phone' => '+966501234567',
+            'specialty' => 'تطوير الويب',
+            'experience_bio' => 'خبرة أكثر من عشر سنوات في التدريب والبرمجة والتطوير',
+            'facebook_url' => 'https://google.com/notfacebook',
+        ];
+
+        $response = $this->postJson('/api/become-instructor', $payload);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('error', true);
+        $response->assertJsonStructure([
+            'errors' => [
+                'facebook_url',
+            ],
+        ]);
+    }
+
+    public function test_submission_normalizes_facebook_url_without_protocol(): void
+    {
+        $payload = [
+            'first_name' => 'أحمد',
+            'last_name' => 'المهندس',
+            'email' => 'ahmed.norm@example.com',
+            'phone' => '+966501234567',
+            'specialty' => 'تطوير الويب',
+            'experience_bio' => 'خبرة أكثر من عشر سنوات في التدريب والبرمجة والتطوير',
+            'facebook_url' => 'facebook.com/ahmed.norm',
+        ];
+
+        $response = $this->postJson('/api/become-instructor', $payload);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('instructor_requests', [
+            'email' => 'ahmed.norm@example.com',
+            'facebook_url' => 'https://facebook.com/ahmed.norm',
+        ]);
     }
 
     public function test_authenticated_user_can_query_their_own_instructor_request(): void
@@ -206,4 +282,76 @@ final class InstructorRequestApiTest extends TestCase
         $deleteResponse->assertOk();
         $this->assertSoftDeleted('instructor_requests', ['id' => $req1->id]);
     }
+
+    public function test_submission_fails_when_facebook_url_is_bare_domain_without_profile_path(): void
+    {
+        $payload = [
+            'first_name' => 'أحمد',
+            'last_name' => 'المهندس',
+            'email' => 'ahmed.baredomain@example.com',
+            'phone' => '+966501234567',
+            'specialty' => 'تطوير الويب',
+            'experience_bio' => 'خبرة أكثر من عشر سنوات في التدريب والبرمجة والتطوير',
+            'facebook_url' => 'https://facebook.com/',
+        ];
+
+        $response = $this->postJson('/api/become-instructor', $payload);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('error', true);
+        $response->assertJsonStructure([
+            'errors' => [
+                'facebook_url',
+            ],
+        ]);
+    }
+
+    public function test_authenticated_applicant_can_resubmit_when_changes_requested_and_files_are_preserved(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'resubmit.applicant@example.com',
+        ]);
+
+        $existing = InstructorRequest::create([
+            'user_id' => $user->id,
+            'name' => 'أحمد القديم',
+            'first_name' => 'أحمد',
+            'last_name' => 'القديم',
+            'email' => $user->email,
+            'phone' => '+966501112233',
+            'specialty' => 'ذكاء اصطناعي',
+            'status' => 'changes_requested',
+            'facebook_url' => 'https://facebook.com/old.profile',
+            'cv_path' => 'instructor-requests/cv/existing_cv.pdf',
+            'cv_original_name' => 'existing_cv.pdf',
+            'cv_size' => 12345,
+            'applicant_feedback' => 'يرجى تحديث رابط الفيسبوك والنبذة الشخصية',
+        ]);
+
+        $resubmitPayload = [
+            'first_name' => 'أحمد',
+            'last_name' => 'المحدث',
+            'email' => $user->email,
+            'phone' => '+966501112233',
+            'specialty' => 'ذكاء اصطناعي ونظم سحابية',
+            'experience_bio' => 'خبرة أكثر من اثني عشر عاماً في التدريب الاحترافي والاستشارات التقنية.',
+            'facebook_url' => 'https://facebook.com/ahmed.updated.profile',
+            // No new CV uploaded - should retain existing_cv.pdf
+        ];
+
+        $response = $this->actingAs($user, 'sanctum')->postJson('/api/become-instructor', $resubmitPayload);
+
+        $response->assertOk();
+        $response->assertJsonPath('data.request_id', $existing->id);
+        $response->assertJsonPath('data.status', 'resubmitted');
+
+        $existing->refresh();
+        $this->assertSame('resubmitted', $existing->status);
+        $this->assertSame('https://facebook.com/ahmed.updated.profile', $existing->facebook_url);
+        $this->assertSame('أحمد المحدث', $existing->name);
+        // Preserved previous CV
+        $this->assertSame('instructor-requests/cv/existing_cv.pdf', $existing->cv_path);
+        $this->assertSame('existing_cv.pdf', $existing->cv_original_name);
+    }
 }
+

@@ -833,32 +833,54 @@ trait ServesApiPublicContent
                 $name = trim($firstName . ' ' . $lastName);
             }
 
-            $validator = Validator::make(array_merge($request->all(), ['name' => $name]), [
-                'name' => 'required|string|max:255',
-                'first_name' => 'nullable|string|max:100',
-                'last_name' => 'nullable|string|max:100',
-                'email' => 'required|email|max:255',
-                'phone' => 'required|string|max:30',
-                'country' => 'nullable|string|max:100',
-                'nationality' => 'nullable|string|max:100',
-                'job_title' => 'nullable|string|max:255',
-                'company' => 'nullable|string|max:255',
-                'years_of_experience' => 'nullable|numeric|min:0',
-                'specialty' => 'nullable|string|max:255',
-                'experience_bio' => 'nullable|string|max:5000',
-                'linkedin_url' => 'nullable|string|max:500',
-                'facebook_url' => 'nullable|string|max:500',
-                'website_url' => 'nullable|string|max:500',
-                'youtube_url' => 'nullable|string|max:500',
-                'intro_video_type' => 'nullable|in:url,file',
-                'intro_video_url' => 'nullable|string|max:1000',
-                'video_file' => 'nullable|file|mimes:mp4,webm,mov,quicktime|max:102400',
-                'cv' => 'nullable|file|mimes:pdf,doc,docx|max:15360',
-                'profile_image' => 'nullable|image|max:5120',
-            ]);
+            $facebookUrl = trim((string) $request->input('facebook_url', ''));
+            if (!empty($facebookUrl) && !preg_match('~^https?://~i', $facebookUrl)) {
+                $facebookUrl = 'https://' . $facebookUrl;
+            }
+
+            $validator = Validator::make(
+                array_merge($request->all(), [
+                    'name' => $name,
+                    'facebook_url' => $facebookUrl,
+                ]),
+                [
+                    'name' => 'required|string|max:255',
+                    'first_name' => 'nullable|string|max:100',
+                    'last_name' => 'nullable|string|max:100',
+                    'email' => 'required|email|max:255',
+                    'phone' => 'required|string|max:30',
+                    'country' => 'nullable|string|max:100',
+                    'nationality' => 'nullable|string|max:100',
+                    'job_title' => 'nullable|string|max:255',
+                    'company' => 'nullable|string|max:255',
+                    'years_of_experience' => 'nullable|numeric|min:0',
+                    'specialty' => 'nullable|string|max:255',
+                    'experience_bio' => 'nullable|string|max:5000',
+                    'linkedin_url' => 'nullable|string|max:500',
+                    'facebook_url' => [
+                        'required',
+                        'string',
+                        'max:500',
+                        'url',
+                        'regex:/^(https?:\/\/)?([a-zA-Z0-9-]+\.)*(facebook\.com|fb\.com|fb\.me)\/.+$/i',
+                    ],
+                    'website_url' => 'nullable|string|max:500',
+                    'youtube_url' => 'nullable|string|max:500',
+                    'intro_video_type' => 'nullable|in:url,file',
+                    'intro_video_url' => 'nullable|string|max:1000',
+                    'video_file' => 'nullable|file|mimes:mp4,webm,mov,quicktime|max:102400',
+                    'cv' => 'nullable|file|mimes:pdf,doc,docx|max:15360',
+                    'profile_image' => 'nullable|image|max:5120',
+                ],
+                [
+                    'facebook_url.required' => trans('رابط حساب الفيسبوك مطلوب'),
+                    'facebook_url.url' => trans('يرجى إدخال رابط صحيح لحساب الفيسبوك'),
+                    'facebook_url.regex' => trans('يرجى إدخال رابط حساب فيسبوك صحيح (مثال: https://facebook.com/username)'),
+                ]
+            );
 
             if ($validator->fails()) {
-                return ApiResponseService::validationError($validator->errors()->first());
+                return ApiResponseService::validationError($validator->errors()->first(), $validator->errors()->toArray());
             }
 
             // Handle CV upload
@@ -891,34 +913,84 @@ trait ServesApiPublicContent
 
             $userId = Auth::guard('sanctum')->id() ?? Auth::id();
 
-            // Save to database
-            $instructorRequest = \App\Models\InstructorRequest::create([
-                'name' => $name,
-                'first_name' => $firstName ?: null,
-                'last_name' => $lastName ?: null,
-                'email' => $request->email,
-                'phone' => $request->phone,
-                'country' => $request->input('country'),
-                'nationality' => $request->input('nationality'),
-                'job_title' => $request->input('job_title'),
-                'company' => $request->input('company'),
-                'years_of_experience' => (int) $request->input('years_of_experience', 0),
-                'specialty' => $request->specialty,
-                'experience_bio' => $request->experience_bio,
-                'linkedin_url' => $request->input('linkedin_url'),
-                'facebook_url' => $request->input('facebook_url'),
-                'website_url' => $request->input('website_url'),
-                'youtube_url' => $request->input('youtube_url'),
-                'intro_video_type' => $introVideoType,
-                'intro_video_url' => $introVideoUrl,
-                'intro_video_path' => $introVideoPath,
-                'cv_path' => $cvPath,
-                'cv_original_name' => $cvOriginalName,
-                'cv_size' => $cvSize,
-                'profile_image_path' => $profileImagePath,
-                'status' => 'pending',
-                'user_id' => $userId,
-            ]);
+            // Check if authenticated user has an existing request in 'changes_requested' status
+            $existingRequest = null;
+            if ($userId) {
+                $existingRequest = \App\Models\InstructorRequest::where('user_id', $userId)
+                    ->where('status', 'changes_requested')
+                    ->latest('id')
+                    ->first();
+            }
+
+            if ($existingRequest) {
+                // Preserve previous file paths if new ones are not provided in resubmission
+                $cvPath = $cvPath ?: $existingRequest->cv_path;
+                $cvOriginalName = $cvOriginalName ?: $existingRequest->cv_original_name;
+                $cvSize = $cvSize ?: $existingRequest->cv_size;
+                $profileImagePath = $profileImagePath ?: $existingRequest->profile_image_path;
+                $introVideoPath = $introVideoPath ?: $existingRequest->intro_video_path;
+                if (empty($introVideoUrl) && $introVideoType === 'url') {
+                    $introVideoUrl = $existingRequest->intro_video_url;
+                }
+
+                $existingRequest->update([
+                    'name' => $name,
+                    'first_name' => $firstName ?: null,
+                    'last_name' => $lastName ?: null,
+                    'email' => $request->email,
+                    'phone' => $request->phone,
+                    'country' => $request->input('country'),
+                    'nationality' => $request->input('nationality'),
+                    'job_title' => $request->input('job_title'),
+                    'company' => $request->input('company'),
+                    'years_of_experience' => (int) $request->input('years_of_experience', 0),
+                    'specialty' => $request->specialty,
+                    'experience_bio' => $request->experience_bio,
+                    'linkedin_url' => $request->input('linkedin_url'),
+                    'facebook_url' => $facebookUrl,
+                    'website_url' => $request->input('website_url'),
+                    'youtube_url' => $request->input('youtube_url'),
+                    'intro_video_type' => $introVideoType,
+                    'intro_video_url' => $introVideoUrl,
+                    'intro_video_path' => $introVideoPath,
+                    'cv_path' => $cvPath,
+                    'cv_original_name' => $cvOriginalName,
+                    'cv_size' => $cvSize,
+                    'profile_image_path' => $profileImagePath,
+                    'status' => 'resubmitted',
+                ]);
+
+                $instructorRequest = $existingRequest;
+            } else {
+                // Save new request to database
+                $instructorRequest = \App\Models\InstructorRequest::create([
+                    'name' => $name,
+                    'first_name' => $firstName ?: null,
+                    'last_name' => $lastName ?: null,
+                    'email' => $request->email,
+                    'phone' => $request->phone,
+                    'country' => $request->input('country'),
+                    'nationality' => $request->input('nationality'),
+                    'job_title' => $request->input('job_title'),
+                    'company' => $request->input('company'),
+                    'years_of_experience' => (int) $request->input('years_of_experience', 0),
+                    'specialty' => $request->specialty,
+                    'experience_bio' => $request->experience_bio,
+                    'linkedin_url' => $request->input('linkedin_url'),
+                    'facebook_url' => $facebookUrl,
+                    'website_url' => $request->input('website_url'),
+                    'youtube_url' => $request->input('youtube_url'),
+                    'intro_video_type' => $introVideoType,
+                    'intro_video_url' => $introVideoUrl,
+                    'intro_video_path' => $introVideoPath,
+                    'cv_path' => $cvPath,
+                    'cv_original_name' => $cvOriginalName,
+                    'cv_size' => $cvSize,
+                    'profile_image_path' => $profileImagePath,
+                    'status' => 'pending',
+                    'user_id' => $userId,
+                ]);
+            }
 
             // Log the request
             Log::info('New Become an Instructor request submitted:', [
