@@ -1079,35 +1079,58 @@ trait ServesApiPublicContent
     public function getInstructorRequestStatus(Request $request)
     {
         try {
-            $referenceCode = trim((string) $request->input('reference_code', $request->input('ref', '')));
+            $rawReference = trim((string) $request->input('reference_code', $request->input('ref', '')));
             $requestId = (int) $request->input('request_id', $request->input('id', 0));
             $email = trim((string) $request->input('email', ''));
             $userId = Auth::guard('sanctum')->id() ?? Auth::id();
 
-            $query = \App\Models\InstructorRequest::query();
+            // 1. Normalize Eastern-Arabic numerals to standard ASCII digits
+            $referenceCode = strtr($rawReference, [
+                '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+                '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+            ]);
+
+            $application = null;
 
             if (!empty($referenceCode)) {
-                if (preg_match('/EXP-\d{4}-(\d+)/i', $referenceCode, $matches)) {
-                    $query->where('id', (int) $matches[1]);
-                } else {
-                    $query->where('id', (int) $referenceCode);
+                $targetId = 0;
+
+                // Match formats: EXP-2026-0006, REQ-2026-0006, EXP-6, 2026-0006, etc.
+                if (preg_match('/(?:EXP|REQ|INST)?(?:-|\s)*(?:\d{4})?(?:-|\s)*(\d+)/i', $referenceCode, $matches)) {
+                    $targetId = (int) $matches[1];
+                } elseif (preg_match('/(\d+)/', $referenceCode, $matches)) {
+                    $targetId = (int) $matches[1];
+                }
+
+                if ($targetId > 0) {
+                    $application = \App\Models\InstructorRequest::where('id', $targetId)->first();
+                }
+
+                // If user accidentally typed or pasted their email in the reference code field
+                if (!$application && filter_var($referenceCode, FILTER_VALIDATE_EMAIL)) {
+                    $application = \App\Models\InstructorRequest::where('email', $referenceCode)->latest('id')->first();
                 }
             } elseif ($requestId > 0) {
-                $query->where('id', $requestId);
-            } elseif ($userId) {
-                $query->where('user_id', $userId);
+                $application = \App\Models\InstructorRequest::where('id', $requestId)->first();
             } elseif (!empty($email)) {
-                $query->where('email', $email);
+                $application = \App\Models\InstructorRequest::where('email', $email)->latest('id')->first();
+            } elseif ($userId) {
+                $application = \App\Models\InstructorRequest::where('user_id', $userId)->latest('id')->first();
             } else {
                 return ApiResponseService::validationError('يرجى تقديم الرقم المرجعي لمتابعة الطلب', [
                     'reference_code' => ['الرقم المرجعي مطلوب']
                 ]);
             }
 
-            $application = $query->latest('id')->first();
+            // Fallback: If searched by reference code but not found, and user is logged in, check user's request
+            if (!$application && $userId) {
+                $application = \App\Models\InstructorRequest::where('user_id', $userId)->latest('id')->first();
+            }
 
             if (!$application) {
-                return ApiResponseService::errorResponse('لم يتم العثور على طلب بهذا الرقم المرجعي', [], 404);
+                return ApiResponseService::errorResponse('لم يتم العثور على طلب بهذا الرقم المرجعي', [
+                    'reference_code' => $rawReference,
+                ], 404);
             }
 
             return ApiResponseService::successResponse('تم جلب تفاصيل حالة الطلب بنجاح', [

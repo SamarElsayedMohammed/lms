@@ -34,3 +34,8 @@ Route::middleware(['auth:sanctum', 'role:Super Admin|Supervisor|Staff'])->group(
 });
 Route::get('ref/{code}', [\App\Http\Controllers\API\AffiliateApiController::class, 'trackReferral'])->where('code', '[A-Za-z0-9]+');
 Route::post('refresh-token', [\App\Http\Controllers\ApiController::class, 'refreshToken'])->middleware('auth:sanctum');
+
+// Instructor Application Status Lookup (Public)
+Route::get('instructor-request/status', [\App\Http\Controllers\ApiController::class, 'getInstructorRequestStatus']);
+Route::get('instructor-requests/status', [\App\Http\Controllers\ApiController::class, 'getInstructorRequestStatus']);
+Route::get('become-instructor/status', [\App\Http\Controllers\ApiController::class, 'getInstructorRequestStatus']);

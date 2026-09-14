@@ -353,5 +353,28 @@ final class InstructorRequestApiTest extends TestCase
         $this->assertSame('instructor-requests/cv/existing_cv.pdf', $existing->cv_path);
         $this->assertSame('existing_cv.pdf', $existing->cv_original_name);
     }
+
+    public function test_public_user_can_query_instructor_request_status_by_reference_code(): void
+    {
+        $req = InstructorRequest::create([
+            'first_name' => 'محمد',
+            'last_name' => 'خالد',
+            'name' => 'محمد خالد',
+            'email' => 'mohammed.khaled@example.com',
+            'phone' => '+966501239876',
+            'specialty' => 'DevOps',
+            'status' => 'pending',
+            'facebook_url' => 'https://facebook.com/mohammed.khaled',
+        ]);
+
+        $refCode = sprintf('EXP-%d-%04d', (int)date('Y'), $req->id);
+
+        $response = $this->getJson('/api/instructor-request/status?reference_code=' . $refCode);
+        $response->assertOk();
+        $response->assertJsonPath('error', false);
+        $response->assertJsonPath('data.id', $req->id);
+        $response->assertJsonPath('data.reference_code', $refCode);
+        $response->assertJsonPath('data.name', 'محمد خالد');
+    }
 }
 
