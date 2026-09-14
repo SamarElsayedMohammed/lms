@@ -820,31 +820,104 @@ trait ServesApiPublicContent
         }
     }
     /**
-     * Submit Become an Instructor form
+     * Submit Become an Instructor / Expert form
      */
     public function submitBecomeInstructor(Request $request)
     {
         try {
-            $validator = Validator::make($request->all(), [
+            $name = trim((string) $request->input('name', ''));
+            $firstName = trim((string) $request->input('first_name', ''));
+            $lastName = trim((string) $request->input('last_name', ''));
+
+            if (empty($name) && (!empty($firstName) || !empty($lastName))) {
+                $name = trim($firstName . ' ' . $lastName);
+            }
+
+            $validator = Validator::make(array_merge($request->all(), ['name' => $name]), [
                 'name' => 'required|string|max:255',
+                'first_name' => 'nullable|string|max:100',
+                'last_name' => 'nullable|string|max:100',
                 'email' => 'required|email|max:255',
-                'phone' => 'required|string|max:20',
+                'phone' => 'required|string|max:30',
+                'country' => 'nullable|string|max:100',
+                'nationality' => 'nullable|string|max:100',
+                'job_title' => 'nullable|string|max:255',
+                'company' => 'nullable|string|max:255',
+                'years_of_experience' => 'nullable|numeric|min:0',
                 'specialty' => 'nullable|string|max:255',
-                'experience_bio' => 'nullable|string|max:2000',
+                'experience_bio' => 'nullable|string|max:5000',
+                'linkedin_url' => 'nullable|string|max:500',
+                'facebook_url' => 'nullable|string|max:500',
+                'website_url' => 'nullable|string|max:500',
+                'youtube_url' => 'nullable|string|max:500',
+                'intro_video_type' => 'nullable|in:url,file',
+                'intro_video_url' => 'nullable|string|max:1000',
+                'video_file' => 'nullable|file|mimes:mp4,webm,mov,quicktime|max:102400',
+                'cv' => 'nullable|file|mimes:pdf,doc,docx|max:15360',
+                'profile_image' => 'nullable|image|max:5120',
             ]);
 
             if ($validator->fails()) {
                 return ApiResponseService::validationError($validator->errors()->first());
             }
 
+            // Handle CV upload
+            $cvPath = null;
+            $cvOriginalName = null;
+            $cvSize = null;
+            if ($request->hasFile('cv')) {
+                $cvFile = $request->file('cv');
+                $cvPath = FileService::upload($cvFile, 'instructor-requests/cv');
+                $cvOriginalName = $cvFile->getClientOriginalName();
+                $cvSize = $cvFile->getSize();
+            }
+
+            // Handle Profile Image upload
+            $profileImagePath = null;
+            if ($request->hasFile('profile_image')) {
+                $profileImagePath = FileService::compressAndUpload($request->file('profile_image'), 'instructor-requests/avatars');
+            }
+
+            // Handle Video
+            $introVideoType = $request->input('intro_video_type', 'url');
+            $introVideoUrl = $request->input('intro_video_url');
+            $introVideoPath = null;
+
+            if ($request->hasFile('video_file')) {
+                $videoFile = $request->file('video_file');
+                $introVideoPath = FileService::upload($videoFile, 'instructor-requests/videos');
+                $introVideoType = 'file';
+            }
+
+            $userId = Auth::guard('sanctum')->id() ?? Auth::id();
+
             // Save to database
             $instructorRequest = \App\Models\InstructorRequest::create([
-                'name' => $request->name,
+                'name' => $name,
+                'first_name' => $firstName ?: null,
+                'last_name' => $lastName ?: null,
                 'email' => $request->email,
                 'phone' => $request->phone,
+                'country' => $request->input('country'),
+                'nationality' => $request->input('nationality'),
+                'job_title' => $request->input('job_title'),
+                'company' => $request->input('company'),
+                'years_of_experience' => (int) $request->input('years_of_experience', 0),
                 'specialty' => $request->specialty,
                 'experience_bio' => $request->experience_bio,
+                'linkedin_url' => $request->input('linkedin_url'),
+                'facebook_url' => $request->input('facebook_url'),
+                'website_url' => $request->input('website_url'),
+                'youtube_url' => $request->input('youtube_url'),
+                'intro_video_type' => $introVideoType,
+                'intro_video_url' => $introVideoUrl,
+                'intro_video_path' => $introVideoPath,
+                'cv_path' => $cvPath,
+                'cv_original_name' => $cvOriginalName,
+                'cv_size' => $cvSize,
+                'profile_image_path' => $profileImagePath,
                 'status' => 'pending',
+                'user_id' => $userId,
             ]);
 
             // Log the request
@@ -852,17 +925,82 @@ trait ServesApiPublicContent
                 'id' => $instructorRequest->id,
                 'name' => $instructorRequest->name,
                 'email' => $instructorRequest->email,
+                'has_cv' => !empty($cvPath),
+                'intro_video_type' => $introVideoType,
             ]);
 
             return ApiResponseService::successResponse(
                 'Your request has been submitted successfully! We will contact you soon.',
-                ['request_id' => $instructorRequest->id]
+                [
+                    'request_id' => $instructorRequest->id,
+                    'reference_code' => sprintf('EXP-%d-%04d', date('Y'), $instructorRequest->id),
+                    'status' => $instructorRequest->status,
+                    'status_label' => $instructorRequest->status_label,
+                    'created_at' => $instructorRequest->created_at?->toIso8601String(),
+                ]
             );
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (\Throwable $th) {
             ApiResponseService::logErrorResponse($th, 'API Controller -> submitBecomeInstructor Method');
             return ApiResponseService::errorResponse('Failed to submit request. Please try again later.', exception: $th);
+        }
+    }
+
+    public function getMyInstructorRequest(Request $request)
+    {
+        try {
+            $userId = Auth::guard('sanctum')->id() ?? Auth::id();
+            if (!$userId) {
+                return ApiResponseService::errorResponse('Unauthenticated', [], 401);
+            }
+
+            $application = \App\Models\InstructorRequest::where('user_id', $userId)
+                ->latest('id')
+                ->first();
+
+            if (!$application) {
+                return ApiResponseService::successResponse('No application found', null);
+            }
+
+            return ApiResponseService::successResponse('Application fetched successfully', [
+                'id' => $application->id,
+                'reference_code' => sprintf('EXP-%d-%04d', $application->created_at ? (int)$application->created_at->format('Y') : (int)date('Y'), $application->id),
+                'first_name' => $application->first_name,
+                'last_name' => $application->last_name,
+                'name' => $application->name,
+                'email' => $application->email,
+                'phone' => $application->phone,
+                'country' => $application->country,
+                'nationality' => $application->nationality,
+                'job_title' => $application->job_title,
+                'company' => $application->company,
+                'years_of_experience' => $application->years_of_experience,
+                'specialty' => $application->specialty,
+                'experience_bio' => $application->experience_bio,
+                'linkedin_url' => $application->linkedin_url,
+                'facebook_url' => $application->facebook_url,
+                'website_url' => $application->website_url,
+                'youtube_url' => $application->youtube_url,
+                'intro_video_type' => $application->intro_video_type,
+                'intro_video_url' => $application->intro_video_url,
+                'intro_video_resolved_url' => $application->intro_video_url_resolved,
+                'cv_url' => $application->cv_url,
+                'cv_original_name' => $application->cv_original_name,
+                'cv_size' => $application->cv_size,
+                'profile_image_url' => $application->profile_image_url,
+                'status' => $application->status,
+                'status_label' => $application->status_label,
+                'applicant_feedback' => $application->applicant_feedback,
+                'rejection_reason' => $application->rejection_reason,
+                'created_at' => $application->created_at?->toIso8601String(),
+                'reviewed_at' => $application->reviewed_at?->toIso8601String(),
+            ]);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Throwable $th) {
+            ApiResponseService::logErrorResponse($th, 'API Controller -> getMyInstructorRequest Method');
+            return ApiResponseService::errorResponse('Failed to fetch application status', exception: $th);
         }
     }
 }

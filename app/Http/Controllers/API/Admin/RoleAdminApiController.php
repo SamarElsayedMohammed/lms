@@ -108,6 +108,13 @@ class RoleAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Role not found'), 404);
         }
 
+        $user = Auth::user();
+        $isSuperAdmin = $user && ($user->hasRole('Super Admin') || $user->hasRole(config('constants.SYSTEM_ROLES.SUPER_ADMIN')));
+
+        if (!$role->custom_role && !$isSuperAdmin) {
+            return $this->jsonError(__('Only Super Admin can modify system roles and their permissions'), 403);
+        }
+
         if (!$role->custom_role && $role->name !== $request->name) {
              return $this->jsonError(__('System roles names cannot be changed'), 422);
         }
@@ -149,6 +156,12 @@ class RoleAdminApiController extends AdminCrudApiController
 
         if (!$role) {
             return $this->jsonError(__('Role not found'), 404);
+        }
+
+        $user = Auth::user();
+        $isSuperAdmin = $user && ($user->hasRole('Super Admin') || $user->hasRole(config('constants.SYSTEM_ROLES.SUPER_ADMIN')));
+        if (!$isSuperAdmin) {
+            return $this->jsonError(__('Only Super Admin can delete roles'), 403);
         }
 
         if (!$role->custom_role) {

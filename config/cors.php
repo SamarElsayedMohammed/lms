@@ -16,11 +16,24 @@ return [
 
     'paths' => ['api/*', 'sanctum/csrf-cookie'],
     'allowed_methods' => ['*'],
-    'allowed_origins' => array_values(array_filter(array_map(
-        static fn (string $origin): string => trim($origin),
-        explode(',', (string) env('CORS_ALLOWED_ORIGINS', '')),
-    ))),
-    'allowed_origins_patterns' => [],
+    'allowed_origins' => array_values(array_unique(array_filter(array_merge(
+        array_map(
+            static fn (string $origin): string => trim($origin),
+            explode(',', (string) env('CORS_ALLOWED_ORIGINS', ''))
+        ),
+        empty(env('CORS_ALLOWED_ORIGINS')) ? [
+            (string) env('APP_URL', 'https://skillso.net'),
+            'https://skillso.net',
+            'https://www.skillso.net',
+            'https://admin.skillso.net',
+            'https://api.skillso.net',
+            'http://localhost:3000',
+            'http://127.0.0.1:3000',
+        ] : []
+    )))),
+    'allowed_origins_patterns' => [
+        '#^https://.*\.skillso\.net$#',
+    ],
     'allowed_headers' => ['*'],
     'exposed_headers' => [],
     'max_age' => 86400, // Cache preflight for 24 hours

@@ -225,8 +225,8 @@ class CategoryController extends Controller
 
         $sql->orderBy($sort, $order);
 
-        $result = $sql->get()->slice($offset, $limit);
-        $total = $sql->count();
+        $total = (clone $sql)->count();
+        $result = $sql->offset($offset)->limit($limit)->get();
 
         $bulkData = [];
         $bulkData['total'] = $total;

@@ -67,7 +67,7 @@ final class VideoStreamController extends Controller
 
                 if ($this->featureFlagService->isEnabled('video_progress_enforcement', false)) {
                     if (!$this->videoProgressService->canAccessNextLesson($user, $courseChapterLecture)) {
-                        return $this->forbidden('Complete the previous lesson first (100% required)');
+                        return $this->forbidden('Complete the previous lesson first (85% required)');
                     }
                 }
             }
@@ -683,6 +683,13 @@ final class VideoStreamController extends Controller
         }
 
         if ($origin === null) {
+            // Native mobile apps (Android/iOS media_kit) do not send browser
+            // Origin/Referer headers. If the request carries a Sanctum Bearer
+            // token, defer to downstream HLS token + entitlement checks
+            // instead of 403ing every mobile playback.
+            if (request()->bearerToken() !== null && request()->bearerToken() !== '') {
+                return null;
+            }
             return $this->forbidden('تم رفض الوصول');
         }
 
