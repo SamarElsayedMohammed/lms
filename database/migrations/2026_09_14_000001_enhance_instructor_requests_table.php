@@ -91,7 +91,14 @@ return new class extends Migration
                 $table->string('status', 30)->default('pending')->change();
             });
         } catch (\Throwable) {
-            // Ignore if change is not supported on this driver without doctrine/dbal
+            // Raw SQL fallback for MySQL/MariaDB in case schema change() encounters driver limitations
+            try {
+                if (in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+                    \Illuminate\Support\Facades\DB::statement("ALTER TABLE instructor_requests MODIFY COLUMN status VARCHAR(30) NOT NULL DEFAULT 'pending'");
+                }
+            } catch (\Throwable) {
+                // Pass through
+            }
         }
     }
 

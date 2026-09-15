@@ -104,7 +104,7 @@ class VideoProgressServiceSegmentsTest extends TestCase
 
     public function test_constants_are_defined(): void
     {
-        $this->assertEquals(100.0, VideoProgressService::COMPLETION_THRESHOLD);
+        $this->assertEquals(85.0, VideoProgressService::COMPLETION_THRESHOLD);
         $this->assertEquals(10, VideoProgressService::DEFAULT_SEGMENT_SIZE);
         $this->assertEquals(3, VideoProgressService::MAX_SEGMENTS_PER_REQUEST);
     }

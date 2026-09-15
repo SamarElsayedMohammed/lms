@@ -40,5 +40,10 @@ if [ -n "$PORT" ] && [ "$PORT" != "80" ]; then
         /etc/nginx/sites-available/default 2>/dev/null || true
 fi
 
+# Ensure public directory permissions and storage symlink exist before serving
+chown www-data:www-data /var/www/html/public 2>/dev/null || true
+chmod 775 /var/www/html/public 2>/dev/null || true
+php /var/www/html/artisan storage:link 2>/dev/null || true
+
 # HTTP must be up before migrate. laravel-boot in supervisord runs migrate in the background.
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf -n
