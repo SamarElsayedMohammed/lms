@@ -73,7 +73,15 @@ trait ServesApiAccount
 
             // Add custom fields
             $userData['is_instructor'] = $user->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'));
-            $userData['instructor_process_status'] = $user->instructor_details->status ?? 'pending';
+            $latestInstructorRequest = \App\Models\InstructorRequest::where('user_id', $user->id)
+                ->orWhere(function ($q) use ($user) {
+                    if (!empty($user->email)) {
+                        $q->where('email', $user->email);
+                    }
+                })
+                ->latest('id')
+                ->first();
+            $userData['instructor_process_status'] = $user->instructor_details->status ?? $latestInstructorRequest?->status ?? null;
 
             // Convert wallet_balance to float to ensure it's returned as a number, not string
             $userData['wallet_balance'] = $user->wallet_balance ?? 0;
@@ -157,11 +165,11 @@ trait ServesApiAccount
             // Build validation rules based on user type
             $validationRules = [
                 'name' => 'sometimes|required|string|min:2|max:255',
-                'email' => 'nullable|email|unique:users,email,' . Auth::id(),
-                'mobile' => 'nullable|string|max:20|unique:users,mobile,' . Auth::id(),
+                'email' => ['nullable', 'email', Rule::unique('users', 'email')->ignore($user->id)],
+                'mobile' => ['nullable', 'string', 'max:20', Rule::unique('users', 'mobile')->ignore($user->id)],
                 'country_calling_code' => ['nullable', 'string', 'regex:/^\+?[0-9]{1,4}$/'],
                 'country_code' => 'nullable|string|size:2',
-                'profile' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
+                'profile' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,webp|max:10240',
             ];
 
             // Add instructor-specific validation rules if user is instructor

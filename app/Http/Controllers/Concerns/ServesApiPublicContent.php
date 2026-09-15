@@ -912,16 +912,63 @@ trait ServesApiPublicContent
                 $introVideoType = 'file';
             }
 
-            $userId = Auth::guard('sanctum')->id() ?? Auth::id();
-
-            // Check if authenticated user has an existing request in 'changes_requested' status
-            $existingRequest = null;
-            if ($userId) {
-                $existingRequest = \App\Models\InstructorRequest::where('user_id', $userId)
-                    ->where('status', 'changes_requested')
-                    ->latest('id')
-                    ->first();
+            $user = $request->user('sanctum') ?? $request->user();
+            $userId = $user?->id ?? Auth::guard('sanctum')->id() ?? Auth::id();
+            if (!$userId && !empty($request->email)) {
+                $userId = \App\Models\User::where('email', $request->email)->value('id');
             }
+
+            // If user exists and is already an instructor, prevent new application
+            if ($userId) {
+                $userModel = $user instanceof \App\Models\User ? $user : \App\Models\User::find($userId);
+                if ($userModel && ((int)$userModel->role_id === 3 || $userModel->role === 'instructor')) {
+                    return ApiResponseService::errorResponse('حسابك مسجل كمدرب بالفعل.', ['status' => 'approved'], 409);
+                }
+            }
+
+            // Check if user already has an active pending/under_review request
+            $activeRequestQuery = \App\Models\InstructorRequest::query();
+            if ($userId) {
+                $activeRequestQuery->where(function ($q) use ($userId, $request) {
+                    $q->where('user_id', $userId)->orWhere('email', $request->email);
+                });
+            } else {
+                $activeRequestQuery->where('email', $request->email);
+            }
+
+            $approvedRequest = (clone $activeRequestQuery)
+                ->where('status', 'approved')
+                ->latest('id')
+                ->first();
+            if ($approvedRequest) {
+                return ApiResponseService::errorResponse('طلبك معتمد بالفعل وتمت ترقية حسابك كمدرب.', ['status' => 'approved'], 409);
+            }
+
+            $activeRequest = (clone $activeRequestQuery)
+                ->whereIn('status', ['pending', 'under_review', 'resubmitted'])
+                ->latest('id')
+                ->first();
+
+            if ($activeRequest) {
+                $refCode = sprintf('EXP-%d-%04d', $activeRequest->created_at ? (int)$activeRequest->created_at->format('Y') : (int)date('Y'), $activeRequest->id);
+                return ApiResponseService::errorResponse(
+                    'لديك طلب انضمام كمدرب قيد المراجعة بالفعل (الرقم المرجعي: ' . $refCode . ').',
+                    [
+                        'request_id' => $activeRequest->id,
+                        'reference_code' => $refCode,
+                        'status' => $activeRequest->status,
+                        'status_label' => $activeRequest->status_label,
+                        'created_at' => $activeRequest->created_at?->toIso8601String(),
+                    ],
+                    409
+                );
+            }
+
+            // Check if authenticated user or applicant has an existing request in 'changes_requested' status
+            $existingRequest = (clone $activeRequestQuery)
+                ->where('status', 'changes_requested')
+                ->latest('id')
+                ->first();
 
             if ($existingRequest) {
                 // Preserve previous file paths if new ones are not provided in resubmission
@@ -935,6 +982,7 @@ trait ServesApiPublicContent
                 }
 
                 $existingRequest->update([
+                    'user_id' => $userId ?: $existingRequest->user_id,
                     'name' => $name,
                     'first_name' => $firstName ?: null,
                     'last_name' => $lastName ?: null,
@@ -1025,17 +1073,33 @@ trait ServesApiPublicContent
     public function getMyInstructorRequest(Request $request)
     {
         try {
-            $userId = Auth::guard('sanctum')->id() ?? Auth::id();
-            if (!$userId) {
+            $user = $request->user('sanctum') ?? $request->user();
+            $userId = $user?->id ?? Auth::guard('sanctum')->id() ?? Auth::id();
+            $userEmail = $user?->email;
+
+            if (!$userId && !$userEmail) {
                 return ApiResponseService::errorResponse('Unauthenticated', [], 401);
             }
 
-            $application = \App\Models\InstructorRequest::where('user_id', $userId)
-                ->latest('id')
-                ->first();
+            $query = \App\Models\InstructorRequest::query();
+            if ($userId && $userEmail) {
+                $query->where(function ($q) use ($userId, $userEmail) {
+                    $q->where('user_id', $userId)->orWhere('email', $userEmail);
+                });
+            } elseif ($userId) {
+                $query->where('user_id', $userId);
+            } else {
+                $query->where('email', $userEmail);
+            }
+
+            $application = $query->latest('id')->first();
 
             if (!$application) {
                 return ApiResponseService::successResponse('No application found', null);
+            }
+
+            if ($userId && !$application->user_id) {
+                $application->update(['user_id' => $userId]);
             }
 
             return ApiResponseService::successResponse('Application fetched successfully', [
@@ -1085,7 +1149,8 @@ trait ServesApiPublicContent
             $rawReference = trim((string) $request->input('reference_code', $request->input('ref', '')));
             $requestId = (int) $request->input('request_id', $request->input('id', 0));
             $email = trim((string) $request->input('email', ''));
-            $userId = Auth::guard('sanctum')->id() ?? Auth::id();
+            $user = $request->user('sanctum') ?? $request->user();
+            $userId = $user?->id ?? Auth::guard('sanctum')->id() ?? Auth::id();
 
             // 1. Normalize Eastern-Arabic numerals to standard ASCII digits
             $referenceCode = strtr($rawReference, [
@@ -1134,6 +1199,10 @@ trait ServesApiPublicContent
                 return ApiResponseService::errorResponse('لم يتم العثور على طلب بهذا الرقم المرجعي', [
                     'reference_code' => $rawReference,
                 ], 404);
+            }
+
+            if ($userId && !$application->user_id) {
+                $application->update(['user_id' => $userId]);
             }
 
             return ApiResponseService::successResponse('تم جلب تفاصيل حالة الطلب بنجاح', [
