@@ -30,6 +30,14 @@ class CertificateSystemTest extends TestCase
         $this->assertEquals("583104927641805273", $normalized);
     }
 
+    public function test_certificate_number_normalizer_preserves_alphanumeric_formatted_codes(): void
+    {
+        $input = "  cert-welcome-001  ";
+        $normalized = CourseCertificate::normalizeCertificateNumber($input);
+
+        $this->assertEquals("CERT-WELCOME-001", $normalized);
+    }
+
     public function test_arabic_indic_digits_are_normalized_and_verified(): void
     {
         $arabicInput = "٥٨٣١٠٤٩٢٧٦٤١٨٠٥٢٧٣";
@@ -148,6 +156,50 @@ class CertificateSystemTest extends TestCase
         $responseArabic->assertJson(['ok' => true, 'is_valid' => true, 'status' => 'valid']);
     }
 
+    public function test_public_verify_api_finds_formatted_alphanumeric_certificate(): void
+    {
+        $student = User::factory()->create(['name' => 'Sara Al-Ahmad']);
+        $course = Course::factory()->create(['title' => 'React & Next.js Pro']);
+
+        $certificate = CourseCertificate::create([
+            'user_id'            => $student->id,
+            'course_id'          => $course->id,
+            'certificate_number' => 'CERT-WELCOME-001',
+            'student_name'       => 'Sara Al-Ahmad',
+            'arabic_title'       => 'React & Next.js Pro',
+            'english_title'      => 'React & Next.js Pro',
+            'instructor_name'    => 'Skillso Academy',
+            'issued_date'        => '2026-08-18',
+            'status'             => 'active',
+            'issuance_source'    => 'automatic',
+            'verification_token' => 'd1b2c3d4e5f6789012345678abcdef04',
+            'verification_code'  => 'WELCOME001',
+        ]);
+
+        // Exact uppercase match
+        $responseExact = $this->getJson('/api/certificate/verify?code=CERT-WELCOME-001');
+        $responseExact->assertStatus(200);
+        $responseExact->assertJson([
+            'ok'       => true,
+            'is_valid' => true,
+            'status'   => 'valid',
+            'data'     => [
+                'certificate_number' => 'CERT-WELCOME-001',
+                'student_name'       => 'Sara Al-Ahmad',
+            ],
+        ]);
+
+        // Lowercase match
+        $responseLower = $this->getJson('/api/certificate/verify?code=cert-welcome-001');
+        $responseLower->assertStatus(200);
+        $responseLower->assertJson(['ok' => true, 'is_valid' => true, 'status' => 'valid']);
+
+        // Spaced without hyphens match
+        $responseStripped = $this->getJson('/api/certificate/verify?code=CERTWELCOME001');
+        $responseStripped->assertStatus(200);
+        $responseStripped->assertJson(['ok' => true, 'is_valid' => true, 'status' => 'valid']);
+    }
+
     public function test_public_verify_api_does_not_leak_private_pii(): void
     {
         $student = User::factory()->create(['name' => 'Ahmad Student', 'email' => 'private.email@example.com']);
@@ -258,5 +310,41 @@ class CertificateSystemTest extends TestCase
 
         $response = $this->getJson('/api/certificate/public/123456789012345678/download');
         $response->assertStatus(403);
+    }
+
+    public function test_public_verify_api_handles_hyphenated_numeric_and_whitespace(): void
+    {
+        $student = User::factory()->create(['name' => 'Fatima']);
+        $course = Course::factory()->create(['title' => 'Web Design']);
+
+        CourseCertificate::create([
+            'user_id'            => $student->id,
+            'course_id'          => $course->id,
+            'certificate_number' => '123456789012345678',
+            'student_name'       => 'Fatima',
+            'arabic_title'       => 'Web Design',
+            'english_title'      => 'Web Design',
+            'instructor_name'    => 'Instructor',
+            'issued_date'        => '2026-08-18',
+            'status'             => 'active',
+            'issuance_source'    => 'automatic',
+            'verification_token' => 'e1b2c3d4e5f6789012345678abcdef05',
+            'verification_code'  => 'FATIMA1234',
+        ]);
+
+        // Hyphenated numeric serial
+        $respHyphen = $this->getJson('/api/certificate/verify?code=1234-5678-9012-3456-78');
+        $respHyphen->assertStatus(200);
+        $respHyphen->assertJson(['ok' => true, 'is_valid' => true, 'status' => 'valid']);
+
+        // Leading and trailing whitespace
+        $respSpace = $this->getJson('/api/certificate/verify?code=%20%20123456789012345678%20%20');
+        $respSpace->assertStatus(200);
+        $respSpace->assertJson(['ok' => true, 'is_valid' => true, 'status' => 'valid']);
+
+        // Nonexistent formatted code
+        $respNonExist = $this->getJson('/api/certificate/verify?code=CERT-NON-EXISTENT-999');
+        $respNonExist->assertStatus(404);
+        $respNonExist->assertJson(['ok' => false, 'status' => 'not_found']);
     }
 }

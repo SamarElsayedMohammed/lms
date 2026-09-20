@@ -383,13 +383,13 @@ class CertificateController extends Controller
      * - Accepts 18-digit random numeric certificate_number or 32-char verification_token
      * - Normalizes all spaces, hyphens, and whitespace
      * - Never exposes private user PII (emails, IDs, storage paths)
-     * - Exact lookup only (no SQL LIKE)
      */
     public function verifyApi(\Illuminate\Http\Request $request, ?string $code = null)
     {
         $token = trim((string) $request->input('token', ''));
         $rawCode = trim((string) ($code ?: $request->input('certificate_number') ?: $request->input('code') ?: $request->input('number') ?: $request->input('certificate_id') ?: $request->input('id') ?: ''));
         $normalizedCode = CourseCertificate::normalizeCertificateNumber($rawCode);
+        $strippedCode = preg_replace('/[\s\-\_]+/u', '', $rawCode);
 
         if ($token === '' && $normalizedCode === '' && $rawCode === '') {
             return response()->json([
@@ -398,6 +398,7 @@ class CertificateController extends Controller
                 'valid'      => false,
                 'status'     => 'invalid_input',
                 'message'    => 'رمز التحقق مطلوب.',
+                'message_ar' => 'رمز التحقق مطلوب.',
                 'message_en' => 'Verification code is required.',
                 'data'       => null,
             ], 422);
@@ -406,24 +407,46 @@ class CertificateController extends Controller
         $query = CourseCertificate::query()->with(['user', 'course']);
         $certificate = null;
 
+        // 1. Check token if provided
         if ($token !== '') {
             $certificate = (clone $query)->where('verification_token', $token)->first();
         }
 
-        if (!$certificate && $normalizedCode !== '') {
-            $certificate = (clone $query)
-                ->where('certificate_number', $normalizedCode)
-                ->orWhere('verification_token', $normalizedCode)
-                ->orWhere('verification_code', $normalizedCode)
-                ->first();
-        }
+        // 2. Multi-strategy candidate lookup
+        if (!$certificate && ($normalizedCode !== '' || $rawCode !== '')) {
+            $candidates = array_unique(array_filter([
+                $normalizedCode,
+                $rawCode,
+                strtoupper($rawCode),
+                strtolower($rawCode),
+                strtoupper($normalizedCode),
+                strtolower($normalizedCode),
+                $strippedCode,
+                strtoupper($strippedCode),
+            ]));
 
-        if (!$certificate && $rawCode !== '') {
-            $certificate = (clone $query)
-                ->where('certificate_number', $rawCode)
-                ->orWhere('verification_token', $rawCode)
-                ->orWhere('verification_code', $rawCode)
-                ->first();
+            $certificate = (clone $query)->where(function ($q) use ($candidates, $rawCode, $normalizedCode, $strippedCode) {
+                $q->whereIn('certificate_number', $candidates)
+                  ->orWhereIn('verification_token', $candidates)
+                  ->orWhereIn('verification_code', $candidates);
+
+                // Case-insensitive exact match
+                $checkCode = $normalizedCode ?: $rawCode;
+                if ($checkCode !== '') {
+                    $q->orWhereRaw('LOWER(certificate_number) = ?', [strtolower($checkCode)])
+                      ->orWhereRaw('LOWER(verification_code) = ?', [strtolower($checkCode)]);
+                }
+
+                // If stripped characters exist, try stripping hyphens/underscores from DB column
+                if ($strippedCode !== '') {
+                    $q->orWhereRaw("REPLACE(REPLACE(certificate_number, '-', ''), '_', '') = ?", [strtoupper($strippedCode)]);
+                }
+
+                // Numeric ID fallback for legacy requests
+                if (ctype_digit($rawCode)) {
+                    $q->orWhere('id', (int) $rawCode);
+                }
+            })->first();
         }
 
         if (!$certificate) {
@@ -433,6 +456,7 @@ class CertificateController extends Controller
                 'valid'      => false,
                 'status'     => 'not_found',
                 'message'    => 'الشهادة غير مسجلة لدينا أو غير صالحة.',
+                'message_ar' => 'الشهادة غير مسجلة لدينا أو غير صالحة.',
                 'message_en' => 'Certificate not found or invalid.',
                 'data'       => null,
             ], 404);
@@ -452,6 +476,7 @@ class CertificateController extends Controller
                 'valid'      => false,
                 'status'     => 'revoked',
                 'message'    => 'تم إلغاء هذه الشهادة.',
+                'message_ar' => 'تم إلغاء هذه الشهادة.',
                 'message_en' => 'Certificate has been revoked.',
                 'data'       => [
                     'status'             => 'revoked',
@@ -481,8 +506,9 @@ class CertificateController extends Controller
             'is_valid'   => true,
             'valid'      => true,
             'status'     => 'valid',
-            'message'    => 'Certificate is valid.',
+            'message'    => 'الشهادة صالحة وموثقة.',
             'message_ar' => 'الشهادة صالحة وموثقة.',
+            'message_en' => 'Certificate is valid.',
             'data'       => [
                 'status'             => 'valid',
                 'is_valid'           => true,
@@ -512,12 +538,15 @@ class CertificateController extends Controller
     public function downloadPublic(string $certificate_number)
     {
         $normalized = CourseCertificate::normalizeCertificateNumber($certificate_number);
+        $stripped = preg_replace('/[\s\-\_]+/u', '', $certificate_number);
 
         $certificate = CourseCertificate::with(['user', 'course'])
-            ->where(function ($q) use ($certificate_number, $normalized) {
+            ->where(function ($q) use ($certificate_number, $normalized, $stripped) {
                 $q->where('certificate_number', $normalized)
                   ->orWhere('verification_token', $certificate_number)
-                  ->orWhere('certificate_number', $certificate_number);
+                  ->orWhere('certificate_number', $certificate_number)
+                  ->orWhere('certificate_number', $stripped)
+                  ->orWhereRaw('LOWER(certificate_number) = ?', [strtolower($normalized)]);
             })
             ->first();
 

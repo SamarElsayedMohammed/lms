@@ -97,8 +97,12 @@ class CourseCertificate extends Model
     }
 
     /**
-     * Normalize certificate number or code input by trimming whitespace,
-     * removing spaces, hyphens, underscores, and normalizing Eastern Arabic numerals to standard digits.
+     * Normalize certificate number or code input:
+     * 1. Converts Eastern Arabic numerals (٠-٩) to standard Western digits (0-9).
+     * 2. If the stripped string consists purely of digits (e.g. 18-digit serials with spaces or hyphens),
+     *    returns the continuous numeric string.
+     * 3. If alphanumeric (e.g. "CERT-WELCOME-001" or hex tokens), preserves hyphens and underscores,
+     *    strips internal whitespace, and returns uppercase.
      */
     public static function normalizeCertificateNumber(?string $code): string
     {
@@ -108,8 +112,12 @@ class CourseCertificate extends Model
         $arabicNumerals = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
         $englishNumerals = ['0','1','2','3','4','5','6','7','8','9'];
         $normalized = str_replace($arabicNumerals, $englishNumerals, (string) $code);
-        $normalized = preg_replace('/[\s\-\_]+/u', '', $normalized);
-        return trim($normalized);
+        $strippedDigits = preg_replace('/[\s\-\_]+/u', '', $normalized);
+        if ($strippedDigits !== '' && ctype_digit($strippedDigits)) {
+            return $strippedDigits;
+        }
+
+        return strtoupper(trim(preg_replace('/\s+/u', '', $normalized)));
     }
 
     /**
