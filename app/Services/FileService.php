@@ -26,10 +26,23 @@ class FileService
 
         self::sanitizeIfSvg($requestFile, $ext);
 
-        if (in_array($ext, ['jpg', 'jpeg', 'png']) && self::imageExtensionAvailable()) {
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp']) && self::imageExtensionAvailable()) {
             try {
+                // Safeguard against image decompression bombs: check header dimensions before loading into GD/Imagick
+                $imageInfo = @getimagesize($requestFile->getRealPath());
+                if ($imageInfo !== false) {
+                    [$width, $height] = $imageInfo;
+                    // Max allowed dimensions for GD rasterization: 5000x5000 or 25 megapixels
+                    if ($width > 5000 || $height > 5000 || ($width * $height) > 25000000) {
+                        // Bypass in-memory rasterization to protect worker memory; stream directly to disk
+                        $requestFile->storeAs($folder, $file_name, $disk);
+                        return ltrim($folder, '/') . '/' . $file_name;
+                    }
+                }
+
                 $image = Image::make($requestFile)->encode(null, 60);
                 Storage::disk($disk)->put($folder . '/' . $file_name, (string) $image);
+                unset($image);
                 return ltrim($folder, '/') . '/' . $file_name;
             } catch (Exception $e) {
                 // Fallback to plain upload if Image fails (e.g. GD not available)

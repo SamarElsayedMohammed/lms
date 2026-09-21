@@ -64,24 +64,38 @@ trait CertificatePdfGeneratorTrait
 
     private function renderCertificatePdf(string $html, int $widthPx, int $heightPx): string
     {
-        $widthMM  = round($widthPx  * 0.264583, 2);
-        $heightMM = round($heightPx * 0.264583, 2);
+        $origLimit = ini_get('memory_limit');
+        // Temporarily ensure adequate memory headroom for PDF font rendering to prevent OOM worker crash
+        if ((int) $origLimit < 256 && $origLimit !== '-1') {
+            @ini_set('memory_limit', '256M');
+        }
 
-        $mpdf = new Mpdf([
-            'mode'             => 'utf-8',
-            'format'           => [$widthMM, $heightMM],
-            'margin_left'      => 0,
-            'margin_right'     => 0,
-            'margin_top'       => 0,
-            'margin_bottom'    => 0,
-            'autoScriptToLang' => true,
-            'autoLangToFont'   => true,
-            'tempDir'          => storage_path('app/temp'),
-        ]);
+        try {
+            $widthMM  = round($widthPx  * 0.264583, 2);
+            $heightMM = round($heightPx * 0.264583, 2);
 
-        $mpdf->WriteHTML($html);
+            $mpdf = new Mpdf([
+                'mode'             => 'utf-8',
+                'format'           => [$widthMM, $heightMM],
+                'margin_left'      => 0,
+                'margin_right'     => 0,
+                'margin_top'       => 0,
+                'margin_bottom'    => 0,
+                'autoScriptToLang' => true,
+                'autoLangToFont'   => true,
+                'tempDir'          => storage_path('app/temp'),
+            ]);
 
-        return $mpdf->Output('', 'S');
+            $mpdf->WriteHTML($html);
+
+            return $mpdf->Output('', 'S');
+        } finally {
+            unset($mpdf);
+            gc_collect_cycles();
+            if ($origLimit) {
+                @ini_set('memory_limit', $origLimit);
+            }
+        }
     }
 
     private function forgetPreviousCertificatePdf($disk, string $certificateNumber, string $filePath): void

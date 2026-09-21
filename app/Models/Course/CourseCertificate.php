@@ -14,6 +14,7 @@ class CourseCertificate extends Model
         'user_id',
         'course_id',
         'certificate_number',
+        'certificate_number_normalized',
         'student_name',
         'arabic_title',
         'english_title',
@@ -34,6 +35,17 @@ class CourseCertificate extends Model
         'pdf_path',
         'issuer_id',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $certificate) {
+            if (!empty($certificate->certificate_number)) {
+                $certificate->certificate_number_normalized = strtoupper(
+                    preg_replace('/[\s\-\_]+/u', '', (string) $certificate->certificate_number)
+                );
+            }
+        });
+    }
 
     protected $casts = [
         'issued_date' => 'date',

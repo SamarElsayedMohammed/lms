@@ -109,7 +109,7 @@ stderr_logfile=/var/log/worker-nginx.log
 "worker-laravel-default.conf" = '''
 [program:worker-laravel-default]
 process_name=%(program_name)s_%(process_num)02d
-command=php -d memory_limit=128M /app/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600 --memory=128
+command=php -d memory_limit=256M /app/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600 --memory=256
 user=www-data
 autostart=false
 autorestart=true

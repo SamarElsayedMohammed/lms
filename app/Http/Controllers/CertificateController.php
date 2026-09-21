@@ -425,25 +425,15 @@ class CertificateController extends Controller
                 strtoupper($strippedCode),
             ]));
 
-            $certificate = (clone $query)->where(function ($q) use ($candidates, $rawCode, $normalizedCode, $strippedCode) {
+            // 100% indexed B-Tree lookup across all unique and indexed columns
+            $certificate = (clone $query)->where(function ($q) use ($candidates, $rawCode) {
                 $q->whereIn('certificate_number', $candidates)
+                  ->orWhereIn('certificate_number_normalized', $candidates)
                   ->orWhereIn('verification_token', $candidates)
                   ->orWhereIn('verification_code', $candidates);
 
-                // Case-insensitive exact match
-                $checkCode = $normalizedCode ?: $rawCode;
-                if ($checkCode !== '') {
-                    $q->orWhereRaw('LOWER(certificate_number) = ?', [strtolower($checkCode)])
-                      ->orWhereRaw('LOWER(verification_code) = ?', [strtolower($checkCode)]);
-                }
-
-                // If stripped characters exist, try stripping hyphens/underscores from DB column
-                if ($strippedCode !== '') {
-                    $q->orWhereRaw("REPLACE(REPLACE(certificate_number, '-', ''), '_', '') = ?", [strtoupper($strippedCode)]);
-                }
-
-                // Numeric ID fallback for legacy requests
-                if (ctype_digit($rawCode)) {
+                // Numeric ID fallback for legacy requests (safe integer bounds)
+                if (ctype_digit($rawCode) && strlen($rawCode) <= 9) {
                     $q->orWhere('id', (int) $rawCode);
                 }
             })->first();
@@ -539,14 +529,23 @@ class CertificateController extends Controller
     {
         $normalized = CourseCertificate::normalizeCertificateNumber($certificate_number);
         $stripped = preg_replace('/[\s\-\_]+/u', '', $certificate_number);
+        $candidates = array_unique(array_filter([
+            $normalized,
+            $certificate_number,
+            $stripped,
+            strtoupper($normalized),
+            strtolower($normalized),
+            strtoupper($certificate_number),
+            strtolower($certificate_number),
+            strtoupper($stripped),
+        ]));
 
         $certificate = CourseCertificate::with(['user', 'course'])
-            ->where(function ($q) use ($certificate_number, $normalized, $stripped) {
-                $q->where('certificate_number', $normalized)
-                  ->orWhere('verification_token', $certificate_number)
-                  ->orWhere('certificate_number', $certificate_number)
-                  ->orWhere('certificate_number', $stripped)
-                  ->orWhereRaw('LOWER(certificate_number) = ?', [strtolower($normalized)]);
+            ->where(function ($q) use ($candidates) {
+                $q->whereIn('certificate_number', $candidates)
+                  ->orWhereIn('certificate_number_normalized', $candidates)
+                  ->orWhereIn('verification_token', $candidates)
+                  ->orWhereIn('verification_code', $candidates);
             })
             ->first();
 

@@ -73,14 +73,17 @@ trait ServesApiAccount
 
             // Add custom fields
             $userData['is_instructor'] = $user->hasRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'));
+            // Indexed lookup for instructor request status without unindexed OR table scan
             $latestInstructorRequest = \App\Models\InstructorRequest::where('user_id', $user->id)
-                ->orWhere(function ($q) use ($user) {
-                    if (!empty($user->email)) {
-                        $q->where('email', $user->email);
-                    }
-                })
                 ->latest('id')
                 ->first();
+
+            if (!$latestInstructorRequest && !empty($user->email)) {
+                $latestInstructorRequest = \App\Models\InstructorRequest::where('email', $user->email)
+                    ->latest('id')
+                    ->first();
+            }
+
             $userData['instructor_process_status'] = $user->instructor_details->status ?? $latestInstructorRequest?->status ?? null;
 
             // Convert wallet_balance to float to ensure it's returned as a number, not string

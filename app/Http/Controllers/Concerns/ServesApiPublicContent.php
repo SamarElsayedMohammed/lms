@@ -926,49 +926,44 @@ trait ServesApiPublicContent
                 }
             }
 
-            // Check if user already has an active pending/under_review request
-            $activeRequestQuery = \App\Models\InstructorRequest::query();
+            // Check if user already has an active pending/under_review/approved/changes_requested request
+            $applicantRequest = null;
             if ($userId) {
-                $activeRequestQuery->where(function ($q) use ($userId, $request) {
-                    $q->where('user_id', $userId)->orWhere('email', $request->email);
-                });
-            } else {
-                $activeRequestQuery->where('email', $request->email);
+                $applicantRequest = \App\Models\InstructorRequest::where('user_id', $userId)
+                    ->whereIn('status', ['approved', 'pending', 'under_review', 'resubmitted', 'changes_requested'])
+                    ->latest('id')
+                    ->first();
+            }
+            if (!$applicantRequest && !empty($request->email)) {
+                $applicantRequest = \App\Models\InstructorRequest::where('email', $request->email)
+                    ->whereIn('status', ['approved', 'pending', 'under_review', 'resubmitted', 'changes_requested'])
+                    ->latest('id')
+                    ->first();
             }
 
-            $approvedRequest = (clone $activeRequestQuery)
-                ->where('status', 'approved')
-                ->latest('id')
-                ->first();
-            if ($approvedRequest) {
+            if ($applicantRequest && $applicantRequest->status === 'approved') {
                 return ApiResponseService::errorResponse('طلبك معتمد بالفعل وتمت ترقية حسابك كمدرب.', ['status' => 'approved'], 409);
             }
 
-            $activeRequest = (clone $activeRequestQuery)
-                ->whereIn('status', ['pending', 'under_review', 'resubmitted'])
-                ->latest('id')
-                ->first();
-
-            if ($activeRequest) {
-                $refCode = sprintf('EXP-%d-%04d', $activeRequest->created_at ? (int)$activeRequest->created_at->format('Y') : (int)date('Y'), $activeRequest->id);
+            if ($applicantRequest && in_array($applicantRequest->status, ['pending', 'under_review', 'resubmitted'], true)) {
+                $refCode = sprintf('EXP-%d-%04d', $applicantRequest->created_at ? (int)$applicantRequest->created_at->format('Y') : (int)date('Y'), $applicantRequest->id);
                 return ApiResponseService::errorResponse(
                     'لديك طلب انضمام كمدرب قيد المراجعة بالفعل (الرقم المرجعي: ' . $refCode . ').',
                     [
-                        'request_id' => $activeRequest->id,
+                        'request_id' => $applicantRequest->id,
                         'reference_code' => $refCode,
-                        'status' => $activeRequest->status,
-                        'status_label' => $activeRequest->status_label,
-                        'created_at' => $activeRequest->created_at?->toIso8601String(),
+                        'status' => $applicantRequest->status,
+                        'status_label' => $applicantRequest->status_label,
+                        'created_at' => $applicantRequest->created_at?->toIso8601String(),
                     ],
                     409
                 );
             }
 
             // Check if authenticated user or applicant has an existing request in 'changes_requested' status
-            $existingRequest = (clone $activeRequestQuery)
-                ->where('status', 'changes_requested')
-                ->latest('id')
-                ->first();
+            $existingRequest = ($applicantRequest && $applicantRequest->status === 'changes_requested')
+                ? $applicantRequest
+                : null;
 
             if ($existingRequest) {
                 // Preserve previous file paths if new ones are not provided in resubmission
@@ -1081,25 +1076,29 @@ trait ServesApiPublicContent
                 return ApiResponseService::errorResponse('Unauthenticated', [], 401);
             }
 
-            $query = \App\Models\InstructorRequest::query();
-            if ($userId && $userEmail) {
-                $query->where(function ($q) use ($userId, $userEmail) {
-                    $q->where('user_id', $userId)->orWhere('email', $userEmail);
-                });
-            } elseif ($userId) {
-                $query->where('user_id', $userId);
-            } else {
-                $query->where('email', $userEmail);
+            $application = null;
+            if ($userId) {
+                $application = \App\Models\InstructorRequest::where('user_id', $userId)
+                    ->latest('id')
+                    ->first();
             }
 
-            $application = $query->latest('id')->first();
+            if (!$application && !empty($userEmail)) {
+                $application = \App\Models\InstructorRequest::where('email', $userEmail)
+                    ->latest('id')
+                    ->first();
+
+                // Safely link unassigned application if emails strictly match without lock deadlocks
+                if ($application && $userId && empty($application->user_id) && strcasecmp((string) $application->email, (string) $userEmail) === 0) {
+                    \App\Models\InstructorRequest::where('id', $application->id)
+                        ->whereNull('user_id')
+                        ->update(['user_id' => $userId]);
+                    $application->user_id = $userId;
+                }
+            }
 
             if (!$application) {
                 return ApiResponseService::successResponse('No application found', null);
-            }
-
-            if ($userId && !$application->user_id) {
-                $application->update(['user_id' => $userId]);
             }
 
             return ApiResponseService::successResponse('Application fetched successfully', [
@@ -1199,10 +1198,6 @@ trait ServesApiPublicContent
                 return ApiResponseService::errorResponse('لم يتم العثور على طلب بهذا الرقم المرجعي', [
                     'reference_code' => $rawReference,
                 ], 404);
-            }
-
-            if ($userId && !$application->user_id) {
-                $application->update(['user_id' => $userId]);
             }
 
             return ApiResponseService::successResponse('تم جلب تفاصيل حالة الطلب بنجاح', [
