@@ -99,11 +99,11 @@ trait ServesApiAccount
                 $userData['active_subscription_days_left'] = null;
             }
 
-            ApiResponseService::successResponse('User details retrieved successfully', $userData);
+            return ApiResponseService::successResponse('User details retrieved successfully', $userData);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $th) {
-            ApiResponseService::errorResponse(exception: $th);
+            return ApiResponseService::errorResponse(exception: $th);
         }
     }
 

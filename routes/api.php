@@ -132,6 +132,8 @@ Route::prefix('chatbot')->group(function (): void {
         ->middleware([OptionalAuth::class, 'throttle:30,1']);
     Route::post('/message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendMessage'])
         ->middleware([OptionalAuth::class, 'throttle:30,1']); // Rate limit: 30 messages per minute
+    Route::post('/course-message', [\App\Http\Controllers\API\ChatbotApiController::class, 'sendCourseMessage'])
+        ->middleware([OptionalAuth::class, 'throttle:30,1']);
 });
 
 /********************************************************************************************* */

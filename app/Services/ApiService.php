@@ -11,7 +11,7 @@ class ApiService
     {
         $validator = Validator::make($request->all(), $rules);
         if ($validator->fails()) {
-            ApiResponseService::validationError($validator->errors()->first());
+            return ApiResponseService::validationError($validator->errors()->first());
         }
     }
 
@@ -20,14 +20,14 @@ class ApiService
         try {
             $verifiedToken = HelperService::verifyToken($token);
             if (empty($verifiedToken)) {
-                ApiResponseService::errorResponse('رمز Firebase غير صالح.');
+                return ApiResponseService::errorResponse('رمز Firebase غير صالح.');
             }
             return $verifiedToken;
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Firebase token verification failed', [
                 'exception' => $e::class,
             ]);
-            ApiResponseService::errorResponse('رمز Firebase غير صالح.');
+            return ApiResponseService::errorResponse('رمز Firebase غير صالح.');
         }
     }
 

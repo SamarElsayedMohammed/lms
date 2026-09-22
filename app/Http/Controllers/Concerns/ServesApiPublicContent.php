@@ -98,11 +98,11 @@ trait ServesApiPublicContent
             }
 
             $appSettings = array_merge($generalSystemSettings, $appSettings);
-            ApiResponseService::successResponse('Data Fetched Successfully', $appSettings);
+            return ApiResponseService::successResponse('Data Fetched Successfully', $appSettings);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $e) {
-            ApiResponseService::errorResponse(exception: $e);
+            return ApiResponseService::errorResponse(exception: $e);
         }
     }
 
@@ -148,11 +148,11 @@ trait ServesApiPublicContent
 
             $socialMedia = SocialMedia::select('id', 'name', 'icon', 'url')->get();
             $webSettings = array_merge($generalSystemSettings, $webSettings, ['social_media' => $socialMedia]);
-            ApiResponseService::successResponse('Data Fetched Successfully', $webSettings);
+            return ApiResponseService::successResponse('Data Fetched Successfully', $webSettings);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $e) {
-            ApiResponseService::errorResponse(exception: $e);
+            return ApiResponseService::errorResponse(exception: $e);
         }
     }
 
@@ -280,18 +280,18 @@ trait ServesApiPublicContent
             'platform_type' => 'required|in:app,web',
         ]);
         if ($validator->fails()) {
-            ApiResponseService::validationError($validator->errors()->first());
+            return ApiResponseService::validationError($validator->errors()->first());
         }
         try {
             DB::beginTransaction();
             $paymentSettings = HelperService::getActivePaymentDetails();
             if (empty($paymentSettings)) {
-                ApiResponseService::validationError('None of payment method is activated');
+                return ApiResponseService::validationError('None of payment method is activated');
             }
 
             $course = Course::where(['id' => $request->course_id, 'course_type' => 'paid', 'is_active' => 1])->first();
             if (empty($course)) {
-                ApiResponseService::validationError('No course found');
+                return ApiResponseService::validationError('No course found');
             }
 
             $purchasedCourse = UserCourseTrack::where([
@@ -299,7 +299,7 @@ trait ServesApiPublicContent
                 'course_id' => $request->course_id,
             ])->first();
             if (!empty($purchasedCourse)) {
-                ApiResponseService::validationError('You already have purchased this course');
+                return ApiResponseService::validationError('You already have purchased this course');
             }
 
             //Add Payment Data to Payment Transactions Table
@@ -337,7 +337,7 @@ trait ServesApiPublicContent
             ];
 
             DB::commit();
-            ApiResponseService::successResponse('', [
+            return ApiResponseService::successResponse('', [
                 'payment_intent' => $paymentGatewayDetails,
                 'payment_transaction' => $paymentTransactionData,
             ]);
@@ -346,7 +346,7 @@ trait ServesApiPublicContent
         } catch (Throwable $e) {
             DB::rollBack();
             ApiResponseService::logErrorResponse($e);
-            ApiResponseService::errorResponse();
+            return ApiResponseService::errorResponse();
         }
     }
 
