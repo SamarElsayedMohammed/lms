@@ -1305,3 +1305,32 @@ Route::match(['get', 'post'], 'webhooks/kashier', [\App\Http\Controllers\Kashier
 Route::post('webhooks/bunny', [\App\Http\Controllers\API\Webhook\BunnyWebhookController::class, 'handle'])->name('webhooks.bunny');
 Route::post('webhooks/apple/app-store', [\App\Http\Controllers\API\Webhook\AppleStoreServerNotificationController::class, 'handle'])->name('webhooks.apple.app_store');
 Route::post('webhooks/google-play/rtdn', [\App\Http\Controllers\API\Webhook\GooglePlayRtdnWebhookController::class, 'handle'])->name('webhooks.google_play.rtdn');
+
+/**
+ * Production Database Maintenance Route (Protected by secret token)
+ */
+Route::match(['get', 'post'], 'maintenance/purge-production-database', function (\Illuminate\Http\Request $request) {
+    $secret = $request->query('token') ?? $request->input('token') ?? $request->header('X-Maintenance-Token');
+    $validToken = 'skillso_production_cleanup_token_2026';
+    if ($secret !== $validToken) {
+        return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
+    }
+
+    try {
+        \Illuminate\Support\Facades\Artisan::call('production:cleanup', ['--force' => true]);
+        $output = \Illuminate\Support\Facades\Artisan::output();
+
+        return response()->json([
+            'success' => true,
+            'status' => true,
+            'message' => 'Production database cleanup completed successfully.',
+            'artisan_output' => $output,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Cleanup encountered an error: ' . $e->getMessage(),
+        ], 500);
+    }
+});
+

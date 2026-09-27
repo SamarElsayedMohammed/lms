@@ -101,6 +101,7 @@ class CleanProductionDatabaseCommand extends Command
 
             if (DB::getSchemaBuilder()->hasTable('users')) {
                 $deletedUsers = DB::table('users')->whereNotIn('id', [4])->delete();
+                DB::table('users')->where('id', 4)->update(['is_instructor' => 0]);
                 $this->info("✔ Deleted {$deletedUsers} dummy users and instructors. Preserved Super Admin (ID 4).");
             }
 
