@@ -843,6 +843,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('audit-logs', [\App\Http\Controllers\API\Admin\AdminAuditLogApiController::class, 'index'])
             ->middleware('role:Super Admin|Supervisor');
 
+        // Production Database Cleanup (Super Admin Only)
+        Route::post('system/clean-production', function () {
+            \Illuminate\Support\Facades\Artisan::call('production:cleanup', ['--force' => true]);
+            return response()->json([
+                'status' => true,
+                'message' => 'Production database cleanup completed successfully.',
+                'output' => \Illuminate\Support\Facades\Artisan::output(),
+            ]);
+        })->middleware('role:Super Admin');
+
         // Blog / Articles
         Route::get('blog', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'index']);
         Route::post('blog', [\App\Http\Controllers\API\Admin\BlogAdminApiController::class, 'store']);
