@@ -20,14 +20,14 @@ class CleanProductionDatabaseCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Clean all test/dummy data for production while strictly preserving Courses, Categories, FAQs, and CMS.';
+    protected $description = 'Clean all test/dummy data, subscription plans, and instructors for production while strictly preserving Courses, Categories, FAQs, and CMS.';
 
     /**
      * Execute the console command.
      */
     public function handle(): int
     {
-        if (!$this->option('force') && !$this->confirm('Are you sure you want to clean all dummy data for production?')) {
+        if (!$this->option('force') && !$this->confirm('Are you sure you want to clean all dummy data, subscription plans, and instructors for production?')) {
             $this->warn('Operation cancelled.');
             return 0;
         }
@@ -37,8 +37,21 @@ class CleanProductionDatabaseCommand extends Command
         DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
 
         try {
+            // Reassign courses to Super Admin
+            if (DB::getSchemaBuilder()->hasTable('courses')) {
+                DB::table('courses')->update(['user_id' => 4]);
+                $this->info('✔ Reassigned all 16 courses to Super Admin (ID: 4)');
+            }
+
             $tablesToTruncate = [
-                'order_courses', 'order_promo_codes', 'orders', 'subscriptions', 'subscription_payments',
+                // Instructors
+                'course_instructors', 'instructors', 'instructor_personal_details',
+                'instructor_other_details', 'instructor_social_medias', 'instructor_requests', 'team_members',
+                // Subscription Plans
+                'subscription_plan_prices', 'subscription_plans', 'promo_code_subscription_plan',
+                'subscriptions', 'subscription_payments',
+                // Financials & Orders
+                'order_courses', 'order_promo_codes', 'orders',
                 'transactions', 'payment_transactions', 'store_transactions', 'store_notification_events',
                 'wallet_histories', 'wallet_top_up_attempts', 'manual_deposits', 'withdrawal_requests', 'refund_requests',
                 'course_certificates', 'certificates', 'quiz_certificates',
@@ -48,7 +61,7 @@ class CleanProductionDatabaseCommand extends Command
                 'ratings', 'course_discussions',
                 'cart_promo_codes', 'carts', 'wishlists',
                 'webinar_registrations', 'webinars',
-                'promo_code_course', 'promo_code_subscription_plan', 'promo_redemptions', 'promo_codes',
+                'promo_code_course', 'promo_redemptions', 'promo_codes',
                 'contact_message_replies', 'contact_messages', 'helpdesk_replies', 'helpdesk_questions',
                 'helpdesk_group_requests', 'helpdesk_groups',
                 'user_notification_reads', 'user_notifications', 'notification_campaigns', 'notifications',
@@ -65,38 +78,37 @@ class CleanProductionDatabaseCommand extends Command
                 }
             }
 
-            $protectedUserIds = [1, 2, 4, 11, 12, 13, 168, 170, 171];
-
             if (DB::getSchemaBuilder()->hasTable('personal_access_tokens')) {
-                DB::table('personal_access_tokens')->whereNotIn('tokenable_id', [1, 2, 4])->delete();
+                DB::table('personal_access_tokens')->whereNotIn('tokenable_id', [4])->delete();
             }
 
             if (DB::getSchemaBuilder()->hasTable('user_credit_cards')) {
-                DB::table('user_credit_cards')->whereNotIn('user_id', $protectedUserIds)->delete();
+                DB::table('user_credit_cards')->whereNotIn('user_id', [4])->delete();
             }
             if (DB::getSchemaBuilder()->hasTable('user_billing_details')) {
-                DB::table('user_billing_details')->whereNotIn('user_id', $protectedUserIds)->delete();
+                DB::table('user_billing_details')->whereNotIn('user_id', [4])->delete();
             }
             if (DB::getSchemaBuilder()->hasTable('user_social_accounts')) {
-                DB::table('user_social_accounts')->whereNotIn('user_id', $protectedUserIds)->delete();
+                DB::table('user_social_accounts')->whereNotIn('user_id', [4])->delete();
             }
 
             if (DB::getSchemaBuilder()->hasTable('model_has_roles')) {
-                DB::table('model_has_roles')->where('model_type', 'App\\Models\\User')->whereNotIn('model_id', $protectedUserIds)->delete();
+                DB::table('model_has_roles')->where('model_type', 'App\\Models\\User')->whereNotIn('model_id', [4])->delete();
             }
             if (DB::getSchemaBuilder()->hasTable('model_has_permissions')) {
-                DB::table('model_has_permissions')->where('model_type', 'App\\Models\\User')->whereNotIn('model_id', $protectedUserIds)->delete();
+                DB::table('model_has_permissions')->where('model_type', 'App\\Models\\User')->whereNotIn('model_id', [4])->delete();
             }
 
             if (DB::getSchemaBuilder()->hasTable('users')) {
-                $deletedUsers = DB::table('users')->whereNotIn('id', $protectedUserIds)->delete();
-                $this->info("✔ Deleted {$deletedUsers} dummy users. Preserved " . count($protectedUserIds) . " core users/instructors.");
+                $deletedUsers = DB::table('users')->whereNotIn('id', [4])->delete();
+                $this->info("✔ Deleted {$deletedUsers} dummy users and instructors. Preserved Super Admin (ID 4).");
             }
 
             $tablesToReset = [
                 'orders', 'order_courses', 'certificates', 'course_certificates',
                 'enrollments', 'ratings', 'carts', 'wallet_histories',
-                'webinars', 'promo_codes', 'contact_messages',
+                'webinars', 'promo_codes', 'contact_messages', 'instructors',
+                'subscription_plans', 'subscription_plan_prices',
                 'chatbot_conversations', 'chatbot_messages'
             ];
             foreach ($tablesToReset as $table) {

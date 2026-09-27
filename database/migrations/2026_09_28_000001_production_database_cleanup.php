@@ -9,24 +9,46 @@ return new class extends Migration
     /**
      * Run the migrations.
      * Cleans test & dummy data for production while strictly preserving:
-     * - All Courses, chapters, lectures, videos, and curriculum
+     * - All 16 Courses, chapters, lectures, videos, and curriculum (reassigned to Super Admin ID 4)
      * - All Categories, FAQs, and CMS sections / banners
-     * - Super Admins & actual Course Instructors
+     * - Super Admin Account (superadmin@elms.com)
+     * Wipes:
+     * - All dummy users and instructors
+     * - All subscription plans and prices
+     * - All test orders, certificates, enrollments, and progress
      */
     public function up(): void
     {
-        Log::info('[Production Cleanup Migration] Starting safe cleanup...');
+        Log::info('[Production Cleanup Migration] Starting safe cleanup with instructors and subscription plans...');
 
         DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
 
         try {
-            // 1. Truncate test/dummy orders, transactions and financial records
+            // 1. Reassign all courses to Super Admin (ID: 4) so all 16 courses remain intact and valid
+            if (DB::getSchemaBuilder()->hasTable('courses')) {
+                DB::table('courses')->update(['user_id' => 4]);
+            }
+
+            // 2. Truncate test/dummy orders, transactions, plans, and instructors
             $tablesToTruncate = [
+                // Instructors
+                'course_instructors',
+                'instructors',
+                'instructor_personal_details',
+                'instructor_other_details',
+                'instructor_social_medias',
+                'instructor_requests',
+                'team_members',
+                // Subscription Plans
+                'subscription_plan_prices',
+                'subscription_plans',
+                'promo_code_subscription_plan',
+                'subscriptions',
+                'subscription_payments',
+                // Financials & Orders
                 'order_courses',
                 'order_promo_codes',
                 'orders',
-                'subscriptions',
-                'subscription_payments',
                 'transactions',
                 'payment_transactions',
                 'store_transactions',
@@ -62,7 +84,6 @@ return new class extends Migration
                 'webinars',
                 // Promo Codes
                 'promo_code_course',
-                'promo_code_subscription_plan',
                 'promo_redemptions',
                 'promo_codes',
                 // Support & Contact
@@ -100,52 +121,48 @@ return new class extends Migration
                 }
             }
 
-            // 2. Identify Protected Users: Super Admin + Course Instructors
-            $protectedUserIds = [1, 2, 4, 11, 12, 13, 168, 170, 171];
-
-            // Clean personal access tokens for non-admins
+            // 3. Keep Super Admin (ID: 4) only
             if (DB::getSchemaBuilder()->hasTable('personal_access_tokens')) {
                 DB::table('personal_access_tokens')
-                    ->whereNotIn('tokenable_id', [1, 2, 4])
+                    ->whereNotIn('tokenable_id', [4])
                     ->delete();
             }
 
-            // Clean auxiliary user tables
             if (DB::getSchemaBuilder()->hasTable('user_credit_cards')) {
-                DB::table('user_credit_cards')->whereNotIn('user_id', $protectedUserIds)->delete();
+                DB::table('user_credit_cards')->whereNotIn('user_id', [4])->delete();
             }
             if (DB::getSchemaBuilder()->hasTable('user_billing_details')) {
-                DB::table('user_billing_details')->whereNotIn('user_id', $protectedUserIds)->delete();
+                DB::table('user_billing_details')->whereNotIn('user_id', [4])->delete();
             }
             if (DB::getSchemaBuilder()->hasTable('user_social_accounts')) {
-                DB::table('user_social_accounts')->whereNotIn('user_id', $protectedUserIds)->delete();
+                DB::table('user_social_accounts')->whereNotIn('user_id', [4])->delete();
             }
 
-            // Clean roles and permissions for non-protected users
             if (DB::getSchemaBuilder()->hasTable('model_has_roles')) {
                 DB::table('model_has_roles')
                     ->where('model_type', 'App\\Models\\User')
-                    ->whereNotIn('model_id', $protectedUserIds)
+                    ->whereNotIn('model_id', [4])
                     ->delete();
             }
             if (DB::getSchemaBuilder()->hasTable('model_has_permissions')) {
                 DB::table('model_has_permissions')
                     ->where('model_type', 'App\\Models\\User')
-                    ->whereNotIn('model_id', $protectedUserIds)
+                    ->whereNotIn('model_id', [4])
                     ->delete();
             }
 
-            // Clean dummy users
+            // Clean all users except Super Admin (ID 4)
             if (DB::getSchemaBuilder()->hasTable('users')) {
-                $deletedUsers = DB::table('users')->whereNotIn('id', $protectedUserIds)->delete();
-                Log::info("[Production Cleanup Migration] Deleted {$deletedUsers} dummy users.");
+                $deletedUsers = DB::table('users')->whereNotIn('id', [4])->delete();
+                Log::info("[Production Cleanup Migration] Deleted {$deletedUsers} dummy users and instructors.");
             }
 
-            // 3. Reset auto-increments
+            // 4. Reset auto-increments
             $tablesToReset = [
                 'orders', 'order_courses', 'certificates', 'course_certificates',
                 'enrollments', 'ratings', 'carts', 'wallet_histories',
-                'webinars', 'promo_codes', 'contact_messages',
+                'webinars', 'promo_codes', 'contact_messages', 'instructors',
+                'subscription_plans', 'subscription_plan_prices',
                 'chatbot_conversations', 'chatbot_messages'
             ];
             foreach ($tablesToReset as $table) {
@@ -165,6 +182,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // One-way cleanup migration — cannot be reversed automatically.
+        // One-way cleanup migration.
     }
 };
