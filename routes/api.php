@@ -989,13 +989,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Mobile Home CMS Admin
         Route::prefix('mobile-home')->group(function (): void {
             Route::get('overview', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'overview']);
+            Route::get('preview', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'preview']);
             Route::get('sections', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'getSections']);
             Route::post('sections', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'storeSection']);
+            Route::post('sections/seed-defaults', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'seedDefaultSections']);
             Route::put('sections/reorder', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'reorderSections']);
             Route::put('sections/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'updateSection']);
             Route::delete('sections/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'deleteSection']);
             Route::get('banners', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'getBanners']);
             Route::post('banners', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'storeBanner']);
+            Route::put('banners/reorder', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'reorderBanners']);
             Route::post('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'updateBanner']);
             Route::put('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'updateBanner']);
             Route::delete('banners/{id}', [\App\Http\Controllers\API\Admin\MobileHomeAdminApiController::class, 'deleteBanner']);

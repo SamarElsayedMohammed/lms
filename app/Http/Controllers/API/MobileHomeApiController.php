@@ -41,7 +41,11 @@ class MobileHomeApiController extends Controller
     {
         try {
             $user = Auth::guard('sanctum')->user() ?? Auth::user();
-            $audienceState = $this->resolveAudienceState($user);
+            $requestedAudience = $request->query('preview_audience') ?? $request->query('audience');
+            $allowedPreviewAudiences = ['guest', 'non_subscriber', 'subscriber', 'authenticated', 'everyone'];
+            $audienceState = (is_string($requestedAudience) && in_array($requestedAudience, $allowedPreviewAudiences, true))
+                ? ($requestedAudience === 'everyone' ? $this->resolveAudienceState($user) : $requestedAudience)
+                : $this->resolveAudienceState($user);
 
             // 1. Fetch Header Info
             $unreadNotifications = 0;
@@ -85,19 +89,26 @@ class MobileHomeApiController extends Controller
                     continue;
                 }
 
+                $effectiveType = (is_array($section->config) && !empty($section->config['mobile_type']))
+                    ? (string) $section->config['mobile_type']
+                    : (string) $section->type;
+                $section->type = $effectiveType;
+
                 $sectionData = $this->resolveSectionData($section, $user, $audienceState, $request);
 
                 // Omit empty sections
-                if ($this->isSectionEmpty($section->type, $sectionData)) {
+                if ($this->isSectionEmpty($effectiveType, $sectionData)) {
                     continue;
                 }
 
                 $resolvedSections[] = [
                     'id' => $section->id ?? 0,
-                    'type' => $section->type,
+                    'type' => $effectiveType,
                     'title' => $section->title ?? '',
                     'subtitle' => $section->subtitle ?? '',
-                    'layout' => $section->layout ?? 'carousel',
+                    'layout' => (is_array($section->config) && !empty($section->config['layout']))
+                        ? (string) $section->config['layout']
+                        : ($section->layout ?? 'carousel'),
                     'audience' => $section->audience ?? 'everyone',
                     'data' => $sectionData,
                 ];
@@ -216,8 +227,10 @@ class MobileHomeApiController extends Controller
             case 'offer':
                 $banners = Slider::activeForMobile($user)
                     ->orderBy('order', 'asc')
+                    ->get()
+                    ->filter(fn(Slider $b) => $this->isAudienceAllowed($b->audience ?? 'everyone', $audienceState))
                     ->take($limit)
-                    ->get();
+                    ->values();
 
                 return $banners->map(static fn(Slider $b) => [
                     'id' => $b->id,
@@ -227,6 +240,7 @@ class MobileHomeApiController extends Controller
                     'cta_label' => $b->cta_label ?? 'استكشف الآن',
                     'cta_type' => $b->cta_type ?? 'custom_link',
                     'cta_target' => $b->cta_target ?? $b->third_party_link ?? '',
+                    'audience' => $b->audience ?? 'everyone',
                 ])->all();
 
             case 'continue_learning':
@@ -303,11 +317,27 @@ class MobileHomeApiController extends Controller
 
             case 'newly_added_courses':
             case 'courses':
+            case 'recommend_for_you':
+            case 'searching_based':
                 $courses = Course::with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
                     ->where('is_active', 1)
                     ->where('status', 'publish')
                     ->where('approval_status', 'approved')
                     ->latest()
+                    ->take($limit)
+                    ->get();
+
+                return $this->transformCourses($courses, $user);
+
+            case 'wishlist':
+                if (!$user) {
+                    return [];
+                }
+                $courses = Course::with(['user', 'category', 'taxes', 'ratings', 'wishlistedByUsers'])
+                    ->where('is_active', 1)
+                    ->where('status', 'publish')
+                    ->where('approval_status', 'approved')
+                    ->whereHas('wishlistedByUsers', static fn($q) => $q->where('users.id', $user->id))
                     ->take($limit)
                     ->get();
 

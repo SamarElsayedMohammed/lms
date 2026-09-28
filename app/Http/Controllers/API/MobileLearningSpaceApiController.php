@@ -352,7 +352,13 @@ class MobileLearningSpaceApiController extends Controller
             'certificates_tab_enabled'=> $this->getSettingValue('mobile_certificates_tab_enabled', '1') === '1',
         ];
 
-        return response()->json(['ok' => true, 'data' => $settings], 200);
+        return response()->json([
+            'ok' => true,
+            'success' => true,
+            'status' => true,
+            'message' => 'Mobile learning settings retrieved successfully.',
+            'data' => $settings,
+        ], 200);
     }
 
     /**

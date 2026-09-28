@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (\Illuminate\Support\Facades\DB::getDriverName() === 'mysql') {
+            \Illuminate\Support\Facades\DB::statement('ALTER TABLE feature_sections MODIFY COLUMN type VARCHAR(100) NOT NULL');
+        }
+
         Schema::table('feature_sections', function (Blueprint $table): void {
             if (!Schema::hasColumn('feature_sections', 'subtitle')) {
                 $table->string('subtitle')->nullable()->after('title');
