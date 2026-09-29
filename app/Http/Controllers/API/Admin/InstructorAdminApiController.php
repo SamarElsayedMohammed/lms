@@ -158,10 +158,16 @@ class InstructorAdminApiController extends AdminCrudApiController
             $email = trim((string) $request->input('email'));
             $name = trim((string) $request->input('name'));
 
-            // Handle Profile Image Upload
+            // Handle Profile Image Upload or URL
             $profilePath = null;
             if ($request->hasFile('profile')) {
                 $profilePath = FileService::compressAndUpload($request->file('profile'), 'users/profiles');
+            } elseif ($request->filled('profile')) {
+                $profilePath = trim((string) $request->input('profile'));
+            } elseif ($request->filled('profile_url')) {
+                $profilePath = trim((string) $request->input('profile_url'));
+            } elseif ($request->filled('avatar')) {
+                $profilePath = trim((string) $request->input('avatar'));
             }
 
             // Check if user already exists
@@ -311,7 +317,7 @@ class InstructorAdminApiController extends AdminCrudApiController
             'bank_name'                 => 'nullable|string',
             'bank_account_holder_name'  => 'nullable|string',
             'bank_ifsc_code'            => 'nullable|string',
-            'profile'                   => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'profile'                   => 'nullable',
             'team_logo'                 => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'id_proof'                  => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf,doc,docx|max:5120',
             'preview_video'             => 'nullable|file|mimes:mp4,mov,avi,wmv,flv,mpeg,mpg,m4v,webm|max:51200',
@@ -341,9 +347,20 @@ class InstructorAdminApiController extends AdminCrudApiController
                 $userData['password'] = Hash::make($request->input('password'));
             }
 
-            // Handle Profile Image Update/Replacement
+            // Handle Profile Image Update/Replacement (File or URL string)
             if ($request->hasFile('profile')) {
                 $userData['profile'] = FileService::compressAndReplace($request->file('profile'), 'users/profiles', $user->getRawOriginal('profile'));
+            } elseif ($request->has('profile')) {
+                $profileInput = $request->input('profile');
+                if (is_string($profileInput) && trim($profileInput) !== '') {
+                    $userData['profile'] = trim($profileInput);
+                } elseif ($profileInput === null || $profileInput === '') {
+                    $userData['profile'] = null;
+                }
+            } elseif ($request->filled('profile_url')) {
+                $userData['profile'] = trim((string) $request->input('profile_url'));
+            } elseif ($request->filled('avatar')) {
+                $userData['profile'] = trim((string) $request->input('avatar'));
             }
 
             $user->update($userData);
