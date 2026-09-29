@@ -1725,11 +1725,17 @@ class InstructorApiController extends Controller
                             $q->where('status', 'approved')->with('user');
                         },
                     ]);
+                    $instructor->loadAvg(['ratings' => static function ($q): void {
+                        $q->where('status', 'approved');
+                    }], 'rating');
+                    $instructor->loadCount(['ratings' => static function ($q): void {
+                        $q->where('status', 'approved');
+                    }]);
                 }
             }
 
             if (!$instructor) {
-                return ApiResponseService::errorResponse('Instructor not found', 404);
+                return ApiResponseService::errorResponse('Instructor not found', null, 404);
             }
 
             // Get student enrolled count for this instructor's courses
@@ -1776,8 +1782,8 @@ class InstructorApiController extends Controller
                         'rating' => $myReviewData->rating,
                         'review' => $myReviewData->review,
                         'status' => $myReviewData->status ?? 'pending',
-                        'created_at' => $myReviewData->created_at->format('Y-m-d H:i:s'),
-                        'updated_at' => $myReviewData->updated_at->format('Y-m-d H:i:s'),
+                        'created_at' => $myReviewData->created_at?->format('Y-m-d H:i:s'),
+                        'updated_at' => $myReviewData->updated_at?->format('Y-m-d H:i:s'),
                     ];
                 }
             }
@@ -1799,7 +1805,7 @@ class InstructorApiController extends Controller
                     'review' => $rating->review,
                     'user_name' => $rating->user->name ?? 'Anonymous',
                     'user_profile' => $rating->user->profile ?? '',
-                    'created_at' => $rating->created_at->format('Y-m-d H:i:s'),
+                    'created_at' => $rating->created_at?->format('Y-m-d H:i:s'),
                 ]);
 
             // Get instructor's courses with details (consistent with get-courses API format)
@@ -1918,7 +1924,7 @@ class InstructorApiController extends Controller
                 'preview_video' => $personalDetails ? $personalDetails->preview_video ?? '' : '',
                 'team_name' => $personalDetails ? $personalDetails->team_name ?? '' : '',
                 'team_logo' => $personalDetails ? $personalDetails->team_logo ?? '' : '',
-                'social_medias' => $instructor->social_medias->map(static fn($social) => [
+                'social_medias' => ($instructor->social_medias ?? collect())->map(static fn($social) => [
                     'title' => $social->title ?? '',
                     'url' => $social->url ?? '',
                 ]),
@@ -1931,16 +1937,16 @@ class InstructorApiController extends Controller
                 'ratings' => $ratingsList,
                 'courses' => $coursesList,
                 'my_review' => $myReview,
-                'created_at' => $instructor->created_at->format('Y-m-d H:i:s'),
-                'updated_at' => $instructor->updated_at->format('Y-m-d H:i:s'),
+                'created_at' => $instructor->created_at?->format('Y-m-d H:i:s'),
+                'updated_at' => $instructor->updated_at?->format('Y-m-d H:i:s'),
             ];
 
             return ApiResponseService::successResponse('Instructor details fetched successfully', $instructorData);
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             ApiResponseService::logErrorResponse($e, 'Failed to get instructor details');
-            return ApiResponseService::errorResponse('Failed to get instructor details' . $e->getMessage());
+            return ApiResponseService::errorResponse('Failed to get instructor details: ' . $e->getMessage(), null, 500, $e);
         }
     }
 
