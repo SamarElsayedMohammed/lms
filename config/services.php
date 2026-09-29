@@ -34,7 +34,7 @@ return [
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
-        'redirect' => env('GOOGLE_REDIRECT_URL'),
+        'redirect' => env('GOOGLE_REDIRECT_URL', env('APP_URL') ? rtrim((string) env('APP_URL'), '/') . '/api/social-login/google/callback' : 'https://skillso.net/api/social-login/google/callback'),
     ],
 
     'facebook' => [

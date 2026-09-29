@@ -4,13 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Models\Instructor;
+use App\Models\InstructorPersonalDetail;
 use App\Models\InstructorRequest;
+use App\Models\InstructorSocialMedia;
+use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\FileService;
+use App\Services\HelperService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class InstructorRequestAdminApiController extends AdminCrudApiController
 {
@@ -23,6 +31,8 @@ class InstructorRequestAdminApiController extends AdminCrudApiController
     {
         $this->ensureAdmin();
         $this->checkPermission('instructors-list');
+
+        self::healApprovedRequests();
 
         $search = $request->input('search');
         $status = $request->input('status');
@@ -176,6 +186,17 @@ class InstructorRequestAdminApiController extends AdminCrudApiController
 
         $instructorRequest->update($updateData);
 
+        if ($newStatus === 'approved') {
+            self::syncApprovedRequestToInstructor($instructorRequest);
+        } elseif (in_array($newStatus, ['rejected', 'suspended'], true)) {
+            if ($instructorRequest->user_id) {
+                $inst = Instructor::where('user_id', $instructorRequest->user_id)->first();
+                if ($inst) {
+                    $inst->update(['status' => $newStatus]);
+                }
+            }
+        }
+
         // Immutable admin audit log
         try {
             AuditLogService::log(
@@ -227,5 +248,151 @@ class InstructorRequestAdminApiController extends AdminCrudApiController
         }
 
         return $this->jsonSuccess(__('Instructor request deleted successfully'));
+    }
+
+    /**
+     * Synchronize an approved instructor request into the users and instructors tables.
+     */
+    public static function syncApprovedRequestToInstructor(InstructorRequest $instructorRequest): ?Instructor
+    {
+        try {
+            DB::beginTransaction();
+
+            $user = null;
+            if ($instructorRequest->user_id) {
+                $user = User::find($instructorRequest->user_id);
+            }
+
+            if (!$user && $instructorRequest->email) {
+                $user = User::where('email', trim((string) $instructorRequest->email))->first();
+            }
+
+            if (!$user && $instructorRequest->phone) {
+                $user = User::where('mobile', trim((string) $instructorRequest->phone))->first();
+            }
+
+            $applicantName = trim((string) ($instructorRequest->name ?: (($instructorRequest->first_name ?? '') . ' ' . ($instructorRequest->last_name ?? ''))));
+            if (empty($applicantName)) {
+                $applicantName = explode('@', (string) $instructorRequest->email)[0] ?: 'مدرب جديد';
+            }
+
+            if (!$user) {
+                $slug = HelperService::generateUniqueSlug(User::class, $applicantName);
+                $user = User::create([
+                    'name'      => $applicantName,
+                    'slug'      => $slug,
+                    'email'     => trim((string) $instructorRequest->email),
+                    'password'  => Hash::make(Str::random(16)),
+                    'mobile'    => $instructorRequest->phone ? trim((string) $instructorRequest->phone) : null,
+                    'profile'   => $instructorRequest->profile_image_path,
+                    'is_active' => 1,
+                ]);
+            } else {
+                $dirty = false;
+                if (!$user->is_active) {
+                    $user->is_active = 1;
+                    $dirty = true;
+                }
+                if (empty($user->profile) && $instructorRequest->profile_image_path) {
+                    $user->profile = $instructorRequest->profile_image_path;
+                    $dirty = true;
+                }
+                if (empty($user->mobile) && $instructorRequest->phone) {
+                    $user->mobile = trim((string) $instructorRequest->phone);
+                    $dirty = true;
+                }
+                if ($dirty) {
+                    $user->save();
+                }
+            }
+
+            // Assign Instructor role
+            $instructorRole = config('constants.SYSTEM_ROLES.INSTRUCTOR', 'Instructor');
+            try {
+                if (!$user->hasRole($instructorRole)) {
+                    $user->assignRole($instructorRole);
+                }
+            } catch (\Throwable) {
+                // If spatie role missing, pass through
+            }
+
+            // Link request to user
+            if ($instructorRequest->user_id !== $user->id) {
+                $instructorRequest->update(['user_id' => $user->id]);
+            }
+
+            // Create or restore Instructor model
+            $instructor = Instructor::withTrashed()->firstOrNew(['user_id' => $user->id]);
+            if ($instructor->trashed()) {
+                $instructor->restore();
+            }
+            $instructor->type = $instructor->type ?: 'individual';
+            $instructor->status = 'approved';
+            $instructor->save();
+
+            // Create or update InstructorPersonalDetail
+            $personal = InstructorPersonalDetail::firstOrNew(['instructor_id' => $instructor->id]);
+            if (empty($personal->qualification)) {
+                $personal->qualification = $instructorRequest->specialty ?: $instructorRequest->job_title;
+            }
+            if (empty($personal->skills)) {
+                $personal->skills = $instructorRequest->specialty;
+            }
+            if (empty($personal->about_me)) {
+                $personal->about_me = $instructorRequest->experience_bio;
+            }
+            if (empty($personal->years_of_experience) && $instructorRequest->years_of_experience) {
+                $personal->years_of_experience = $instructorRequest->years_of_experience;
+            }
+            if (empty($personal->id_proof) && $instructorRequest->cv_path) {
+                $personal->id_proof = $instructorRequest->cv_path;
+                $personal->id_proof_extension = pathinfo((string) $instructorRequest->cv_path, PATHINFO_EXTENSION);
+            }
+            if (empty($personal->preview_video) && ($instructorRequest->intro_video_path || $instructorRequest->intro_video_url)) {
+                $personal->preview_video = $instructorRequest->intro_video_path ?: $instructorRequest->intro_video_url;
+            }
+            $personal->save();
+
+            // Sync social media links if present
+            $socials = [
+                'linkedin' => $instructorRequest->linkedin_url,
+                'facebook' => $instructorRequest->facebook_url,
+                'website'  => $instructorRequest->website_url,
+                'youtube'  => $instructorRequest->youtube_url,
+            ];
+            foreach ($socials as $title => $url) {
+                if (!empty($url)) {
+                    InstructorSocialMedia::updateOrCreate(
+                        ['instructor_id' => $instructor->id, 'title' => $title],
+                        ['url' => $url]
+                    );
+                }
+            }
+
+            DB::commit();
+            return $instructor;
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            report($e);
+            return null;
+        }
+    }
+
+    /**
+     * Self-heal any approved requests that lack an active instructor record.
+     */
+    public static function healApprovedRequests(): void
+    {
+        try {
+            $unlinkedApproved = InstructorRequest::where('status', 'approved')->get();
+            foreach ($unlinkedApproved as $approvedReq) {
+                $userHasInstructor = $approvedReq->user_id && Instructor::where('user_id', $approvedReq->user_id)->where('status', 'approved')->exists();
+                if (!$userHasInstructor) {
+                    self::syncApprovedRequestToInstructor($approvedReq);
+                }
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 }

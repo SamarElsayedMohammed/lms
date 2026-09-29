@@ -72,14 +72,15 @@ class SocialLoginApiController extends ApiController
 
         try {
             // Flow A: Firebase ID token. If Admin SDK is missing/misconfigured,
-            // fall back to Socialite using the Google access token — never treat a JWT as an access token.
+            // fall back to Socialite using the Google access token or raw token.
             if ($firebaseToken !== '') {
                 $firebaseReady = $this->firebaseIdTokenLooksVerifiable($firebaseToken);
                 if ($firebaseReady) {
                     return $this->handleFirebaseTokenLogin($request, $provider, $firebaseToken);
                 }
-                if ($googleAccessToken !== '') {
-                    return $this->handleSocialiteTokenLogin($request, $provider, $googleAccessToken);
+                $fallbackToken = $googleAccessToken !== '' ? $googleAccessToken : $rawAccessToken;
+                if ($fallbackToken !== '') {
+                    return $this->handleSocialiteTokenLogin($request, $provider, $fallbackToken);
                 }
                 return ApiResponseService::validationError(
                     'تعذر التحقق من حساب Google. تأكد من إعدادات Firebase أو أعد المحاولة.',
@@ -101,7 +102,15 @@ class SocialLoginApiController extends ApiController
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
             throw $e;
         } catch (Throwable $e) {
-            ApiResponseService::errorResponse(exception: $e);
+            \Illuminate\Support\Facades\Log::error('[SocialLoginApiController] error: ' . $e->getMessage(), [
+                'provider' => $provider,
+            ]);
+            return response()->json([
+                'status'  => false,
+                'success' => false,
+                'error'   => true,
+                'message' => 'تعذر إتمام تسجيل الدخول عبر Google. تأكد من صحة الرمز وحاول مرة أخرى.',
+            ], 400);
         }
     }
 
@@ -205,7 +214,11 @@ class SocialLoginApiController extends ApiController
                 $user->save();
 
                 RoleManager::assignStudentRole($user);
-                $user->notify(new \App\Notifications\WelcomeNotification($user));
+                try {
+                    $user->notify(new \App\Notifications\WelcomeNotification($user));
+                } catch (\Throwable $notifErr) {
+                    \Illuminate\Support\Facades\Log::warning('[SocialLogin] Welcome notification skipped: ' . $notifErr->getMessage());
+                }
             }
 
             // ── 4. Conflict check & Link Firebase UID to local user ────────
@@ -319,7 +332,11 @@ class SocialLoginApiController extends ApiController
                 $user->save();
 
                 RoleManager::assignStudentRole($user);
-                $user->notify(new \App\Notifications\WelcomeNotification($user));
+                try {
+                    $user->notify(new \App\Notifications\WelcomeNotification($user));
+                } catch (\Throwable $notifErr) {
+                    \Illuminate\Support\Facades\Log::warning('[SocialLogin] Welcome notification skipped: ' . $notifErr->getMessage());
+                }
             }
 
             $otherAccount = UserSocialAccount::where('provider', $provider)

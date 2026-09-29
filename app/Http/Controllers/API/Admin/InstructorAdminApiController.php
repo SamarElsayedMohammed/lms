@@ -32,6 +32,22 @@ class InstructorAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('instructors-list');
 
+        // Self-heal approved requests that lack instructor records
+        \App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::healApprovedRequests();
+
+        $roleName = config('constants.SYSTEM_ROLES.INSTRUCTOR', 'Instructor');
+        try {
+            $unlinkedUsers = User::role($roleName)->whereDoesntHave('instructor_details')->get();
+            foreach ($unlinkedUsers as $u) {
+                Instructor::firstOrCreate(
+                    ['user_id' => $u->id],
+                    ['type' => 'individual', 'status' => 'approved']
+                );
+            }
+        } catch (\Throwable) {
+            // pass through
+        }
+
         $query = User::whereHas('instructor_details')
             ->with(['instructor_details.personal_details', 'instructor_details.social_medias'])
             ->when($request->search, fn ($q) => $q->where(function ($q) use ($request) {
@@ -104,8 +120,8 @@ class InstructorAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'name'                  => 'required|string|max:255',
-            'email'                 => 'required|email|unique:users,email',
-            'password'              => 'required|string|min:8',
+            'email'                 => 'required|email',
+            'password'              => 'nullable|string|min:8',
             'mobile'                => 'nullable|string|max:20',
             'type'                  => 'required|in:individual,team',
             'status'                => 'nullable|in:pending,approved',
@@ -139,8 +155,8 @@ class InstructorAdminApiController extends AdminCrudApiController
         try {
             DB::beginTransaction();
 
-            $name = $request->input('name');
-            $slug = HelperService::generateUniqueSlug(User::class, $name);
+            $email = trim((string) $request->input('email'));
+            $name = trim((string) $request->input('name'));
 
             // Handle Profile Image Upload
             $profilePath = null;
@@ -148,46 +164,110 @@ class InstructorAdminApiController extends AdminCrudApiController
                 $profilePath = FileService::compressAndUpload($request->file('profile'), 'users/profiles');
             }
 
-            // 1. Create User
-            $user = User::create([
-                'name'      => $name,
-                'slug'      => $slug,
-                'email'     => $request->input('email'),
-                'password'  => Hash::make($request->input('password')),
-                'mobile'    => $request->input('mobile'),
-                'is_active' => 1,
-                'profile'   => $profilePath,
-            ]);
+            // Check if user already exists
+            $user = User::where('email', $email)->first();
+            if ($user) {
+                $dirty = false;
+                if ($name && $user->name !== $name) {
+                    $user->name = $name;
+                    $dirty = true;
+                }
+                if ($request->filled('password')) {
+                    $user->password = Hash::make($request->input('password'));
+                    $dirty = true;
+                }
+                if ($request->filled('mobile')) {
+                    $user->mobile = $request->input('mobile');
+                    $dirty = true;
+                }
+                if ($profilePath) {
+                    $user->profile = $profilePath;
+                    $dirty = true;
+                }
+                if (!$user->is_active) {
+                    $user->is_active = 1;
+                    $dirty = true;
+                }
+                if ($dirty) {
+                    $user->save();
+                }
+            } else {
+                if (!$request->filled('password') || strlen((string) $request->input('password')) < 8) {
+                    return $this->jsonError(__('Password is required and must be at least 8 characters.'), 422);
+                }
+                $slug = HelperService::generateUniqueSlug(User::class, $name);
+                $user = User::create([
+                    'name'      => $name,
+                    'slug'      => $slug,
+                    'email'     => $email,
+                    'password'  => Hash::make($request->input('password')),
+                    'mobile'    => $request->input('mobile'),
+                    'is_active' => 1,
+                    'profile'   => $profilePath,
+                ]);
+            }
 
             // 2. Assign Role
-            $user->assignRole(config('constants.SYSTEM_ROLES.INSTRUCTOR'));
+            $roleName = config('constants.SYSTEM_ROLES.INSTRUCTOR', 'Instructor');
+            try {
+                if (!$user->hasRole($roleName)) {
+                    $user->assignRole($roleName);
+                }
+            } catch (\Throwable) {
+                // Pass through
+            }
 
-            // 3. Create Instructor record
-            $instructor = Instructor::create([
-                'user_id' => $user->id,
-                'type'    => $request->input('type'),
-                'status'  => $request->input('status', 'approved'),
-            ]);
+            // 3. Create or restore Instructor record
+            $instructor = Instructor::withTrashed()->firstOrNew(['user_id' => $user->id]);
+            if ($instructor->trashed()) {
+                $instructor->restore();
+            }
+            $instructor->type = $request->input('type', 'individual');
+            $instructor->status = $request->input('status', 'approved');
+            $instructor->save();
 
-            // 4. Create Personal Details
-            InstructorPersonalDetail::create([
-                'instructor_id'             => $instructor->id,
-                'qualification'             => $request->input('qualification'),
-                'years_of_experience'       => $request->input('years_of_experience'),
-                'skills'                    => $request->input('skills'),
-                'about_me'                  => $request->input('about_me'),
-                'team_name'                 => $request->input('team_name'),
-                'bank_account_number'       => $request->input('bank_account_number'),
-                'bank_name'                 => $request->input('bank_name'),
-                'bank_account_holder_name'  => $request->input('bank_account_holder_name'),
-                'bank_ifsc_code'            => $request->input('bank_ifsc_code'),
-                'team_logo'                 => $request->hasFile('team_logo') ? FileService::compressAndUpload($request->file('team_logo'), 'instructor/team_logos') : null,
-                'team_logo_extension'       => $request->hasFile('team_logo') ? $request->file('team_logo')->getClientOriginalExtension() : null,
-                'id_proof'                  => $request->hasFile('id_proof') ? FileService::compressAndUpload($request->file('id_proof'), 'instructor/id_proofs') : null,
-                'id_proof_extension'        => $request->hasFile('id_proof') ? $request->file('id_proof')->getClientOriginalExtension() : null,
-                'preview_video'             => $request->hasFile('preview_video') ? FileService::compressAndUpload($request->file('preview_video'), 'instructor/videos') : null,
-                'preview_video_extension'   => $request->hasFile('preview_video') ? $request->file('preview_video')->getClientOriginalExtension() : null,
-            ]);
+            // 4. Create or update Personal Details
+            $personal = InstructorPersonalDetail::firstOrNew(['instructor_id' => $instructor->id]);
+            if ($request->filled('qualification')) {
+                $personal->qualification = $request->input('qualification');
+            }
+            if ($request->filled('years_of_experience')) {
+                $personal->years_of_experience = $request->input('years_of_experience');
+            }
+            if ($request->filled('skills')) {
+                $personal->skills = $request->input('skills');
+            }
+            if ($request->filled('about_me')) {
+                $personal->about_me = $request->input('about_me');
+            }
+            if ($request->filled('team_name')) {
+                $personal->team_name = $request->input('team_name');
+            }
+            if ($request->filled('bank_account_number')) {
+                $personal->bank_account_number = $request->input('bank_account_number');
+            }
+            if ($request->filled('bank_name')) {
+                $personal->bank_name = $request->input('bank_name');
+            }
+            if ($request->filled('bank_account_holder_name')) {
+                $personal->bank_account_holder_name = $request->input('bank_account_holder_name');
+            }
+            if ($request->filled('bank_ifsc_code')) {
+                $personal->bank_ifsc_code = $request->input('bank_ifsc_code');
+            }
+            if ($request->hasFile('team_logo')) {
+                $personal->team_logo = FileService::compressAndUpload($request->file('team_logo'), 'instructor/team_logos');
+                $personal->team_logo_extension = $request->file('team_logo')->getClientOriginalExtension();
+            }
+            if ($request->hasFile('id_proof')) {
+                $personal->id_proof = FileService::compressAndUpload($request->file('id_proof'), 'instructor/id_proofs');
+                $personal->id_proof_extension = $request->file('id_proof')->getClientOriginalExtension();
+            }
+            if ($request->hasFile('preview_video')) {
+                $personal->preview_video = FileService::compressAndUpload($request->file('preview_video'), 'instructor/videos');
+                $personal->preview_video_extension = $request->file('preview_video')->getClientOriginalExtension();
+            }
+            $personal->save();
 
             $this->syncSocialMedias($instructor, $request->input('social_medias', []));
             $this->syncOtherDetails($instructor, $request);

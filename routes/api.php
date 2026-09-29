@@ -1337,3 +1337,45 @@ Route::match(['get', 'post'], 'maintenance/purge-production-database', function 
     }
 });
 
+Route::match(['get', 'post'], 'maintenance/sync-instructors', function (\Illuminate\Http\Request $request) {
+    $secret = $request->query('token') ?? $request->input('token') ?? $request->header('X-Maintenance-Token');
+    $validToken = 'skillso_production_cleanup_token_2026';
+    if ($secret !== $validToken) {
+        return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
+    }
+
+    try {
+        \App\Http\Controllers\API\Admin\InstructorRequestAdminApiController::healApprovedRequests();
+
+        $roleName = config('constants.SYSTEM_ROLES.INSTRUCTOR', 'Instructor');
+        try {
+            $unlinkedUsers = \App\Models\User::role($roleName)->whereDoesntHave('instructor_details')->get();
+            foreach ($unlinkedUsers as $u) {
+                \App\Models\Instructor::firstOrCreate(
+                    ['user_id' => $u->id],
+                    ['type' => 'individual', 'status' => 'approved']
+                );
+            }
+        } catch (\Throwable) {
+            // pass through
+        }
+
+        $instructorsCount = \App\Models\Instructor::where('status', 'approved')->count();
+        $requestsCount = \App\Models\InstructorRequest::count();
+
+        return response()->json([
+            'success' => true,
+            'status' => true,
+            'message' => 'Instructors synchronization completed successfully.',
+            'active_instructors_count' => $instructorsCount,
+            'total_requests_count' => $requestsCount,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Sync encountered an error: ' . $e->getMessage(),
+        ], 500);
+    }
+});
+
+
