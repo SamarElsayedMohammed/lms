@@ -208,8 +208,8 @@ class CourseAdminApiController extends AdminCrudApiController
                 'initial_views'           => $request->filled('initial_views') ? (int) $request->input('initial_views') : 0,
                 'initial_students'        => $request->filled('initial_students') ? (int) $request->input('initial_students') : 0,
                 'initial_rating'          => $request->filled('initial_rating') ? (float) $request->input('initial_rating') : 0,
-                'duration_seconds'        => $request->filled('total_duration_override_seconds') ? (int) $request->input('total_duration_override_seconds') : null,
-                'lectures_count'          => $request->filled('total_lessons_override') ? (int) $request->input('total_lessons_override') : null,
+                'duration_seconds'        => $request->filled('total_duration_override_seconds') ? (int) $request->input('total_duration_override_seconds') : 0,
+                'lectures_count'          => $request->filled('total_lessons_override') ? (int) $request->input('total_lessons_override') : 0,
             ]);
 
             // AI Knowledge Base file for course chatbot
@@ -294,6 +294,21 @@ class CourseAdminApiController extends AdminCrudApiController
                         $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId, $slug);
                     }
                 }
+
+            $course->chapters()->get()->each(function (CourseChapter $chapter): void {
+                $chapter->recalculateDuration(false);
+            });
+            $course->recalculateDuration();
+            $durationOverrides = [];
+            if ($request->filled('total_duration_override_seconds')) {
+                $durationOverrides['duration_seconds'] = (int) $request->input('total_duration_override_seconds');
+            }
+            if ($request->filled('total_lessons_override')) {
+                $durationOverrides['lectures_count'] = (int) $request->input('total_lessons_override');
+            }
+            if ($durationOverrides !== []) {
+                $course->updateQuietly($durationOverrides);
+            }
 
             DB::commit();
         } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
@@ -928,8 +943,8 @@ class CourseAdminApiController extends AdminCrudApiController
                 'initial_views'           => $request->filled('initial_views') ? (int) $request->input('initial_views') : $course->initial_views,
                 'initial_students'        => $request->filled('initial_students') ? (int) $request->input('initial_students') : $course->initial_students,
                 'initial_rating'          => $request->filled('initial_rating') ? (float) $request->input('initial_rating') : $course->initial_rating,
-                'duration_seconds'        => $request->filled('total_duration_override_seconds') ? (int) $request->input('total_duration_override_seconds') : $course->duration_seconds,
-                'lectures_count'          => $request->filled('total_lessons_override') ? (int) $request->input('total_lessons_override') : $course->lectures_count,
+                'duration_seconds'        => $request->filled('total_duration_override_seconds') ? (int) $request->input('total_duration_override_seconds') : (int) ($course->duration_seconds ?? 0),
+                'lectures_count'          => $request->filled('total_lessons_override') ? (int) $request->input('total_lessons_override') : (int) ($course->lectures_count ?? 0),
             ]);
 
             // AI Knowledge Base file for course chatbot
