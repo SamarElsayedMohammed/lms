@@ -458,9 +458,24 @@ class VideoProgressService
         ));
         $watchPercentage = round(($watchedSeconds / $canonicalDuration) * 100, 2);
 
-        // Check completion - Monotonic: once completed, always completed
+        // Check completion - Monotonic: once completed, always completed.
+        // Reaching the real end of the file finishes the lesson even if a few
+        // tail segments were still queued in the browser.
         $wasAlreadyCompleted = (bool) $progress->is_completed;
-        $isCompleted = $wasAlreadyCompleted || (
+        $reachedEnd = ($metadata['progress_state'] ?? '') === 'ended'
+            && $currentPosition + 3 >= $canonicalDuration
+            && $watchPercentage >= self::COMPLETION_THRESHOLD;
+        if ($reachedEnd) {
+            foreach ($watchedSegments as $index => $watched) {
+                if (! $watched && $index < $progress->total_segments) {
+                    $watchedSegments[$index] = 1;
+                }
+            }
+            $completedSegments = array_sum($watchedSegments);
+            $watchedSeconds = $canonicalDuration;
+            $watchPercentage = 100.0;
+        }
+        $isCompleted = $wasAlreadyCompleted || $reachedEnd || (
             $completedSegments === $progress->total_segments
             && $watchPercentage >= self::COMPLETION_THRESHOLD
         );

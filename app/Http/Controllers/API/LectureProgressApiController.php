@@ -84,8 +84,15 @@ final class LectureProgressApiController extends Controller
             }
 
             $reportedTotal = $reportedTotal > 0 ? $reportedTotal : $canonicalDuration;
-            if ($reportedTotal < $canonicalDuration) {
-                return $this->error('The reported video duration cannot shrink canonical lecture duration.', null, 422);
+            if ($canonicalDuration > 0 && $reportedTotal < $canonicalDuration) {
+                // Players often report a second or two less than the stored length.
+                // Larger shrinks stay rejected so a client cannot claim a short file.
+                $allowedShortfall = max(5, (int) round($canonicalDuration * 0.02));
+                if (($canonicalDuration - $reportedTotal) <= $allowedShortfall) {
+                    $reportedTotal = $canonicalDuration;
+                } else {
+                    return $this->error('The reported video duration cannot shrink canonical lecture duration.', null, 422);
+                }
             }
 
             try {
