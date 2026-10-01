@@ -112,7 +112,10 @@ class WebPageKnowledgeService
             ]
         );
 
-        ProcessKnowledgeIngestionJob::dispatch($entry->id, (int) $course->id, 'course');
+        $pending = ProcessKnowledgeIngestionJob::dispatch($entry->id, (int) $course->id, 'course');
+        if (config('queue.default') === 'sync') {
+            $pending->afterResponse();
+        }
     }
 
     public function joinTexts(string ...$parts): string

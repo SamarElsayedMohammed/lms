@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Jobs\FetchBunnyVideoDurationJob;
+use App\Jobs\IndexCourseKnowledgeUrlJob;
 use App\Jobs\ProcessCourseMediaUploadJob;
 use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\CourseChapter;
@@ -12,7 +14,6 @@ use App\Models\Course\CourseChapter\Lecture\LectureResource;
 use App\Models\Course\CourseLearning;
 use App\Models\Course\CourseRequirement;
 use App\Models\Course\CourseLanguage;
-use App\Jobs\FetchBunnyVideoDurationJob;
 use App\Services\CourseMediaStaging;
 use App\Services\DocumentParserService;
 use App\Services\FileService;
@@ -111,14 +112,7 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError($coverError, 422);
         }
 
-        if ($request->allFiles() !== []) {
-            set_time_limit(600);
-        }
-
-        $pageKnowledge = $this->pageKnowledgeFromRequest($request);
-        if ($pageKnowledge instanceof \Illuminate\Http\JsonResponse) {
-            return $pageKnowledge;
-        }
+        $knowledgePageUrl = trim((string) $request->input('ai_knowledge_url', ''));
 
         // ── Build course data ───────────────────────────────────────
         $instructorId  = (int) ($request->input('instructor_id') ?? Auth::id());
@@ -220,9 +214,9 @@ class CourseAdminApiController extends AdminCrudApiController
                 'chatbot_welcome_message' => $request->input('chatbot_welcome_message'),
                 'chatbot_system_prompt'   => $request->input('chatbot_system_prompt'),
                 'chatbot_max_tokens'      => $request->filled('chatbot_max_tokens') ? (int) $request->input('chatbot_max_tokens') : null,
-                'ai_knowledge_content'    => $this->knowledgeText($request, is_array($pageKnowledge) ? $pageKnowledge : null, null),
+                'ai_knowledge_content'    => $this->knowledgeText($request, null, null),
                 'ai_knowledge_file'       => null,
-                'ai_knowledge_url'        => is_array($pageKnowledge) ? $pageKnowledge['url'] : null,
+                'ai_knowledge_url'        => $knowledgePageUrl !== '' ? $knowledgePageUrl : null,
                 'initial_views'           => $request->filled('initial_views') ? (int) $request->input('initial_views') : 0,
                 'initial_students'        => $request->filled('initial_students') ? (int) $request->input('initial_students') : 0,
                 'initial_rating'          => $request->filled('initial_rating') ? (float) $request->input('initial_rating') : 0,
@@ -335,8 +329,7 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         $this->dispatchDeferredMedia($course);
-
-        $this->indexPageKnowledge($course, is_array($pageKnowledge) ? $pageKnowledge : null);
+        $this->dispatchKnowledgeUrl($course, $knowledgePageUrl);
 
         $course->refresh()->load([
             'user', 'category', 'tags', 'instructors', 'language', 'learnings', 'requirements',
@@ -367,7 +360,10 @@ class CourseAdminApiController extends AdminCrudApiController
             $batchId = (string) Str::uuid();
             $batchSize = count($this->deferredMedia);
             foreach ($this->deferredMedia as $item) {
-                ProcessCourseMediaUploadJob::dispatch($course->id, [$item], $batchId, $batchSize);
+                $pending = ProcessCourseMediaUploadJob::dispatch($course->id, [$item], $batchId, $batchSize);
+                if (config('queue.default') === 'sync') {
+                    $pending->afterResponse();
+                }
             }
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('Deferred course media dispatch failed', [
@@ -376,6 +372,26 @@ class CourseAdminApiController extends AdminCrudApiController
             ]);
         }
         $this->deferredMedia = [];
+    }
+
+    private function dispatchKnowledgeUrl(Course $course, string $url): void
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return;
+        }
+
+        try {
+            $pending = IndexCourseKnowledgeUrlJob::dispatch($course->id, $url);
+            if (config('queue.default') === 'sync') {
+                $pending->afterResponse();
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Course knowledge URL dispatch failed', [
+                'course_id' => $course->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function discardDeferredMedia(): void
@@ -958,14 +974,7 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError($coverError, 422);
         }
 
-        if ($request->allFiles() !== []) {
-            set_time_limit(600);
-        }
-
-        $pageKnowledge = $this->pageKnowledgeFromRequest($request);
-        if ($pageKnowledge instanceof \Illuminate\Http\JsonResponse) {
-            return $pageKnowledge;
-        }
+        $knowledgePageUrl = trim((string) $request->input('ai_knowledge_url', ''));
 
         // ── Build course data ───────────────────────────────────────
         $instructorId  = (int) ($request->input('instructor_id') ?? $course->user_id);
@@ -1011,8 +1020,6 @@ class CourseAdminApiController extends AdminCrudApiController
         $certificateFee  = $certificateEnabled
             ? round((float) ($request->input('certificate_fee', $course->certificate_fee ?? 0)), 2)
             : null;
-        $previousKnowledgeContent = trim((string) $course->ai_knowledge_content);
-
         // ── Persist ─────────────────────────────────────────────────
         try {
             DB::beginTransaction();
@@ -1089,26 +1096,20 @@ class CourseAdminApiController extends AdminCrudApiController
                 ]);
             } else {
                 $knowledgeUpdates = [];
-                $knowledgeFileText = null;
                 if ($request->hasFile('ai_knowledge_file')) {
                     $this->deferMedia('knowledge', $request->file('ai_knowledge_file'), [
                         'folder' => FileService::coursePath($slug, 'knowledge'),
                     ]);
                 }
-                if (is_array($pageKnowledge)) {
-                    $knowledgeUpdates['ai_knowledge_url'] = $pageKnowledge['url'];
+                if ($knowledgePageUrl !== '') {
+                    $knowledgeUpdates['ai_knowledge_url'] = $knowledgePageUrl;
                     $storedFile = (string) $course->getRawOriginal('ai_knowledge_file');
                     if (! $request->hasFile('ai_knowledge_file') && $storedFile !== '' && str_starts_with($storedFile, 'http') && ! str_contains($storedFile, 'b-cdn.net') && ! str_contains($storedFile, 'mediadelivery.net')) {
                         $knowledgeUpdates['ai_knowledge_file'] = null;
                     }
                 }
-                if ($knowledgeFileText !== null || is_array($pageKnowledge) || $request->has('ai_knowledge_content')) {
-                    $knowledgeUpdates['ai_knowledge_content'] = app(WebPageKnowledgeService::class)->joinTexts(
-                        trim((string) $request->input('ai_knowledge_content', '')),
-                        $knowledgeFileText === null ? $previousKnowledgeContent : '',
-                        trim((string) $knowledgeFileText),
-                        is_array($pageKnowledge) ? trim((string) $pageKnowledge['text']) : '',
-                    ) ?: null;
+                if ($request->has('ai_knowledge_content')) {
+                    $knowledgeUpdates['ai_knowledge_content'] = trim((string) $request->input('ai_knowledge_content', '')) ?: null;
                 }
                 if ($knowledgeUpdates !== []) {
                     $course->update($knowledgeUpdates);
@@ -1213,8 +1214,7 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         $this->dispatchDeferredMedia($course);
-
-        $this->indexPageKnowledge($course, is_array($pageKnowledge) ? $pageKnowledge : null);
+        $this->dispatchKnowledgeUrl($course, $knowledgePageUrl);
 
         $course->refresh()->load([
             'user', 'category', 'tags', 'instructors', 'language', 'learnings', 'requirements',
