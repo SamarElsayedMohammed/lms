@@ -362,11 +362,18 @@ class CourseAdminApiController extends AdminCrudApiController
             return;
         }
 
-        $course->update(['media_upload_status' => 'queued']);
-        $batchId = (string) Str::uuid();
-        $batchSize = count($this->deferredMedia);
-        foreach ($this->deferredMedia as $item) {
-            ProcessCourseMediaUploadJob::dispatch($course->id, [$item], $batchId, $batchSize);
+        try {
+            $course->update(['media_upload_status' => 'queued']);
+            $batchId = (string) Str::uuid();
+            $batchSize = count($this->deferredMedia);
+            foreach ($this->deferredMedia as $item) {
+                ProcessCourseMediaUploadJob::dispatch($course->id, [$item], $batchId, $batchSize);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Deferred course media dispatch failed', [
+                'course_id' => $course->id,
+                'error' => $e->getMessage(),
+            ]);
         }
         $this->deferredMedia = [];
     }

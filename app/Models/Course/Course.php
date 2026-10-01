@@ -113,8 +113,10 @@ class Course extends Model
         // Production can be on this code before the knowledge-url migration runs.
         // Drop the attribute so course create/update does not fail on a missing column.
         static::saving(static function (Course $course): void {
-            if (! self::knowledgeUrlColumnExists() && array_key_exists('ai_knowledge_url', $course->getAttributes())) {
-                unset($course->ai_knowledge_url);
+            foreach (['ai_knowledge_url', 'media_upload_status'] as $column) {
+                if (! self::courseColumnExists($column) && array_key_exists($column, $course->getAttributes())) {
+                    unset($course->{$column});
+                }
             }
         });
 
@@ -130,15 +132,16 @@ class Course extends Model
         });
     }
 
-    private static ?bool $knowledgeUrlColumn = null;
+    /** @var array<string, bool> */
+    private static array $courseColumns = [];
 
-    private static function knowledgeUrlColumnExists(): bool
+    private static function courseColumnExists(string $column): bool
     {
-        if (self::$knowledgeUrlColumn === null) {
-            self::$knowledgeUrlColumn = Schema::hasColumn((new self)->getTable(), 'ai_knowledge_url');
+        if (! array_key_exists($column, self::$courseColumns)) {
+            self::$courseColumns[$column] = Schema::hasColumn((new self)->getTable(), $column);
         }
 
-        return self::$knowledgeUrlColumn;
+        return self::$courseColumns[$column];
     }
 
     /**
