@@ -23,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class CourseAdminApiController extends AdminCrudApiController
 {
@@ -362,7 +363,11 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         $course->update(['media_upload_status' => 'queued']);
-        ProcessCourseMediaUploadJob::dispatch($course->id, $this->deferredMedia);
+        $batchId = (string) Str::uuid();
+        $batchSize = count($this->deferredMedia);
+        foreach ($this->deferredMedia as $item) {
+            ProcessCourseMediaUploadJob::dispatch($course->id, [$item], $batchId, $batchSize);
+        }
         $this->deferredMedia = [];
     }
 

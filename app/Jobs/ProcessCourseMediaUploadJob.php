@@ -17,7 +17,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 class ProcessCourseMediaUploadJob implements ShouldQueue
@@ -34,6 +36,8 @@ class ProcessCourseMediaUploadJob implements ShouldQueue
     public function __construct(
         public int $courseId,
         public array $items,
+        public string $batchId = '',
+        public int $batchSize = 1,
     ) {
         $this->onQueue('video-encoding');
     }
@@ -49,45 +53,95 @@ class ProcessCourseMediaUploadJob implements ShouldQueue
 
         $course->update(['media_upload_status' => 'processing']);
 
+        $itemFailed = false;
         foreach ($this->items as $item) {
             $path = is_string($item['path'] ?? null) ? $item['path'] : '';
             if ($path === '' || ! is_file($path)) {
+                $itemFailed = true;
                 continue;
             }
 
-            $file = CourseMediaStaging::uploadedFile([
-                'path' => $path,
-                'original_name' => is_string($item['original_name'] ?? null) ? $item['original_name'] : basename($path),
-                'mime' => is_string($item['mime'] ?? null) ? $item['mime'] : 'application/octet-stream',
-            ]);
+            try {
+                $file = CourseMediaStaging::uploadedFile([
+                    'path' => $path,
+                    'original_name' => is_string($item['original_name'] ?? null) ? $item['original_name'] : basename($path),
+                    'mime' => is_string($item['mime'] ?? null) ? $item['mime'] : 'application/octet-stream',
+                ]);
 
-            match ((string) ($item['kind'] ?? '')) {
-                'thumbnail' => $this->storeThumbnail($course, $file, $item),
-                'intro' => $this->storeIntro($course, $file, $item),
-                'lecture' => $this->storeLecture($file, $item),
-                'material' => $this->storeMaterial($file, $item),
-                'knowledge' => $this->storeKnowledge($course, $file, $item),
-                default => null,
-            };
+                match ((string) ($item['kind'] ?? '')) {
+                    'thumbnail' => $this->storeThumbnail($course, $file, $item),
+                    'intro' => $this->storeIntro($course, $file, $item),
+                    'lecture' => $this->storeLecture($file, $item),
+                    'material' => $this->storeMaterial($file, $item),
+                    'knowledge' => $this->storeKnowledge($course, $file, $item),
+                    default => null,
+                };
 
-            CourseMediaStaging::delete($path);
+                CourseMediaStaging::delete($path);
+            } catch (Throwable $e) {
+                $itemFailed = true;
+                Log::error('Course media item failed', [
+                    'course_id' => $this->courseId,
+                    'kind' => $item['kind'] ?? null,
+                    'lecture_id' => $item['lecture_id'] ?? null,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
-        $course->refresh();
-        $course->chapters()->get()->each(function ($chapter): void {
-            $chapter->recalculateDuration(false);
-        });
-        $course->recalculateDuration();
-        $course->update(['media_upload_status' => 'ready']);
+        $this->finishBatch($itemFailed);
     }
 
     public function failed(Throwable $exception): void
     {
-        Course::query()->whereKey($this->courseId)->update(['media_upload_status' => 'failed']);
         Log::error('Course media upload job failed', [
             'course_id' => $this->courseId,
             'error' => $exception->getMessage(),
         ]);
+        $this->finishBatch(true);
+    }
+
+    private function finishBatch(bool $itemFailed): void
+    {
+        $course = Course::query()->find($this->courseId);
+        if (! $course) {
+            return;
+        }
+
+        if ($this->batchId === '' || $this->batchSize <= 1) {
+            $this->refreshCourseDuration($course);
+            $course->update(['media_upload_status' => $itemFailed ? 'failed' : 'ready']);
+
+            return;
+        }
+
+        $doneKey = 'course-media:'.$this->batchId.':done';
+        $failKey = 'course-media:'.$this->batchId.':failed';
+        if ($itemFailed) {
+            Cache::put($failKey, 1, now()->addDay());
+        }
+        Cache::add($doneKey, 0, now()->addDay());
+        $done = (int) Cache::increment($doneKey);
+        if ($done < $this->batchSize) {
+            return;
+        }
+
+        $course = Course::query()->find($this->courseId);
+        if (! $course) {
+            return;
+        }
+        $this->refreshCourseDuration($course);
+        $failed = (bool) Cache::pull($failKey);
+        Cache::forget($doneKey);
+        $course->update(['media_upload_status' => $failed ? 'failed' : 'ready']);
+    }
+
+    private function refreshCourseDuration(Course $course): void
+    {
+        $course->chapters()->get()->each(function ($chapter): void {
+            $chapter->recalculateDuration(false);
+        });
+        $course->recalculateDuration();
     }
 
     /**
