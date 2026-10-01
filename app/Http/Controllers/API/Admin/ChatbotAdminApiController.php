@@ -10,7 +10,9 @@ use App\Models\ChatbotKnowledgeBase;
 use App\Models\ChatbotMessage;
 use App\Models\Setting;
 use App\Services\ChatBotService;
+use App\Services\DocumentParserService;
 use App\Services\FileService;
+use App\Services\WebPageKnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -390,8 +392,9 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|min:2|max:255',
-            'content' => 'required_without:file|nullable|string',
-            'file' => 'required_without:content|nullable|file|mimes:txt,csv,json,pdf,docx,md|max:10240', // 10MB max
+            'content' => 'required_without_all:file,source_url|nullable|string',
+            'source_url' => 'nullable|url|max:500',
+            'file' => 'required_without_all:content,source_url|nullable|file|mimes:txt,csv,json,pdf,docx,md|max:10240', // 10MB max
             'is_active' => 'nullable|boolean',
             'target_audience' => 'nullable|in:visitor,subscriber,course',
             'course_id' => 'nullable|integer|exists:courses,id',
@@ -399,6 +402,11 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
         if ($validator->fails()) {
             return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        $page = $this->pageFromRequest($request);
+        if ($page instanceof JsonResponse) {
+            return $page;
         }
 
         try {
@@ -417,12 +425,26 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             if ($request->hasFile('file')) {
                 $file = $request->file('file');
-                // Keep UTF-8 `content` empty so the ingestion job parses the stored file.
-                $data['content'] = null;
+                $data['file_type'] = strtolower((string) $file->getClientOriginalExtension());
+                $data['file_text'] = $this->extractUploadedKnowledgeText($file);
                 $data['file_path'] = FileService::upload($file, 'chatbot/knowledge');
-                $data['file_type'] = $file->getClientOriginalExtension();
-            } else {
-                $data['content'] = $request->input('content');
+            }
+
+            $pageText = is_array($page) ? $page['text'] : '';
+            $fileText = (string) ($data['file_text'] ?? '');
+            unset($data['file_text']);
+            $joined = app(WebPageKnowledgeService::class)->joinTexts(
+                trim((string) $request->input('content', '')),
+                $fileText,
+                $pageText,
+            );
+            $data['content'] = $joined !== '' ? $joined : null;
+            if (! array_key_exists('file_path', $data)) {
+                $data['file_path'] = null;
+                $data['file_type'] = is_array($page) ? 'url' : null;
+            }
+            if (is_array($page)) {
+                $data['source_url'] = $page['url'];
             }
 
             $entry = ChatbotKnowledgeBase::create($data);
@@ -478,6 +500,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|min:2|max:255',
             'content' => 'nullable|string',
+            'source_url' => 'nullable|url|max:500',
             'file' => 'nullable|file|mimes:txt,md,csv,json,xml,pdf,docx|max:10240',
             'is_active' => 'nullable|boolean',
             'target_audience' => 'nullable|in:visitor,subscriber,course',
@@ -486,6 +509,11 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
         if ($validator->fails()) {
             return $this->jsonError($validator->errors()->first(), 422);
+        }
+
+        $page = $this->pageFromRequest($request);
+        if ($page instanceof JsonResponse) {
+            return $page;
         }
 
         try {
@@ -510,18 +538,35 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             if ($request->hasFile('file')) {
                 $file = $request->file('file');
-                $data['content'] = null;
-
-                // Delete old file if exists
-                if ($entry->file_path) {
+                if ($entry->file_path && $entry->file_type !== 'url') {
                     FileService::delete($entry->file_path);
                 }
-
+                $data['file_type'] = strtolower((string) $file->getClientOriginalExtension());
+                $data['file_text'] = $this->extractUploadedKnowledgeText($file);
                 $data['file_path'] = FileService::upload($file, 'chatbot/knowledge');
-                $data['file_type'] = $file->getClientOriginalExtension();
-            } elseif ($request->has('content')) {
-                $data['content'] = $request->input('content');
             }
+
+            if (is_array($page)) {
+                $data['source_url'] = $page['url'];
+                if (! $request->hasFile('file') && $entry->file_type === 'url') {
+                    $data['file_path'] = null;
+                    $data['file_type'] = 'url';
+                }
+            }
+
+            if ($request->hasFile('file') || is_array($page) || $request->has('content')) {
+                $fileText = (string) ($data['file_text'] ?? '');
+                $existing = ($request->hasFile('file') && is_array($page)) || $request->has('content')
+                    ? ''
+                    : trim((string) $entry->content);
+                $data['content'] = app(WebPageKnowledgeService::class)->joinTexts(
+                    $existing,
+                    trim((string) $request->input('content', '')),
+                    $fileText,
+                    is_array($page) ? $page['text'] : '',
+                );
+            }
+            unset($data['file_text']);
 
             $data['processing_status'] = 'queued';
             $data['failure_reason'] = null;
@@ -629,49 +674,95 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
         $validator = Validator::make($request->all(), [
             'course_id' => 'required|integer|exists:courses,id',
-            'file' => 'required|file|mimes:txt,csv,json,pdf,docx,md|max:10240',
+            'source_url' => 'required_without:file|nullable|url|max:500',
+            'file' => 'required_without:source_url|nullable|file|mimes:txt,csv,json,pdf,docx,md|max:10240',
         ]);
 
         if ($validator->fails()) {
             return $this->jsonError($validator->errors()->first(), 422);
         }
 
+        $page = $this->pageFromRequest($request);
+        if ($page instanceof JsonResponse) {
+            return $page;
+        }
+
         try {
             DB::beginTransaction();
 
-            $file = $request->file('file');
             $courseId = (int) $request->input('course_id');
             $course = Course::query()->find($courseId);
 
-            $filePath = FileService::upload($file, FileService::coursePath($course?->slug, 'knowledge'));
-            $fileType = $file->getClientOriginalExtension();
+            $fileText = '';
+            $filePath = null;
+            $fileType = null;
+            if ($request->hasFile('file')) {
+                $file = $request->file('file');
+                $fileType = strtolower((string) $file->getClientOriginalExtension());
+                $fileText = $this->extractUploadedKnowledgeText($file);
+                $filePath = FileService::upload($file, FileService::coursePath($course?->slug, 'knowledge'));
+            }
 
-            // Upsert the knowledge base entry for this course
-            $entry = ChatbotKnowledgeBase::updateOrCreate(
-                ['course_id' => $courseId, 'target_audience' => 'course'],
-                [
-                    'title' => $file->getClientOriginalName(),
-                    'file_path' => $filePath,
-                    'file_type' => $fileType,
-                    'is_active' => true,
-                    'processing_status' => 'queued',
-                ]
+            $existingContent = (! $request->hasFile('file') || ! is_array($page))
+                ? trim((string) ($course?->ai_knowledge_content ?? ''))
+                : '';
+            if ($request->hasFile('file') && is_array($page)) {
+                $existingContent = '';
+            }
+            $content = app(WebPageKnowledgeService::class)->joinTexts(
+                $existingContent,
+                $fileText,
+                is_array($page) ? $page['text'] : '',
             );
 
-            \App\Models\Course\Course::where('id', $courseId)->update([
-                'chatbot_enabled' => true,
-                'ai_processing_status' => 'queued',
-            ]);
+            $attributes = [
+                'title' => is_array($page) && $page['title'] !== ''
+                    ? $page['title']
+                    : ($request->hasFile('file') ? $request->file('file')->getClientOriginalName() : ($course?->title ?: 'معرفة الكورس')),
+                'content' => $content !== '' ? $content : null,
+                'is_active' => true,
+                'processing_status' => 'queued',
+            ];
+            if ($filePath !== null) {
+                $attributes['file_path'] = $filePath;
+                $attributes['file_type'] = $fileType;
+            } elseif (is_array($page)) {
+                $attributes['file_type'] = 'url';
+            }
+            if (is_array($page)) {
+                $attributes['source_url'] = $page['url'];
+            }
+
+            if ($course) {
+                $courseUpdates = [
+                    'chatbot_enabled' => true,
+                    'ai_processing_status' => 'queued',
+                ];
+                if ($content !== '') {
+                    $courseUpdates['ai_knowledge_content'] = $content;
+                }
+                if ($filePath !== null) {
+                    $courseUpdates['ai_knowledge_file'] = $filePath;
+                }
+                if (is_array($page)) {
+                    $courseUpdates['ai_knowledge_url'] = $page['url'];
+                }
+                $course->update($courseUpdates);
+            }
+
+            $entry = ChatbotKnowledgeBase::updateOrCreate(
+                ['course_id' => $courseId, 'target_audience' => 'course'],
+                $attributes,
+            );
 
             DB::commit();
 
-            // Dispatch async ingestion job
             \App\Jobs\ProcessKnowledgeIngestionJob::dispatch($entry->id, $courseId, 'course');
 
-            return $this->jsonSuccess(__('Course knowledge file uploaded successfully'), $entry, 201);
+            return $this->jsonSuccess(__('Course knowledge saved successfully'), $entry, 201);
         } catch (\Throwable $e) {
             DB::rollBack();
-            return $this->jsonError(__('Failed to upload course knowledge file') . ': ' . $e->getMessage(), 500);
+            return $this->jsonError(__('Failed to save course knowledge') . ': ' . $e->getMessage(), 500);
         }
     }
 
@@ -855,5 +946,34 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'total_conversations' => \App\Models\ChatbotConversation::count(),
             'total_messages' => ChatbotMessage::count(),
         ]);
+    }
+
+    private function extractUploadedKnowledgeText(\Illuminate\Http\UploadedFile $file): string
+    {
+        $path = $file->getRealPath();
+        if (! is_string($path) || $path === '') {
+            return '';
+        }
+
+        return trim(app(DocumentParserService::class)->extractText(
+            $path,
+            strtolower((string) $file->getClientOriginalExtension()),
+        ));
+    }
+
+    /**
+     * @return array{url: string, title: string, text: string}|null|JsonResponse
+     */
+    private function pageFromRequest(Request $request): array|null|JsonResponse
+    {
+        if (! $request->filled('source_url')) {
+            return null;
+        }
+
+        try {
+            return app(WebPageKnowledgeService::class)->extract((string) $request->input('source_url'));
+        } catch (\RuntimeException $e) {
+            return $this->jsonError($e->getMessage(), 422);
+        }
     }
 }

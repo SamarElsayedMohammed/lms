@@ -13,8 +13,10 @@ use App\Models\Course\CourseRequirement;
 use App\Models\Course\CourseLanguage;
 use App\Jobs\FetchBunnyVideoDurationJob;
 use App\Services\BunnyStreamService;
+use App\Services\DocumentParserService;
 use App\Services\FileService;
 use App\Services\HelperService;
+use App\Services\WebPageKnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -55,7 +57,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'certificate_fee'               => 'nullable|numeric|min:0',
             'is_free_until'                 => 'nullable|date',
             'thumbnail_url'                 => 'nullable|url',
-            'thumbnail'                     => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:2048',
+            'thumbnail'                     => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:20480',
+            'image'                         => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:20480',
             'promo_video_url'               => 'nullable|url',
             'intro_video'                   => "nullable|file|max:{$maxVideoKb}",
             'meta_title'                    => 'nullable|string|max:255',
@@ -82,7 +85,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'standalone_lessons.*.materials'       => 'nullable|array',
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
-            'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
+            'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml,pdf,docx|max:10240',
+            'ai_knowledge_url'              => 'nullable|url|max:500',
             'ai_knowledge_content'          => 'nullable|string',
             'chatbot_enabled'               => 'nullable|boolean',
             'chatbot_name'                  => 'nullable|string|max:100',
@@ -99,9 +103,17 @@ class CourseAdminApiController extends AdminCrudApiController
         if ($validator->fails()) {
             return $this->jsonError($validator->errors()->first(), 422);
         }
+        if ($coverError = $this->coverUploadError($request)) {
+            return $this->jsonError($coverError, 422);
+        }
 
         if ($request->allFiles() !== []) {
             set_time_limit(600);
+        }
+
+        $pageKnowledge = $this->pageKnowledgeFromRequest($request);
+        if ($pageKnowledge instanceof \Illuminate\Http\JsonResponse) {
+            return $pageKnowledge;
         }
 
         // ── Build course data ───────────────────────────────────────
@@ -152,8 +164,9 @@ class CourseAdminApiController extends AdminCrudApiController
         try {
             DB::beginTransaction();
 
-            if ($request->hasFile('thumbnail')) {
-                $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), FileService::coursePath($slug, 'thumbnail'));
+            $cover = $this->coverFile($request);
+            if ($cover) {
+                $thumbnail = FileService::compressAndUpload($cover, FileService::coursePath($slug, 'thumbnail'));
             } elseif ($request->filled('thumbnail_url')) {
                 $thumbnail = $request->input('thumbnail_url');
             }
@@ -171,6 +184,10 @@ class CourseAdminApiController extends AdminCrudApiController
                 $introVideoType = 'url';
                 $introVideo     = $request->input('promo_video_url');
             }
+
+            $knowledgeFileText = $request->hasFile('ai_knowledge_file')
+                ? $this->extractKnowledgeFileText($request->file('ai_knowledge_file'))
+                : null;
 
             $course = Course::create([
                 'title'              => $title,
@@ -204,7 +221,9 @@ class CourseAdminApiController extends AdminCrudApiController
                 'chatbot_welcome_message' => $request->input('chatbot_welcome_message'),
                 'chatbot_system_prompt'   => $request->input('chatbot_system_prompt'),
                 'chatbot_max_tokens'      => $request->filled('chatbot_max_tokens') ? (int) $request->input('chatbot_max_tokens') : null,
-                'ai_knowledge_content'    => $request->input('ai_knowledge_content'),
+                'ai_knowledge_content'    => $this->knowledgeText($request, is_array($pageKnowledge) ? $pageKnowledge : null, $knowledgeFileText),
+                'ai_knowledge_file'       => null,
+                'ai_knowledge_url'        => is_array($pageKnowledge) ? $pageKnowledge['url'] : null,
                 'initial_views'           => $request->filled('initial_views') ? (int) $request->input('initial_views') : 0,
                 'initial_students'        => $request->filled('initial_students') ? (int) $request->input('initial_students') : 0,
                 'initial_rating'          => $request->filled('initial_rating') ? (float) $request->input('initial_rating') : 0,
@@ -212,14 +231,10 @@ class CourseAdminApiController extends AdminCrudApiController
                 'lectures_count'          => $request->filled('total_lessons_override') ? (int) $request->input('total_lessons_override') : 0,
             ]);
 
-            // AI Knowledge Base file for course chatbot
             if ($request->hasFile('ai_knowledge_file')) {
                 $knowledgeFile = $request->file('ai_knowledge_file');
-                $filePath = FileService::upload($knowledgeFile, FileService::coursePath($slug, 'knowledge'));
-                $fileContent = file_get_contents($knowledgeFile->getRealPath());
                 $course->update([
-                    'ai_knowledge_file' => $filePath,
-                    'ai_knowledge_content' => $fileContent,
+                    'ai_knowledge_file' => FileService::upload($knowledgeFile, FileService::coursePath($slug, 'knowledge')),
                 ]);
             }
 
@@ -319,6 +334,8 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Failed to create course: ') . $e->getMessage(), 500);
         }
 
+        $this->indexPageKnowledge($course, is_array($pageKnowledge) ? $pageKnowledge : null);
+
         $course->refresh()->load([
             'user', 'category', 'tags', 'instructors', 'language', 'learnings', 'requirements',
             'chapters' => fn ($q) => $q->orderBy('chapter_order'),
@@ -327,6 +344,83 @@ class CourseAdminApiController extends AdminCrudApiController
         ]);
 
         return $this->jsonSuccess(__('Course created successfully'), $this->buildCourseResponse($course), 201);
+    }
+
+    /**
+     * @return array{url: string, title: string, text: string}|null|\Illuminate\Http\JsonResponse
+     */
+    private function pageKnowledgeFromRequest(Request $request): array|null|\Illuminate\Http\JsonResponse
+    {
+        if (! $request->filled('ai_knowledge_url')) {
+            return null;
+        }
+
+        try {
+            return app(WebPageKnowledgeService::class)->extract((string) $request->input('ai_knowledge_url'));
+        } catch (\RuntimeException $e) {
+            return $this->jsonError($e->getMessage(), 422);
+        }
+    }
+
+    private function extractKnowledgeFileText(\Illuminate\Http\UploadedFile $file): string
+    {
+        $path = $file->getRealPath();
+        if (! is_string($path) || $path === '') {
+            return '';
+        }
+
+        $extension = strtolower((string) $file->getClientOriginalExtension());
+
+        return trim(app(DocumentParserService::class)->extractText($path, $extension));
+    }
+
+    /**
+     * @param  array{url: string, title: string, text: string}|null  $pageKnowledge
+     */
+    private function knowledgeText(Request $request, ?array $pageKnowledge, ?string $fileText = null): ?string
+    {
+        $manual = trim((string) $request->input('ai_knowledge_content', ''));
+        $pageText = is_array($pageKnowledge) ? trim((string) ($pageKnowledge['text'] ?? '')) : '';
+        $joined = app(WebPageKnowledgeService::class)->joinTexts($manual, trim((string) $fileText), $pageText);
+        if ($joined === '') {
+            return $request->has('ai_knowledge_content') ? $request->input('ai_knowledge_content') : null;
+        }
+
+        return $joined;
+    }
+
+    /**
+     * @param  array{url: string, title: string, text: string}|null  $pageKnowledge
+     */
+    private function indexPageKnowledge(Course $course, ?array $pageKnowledge): void
+    {
+        $course->refresh();
+        $text = trim((string) $course->ai_knowledge_content);
+        $sourceUrl = is_string($course->ai_knowledge_url) && $course->ai_knowledge_url !== ''
+            ? $course->ai_knowledge_url
+            : (is_array($pageKnowledge) ? $pageKnowledge['url'] : null);
+        $filePath = is_string($course->ai_knowledge_file) ? $course->ai_knowledge_file : null;
+        if ($text === '' && is_array($pageKnowledge)) {
+            $text = trim($pageKnowledge['text']);
+        }
+        if ($text === '' && ($filePath === null || $filePath === '') && ($sourceUrl === null || $sourceUrl === '')) {
+            return;
+        }
+
+        try {
+            app(WebPageKnowledgeService::class)->indexCombined(
+                $course,
+                $text,
+                $filePath,
+                $sourceUrl,
+                is_array($pageKnowledge) && $pageKnowledge['title'] !== '' ? $pageKnowledge['title'] : null,
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Course page knowledge indexing failed', [
+                'course_id' => $course->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     // ── Private helpers for curriculum building ─────────────────────
@@ -355,6 +449,39 @@ class CourseAdminApiController extends AdminCrudApiController
         }
 
         return [0, 0, 0];
+    }
+
+    /**
+     * Cover uploads arrive as `thumbnail` or `image`. A same-named text URL is not a file.
+     */
+    private function coverFile(Request $request): ?\Illuminate\Http\UploadedFile
+    {
+        foreach (['thumbnail', 'image'] as $field) {
+            $file = $request->file($field);
+            if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                return $file;
+            }
+        }
+
+        return null;
+    }
+
+    private function coverUploadError(Request $request): ?string
+    {
+        foreach (['thumbnail', 'image'] as $field) {
+            $file = $request->file($field);
+            if (! $file instanceof \Illuminate\Http\UploadedFile || $file->isValid()) {
+                continue;
+            }
+
+            return match ($file->getError()) {
+                \UPLOAD_ERR_INI_SIZE, \UPLOAD_ERR_FORM_SIZE => __('صورة الغلاف أكبر من الحد المسموح على السيرفر.'),
+                \UPLOAD_ERR_PARTIAL => __('رفع صورة الغلاف لم يكتمل. حاول مرة أخرى.'),
+                default => __('تعذر قراءة صورة الغلاف.'),
+            };
+        }
+
+        return null;
     }
 
     /**
@@ -786,7 +913,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'certificate_fee'               => 'nullable|numeric|min:0',
             'is_free_until'                 => 'nullable|date',
             'thumbnail_url'                 => 'nullable|url',
-            'thumbnail'                     => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:2048',
+            'thumbnail'                     => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:20480',
+            'image'                         => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,svg|max:20480',
             'promo_video_url'               => 'nullable|url',
             'intro_video'                   => "nullable|file|max:{$maxVideoKb}",
             'meta_title'                    => 'nullable|string|max:255',
@@ -813,7 +941,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'standalone_lessons.*.materials'       => 'nullable|array',
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
-            'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml|max:5120',
+            'ai_knowledge_file'             => 'nullable|file|mimes:txt,md,csv,json,xml,pdf,docx|max:10240',
+            'ai_knowledge_url'              => 'nullable|url|max:500',
             'ai_knowledge_content'          => 'nullable|string',
             'remove_ai_knowledge'           => 'nullable|boolean',
             'chatbot_enabled'               => 'nullable|boolean',
@@ -831,9 +960,17 @@ class CourseAdminApiController extends AdminCrudApiController
         if ($validator->fails()) {
             return $this->jsonError($validator->errors()->first(), 422);
         }
+        if ($coverError = $this->coverUploadError($request)) {
+            return $this->jsonError($coverError, 422);
+        }
 
         if ($request->allFiles() !== []) {
             set_time_limit(600);
+        }
+
+        $pageKnowledge = $this->pageKnowledgeFromRequest($request);
+        if ($pageKnowledge instanceof \Illuminate\Http\JsonResponse) {
+            return $pageKnowledge;
         }
 
         // ── Build course data ───────────────────────────────────────
@@ -870,7 +1007,7 @@ class CourseAdminApiController extends AdminCrudApiController
             ? HelperService::generateUniqueSlug(Course::class, $newTitle, $course->id)
             : $course->slug;
 
-        $thumbnail = $course->thumbnail;
+        $thumbnail = $course->getRawOriginal('thumbnail');
         $introVideo = $course->intro_video;
         $introVideoType = $course->intro_video_type;
         $metaDescription = $request->input('meta_description') ?? $request->input('description') ?? $course->meta_description;
@@ -880,13 +1017,15 @@ class CourseAdminApiController extends AdminCrudApiController
         $certificateFee  = $certificateEnabled
             ? round((float) ($request->input('certificate_fee', $course->certificate_fee ?? 0)), 2)
             : null;
+        $previousKnowledgeContent = trim((string) $course->ai_knowledge_content);
 
         // ── Persist ─────────────────────────────────────────────────
         try {
             DB::beginTransaction();
 
-            if ($request->hasFile('thumbnail')) {
-                $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), FileService::coursePath($slug, 'thumbnail'));
+            $cover = $this->coverFile($request);
+            if ($cover) {
+                $thumbnail = FileService::compressAndUpload($cover, FileService::coursePath($slug, 'thumbnail'));
             } elseif ($request->filled('thumbnail_url')) {
                 $thumbnail = $request->input('thumbnail_url');
             }
@@ -947,28 +1086,44 @@ class CourseAdminApiController extends AdminCrudApiController
                 'lectures_count'          => $request->filled('total_lessons_override') ? (int) $request->input('total_lessons_override') : (int) ($course->lectures_count ?? 0),
             ]);
 
-            // AI Knowledge Base file for course chatbot
             if ($request->boolean('remove_ai_knowledge')) {
-                // Admin wants to remove the knowledge file
                 if ($course->ai_knowledge_file) {
                     FileService::delete($course->ai_knowledge_file);
                 }
                 $course->update([
                     'ai_knowledge_file' => null,
+                    'ai_knowledge_url' => null,
                     'ai_knowledge_content' => null,
                 ]);
-            } elseif ($request->hasFile('ai_knowledge_file')) {
-                // Upload new knowledge file
-                if ($course->ai_knowledge_file) {
-                    FileService::delete($course->ai_knowledge_file);
+            } else {
+                $knowledgeUpdates = [];
+                $knowledgeFileText = null;
+                if ($request->hasFile('ai_knowledge_file')) {
+                    if ($course->ai_knowledge_file) {
+                        FileService::delete($course->ai_knowledge_file);
+                    }
+                    $knowledgeFile = $request->file('ai_knowledge_file');
+                    $knowledgeFileText = $this->extractKnowledgeFileText($knowledgeFile);
+                    $knowledgeUpdates['ai_knowledge_file'] = FileService::upload($knowledgeFile, FileService::coursePath($slug, 'knowledge'));
                 }
-                $knowledgeFile = $request->file('ai_knowledge_file');
-                $filePath = FileService::upload($knowledgeFile, FileService::coursePath($slug, 'knowledge'));
-                $fileContent = file_get_contents($knowledgeFile->getRealPath());
-                $course->update([
-                    'ai_knowledge_file' => $filePath,
-                    'ai_knowledge_content' => $fileContent,
-                ]);
+                if (is_array($pageKnowledge)) {
+                    $knowledgeUpdates['ai_knowledge_url'] = $pageKnowledge['url'];
+                    $storedFile = (string) $course->getRawOriginal('ai_knowledge_file');
+                    if (! $request->hasFile('ai_knowledge_file') && $storedFile !== '' && str_starts_with($storedFile, 'http') && ! str_contains($storedFile, 'b-cdn.net') && ! str_contains($storedFile, 'mediadelivery.net')) {
+                        $knowledgeUpdates['ai_knowledge_file'] = null;
+                    }
+                }
+                if ($knowledgeFileText !== null || is_array($pageKnowledge) || $request->has('ai_knowledge_content')) {
+                    $knowledgeUpdates['ai_knowledge_content'] = app(WebPageKnowledgeService::class)->joinTexts(
+                        trim((string) $request->input('ai_knowledge_content', '')),
+                        $knowledgeFileText === null ? $previousKnowledgeContent : '',
+                        trim((string) $knowledgeFileText),
+                        is_array($pageKnowledge) ? trim((string) $pageKnowledge['text']) : '',
+                    ) ?: null;
+                }
+                if ($knowledgeUpdates !== []) {
+                    $course->update($knowledgeUpdates);
+                }
             }
 
             // ── Tags ────────────────────────────────────────────────
@@ -1065,6 +1220,8 @@ class CourseAdminApiController extends AdminCrudApiController
             DB::rollBack();
             return $this->jsonError(__('Failed to update course: ') . $e->getMessage(), 500);
         }
+
+        $this->indexPageKnowledge($course, is_array($pageKnowledge) ? $pageKnowledge : null);
 
         $course->refresh()->load([
             'user', 'category', 'tags', 'instructors', 'language', 'learnings', 'requirements',
@@ -1250,6 +1407,7 @@ class CourseAdminApiController extends AdminCrudApiController
                 'chatbot_system_prompt'   => null,
                 'chatbot_max_tokens'      => null,
                 'ai_knowledge_file'       => null,
+                'ai_knowledge_url'        => null,
                 'ai_knowledge_content'    => null,
             ]);
 

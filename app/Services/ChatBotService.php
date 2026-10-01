@@ -121,6 +121,27 @@ class ChatBotService
                     $citations[] = $item['title'];
                 }
             }
+        } else {
+            $entries = ChatbotKnowledgeBase::query()
+                ->active()
+                ->where('target_audience', 'visitor')
+                ->whereNotNull('content')
+                ->orderByDesc('id')
+                ->limit(6)
+                ->get(['title', 'content']);
+            $blocks = [];
+            foreach ($entries as $entry) {
+                $excerpt = $this->relevantPassages((string) $entry->content, $cleanMessage, 1200);
+                if ($excerpt === '') {
+                    continue;
+                }
+                $label = $entry->title ?: 'صفحة';
+                $blocks[] = $label.":\n".$excerpt;
+                $citations[] = $label;
+            }
+            if ($blocks !== []) {
+                $contextText = "=== مرجع المعرفة المتاحة ===\n".implode("\n\n", $blocks);
+            }
         }
 
         $systemPrompt = $this->buildVisitorSystemPrompt($settings, $contextText);
@@ -238,7 +259,7 @@ class ChatBotService
             $contextText .= "</untrusted_course_knowledge>\n=== نهاية مرجع محتوى الكورس ===\n\n";
         } elseif (!empty($course->ai_knowledge_content)) {
             // Fallback text window if chunks are still processing
-            $contextText = "=== مرجع محتوى الكورس المعتمد (بيانات فقط) ===\n<untrusted_course_knowledge>\n" . Str::limit($course->ai_knowledge_content, 3000) . "\n</untrusted_course_knowledge>\n=== نهاية مرجع محتوى الكورس ===\n\n";
+            $contextText = "=== مرجع محتوى الكورس المعتمد (بيانات فقط) ===\n<untrusted_course_knowledge>\n" . $this->relevantPassages((string) $course->ai_knowledge_content, $cleanMessage, 4000) . "\n</untrusted_course_knowledge>\n=== نهاية مرجع محتوى الكورس ===\n\n";
             $citations[] = $course->title;
         }
 
@@ -381,6 +402,58 @@ class ChatBotService
         $prompt .= "- الإجابة تكون ودودة ومختصرة ومشجعة على التعلم في المنصة.\n";
 
         return $prompt;
+    }
+
+    /**
+     * Pick the page passages that mention the question, so a saved URL stays searchable
+     * before vector indexing finishes.
+     */
+    private function relevantPassages(string $corpus, string $question, int $maxChars = 4000): string
+    {
+        $corpus = trim($corpus);
+        if ($corpus === '') {
+            return '';
+        }
+
+        $words = array_values(array_filter(
+            preg_split('/\s+/u', mb_strtolower($question)) ?: [],
+            static fn ($word) => mb_strlen((string) $word) >= 2
+        ));
+
+        $parts = preg_split("/\n{2,}|(?<=[\.!?؟])\s+/u", $corpus) ?: [$corpus];
+        $scored = [];
+        foreach ($parts as $part) {
+            $part = trim((string) $part);
+            if (mb_strlen($part) < 40) {
+                continue;
+            }
+            $haystack = mb_strtolower($part);
+            $score = 0;
+            foreach ($words as $word) {
+                if (mb_strpos($haystack, (string) $word) !== false) {
+                    $score++;
+                }
+            }
+            if ($score > 0) {
+                $scored[] = [$score, $part];
+            }
+        }
+
+        usort($scored, static fn (array $a, array $b) => $b[0] <=> $a[0]);
+
+        $picked = '';
+        foreach ($scored as [, $part]) {
+            if (mb_strlen($picked) >= $maxChars) {
+                break;
+            }
+            $picked .= $part."\n\n";
+        }
+
+        if ($picked === '') {
+            $picked = mb_substr($corpus, 0, $maxChars);
+        }
+
+        return trim(mb_substr($picked, 0, $maxChars));
     }
 
     /**

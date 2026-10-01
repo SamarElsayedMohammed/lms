@@ -56,6 +56,7 @@ class Course extends Model
         'meta_keywords',
         'is_featured',
         'ai_knowledge_file',
+        'ai_knowledge_url',
         'ai_knowledge_content',
         'chatbot_enabled',
         'chatbot_name',

@@ -77,8 +77,9 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
             $targetCourseId = $knowledgeEntry->course_id ?: $this->courseId;
             $filePath = $knowledgeEntry->file_path;
             $fileType = $knowledgeEntry->file_type;
-            // File uploads are parsed from disk. Never treat leftover binary bytes as UTF-8 text.
-            $rawText = $filePath ? '' : ($knowledgeEntry->content ?? '');
+            // Keep text that already combines a file and a page. Read the disk
+            // file only when the row has no extracted text yet.
+            $rawText = trim((string) ($knowledgeEntry->content ?? ''));
         }
 
         if ($targetCourseId) {
@@ -93,7 +94,7 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
 
         try {
             // Extract text from uploaded file if path exists
-            if ($filePath && empty($rawText)) {
+            if ($filePath && empty($rawText) && ($fileType ?? null) !== 'url') {
                 $fullPath = storage_path('app/public/'.ltrim($filePath, '/'));
                 if (! file_exists($fullPath)) {
                     $fullPath = public_path($filePath);
@@ -131,7 +132,7 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
                     'bot_type' => $this->botType,
                     'course_id' => $targetCourseId,
                     'knowledge_base_id' => $this->knowledgeBaseId,
-                    'source_type' => $filePath ? 'file' : 'text',
+                    'source_type' => ($fileType ?? null) === 'url' ? 'url' : ($filePath ? 'file' : 'text'),
                     'title' => $title ?: ($courseModel ? $courseModel->title : 'Global Knowledge'),
                     'chunk_index' => $chunk['index'],
                     'chunk_text' => $chunk['text'],

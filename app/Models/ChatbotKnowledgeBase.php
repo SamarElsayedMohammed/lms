@@ -16,6 +16,7 @@ class ChatbotKnowledgeBase extends Model
         'content',
         'file_path',
         'file_type',
+        'source_url',
         'is_active',
         'target_audience',
         'course_id',
