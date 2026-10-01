@@ -16,6 +16,7 @@ use App\Traits\ProtectsDemoData;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
 
 class Course extends Model
 {
@@ -109,6 +110,14 @@ class Course extends Model
     {
         parent::boot();
 
+        // Production can be on this code before the knowledge-url migration runs.
+        // Drop the attribute so course create/update does not fail on a missing column.
+        static::saving(static function (Course $course): void {
+            if (! self::knowledgeUrlColumnExists() && array_key_exists('ai_knowledge_url', $course->getAttributes())) {
+                unset($course->ai_knowledge_url);
+            }
+        });
+
         static::forceDeleting(static function ($course): void {
             FileService::delete($course->thumbnail);
             FileService::delete($course->intro_video);
@@ -119,6 +128,17 @@ class Course extends Model
             $course->tags()->detach();
             $course->instructors()->detach();
         });
+    }
+
+    private static ?bool $knowledgeUrlColumn = null;
+
+    private static function knowledgeUrlColumnExists(): bool
+    {
+        if (self::$knowledgeUrlColumn === null) {
+            self::$knowledgeUrlColumn = Schema::hasColumn((new self)->getTable(), 'ai_knowledge_url');
+        }
+
+        return self::$knowledgeUrlColumn;
     }
 
     /**

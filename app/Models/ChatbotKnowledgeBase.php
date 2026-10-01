@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Schema;
 
 class ChatbotKnowledgeBase extends Model
 {
@@ -32,6 +33,26 @@ class ChatbotKnowledgeBase extends Model
     protected $casts = [
         'is_active' => 'boolean',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(static function (self $entry): void {
+            if (! self::sourceUrlColumnExists() && array_key_exists('source_url', $entry->getAttributes())) {
+                unset($entry->source_url);
+            }
+        });
+    }
+
+    private static ?bool $sourceUrlColumn = null;
+
+    private static function sourceUrlColumnExists(): bool
+    {
+        if (self::$sourceUrlColumn === null) {
+            self::$sourceUrlColumn = Schema::hasColumn((new self)->getTable(), 'source_url');
+        }
+
+        return self::$sourceUrlColumn;
+    }
 
     /**
      * Scope: only active knowledge base entries
