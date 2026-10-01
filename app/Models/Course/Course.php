@@ -40,6 +40,7 @@ class Course extends Model
         'price',
         'discount_price',
         'status',
+        'media_upload_status',
         'category_id',
         'is_active',
         'sequential_access',

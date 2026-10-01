@@ -91,7 +91,7 @@ class BunnyStreamService
             $uploaded = Http::withHeaders(self::headers($apiKey))
                 ->withBody(\GuzzleHttp\Psr7\Utils::streamFor($handle), 'application/octet-stream')
                 ->connectTimeout(10)
-                ->timeout(600)
+                ->timeout(3600)
                 ->put("https://video.bunnycdn.com/library/{$libraryId}/videos/{$guid}");
         } finally {
             if (is_resource($handle)) {
