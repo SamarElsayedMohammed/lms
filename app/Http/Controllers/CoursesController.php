@@ -12,6 +12,7 @@ use App\Models\Course\CourseRequirement;
 use App\Models\Tag;
 use App\Models\User;
 use App\Services\BootstrapTableService;
+use App\Services\BunnyStreamService;
 use App\Services\FileService;
 use App\Services\HelperService;
 use App\Services\InstructorModeService;
@@ -280,16 +281,23 @@ class CoursesController extends Controller
 
             // Upload Thumbnail
             if ($request->hasFile('thumbnail')) {
-                $data['thumbnail'] = FileService::compressAndUpload($request->file('thumbnail'), $this->uploadFolder);
+                $data['thumbnail'] = FileService::compressAndUpload(
+                    $request->file('thumbnail'),
+                    FileService::coursePath($data['slug'], 'thumbnail'),
+                );
             }
 
             // Handle Intro Video (file upload or URL)
             $data['intro_video_type'] = $introVideoType;
             if ($introVideoType === 'file' && $request->hasFile('intro_video')) {
-                $data['intro_video'] = FileService::compressAndUpload(
+                $stored = BunnyStreamService::storeUploadedVideo(
                     $request->file('intro_video'),
-                    $this->videoUploadFolder,
+                    (string) $request->input('title', 'Intro'),
+                    FileService::coursePath($data['slug'], 'intro'),
+                    FileService::courseFolderSegment($data['slug']),
                 );
+                $data['intro_video_type'] = $stored['type'] === 'url' ? 'url' : 'file';
+                $data['intro_video'] = $stored['value'];
             } elseif ($introVideoType === 'url' && $request->filled('intro_video_url')) {
                 $data['intro_video'] = $request->input('intro_video_url');
             } else {
@@ -304,7 +312,7 @@ class CoursesController extends Controller
             if ($request->hasFile('meta_image')) {
                 $data['meta_image'] = FileService::compressAndUpload(
                     $request->file('meta_image'),
-                    $this->metaImageUploadFolder,
+                    FileService::coursePath($data['slug'], 'meta'),
                 );
             }
 
@@ -1021,19 +1029,24 @@ class CoursesController extends Controller
             if ($request->hasFile('thumbnail')) {
                 $data['thumbnail'] = FileService::compressAndReplace(
                     $request->file('thumbnail'),
-                    $this->uploadFolder,
+                    FileService::coursePath($course->slug, 'thumbnail'),
                     $course->thumbnail,
                 );
             }
 
             // Handle Intro Video (file upload or URL) — same contract as store(); on edit allow keeping existing file when type=file and no new upload (use $existingIntroType / $existingIntroValue from above)
             if ($introVideoTypeUpdate === 'file' && $request->hasFile('intro_video')) {
-                $data['intro_video_type'] = 'file';
-                $data['intro_video'] = FileService::compressAndReplace(
+                if ($existingIntroValue) {
+                    FileService::delete($existingIntroValue);
+                }
+                $stored = BunnyStreamService::storeUploadedVideo(
                     $request->file('intro_video'),
-                    $this->videoUploadFolder,
-                    $existingIntroType === 'file' ? $existingIntroValue : null,
+                    (string) $request->input('title', 'Intro'),
+                    FileService::coursePath($course->slug, 'intro'),
+                    FileService::courseFolderSegment($course->slug),
                 );
+                $data['intro_video_type'] = $stored['type'] === 'url' ? 'url' : 'file';
+                $data['intro_video'] = $stored['value'];
             } elseif ($introVideoTypeUpdate === 'file' && $existingIntroType === 'file' && $existingIntroValue) {
                 // Keep existing file when type=file and no new file uploaded
                 $data['intro_video_type'] = 'file';
@@ -1060,7 +1073,7 @@ class CoursesController extends Controller
             if ($request->hasFile('meta_image')) {
                 $data['meta_image'] = FileService::compressAndReplace(
                     $request->file('meta_image'),
-                    $this->metaImageUploadFolder,
+                    FileService::coursePath($course->slug, 'meta'),
                     $course->meta_image,
                 );
             }

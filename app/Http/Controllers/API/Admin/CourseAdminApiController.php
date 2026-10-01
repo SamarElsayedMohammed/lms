@@ -11,6 +11,8 @@ use App\Models\Course\CourseChapter\Lecture\LectureResource;
 use App\Models\Course\CourseLearning;
 use App\Models\Course\CourseRequirement;
 use App\Models\Course\CourseLanguage;
+use App\Jobs\FetchBunnyVideoDurationJob;
+use App\Services\BunnyStreamService;
 use App\Services\FileService;
 use App\Services\HelperService;
 use Illuminate\Http\JsonResponse;
@@ -71,12 +73,12 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
             'curriculum_sections.*.lessons.*.type' => 'nullable|in:video,file,youtube_url',
-            'curriculum_sections.*.lessons.*.file' => 'nullable|file|max:51200',
+            'curriculum_sections.*.lessons.*.file' => "nullable|file|max:{$maxVideoKb}",
             'curriculum_sections.*.lessons.*.materials'       => 'nullable|array',
             'curriculum_sections.*.lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'standalone_lessons'            => 'nullable|array',
             'standalone_lessons.*.type'     => 'nullable|in:video,file,youtube_url',
-            'standalone_lessons.*.file'     => 'nullable|file|max:51200',
+            'standalone_lessons.*.file'     => "nullable|file|max:{$maxVideoKb}",
             'standalone_lessons.*.materials'       => 'nullable|array',
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
@@ -130,7 +132,7 @@ class CourseAdminApiController extends AdminCrudApiController
 
         // Thumbnail
         if ($request->hasFile('thumbnail')) {
-            $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), 'courses/thumbnail');
+            $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), FileService::coursePath($slug, 'thumbnail'));
         } elseif ($request->filled('thumbnail_url')) {
             $thumbnail = $request->input('thumbnail_url');
         } else {
@@ -139,8 +141,14 @@ class CourseAdminApiController extends AdminCrudApiController
 
         // Intro video
         if ($request->hasFile('intro_video')) {
-            $introVideoType = 'file';
-            $introVideo     = FileService::compressAndUpload($request->file('intro_video'), 'courses/intro_video');
+            $stored = BunnyStreamService::storeUploadedVideo(
+                $request->file('intro_video'),
+                $title,
+                FileService::coursePath($slug, 'intro'),
+                FileService::courseFolderSegment($slug),
+            );
+            $introVideoType = $stored['type'] === 'url' ? 'url' : 'file';
+            $introVideo     = $stored['value'];
         } elseif ($request->filled('promo_video_url')) {
             $introVideoType = 'url';
             $introVideo     = $request->input('promo_video_url');
@@ -207,7 +215,7 @@ class CourseAdminApiController extends AdminCrudApiController
             // AI Knowledge Base file for course chatbot
             if ($request->hasFile('ai_knowledge_file')) {
                 $knowledgeFile = $request->file('ai_knowledge_file');
-                $filePath = FileService::upload($knowledgeFile, 'courses/ai_knowledge');
+                $filePath = FileService::upload($knowledgeFile, FileService::coursePath($slug, 'knowledge'));
                 $fileContent = file_get_contents($knowledgeFile->getRealPath());
                 $course->update([
                     'ai_knowledge_file' => $filePath,
@@ -259,9 +267,9 @@ class CourseAdminApiController extends AdminCrudApiController
                     if (is_array($lessons)) {
                         foreach ($lessons as $lessonOrder => $lesson) {
                                 $contentFile = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.file");
-                                $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1, $contentFile);
+                                $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1, $contentFile, $slug);
                                 $materialFiles = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.materials") ?? [];
-                                $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
+                                $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId, $slug);
                             }
                         }
                     }
@@ -281,9 +289,9 @@ class CourseAdminApiController extends AdminCrudApiController
 
                     foreach ($standaloneLessons as $lessonOrder => $lesson) {
                         $contentFile = $request->file("standalone_lessons.{$lessonOrder}.file");
-                        $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1, $contentFile);
+                        $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1, $contentFile, $slug);
                         $materialFiles = $request->file("standalone_lessons.{$lessonOrder}.materials") ?? [];
-                        $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
+                        $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId, $slug);
                     }
                 }
 
@@ -343,12 +351,12 @@ class CourseAdminApiController extends AdminCrudApiController
         int $userId,
         int $order,
         ?\Illuminate\Http\UploadedFile $contentFile = null,
+        string $courseSlug = '',
     ): CourseChapterLecture {
         [$hours, $minutes, $seconds] = $this->parseDuration($lesson['duration'] ?? null);
         $rawType = $lesson['type'] ?? 'video';
 
         if ($contentFile) {
-            $filePath = FileService::upload($contentFile, 'course-chapters/lectures');
             $extension = strtolower($contentFile->getClientOriginalExtension());
             $videoExtensions = ['mp4', 'avi', 'mov', 'webm', 'mkv', 'flv', 'wmv'];
 
@@ -373,13 +381,45 @@ class CourseAdminApiController extends AdminCrudApiController
                 }
             }
 
+            $stored = BunnyStreamService::storeUploadedVideo(
+                $contentFile,
+                (string) ($lesson['title'] ?? 'Lesson'),
+                FileService::coursePath($courseSlug, 'lessons'),
+                FileService::courseFolderSegment($courseSlug),
+            );
+
+            if ($stored['type'] === 'url') {
+                $lecture = CourseChapterLecture::create([
+                    'user_id'           => $userId,
+                    'course_chapter_id' => $chapterId,
+                    'title'             => $lesson['title'] ?? 'Untitled Lesson',
+                    'slug'              => HelperService::generateUniqueSlug(CourseChapterLecture::class, $lesson['title'] ?? 'untitled'),
+                    'type'              => 'youtube_url',
+                    'file'              => null,
+                    'youtube_url'       => $stored['value'],
+                    'hours'             => $hours,
+                    'minutes'           => $minutes,
+                    'seconds'           => $seconds,
+                    'duration_seconds'  => ($hours * 3600) + ($minutes * 60) + $seconds,
+                    'chapter_order'     => $order,
+                    'is_active'         => true,
+                    'free_preview'      => false,
+                ]);
+
+                if (is_string($stored['library_id']) && is_string($stored['guid'])) {
+                    FetchBunnyVideoDurationJob::dispatch($lecture->id, $stored['library_id'], $stored['guid']);
+                }
+
+                return $lecture;
+            }
+
             return CourseChapterLecture::create([
                 'user_id'           => $userId,
                 'course_chapter_id' => $chapterId,
                 'title'             => $lesson['title'] ?? 'Untitled Lesson',
                 'slug'              => HelperService::generateUniqueSlug(CourseChapterLecture::class, $lesson['title'] ?? 'untitled'),
                 'type'              => 'file',
-                'file'              => $filePath,
+                'file'              => $stored['value'],
                 'file_extension'    => $contentFile->getClientOriginalExtension(),
                 'hours'             => $hours,
                 'minutes'           => $minutes,
@@ -428,7 +468,7 @@ class CourseAdminApiController extends AdminCrudApiController
      * Create material resources for a lecture.
      * Supports both file uploads and URL links.
      */
-    private function buildLectureResources(array $materials, array $materialFiles, int $lectureId, int $userId): void
+    private function buildLectureResources(array $materials, array $materialFiles, int $lectureId, int $userId, string $courseSlug = ''): void
     {
         if (!is_array($materials)) {
             return;
@@ -440,7 +480,7 @@ class CourseAdminApiController extends AdminCrudApiController
 
             if ($uploadedFile) {
                 // File upload mode
-                $filePath = FileService::upload($uploadedFile, 'lecture_resources');
+                $filePath = FileService::upload($uploadedFile, FileService::coursePath($courseSlug, 'materials'));
                 $fileExtension = $uploadedFile->getClientOriginalExtension();
 
                 LectureResource::create([
@@ -749,12 +789,12 @@ class CourseAdminApiController extends AdminCrudApiController
             'curriculum_sections.*.title'   => 'required_with:curriculum_sections|string',
             'curriculum_sections.*.lessons' => 'nullable|array',
             'curriculum_sections.*.lessons.*.type' => 'nullable|in:video,file,youtube_url',
-            'curriculum_sections.*.lessons.*.file' => 'nullable|file|max:51200',
+            'curriculum_sections.*.lessons.*.file' => "nullable|file|max:{$maxVideoKb}",
             'curriculum_sections.*.lessons.*.materials'       => 'nullable|array',
             'curriculum_sections.*.lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'standalone_lessons'            => 'nullable|array',
             'standalone_lessons.*.type'     => 'nullable|in:video,file,youtube_url',
-            'standalone_lessons.*.file'     => 'nullable|file|max:51200',
+            'standalone_lessons.*.file'     => "nullable|file|max:{$maxVideoKb}",
             'standalone_lessons.*.materials'       => 'nullable|array',
             'standalone_lessons.*.materials.*.file' => 'nullable|file|max:51200',
             'is_featured'                   => 'nullable|boolean',
@@ -814,7 +854,7 @@ class CourseAdminApiController extends AdminCrudApiController
         // Thumbnail
         $thumbnail = $course->thumbnail;
         if ($request->hasFile('thumbnail')) {
-            $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), 'courses/thumbnail');
+            $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), FileService::coursePath($slug, 'thumbnail'));
         } elseif ($request->filled('thumbnail_url')) {
             $thumbnail = $request->input('thumbnail_url');
         }
@@ -823,8 +863,17 @@ class CourseAdminApiController extends AdminCrudApiController
         $introVideo = $course->intro_video;
         $introVideoType = $course->intro_video_type;
         if ($request->hasFile('intro_video')) {
-            $introVideoType = 'file';
-            $introVideo     = FileService::compressAndUpload($request->file('intro_video'), 'courses/intro_video');
+            if ($introVideo) {
+                FileService::delete($introVideo);
+            }
+            $stored = BunnyStreamService::storeUploadedVideo(
+                $request->file('intro_video'),
+                $newTitle,
+                FileService::coursePath($slug, 'intro'),
+                FileService::courseFolderSegment($slug),
+            );
+            $introVideoType = $stored['type'] === 'url' ? 'url' : 'file';
+            $introVideo     = $stored['value'];
         } elseif ($request->filled('promo_video_url')) {
             $introVideoType = 'url';
             $introVideo     = $request->input('promo_video_url');
@@ -897,7 +946,7 @@ class CourseAdminApiController extends AdminCrudApiController
                     FileService::delete($course->ai_knowledge_file);
                 }
                 $knowledgeFile = $request->file('ai_knowledge_file');
-                $filePath = FileService::upload($knowledgeFile, 'courses/ai_knowledge');
+                $filePath = FileService::upload($knowledgeFile, FileService::coursePath($slug, 'knowledge'));
                 $fileContent = file_get_contents($knowledgeFile->getRealPath());
                 $course->update([
                     'ai_knowledge_file' => $filePath,
@@ -963,9 +1012,9 @@ class CourseAdminApiController extends AdminCrudApiController
                         if (is_array($lessons)) {
                             foreach ($lessons as $lessonOrder => $lesson) {
                                 $contentFile = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.file");
-                                $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1, $contentFile);
+                                $lecture = $this->buildLectureData($lesson, $chapter->id, $instructorId, $lessonOrder + 1, $contentFile, $slug);
                                 $materialFiles = $request->file("curriculum_sections.{$sectionOrder}.lessons.{$lessonOrder}.materials") ?? [];
-                                $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
+                                $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId, $slug);
                             }
                         }
                     }
@@ -985,9 +1034,9 @@ class CourseAdminApiController extends AdminCrudApiController
 
                     foreach ($standaloneLessons as $lessonOrder => $lesson) {
                         $contentFile = $request->file("standalone_lessons.{$lessonOrder}.file");
-                        $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1, $contentFile);
+                        $lecture = $this->buildLectureData($lesson, $defaultChapter->id, $instructorId, $lessonOrder + 1, $contentFile, $slug);
                         $materialFiles = $request->file("standalone_lessons.{$lessonOrder}.materials") ?? [];
-                        $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId);
+                        $this->buildLectureResources($lesson['materials'] ?? [], $materialFiles, $lecture->id, $instructorId, $slug);
                     }
                 }
             }

@@ -42,6 +42,16 @@ return [
             'throw' => false,
             'report' => false,
         ],
+        'bunny' => [
+            'driver' => 'bunny',
+            'zone' => env('BUNNY_STORAGE_ZONE'),
+            'key' => env('BUNNY_STORAGE_API_KEY'),
+            'hostname' => env('BUNNY_STORAGE_HOST', 'storage.bunnycdn.com'),
+            'url' => env('BUNNY_CDN_URL'),
+            'visibility' => 'public',
+            'throw' => true,
+            'report' => false,
+        ],
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

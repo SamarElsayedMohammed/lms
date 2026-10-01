@@ -941,7 +941,11 @@ class AdminApiController extends Controller
             }
 
             $file = $request->file('media');
-            $data['media'] = FileService::upload($file, 'course-chapters/assignments/media');
+            $chapterId = (int) ($assignment->course_chapter_id ?? $request->input('course_chapter_id') ?? 0);
+            $chapter = $chapterId > 0
+                ? \App\Models\Course\CourseChapter\CourseChapter::query()->with('course:id,slug')->find($chapterId)
+                : null;
+            $data['media'] = FileService::upload($file, FileService::coursePath($chapter?->course?->slug, 'assignments'));
             $data['media_extension'] = $file->getClientOriginalExtension();
         }
 

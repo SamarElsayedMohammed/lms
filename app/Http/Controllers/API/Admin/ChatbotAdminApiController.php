@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API\Admin;
 
+use App\Models\Course\Course;
 use App\Models\ChatbotFaq;
 use App\Models\ChatbotKnowledgeBase;
 use App\Models\ChatbotMessage;
@@ -640,8 +641,9 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             $file = $request->file('file');
             $courseId = (int) $request->input('course_id');
+            $course = Course::query()->find($courseId);
 
-            $filePath = FileService::upload($file, 'chatbot/course-knowledge');
+            $filePath = FileService::upload($file, FileService::coursePath($course?->slug, 'knowledge'));
             $fileType = $file->getClientOriginalExtension();
 
             // Upsert the knowledge base entry for this course

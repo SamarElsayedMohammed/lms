@@ -837,15 +837,21 @@ class HelperService
      * @param  Request  $request
      * @return array
      */
-    private static $lectureTypeFolder = 'course-chapters/lectures';
+    /** @var array<int, string> */
+    private static array $chapterCourseSlug = [];
 
-    private static $lectureResourceFolder = 'course-chapters/lectures/resources';
+    private static function slugForChapter(int $chapterId): ?string
+    {
+        if (! array_key_exists($chapterId, self::$chapterCourseSlug)) {
+            $chapter = \App\Models\Course\CourseChapter\CourseChapter::query()
+                ->with('course:id,slug')
+                ->find($chapterId);
+            $slug = $chapter?->course?->slug;
+            self::$chapterCourseSlug[$chapterId] = is_string($slug) ? $slug : '';
+        }
 
-    private static $documentTypeFolder = 'course-chapters/documents';
-
-    private static $quizResourceFolder = 'course-chapters/quizzes/resources';
-
-    private static $assignmentResourceFolder = 'course-chapters/assignments/resources';
+        return self::$chapterCourseSlug[$chapterId] !== '' ? self::$chapterCourseSlug[$chapterId] : null;
+    }
 
     public static function updateAndGetLectureData($request, $chapterId)
     {
@@ -879,18 +885,35 @@ class HelperService
                 }
 
                 $uploadedFile = $request->lecture_file;
-                $lectureDataArray['file'] = FileService::replaceAndUpload(
-                    $uploadedFile,
-                    self::$lectureTypeFolder,
-                    $existingFile,
-                );
-                $lectureDataArray['file_extension'] = $uploadedFile->getClientOriginalExtension();
+                $courseSlug = self::slugForChapter((int) $chapterId);
+                if (BunnyStreamService::isConfigured() && BunnyStreamService::isVideo($uploadedFile)) {
+                    if ($existingFile) {
+                        FileService::delete($existingFile);
+                    }
+                    $stored = BunnyStreamService::storeUploadedVideo(
+                        $uploadedFile,
+                        (string) ($request->lecture_title ?? 'Lesson'),
+                        FileService::coursePath($courseSlug, 'lessons'),
+                        FileService::courseFolderSegment($courseSlug),
+                    );
+                    $lectureDataArray['type'] = 'youtube_url';
+                    $lectureDataArray['youtube_url'] = $stored['value'];
+                    $lectureDataArray['file'] = null;
+                    $lectureDataArray['file_extension'] = null;
+                } else {
+                    $lectureDataArray['file'] = FileService::replaceAndUpload(
+                        $uploadedFile,
+                        FileService::coursePath($courseSlug, 'lessons'),
+                        $existingFile,
+                    );
+                    $lectureDataArray['file_extension'] = $uploadedFile->getClientOriginalExtension();
+                }
 
                 // Check if uploaded file is a video and set HLS status to pending
                 $extension = $uploadedFile->getClientOriginalExtension();
                 $videoExtensions = ['mp4', 'avi', 'mov', 'webm', 'mkv', 'flv', 'wmv'];
 
-                if (in_array(strtolower($extension), $videoExtensions, true)) {
+                if (($lectureDataArray['type'] ?? '') !== 'youtube_url' && in_array(strtolower($extension), $videoExtensions, true)) {
                     // Metadata parsing reads through the uploaded file and can be
                     // expensive for large videos. Run it after the upload request.
                     $shouldAnalyzeVideoDuration = true;
@@ -968,7 +991,7 @@ class HelperService
             'user_id' => Auth::user()?->id,
             'type' => 'file',
             'file' => $request->hasFile('document_file')
-                ? FileService::upload($request->document_file, self::$documentTypeFolder)
+                ? FileService::upload($request->document_file, FileService::coursePath(self::slugForChapter($chapterId), 'documents'))
                 : $request->old_document_file ?? null,
             'file_extension' => $request->hasFile('document_file')
                 ? $request->document_file->getClientOriginalExtension()
@@ -1071,7 +1094,7 @@ class HelperService
             'description' => $request->assignment_description,
             'instructions' => $request->assignment_instructions,
             'media' => $request->hasFile('assignment_media')
-                ? FileService::upload($request->assignment_media, 'course-chapters/assignments/media')
+                ? FileService::upload($request->assignment_media, FileService::coursePath(self::slugForChapter($chapterId), 'assignments'))
                 : null,
             'media_extension' => $request->hasFile('assignment_media')
                 ? $request->assignment_media->getClientOriginalExtension()
@@ -1157,7 +1180,10 @@ class HelperService
                         && $resource['resource_file'] instanceof \Illuminate\Http\UploadedFile
                     ) {
                         // New file uploaded → replace old one
-                        $filePath = FileService::upload($resource['resource_file'], self::$lectureResourceFolder);
+                        $filePath = FileService::upload(
+                            $resource['resource_file'],
+                            FileService::coursePath(self::slugForChapter((int) $lectureData->course_chapter_id), 'materials'),
+                        );
                         $fileExtension = $resource['resource_file']->getClientOriginalExtension();
 
                         // delete old if exists
@@ -1212,7 +1238,10 @@ class HelperService
                         isset($resource['resource_file'])
                         && $resource['resource_file'] instanceof \Illuminate\Http\UploadedFile
                     ) {
-                        $filePath = FileService::upload($resource['resource_file'], self::$quizResourceFolder);
+                        $filePath = FileService::upload(
+                            $resource['resource_file'],
+                            FileService::coursePath(self::slugForChapter((int) ($quizData->course_chapter_id ?? 0)), 'quizzes'),
+                        );
                         $fileExtension = $resource['resource_file']->getClientOriginalExtension();
                     }
 
@@ -1273,7 +1302,10 @@ class HelperService
                         isset($resource['resource_file'])
                         && $resource['resource_file'] instanceof \Illuminate\Http\UploadedFile
                     ) {
-                        $filePath = FileService::upload($resource['resource_file'], self::$assignmentResourceFolder);
+                        $filePath = FileService::upload(
+                            $resource['resource_file'],
+                            FileService::coursePath(self::slugForChapter((int) ($assignmentData->course_chapter_id ?? 0)), 'assignments'),
+                        );
                         $fileExtension = $resource['resource_file']->getClientOriginalExtension();
                     }
 

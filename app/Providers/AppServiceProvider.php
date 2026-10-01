@@ -2,13 +2,16 @@
 
 namespace App\Providers;
 
+use App\Filesystem\BunnyStorageAdapter;
 use App\Services\HelperService;
 use App\Services\Mail\MailFromResolver;
 use App\Events\WebinarRegistered;
 use App\Listeners\SendWebinarRegisteredNotification;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
+use League\Flysystem\Filesystem;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -25,6 +28,20 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Storage::extend('bunny', function ($app, array $config) {
+            $adapter = new BunnyStorageAdapter(
+                (string) ($config['zone'] ?? ''),
+                (string) ($config['key'] ?? ''),
+                (string) ($config['hostname'] ?? 'storage.bunnycdn.com'),
+            );
+
+            return new \Illuminate\Filesystem\FilesystemAdapter(
+                new Filesystem($adapter),
+                $adapter,
+                $config,
+            );
+        });
+
         Model::preventLazyLoading(! $this->app->isProduction());
 
         Event::listen(WebinarRegistered::class, SendWebinarRegisteredNotification::class);

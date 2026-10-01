@@ -56,7 +56,8 @@ class LectureAttachmentController extends Controller
         }
 
         $file = $request->file('file');
-        $path = FileService::upload($file, 'lecture_attachments');
+        $lecture->loadMissing('chapter.course');
+        $path = FileService::upload($file, FileService::coursePath($lecture->chapter?->course?->slug, 'attachments'));
 
         $attachment = LectureAttachment::create([
             'lecture_id' => $lectureId,
@@ -128,7 +129,12 @@ class LectureAttachmentController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = FileService::replace($file, 'lecture_attachments', $attachment->file_path);
+            $attachment->loadMissing('lecture.chapter.course');
+            $path = FileService::replace(
+                $file,
+                FileService::coursePath($attachment->lecture?->chapter?->course?->slug, 'attachments'),
+                $attachment->file_path,
+            );
 
             $data['file_name'] = $file->getClientOriginalName();
             $data['file_path'] = $path;

@@ -12,6 +12,47 @@ use RuntimeException;
 class FileService
 {
     /**
+     * Bunny Storage when the zone, access key, and CDN URL are set. Otherwise the local public disk.
+     */
+    public static function mediaDisk(): string
+    {
+        $zone = config('filesystems.disks.bunny.zone');
+        $key = config('filesystems.disks.bunny.key');
+        $url = config('filesystems.disks.bunny.url');
+
+        if (is_string($zone) && $zone !== '' && is_string($key) && $key !== '' && is_string($url) && $url !== '') {
+            return 'bunny';
+        }
+
+        return 'public';
+    }
+
+    /**
+     * Safe folder name for one course. Empty slugs land in courses/unsorted.
+     */
+    public static function courseFolderSegment(?string $slug): string
+    {
+        $slug = trim((string) $slug);
+        $slug = preg_replace('/[^\p{L}\p{N}_-]+/u', '-', $slug) ?? '';
+        $slug = trim($slug, '-');
+        if ($slug === '') {
+            return 'unsorted';
+        }
+
+        return mb_substr($slug, 0, 80);
+    }
+
+    /**
+     * courses/{course-slug}/{section}
+     */
+    public static function coursePath(?string $slug, string $section): string
+    {
+        $section = trim($section, '/');
+
+        return 'courses/'.self::courseFolderSegment($slug).'/'.$section;
+    }
+
+    /**
      * Upload file with optional image compression when GD/Imagick is available.
      * Falls back to plain upload when GD is not installed.
      *
@@ -19,8 +60,9 @@ class FileService
      * @param $folder
      * @return string
      */
-    public static function compressAndUpload($requestFile, $folder, $disk = 'public')
+    public static function compressAndUpload($requestFile, $folder, $disk = null)
     {
+        $disk = $disk ?: self::mediaDisk();
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
         $ext = strtolower($requestFile->getClientOriginalExtension() ?? '');
 
@@ -36,21 +78,21 @@ class FileService
                     if ($width > 5000 || $height > 5000 || ($width * $height) > 25000000) {
                         // Bypass in-memory rasterization to protect worker memory; stream directly to disk
                         $requestFile->storeAs($folder, $file_name, $disk);
-                        return ltrim($folder, '/') . '/' . $file_name;
+                        return self::publishedPath($disk, $folder . '/' . $file_name);
                     }
                 }
 
                 $image = Image::make($requestFile)->encode(null, 60);
                 Storage::disk($disk)->put($folder . '/' . $file_name, (string) $image);
                 unset($image);
-                return ltrim($folder, '/') . '/' . $file_name;
+                return self::publishedPath($disk, $folder . '/' . $file_name);
             } catch (Exception $e) {
                 // Fallback to plain upload if Image fails (e.g. GD not available)
             }
         }
 
         $requestFile->storeAs($folder, $file_name, $disk);
-        return ltrim($folder, '/') . '/' . $file_name;
+        return self::publishedPath($disk, $folder . '/' . $file_name);
     }
 
     /**
@@ -66,14 +108,15 @@ class FileService
      * @param $folder
      * @return string
      */
-    public static function upload($requestFile, $folder, $disk = 'public')
+    public static function upload($requestFile, $folder, $disk = null)
     {
+        $disk = $disk ?: self::mediaDisk();
         $ext = strtolower($requestFile->getClientOriginalExtension() ?? '');
         self::sanitizeIfSvg($requestFile, $ext);
         
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
         $requestFile->storeAs($folder, $file_name, $disk);
-        return $folder . '/' . $file_name;
+        return self::publishedPath($disk, $folder . '/' . $file_name);
     }
 
     /**
@@ -186,6 +229,16 @@ class FileService
     public static function delete($image)
     {
         if (!empty($image)) {
+            if (is_string($image) && BunnyStreamService::deleteByUrl($image)) {
+                return true;
+            }
+
+            $bunnyPath = self::pathFromBunnyUrl(is_string($image) ? $image : '');
+            if ($bunnyPath !== null) {
+                Storage::disk('bunny')->delete($bunnyPath);
+                return true;
+            }
+
             // Normalize path for checking (remove /storage/ prefix if present)
             $storagePath = str_starts_with((string) $image, '/storage/') ? substr((string) $image, 9) : $image;
 
@@ -270,13 +323,15 @@ class FileService
                     $image->insert($watermark, 'center');
                 }
 
-                Storage::disk('public')->put($folder . '/' . $file_name, (string) $image->encode());
+                $disk = self::mediaDisk();
+                Storage::disk($disk)->put($folder . '/' . $file_name, (string) $image->encode());
             } else {
                 // Else assign file as it is
                 $file = $requestFile;
-                $file->storeAs($folder, $file_name, 'public');
+                $disk = self::mediaDisk();
+                $file->storeAs($folder, $file_name, $disk);
             }
-            return $folder . '/' . $file_name;
+            return self::publishedPath($disk, $folder . '/' . $file_name);
         } catch (Exception $e) {
             throw new RuntimeException($e);
 
@@ -318,13 +373,15 @@ class FileService
                     $image->insert($watermark, 'center');
                 }
 
-                Storage::disk('public')->put($folder . '/' . $file_name, (string) $image->encode());
+                $disk = self::mediaDisk();
+                Storage::disk($disk)->put($folder . '/' . $file_name, (string) $image->encode());
             } else {
                 $file = $requestFile;
-                $file->storeAs($folder, $file_name, 'public');
+                $disk = self::mediaDisk();
+                $file->storeAs($folder, $file_name, $disk);
             }
 
-            return $folder . '/' . $file_name;
+            return self::publishedPath($disk, $folder . '/' . $file_name);
         } catch (Exception $e) {
             throw new RuntimeException($e);
         }
@@ -406,4 +463,26 @@ class FileService
     }
 
     /** End of Private File Upload Functions*/
+
+    private static function publishedPath(string $disk, string $relative): string
+    {
+        $relative = ltrim($relative, '/');
+        if ($disk === 'bunny') {
+            return Storage::disk('bunny')->url($relative);
+        }
+
+        return $relative;
+    }
+
+    private static function pathFromBunnyUrl(string $url): ?string
+    {
+        $cdn = rtrim((string) config('filesystems.disks.bunny.url'), '/');
+        if ($cdn === '' || ! str_starts_with($url, $cdn.'/')) {
+            return null;
+        }
+
+        $path = ltrim(substr($url, strlen($cdn)), '/');
+
+        return $path !== '' ? rawurldecode($path) : null;
+    }
 }

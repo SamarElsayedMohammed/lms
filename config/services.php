@@ -61,8 +61,13 @@ return [
     ],
 
     'bunny' => [
-        'api_key' => env('BUNNY_API_KEY'), // Used to fetch duration
-        'webhook_secret' => env('BUNNY_WEBHOOK_SECRET'), // Used to verify webhook
+        'api_key' => env('BUNNY_API_KEY'), // Stream library API key (duration + upload)
+        'webhook_secret' => env('BUNNY_WEBHOOK_SECRET'), // SHA256(libraryId + this secret)
+        'library_id' => env('BUNNY_STREAM_LIBRARY_ID'),
+        'stream_cdn_hostname' => env('BUNNY_STREAM_CDN_HOSTNAME'),
+        'storage_zone' => env('BUNNY_STORAGE_ZONE'),
+        'storage_key' => env('BUNNY_STORAGE_API_KEY'),
+        'cdn_url' => env('BUNNY_CDN_URL'),
     ],
 
     'zoom' => [
