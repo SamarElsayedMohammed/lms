@@ -13,6 +13,7 @@ use League\Flysystem\UnableToMoveFile;
 use League\Flysystem\UnableToReadFile;
 use League\Flysystem\UnableToRetrieveMetadata;
 use League\Flysystem\UnableToWriteFile;
+use RuntimeException;
 
 /**
  * Bunny Storage HTTP API (storage zone). Public URLs come from the pull-zone config on the disk.
@@ -23,7 +24,24 @@ class BunnyStorageAdapter implements FilesystemAdapter
         private readonly string $zone,
         private readonly string $accessKey,
         private readonly string $host = 'storage.bunnycdn.com',
+        private readonly string $cdnUrl = '',
     ) {}
+
+    /**
+     * Laravel 12 resolves Storage::url() through this method. Without it the
+     * disk throws "This driver does not support retrieving URLs."
+     */
+    public function getUrl(string $path): string
+    {
+        $base = rtrim($this->cdnUrl, '/');
+        if ($base === '') {
+            throw new RuntimeException('Bunny CDN URL is not configured.');
+        }
+
+        $path = ltrim($path, '/');
+
+        return $path === '' ? $base : $base.'/'.$path;
+    }
 
     public function fileExists(string $path): bool
     {

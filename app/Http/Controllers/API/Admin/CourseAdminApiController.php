@@ -100,6 +100,10 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError($validator->errors()->first(), 422);
         }
 
+        if ($request->allFiles() !== []) {
+            set_time_limit(600);
+        }
+
         // ── Build course data ───────────────────────────────────────
         $instructorId  = (int) ($request->input('instructor_id') ?? Auth::id());
         $isFree        = $request->has('is_free') ? $request->boolean('is_free') : true;
@@ -129,34 +133,6 @@ class CourseAdminApiController extends AdminCrudApiController
 
         $title = trim((string) $request->input('title'));
         $slug  = HelperService::generateUniqueSlug(Course::class, $title);
-
-        // Thumbnail
-        if ($request->hasFile('thumbnail')) {
-            $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), FileService::coursePath($slug, 'thumbnail'));
-        } elseif ($request->filled('thumbnail_url')) {
-            $thumbnail = $request->input('thumbnail_url');
-        } else {
-            $thumbnail = null;
-        }
-
-        // Intro video
-        if ($request->hasFile('intro_video')) {
-            $stored = BunnyStreamService::storeUploadedVideo(
-                $request->file('intro_video'),
-                $title,
-                FileService::coursePath($slug, 'intro'),
-                FileService::courseFolderSegment($slug),
-            );
-            $introVideoType = $stored['type'] === 'url' ? 'url' : 'file';
-            $introVideo     = $stored['value'];
-        } elseif ($request->filled('promo_video_url')) {
-            $introVideoType = 'url';
-            $introVideo     = $request->input('promo_video_url');
-        } else {
-            $introVideoType = null;
-            $introVideo     = null;
-        }
-
         $metaDescription = $request->input('meta_description') ?? $request->input('description');
         $languageId      = CourseLanguage::where('is_active', 1)->value('id');
         // New courses issue a certificate by default. An omitted checkbox must not
@@ -169,8 +145,32 @@ class CourseAdminApiController extends AdminCrudApiController
             : null;
 
         // ── Persist ─────────────────────────────────────────────────
+        $thumbnail = null;
+        $introVideoType = null;
+        $introVideo = null;
+
         try {
             DB::beginTransaction();
+
+            if ($request->hasFile('thumbnail')) {
+                $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), FileService::coursePath($slug, 'thumbnail'));
+            } elseif ($request->filled('thumbnail_url')) {
+                $thumbnail = $request->input('thumbnail_url');
+            }
+
+            if ($request->hasFile('intro_video')) {
+                $stored = BunnyStreamService::storeUploadedVideo(
+                    $request->file('intro_video'),
+                    $title,
+                    FileService::coursePath($slug, 'intro'),
+                    FileService::courseFolderSegment($slug),
+                );
+                $introVideoType = $stored['type'] === 'url' ? 'url' : 'file';
+                $introVideo     = $stored['value'];
+            } elseif ($request->filled('promo_video_url')) {
+                $introVideoType = 'url';
+                $introVideo     = $request->input('promo_video_url');
+            }
 
             $course = Course::create([
                 'title'              => $title,
@@ -817,6 +817,10 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError($validator->errors()->first(), 422);
         }
 
+        if ($request->allFiles() !== []) {
+            set_time_limit(600);
+        }
+
         // ── Build course data ───────────────────────────────────────
         $instructorId  = (int) ($request->input('instructor_id') ?? $course->user_id);
         $isFree        = $request->has('is_free') ? $request->boolean('is_free') : (bool) $course->is_free;
@@ -851,34 +855,9 @@ class CourseAdminApiController extends AdminCrudApiController
             ? HelperService::generateUniqueSlug(Course::class, $newTitle, $course->id)
             : $course->slug;
 
-        // Thumbnail
         $thumbnail = $course->thumbnail;
-        if ($request->hasFile('thumbnail')) {
-            $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), FileService::coursePath($slug, 'thumbnail'));
-        } elseif ($request->filled('thumbnail_url')) {
-            $thumbnail = $request->input('thumbnail_url');
-        }
-
-        // Intro video
         $introVideo = $course->intro_video;
         $introVideoType = $course->intro_video_type;
-        if ($request->hasFile('intro_video')) {
-            if ($introVideo) {
-                FileService::delete($introVideo);
-            }
-            $stored = BunnyStreamService::storeUploadedVideo(
-                $request->file('intro_video'),
-                $newTitle,
-                FileService::coursePath($slug, 'intro'),
-                FileService::courseFolderSegment($slug),
-            );
-            $introVideoType = $stored['type'] === 'url' ? 'url' : 'file';
-            $introVideo     = $stored['value'];
-        } elseif ($request->filled('promo_video_url')) {
-            $introVideoType = 'url';
-            $introVideo     = $request->input('promo_video_url');
-        }
-
         $metaDescription = $request->input('meta_description') ?? $request->input('description') ?? $course->meta_description;
         $certificateEnabled = $request->has('certificate_enabled')
             ? $request->boolean('certificate_enabled')
@@ -890,6 +869,29 @@ class CourseAdminApiController extends AdminCrudApiController
         // ── Persist ─────────────────────────────────────────────────
         try {
             DB::beginTransaction();
+
+            if ($request->hasFile('thumbnail')) {
+                $thumbnail = FileService::compressAndUpload($request->file('thumbnail'), FileService::coursePath($slug, 'thumbnail'));
+            } elseif ($request->filled('thumbnail_url')) {
+                $thumbnail = $request->input('thumbnail_url');
+            }
+
+            if ($request->hasFile('intro_video')) {
+                if ($introVideo) {
+                    FileService::delete($introVideo);
+                }
+                $stored = BunnyStreamService::storeUploadedVideo(
+                    $request->file('intro_video'),
+                    $newTitle,
+                    FileService::coursePath($slug, 'intro'),
+                    FileService::courseFolderSegment($slug),
+                );
+                $introVideoType = $stored['type'] === 'url' ? 'url' : 'file';
+                $introVideo     = $stored['value'];
+            } elseif ($request->filled('promo_video_url')) {
+                $introVideoType = 'url';
+                $introVideo     = $request->input('promo_video_url');
+            }
 
             $course->update([
                 'title'              => $newTitle,

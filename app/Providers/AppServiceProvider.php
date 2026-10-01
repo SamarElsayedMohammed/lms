@@ -33,6 +33,7 @@ class AppServiceProvider extends ServiceProvider
                 (string) ($config['zone'] ?? ''),
                 (string) ($config['key'] ?? ''),
                 (string) ($config['hostname'] ?? 'storage.bunnycdn.com'),
+                (string) ($config['url'] ?? ''),
             );
 
             return new \Illuminate\Filesystem\FilesystemAdapter(
