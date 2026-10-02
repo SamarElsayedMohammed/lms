@@ -94,7 +94,7 @@ class BunnyStreamService
         ]);
 
         return [
-            'embed_url' => "https://iframe.mediadelivery.net/embed/{$libraryId}/{$guid}",
+            'embed_url' => "https://player.mediadelivery.net/embed/{$libraryId}/{$guid}",
             'library_id' => $libraryId,
             'guid' => $guid,
         ];
@@ -173,7 +173,9 @@ class BunnyStreamService
             return false;
         }
 
-        if (! preg_match('#iframe\.mediadelivery\.net/embed/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)#', $url, $matches)) {
+        if (
+            ! preg_match('#(?:iframe|player)\.mediadelivery\.net/embed/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)#', $url, $matches)
+        ) {
             return false;
         }
 

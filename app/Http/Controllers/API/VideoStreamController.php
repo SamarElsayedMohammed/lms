@@ -202,11 +202,28 @@ final class VideoStreamController extends Controller
             'has_hls'      => false,
         ];
 
-        // For Bunny.net videos, extract video ID for frontend progress tracking
+        // For Bunny.net videos, prefer CDN HLS so the parent page owns playback
+        // events (progress tracking). Iframe embeds cannot load Player.js under CSP.
         if ($type === 'bunny') {
             $bunnyVideoId = $this->extractBunnyVideoId($videoUrl);
             $data['bunny_video_id'] = $bunnyVideoId;
-            $data['progress_tracking'] = 'bunny_webhook'; // frontend hint
+            $data['progress_tracking'] = 'client_segments';
+            $data['embed_url'] = $videoUrl;
+
+            $cdnHost = trim((string) config('services.bunny.stream_cdn_hostname', ''));
+            $cdnHost = (string) preg_replace('#^https?://#i', '', $cdnHost);
+            $cdnHost = rtrim($cdnHost, '/');
+
+            if ($cdnHost !== '' && is_string($bunnyVideoId) && $bunnyVideoId !== '') {
+                $playlist = "https://{$cdnHost}/{$bunnyVideoId}/playlist.m3u8";
+                $data['manifest_url'] = $playlist;
+                $data['playlist_url'] = $playlist;
+                $data['video_url'] = $playlist;
+                $data['file_url'] = $playlist;
+                $data['type'] = 'hls';
+                $data['file_type'] = 'hls';
+                $data['has_hls'] = true;
+            }
         }
 
         return $this->ok(data: $data, message: 'Video access granted');
@@ -273,6 +290,7 @@ final class VideoStreamController extends Controller
         $bunnyDomains = [
             'mediadelivery.net',
             'iframe.mediadelivery.net',
+            'player.mediadelivery.net',
             'b-cdn.net',
             'bunnycdn.com',
         ];
