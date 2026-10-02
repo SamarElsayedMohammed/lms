@@ -198,6 +198,7 @@ trait ServesCourseCatalogDetail
 
             // Get user's curriculum completion tracking data
             $userCurriculumTracking = [];
+            $userVideoProgress = collect();
             if ($user) {
                 $chapterIds = $course->chapters->pluck("id")->toArray();
                 $userCurriculumTracking = UserCurriculumTracking::where(
@@ -213,6 +214,15 @@ trait ServesCourseCatalogDetail
                             "_" .
                             $item->model_id,
                     );
+
+                $allLectureIds = $course->chapters->flatMap->lectures->pluck("id")->filter()->toArray();
+                if (!empty($allLectureIds)) {
+                    $userVideoProgress = DB::table("video_progress")
+                        ->where("user_id", $user->id)
+                        ->whereIn("lecture_id", $allLectureIds)
+                        ->get()
+                        ->keyBy("lecture_id");
+                }
             }
 
             // Calculate total course duration and prepare chapters data
@@ -223,15 +233,22 @@ trait ServesCourseCatalogDetail
                 $chapterId,
                 $modelType,
                 $modelId,
-            ) use ($userCurriculumTracking) {
-                if (empty($userCurriculumTracking)) {
+            ) use ($userCurriculumTracking, $userVideoProgress) {
+                if (empty($userCurriculumTracking) && $userVideoProgress->isEmpty()) {
                     return false;
                 }
                 $key = $chapterId . "_" . $modelType . "_" . $modelId;
+                if (isset($userCurriculumTracking[$key]) &&
+                    $userCurriculumTracking[$key]->first()->status === "completed") {
+                    return true;
+                }
 
-                return isset($userCurriculumTracking[$key]) &&
-                    $userCurriculumTracking[$key]->first()->status ===
-                        "completed";
+                if ($modelType === CourseChapterLecture::class || $modelType === "lecture") {
+                    $video = $userVideoProgress->get($modelId);
+                    return (bool) ($video?->is_completed ?? false);
+                }
+
+                return false;
             };
 
             $chapters = [];
@@ -296,6 +313,7 @@ trait ServesCourseCatalogDetail
                     $request,
                     $hasAccess,
                     $isPurchased,
+                    $userVideoProgress,
                 ) {
                     $resource = new CourseChapterLectureResource(
                         $lecture,
@@ -303,12 +321,15 @@ trait ServesCourseCatalogDetail
                     );
                     $lectureData = $resource->toArray($request);
 
-                    // Add completion and resources info
+                    // Add completion, progress and resources info
                     $lectureData["is_completed"] = $isItemCompleted(
                         $chapter->id,
                         CourseChapterLecture::class,
                         $lecture->id,
                     );
+                    $videoRecord = $userVideoProgress->get($lecture->id);
+                    $lectureData["watch_percentage"] = $videoRecord ? (float) $videoRecord->watch_percentage : 0;
+                    $lectureData["last_position"] = $videoRecord ? (int) $videoRecord->last_position : 0;
                     $lectureData["has_resources"] =
                         $lecture->resources->count() > 0;
                     $lectureData["resources"] = $lecture->resources->map(
@@ -557,6 +578,39 @@ trait ServesCourseCatalogDetail
                 }
             }
 
+            // Calculate sequential locking authoritative flags
+            $isCourseSequential = (bool) ($course->sequential_access ?? true);
+            $userCanBypass = $user && ($user->hasRole(["admin", "instructor", "supervisor", "Super Admin"]) || $user->id === $course->user_id);
+            $enforceSequential = $isCourseSequential && !$userCanBypass;
+
+            $previousItemCompleted = true; // First item is always unlocked
+            foreach ($sortedAllCurriculum as $index => $curriculumItem) {
+                $chapterIndex = $curriculumItem["chapter_index"];
+                $itemIndex = $curriculumItem["item_index"];
+
+                if (isset($chapters[$chapterIndex]["curriculum"][$itemIndex])) {
+                    $itemRef = &$chapters[$chapterIndex]["curriculum"][$itemIndex];
+                    $itemCompleted = (bool) ($itemRef["is_completed"] ?? false);
+                    $isFree = (bool) ($itemRef["free_preview"] ?? false) || (bool) ($itemRef["is_free"] ?? false);
+
+                    if (!$hasAccess) {
+                        $itemRef["is_locked"] = !$isFree;
+                    } elseif ($userCanBypass) {
+                        $itemRef["is_locked"] = false;
+                    } elseif ($enforceSequential) {
+                        $itemRef["is_locked"] = (!$previousItemCompleted && !$itemCompleted && !$isFree);
+                        if ($itemCompleted) {
+                            $previousItemCompleted = true;
+                        } else {
+                            $previousItemCompleted = false;
+                        }
+                    } else {
+                        $itemRef["is_locked"] = false;
+                    }
+                    unset($itemRef);
+                }
+            }
+
             // Prepare reviews data
             $reviews = $course->ratings->map(
                 static fn($rating) => [
@@ -601,27 +655,33 @@ trait ServesCourseCatalogDetail
                         $resourceCount;
                 });
 
-            // Calculate completed curriculum count for the logged-in user
+            // Calculate completed curriculum count and progress percentage for the logged-in user
             $completedCurriculumCount = 0;
             $progressPercentage = 0;
             if ($user) {
-                $chapterIds = $course->chapters->pluck("id")->toArray();
+                try {
+                    $courseProgress = app(\App\Services\CourseProgressService::class)->getProgressWithCache($user->id, $course->id);
+                    $progressPercentage = (float) ($courseProgress->progress_percentage ?? 0);
+                    $completedCurriculumCount = (int) ($courseProgress->completed_items ?? 0);
+                } catch (\Throwable $e) {
+                    $chapterIds = $course->chapters->pluck("id")->toArray();
 
-                $completedCurriculumCount = UserCurriculumTracking::where(
-                    "user_id",
-                    $user->id,
-                )
-                    ->whereIn("course_chapter_id", $chapterIds)
-                    ->where("status", "completed")
-                    ->count();
+                    $completedCurriculumCount = UserCurriculumTracking::where(
+                        "user_id",
+                        $user->id,
+                    )
+                        ->whereIn("course_chapter_id", $chapterIds)
+                        ->where("status", "completed")
+                        ->count();
 
-                // Calculate progress percentage
-                if ($totalCurriculumCount > 0) {
-                    $progressPercentage = round(
-                        ($completedCurriculumCount / $totalCurriculumCount) *
-                            100,
-                        2,
-                    );
+                    // Calculate progress percentage
+                    if ($totalCurriculumCount > 0) {
+                        $progressPercentage = round(
+                            ($completedCurriculumCount / $totalCurriculumCount) *
+                                100,
+                            2,
+                        );
+                    }
                 }
             }
 
@@ -786,11 +846,7 @@ trait ServesCourseCatalogDetail
                 "is_enrolled" => $hasAccess,
                 "has_access" => $hasAccess,
                 "is_wishlist" => $isWishlist,
-                "has_ai_assistant" => (bool) (
-                    $course->chatbot_enabled
-                    || !empty($course->getRawOriginal("ai_knowledge_content"))
-                    || !empty($course->ai_knowledge_file)
-                ),
+                "has_ai_assistant" => (bool) $course->chatbot_enabled,
                 "chatbot_enabled" => (bool) $course->chatbot_enabled,
                 "ai_processing_status" => $course->ai_processing_status ?? 'not_configured',
                 "enroll_students" =>
@@ -1661,11 +1717,7 @@ trait ServesCourseCatalogDetail
                     ? $course->updated_at->format("Y-m-d H:i:s")
                     : null,
                 "is_purchased" => $isPurchased,
-                "has_ai_assistant" => (bool) (
-                    $course->chatbot_enabled
-                    || !empty($course->getRawOriginal("ai_knowledge_content"))
-                    || !empty($course->ai_knowledge_file)
-                ),
+                "has_ai_assistant" => (bool) $course->chatbot_enabled,
                 "chatbot_enabled" => (bool) $course->chatbot_enabled,
                 "ai_processing_status" => $course->ai_processing_status ?? 'not_configured',
                 "meta_title" => $course->meta_title ?? $course->title,

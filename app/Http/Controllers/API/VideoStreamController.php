@@ -65,10 +65,8 @@ final class VideoStreamController extends Controller
                     return $this->forbidden('Subscription required');
                 }
 
-                if ($this->featureFlagService->isEnabled('video_progress_enforcement', false)) {
-                    if (!$this->videoProgressService->canAccessNextLesson($user, $courseChapterLecture)) {
-                        return $this->forbidden('Complete the previous lesson first (85% required)');
-                    }
+                if (!$this->videoProgressService->canAccessNextLesson($user, $courseChapterLecture)) {
+                    return $this->forbidden('Complete the previous lesson first (85% required)');
                 }
             }
 

@@ -735,9 +735,11 @@ class ChatbotAdminApiController extends AdminCrudApiController
 
             if ($course) {
                 $courseUpdates = [
-                    'chatbot_enabled' => true,
                     'ai_processing_status' => 'queued',
                 ];
+                if ($request->has('chatbot_enabled')) {
+                    $courseUpdates['chatbot_enabled'] = $request->boolean('chatbot_enabled');
+                }
                 if ($content !== '') {
                     $courseUpdates['ai_knowledge_content'] = $content;
                 }

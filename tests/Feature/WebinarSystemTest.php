@@ -790,7 +790,7 @@ class WebinarSystemTest extends TestCase
 
         $signup = $this->postJson('/api/user-signup', [
             'type' => 'email',
-            'name' => 'حساب سكيلسو',
+            'name' => 'حساب سكيلزو',
             'email' => 'convert.guest@example.com',
             'password' => 'Secret#123',
             'confirm_password' => 'Secret#123',

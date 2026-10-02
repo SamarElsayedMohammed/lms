@@ -119,19 +119,11 @@ class CourseChapterLectureController extends Controller
         $chapter = $course->chapters()->findOrFail($chapterId);
         $lecture = $chapter->lectures()->findOrFail($lectureId);
 
-        if ($this->featureFlagService->isEnabled('sequential_lecture_unlock')) {
-            $previousLecture = $this->videoProgressService->getPreviousLecture($lecture);
-            if ($previousLecture !== null) {
-                $progress = \App\Models\VideoProgress::forUser($user->id)
-                    ->forLecture($previousLecture->id)
-                    ->first();
-                if (!$progress || !$progress->is_completed) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'You must complete the previous lecture first.',
-                    ], 403);
-                }
-            }
+        if (!$this->videoProgressService->canAccessNextLesson($user, $lecture)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'You must complete the previous lecture first.',
+            ], 403);
         }
 
         if ($lecture->type === 'video') {

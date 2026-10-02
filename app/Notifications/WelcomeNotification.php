@@ -34,8 +34,8 @@ class WelcomeNotification extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
-            'title' => 'أهلاً بك في سكيلسو!',
-            'title_ar' => 'أهلاً بك في سكيلسو!',
+            'title' => 'أهلاً بك في سكيلزو!',
+            'title_ar' => 'أهلاً بك في سكيلزو!',
             'message' => 'أهلاً بك في منصتنا! ابدأ رحلتك التعليمية اليوم.',
             'message_ar' => 'أهلاً بك في منصتنا! ابدأ رحلتك التعليمية اليوم.',
             'action_url' => '/courses',

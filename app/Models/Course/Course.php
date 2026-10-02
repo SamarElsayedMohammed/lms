@@ -82,6 +82,7 @@ class Course extends Model
      */
     protected $attributes = [
         'certificate_enabled' => true,
+        'chatbot_enabled' => false,
     ];
 
     protected $casts = [
@@ -400,7 +401,7 @@ class Course extends Model
      */
     public function isFreeNow(): bool
     {
-        if ($this->is_free) {
+        if ($this->is_free || strtolower((string) ($this->course_type ?? '')) === 'free') {
             return true;
         }
 

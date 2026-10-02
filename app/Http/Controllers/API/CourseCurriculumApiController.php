@@ -43,7 +43,10 @@ class CourseCurriculumApiController extends Controller
         $totalLessons = 0;
         $completedLessons = 0;
 
-        $isSequential = (bool) ($course->sequential_access ?? false);
+        $isSequential = (bool) ($course->sequential_access ?? true);
+        if ($user && ($user->hasRole(['admin', 'instructor', 'supervisor', 'Super Admin']) || $user->id === $course->user_id)) {
+            $isSequential = false;
+        }
         $previousLessonCompleted = true; // First lesson is always unlocked
 
         foreach ($detailed['chapters'] ?? [] as $chapter) {

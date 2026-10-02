@@ -94,6 +94,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'ai_knowledge_url'              => 'nullable|url|max:500',
             'ai_knowledge_content'          => 'nullable|string',
             'chatbot_enabled'               => 'nullable|boolean',
+            'is_ai_enabled'                 => 'nullable|boolean',
+            'ai_enabled'                    => 'nullable|boolean',
             'chatbot_name'                  => 'nullable|string|max:100',
             'chatbot_welcome_message'       => 'nullable|string|max:500',
             'chatbot_system_prompt'         => 'nullable|string',
@@ -209,7 +211,13 @@ class CourseAdminApiController extends AdminCrudApiController
                 'content_structure'  => $contentStructure,
                 'language_id'        => $languageId,
                 'is_featured'        => $request->boolean('is_featured'),
-                'chatbot_enabled'    => $request->boolean('chatbot_enabled'),
+                'chatbot_enabled'    => $request->has('chatbot_enabled')
+                    ? $request->boolean('chatbot_enabled')
+                    : ($request->has('is_ai_enabled')
+                        ? $request->boolean('is_ai_enabled')
+                        : ($request->has('ai_enabled')
+                            ? $request->boolean('ai_enabled')
+                            : false)),
                 'chatbot_name'       => $request->input('chatbot_name'),
                 'chatbot_welcome_message' => $request->input('chatbot_welcome_message'),
                 'chatbot_system_prompt'   => $request->input('chatbot_system_prompt'),
@@ -855,7 +863,8 @@ class CourseAdminApiController extends AdminCrudApiController
             fn ($s) => count($s['lessons']), $curriculumSections
         )) + count($standaloneLessons);
 
-        $courseData['has_ai_assistant'] = (bool) ($course->chatbot_enabled || !empty($course->ai_knowledge_content) || !empty($course->ai_knowledge_file));
+        $courseData['has_ai_assistant'] = (bool) $course->chatbot_enabled;
+        $courseData['chatbot_enabled'] = (bool) $course->chatbot_enabled;
         $courseData['ai_knowledge_content'] = $course->ai_knowledge_content;
         $courseData['ai_knowledge_file_url'] = $course->ai_knowledge_file ? FileService::getFileUrl($course->ai_knowledge_file) : null;
         $courseData['ai_processing_status'] = $course->ai_processing_status ?? 'not_configured';
@@ -961,6 +970,8 @@ class CourseAdminApiController extends AdminCrudApiController
             'ai_knowledge_content'          => 'nullable|string',
             'remove_ai_knowledge'           => 'nullable|boolean',
             'chatbot_enabled'               => 'nullable|boolean',
+            'is_ai_enabled'                 => 'nullable|boolean',
+            'ai_enabled'                    => 'nullable|boolean',
             'chatbot_name'                  => 'nullable|string|max:100',
             'chatbot_welcome_message'       => 'nullable|string|max:500',
             'chatbot_system_prompt'         => 'nullable|string',
@@ -1077,7 +1088,13 @@ class CourseAdminApiController extends AdminCrudApiController
                 'intro_video_type'   => $introVideoType,
                 'content_structure'  => $contentStructure,
                 'is_featured'        => $request->has('is_featured') ? $request->boolean('is_featured') : $course->is_featured,
-                'chatbot_enabled'    => $request->has('chatbot_enabled') ? $request->boolean('chatbot_enabled') : $course->chatbot_enabled,
+                'chatbot_enabled'    => $request->has('chatbot_enabled')
+                    ? $request->boolean('chatbot_enabled')
+                    : ($request->has('is_ai_enabled')
+                        ? $request->boolean('is_ai_enabled')
+                        : ($request->has('ai_enabled')
+                            ? $request->boolean('ai_enabled')
+                            : $course->chatbot_enabled)),
                 'chatbot_name'       => $request->input('chatbot_name', $course->chatbot_name),
                 'chatbot_welcome_message' => $request->input('chatbot_welcome_message', $course->chatbot_welcome_message),
                 'chatbot_system_prompt'   => $request->input('chatbot_system_prompt', $course->chatbot_system_prompt),
@@ -1491,7 +1508,6 @@ class CourseAdminApiController extends AdminCrudApiController
 
             $course->update([
                 'ai_knowledge_file'    => $filePath,
-                'chatbot_enabled'      => true,
                 'ai_processing_status' => 'queued',
             ]);
 
@@ -1513,7 +1529,6 @@ class CourseAdminApiController extends AdminCrudApiController
 
                 $course->update([
                     'ai_knowledge_content' => $content,
-                    'chatbot_enabled'      => true,
                     'ai_processing_status' => 'queued',
                 ]);
 

@@ -175,4 +175,142 @@ class ChatbotAvailabilityTest extends TestCase
         $this->assertEquals(0, \App\Models\ChatbotKnowledgeBase::where('course_id', $course->id)->count());
         $this->assertEquals(0, \App\Models\ChatbotVectorChunk::where('course_id', $course->id)->count());
     }
+
+    public function test_admin_can_turn_course_chatbot_off_and_it_remains_off_even_with_knowledge_content(): void
+    {
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => 'web']);
+        $admin = User::factory()->create();
+        $admin->assignRole($role);
+
+        $category = \App\Models\Category::create(['name' => 'Tech', 'slug' => 'tech-' . uniqid(), 'is_active' => true]);
+        $course = Course::factory()->create([
+            'category_id' => $category->id,
+            'chatbot_enabled' => true,
+            'ai_knowledge_content' => 'Existing course syllabus',
+            'ai_processing_status' => 'ready',
+        ]);
+
+        $this->assertTrue((bool) $course->chatbot_enabled);
+
+        // Turn OFF the chatbot while keeping knowledge content
+        $response = $this->actingAs($admin, 'sanctum')
+            ->putJson("/api/admin/courses/{$course->id}", [
+                'title' => $course->title,
+                'category_id' => $category->id,
+                'chatbot_enabled' => false,
+                'ai_knowledge_content' => 'Existing course syllabus updated',
+            ]);
+
+        $response->assertStatus(200);
+        $this->assertFalse($response->json('data.chatbot_enabled'));
+        $this->assertFalse($response->json('data.has_ai_assistant'));
+
+        // Authoritative Database check: must be false/0
+        $course->refresh();
+        $this->assertFalse((bool) $course->chatbot_enabled);
+
+        // Reload endpoint GET /api/admin/courses/{id}
+        $reloadResponse = $this->actingAs($admin, 'sanctum')
+            ->getJson("/api/admin/courses/{$course->id}");
+
+        $reloadResponse->assertStatus(200);
+        $this->assertFalse($reloadResponse->json('data.chatbot_enabled'));
+        $this->assertFalse($reloadResponse->json('data.has_ai_assistant'));
+    }
+
+    public function test_student_course_catalog_and_config_strictly_reflect_disabled_chatbot(): void
+    {
+        $course = Course::factory()->create([
+            'chatbot_enabled' => false,
+            'ai_knowledge_content' => 'Comprehensive course material',
+            'ai_processing_status' => 'ready',
+        ]);
+
+        // Student catalog detail
+        $catalogResponse = $this->getJson("/api/get-course?course_id={$course->id}");
+        $catalogResponse->assertStatus(200);
+        $this->assertFalse((bool) $catalogResponse->json('data.chatbot_enabled'));
+        $this->assertFalse((bool) $catalogResponse->json('data.has_ai_assistant'));
+
+        // Chatbot config
+        $configResponse = $this->getJson("/api/chatbot/config/{$course->id}");
+        $configResponse->assertStatus(200)
+            ->assertJson([
+                'status' => true,
+                'data' => [
+                    'enabled' => false,
+                    'available' => false,
+                    'reason_code' => 'course_bot_disabled',
+                ],
+            ]);
+    }
+
+    public function test_course_chat_endpoint_strictly_rejects_messages_when_chatbot_disabled(): void
+    {
+        $user = User::factory()->create();
+        $course = Course::factory()->create([
+            'chatbot_enabled' => false,
+            'ai_knowledge_content' => 'Material available',
+            'ai_processing_status' => 'ready',
+        ]);
+
+        // Enroll user in course
+        $order = \App\Models\Order::create([
+            'user_id' => $user->id,
+            'status' => 'completed',
+            'payment_method' => 'wallet',
+            'total_price' => 100,
+            'final_price' => 100,
+            'order_number' => 'ORD-CHAT-DIS-' . $user->id,
+        ]);
+        \App\Models\OrderCourse::create([
+            'order_id' => $order->id,
+            'course_id' => $course->id,
+            'price' => 100,
+            'tax_price' => 0,
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/chatbot/course-message', [
+                'course_id' => $course->id,
+                'message' => 'Hello AI tutor',
+            ]);
+
+        $response->assertStatus(403)
+            ->assertJson([
+                'status' => false,
+                'message' => 'AI assistant is not available for this course',
+            ]);
+    }
+
+    public function test_admin_can_re_enable_course_chatbot_and_it_persists(): void
+    {
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => 'web']);
+        $admin = User::factory()->create();
+        $admin->assignRole($role);
+
+        $category = \App\Models\Category::create(['name' => 'Design', 'slug' => 'design-' . uniqid(), 'is_active' => true]);
+        $course = Course::factory()->create([
+            'category_id' => $category->id,
+            'chatbot_enabled' => false,
+            'ai_knowledge_content' => 'Syllabus content',
+        ]);
+
+        $this->assertFalse((bool) $course->chatbot_enabled);
+
+        // Re-enable
+        $response = $this->actingAs($admin, 'sanctum')
+            ->putJson("/api/admin/courses/{$course->id}", [
+                'title' => $course->title,
+                'category_id' => $category->id,
+                'chatbot_enabled' => true,
+            ]);
+
+        $response->assertStatus(200);
+        $this->assertTrue($response->json('data.chatbot_enabled'));
+        $this->assertTrue($response->json('data.has_ai_assistant'));
+
+        $course->refresh();
+        $this->assertTrue((bool) $course->chatbot_enabled);
+    }
 }

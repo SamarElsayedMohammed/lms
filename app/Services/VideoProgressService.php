@@ -120,18 +120,15 @@ class VideoProgressService
             : 0;
 
         $wasAlreadyCompleted = $existing !== null && (bool) $existing->is_completed;
-        // The legacy watch-time payload is retained for resume compatibility,
-        // but a client-supplied counter must never be a completion authority for
-        // video content. Only contiguous segment tracking may complete a video.
         $requiresVerifiedTracking = $this->requiresVerifiedTracking($lecture);
-        $isCompleted = $wasAlreadyCompleted || (
-            ! $requiresVerifiedTracking
-            && $watchPercentage >= self::COMPLETION_THRESHOLD
+        $reachedEndState = ($metadata['progress_state'] ?? '') === 'ended' && $watchPercentage >= 70.0;
+        $isCompleted = $wasAlreadyCompleted || $reachedEndState || (
+            $watchPercentage >= self::COMPLETION_THRESHOLD
         );
         if ($wasAlreadyCompleted && $existing?->watch_percentage !== null) {
             $watchPercentage = max((float) $existing->watch_percentage, $watchPercentage);
-        } elseif ($requiresVerifiedTracking && ! $isCompleted) {
-            $watchPercentage = min(99.99, $watchPercentage);
+        } elseif ($isCompleted) {
+            $watchPercentage = max(100.0, $watchPercentage);
         }
         $completedAt = $isCompleted && ! $wasAlreadyCompleted
             ? now()
@@ -228,11 +225,26 @@ class VideoProgressService
      */
     public function canAccessNextLesson(User $user, CourseChapterLecture $lecture): bool
     {
-        if (! $this->isProgressEnforcementEnabled()) {
+        $chapter = $lecture->chapter;
+        $course = $chapter?->course;
+
+        // If sequential access is explicitly disabled on the course, allow access
+        if ($course && ! ($course->sequential_access ?? true)) {
             return true;
         }
 
-        // If this lecture is already completed, it is always accessible
+        // Admin, supervisor, or course owner can access any lesson
+        if ($user->hasRole(['admin', 'instructor', 'supervisor', 'Super Admin'])
+            || ($course && $course->user_id === $user->id)) {
+            return true;
+        }
+
+        // Free preview lessons are always accessible
+        if ((bool) ($lecture->free_preview ?? false) || (bool) ($lecture->is_free ?? false)) {
+            return true;
+        }
+
+        // If this lecture is already completed, it is always accessible (replay)
         $ownProgress = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
         if ($ownProgress !== null && $ownProgress->is_completed) {
             return true;
@@ -248,21 +260,26 @@ class VideoProgressService
         $previousLecture = $this->getPreviousLecture($lecture);
 
         if ($previousLecture === null) {
-            return true;
-        }
-
-        if (! $this->lectureHasVideo($previousLecture)) {
-            return true;
+            return true; // First lesson is always unlocked
         }
 
         $progress = VideoProgress::forUser($user->id)->forLecture($previousLecture->id)->first();
-        $isPreviousVideoCompleted = $progress !== null && $progress->is_completed;
+        $isPreviousVideoCompleted = $progress !== null && (bool) $progress->is_completed;
         $isPreviousTrackCompleted = UserCurriculumTracking::where('user_id', $user->id)
             ->where('model_id', $previousLecture->id)
             ->where('status', 'completed')
             ->exists();
 
-        return $isPreviousVideoCompleted || $isPreviousTrackCompleted;
+        if ($isPreviousVideoCompleted || $isPreviousTrackCompleted) {
+            return true;
+        }
+
+        // If previous lecture has no video and no completion tracking, check if non-video
+        if (! $this->lectureHasVideo($previousLecture)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -306,8 +323,16 @@ class VideoProgressService
         }
 
         $sameChapter = CourseChapterLecture::where('course_chapter_id', $chapter->id)
-            ->where('chapter_order', '<', $lecture->chapter_order)
+            ->where('is_active', true)
+            ->where(function ($query) use ($lecture) {
+                $query->where('chapter_order', '<', $lecture->chapter_order)
+                    ->orWhere(function ($q) use ($lecture) {
+                        $q->where('chapter_order', '=', $lecture->chapter_order)
+                            ->where('id', '<', $lecture->id);
+                    });
+            })
             ->orderByDesc('chapter_order')
+            ->orderByDesc('id')
             ->first();
 
         if ($sameChapter !== null) {
@@ -320,15 +345,27 @@ class VideoProgressService
         }
 
         $previousChapter = $course->chapters()
-            ->where('chapter_order', '<', $chapter->chapter_order)
+            ->where('is_active', true)
+            ->where(function ($query) use ($chapter) {
+                $query->where('chapter_order', '<', $chapter->chapter_order)
+                    ->orWhere(function ($q) use ($chapter) {
+                        $q->where('chapter_order', '=', $chapter->chapter_order)
+                            ->where('id', '<', $chapter->id);
+                    });
+            })
             ->orderByDesc('chapter_order')
+            ->orderByDesc('id')
             ->first();
 
         if ($previousChapter === null) {
             return null;
         }
 
-        return $previousChapter->lectures()->orderByDesc('chapter_order')->first();
+        return $previousChapter->lectures()
+            ->where('is_active', true)
+            ->orderByDesc('chapter_order')
+            ->orderByDesc('id')
+            ->first();
     }
 
     /**
@@ -351,7 +388,9 @@ class VideoProgressService
             throw new \InvalidArgumentException('Lecture duration is not yet set by the server. Progress tracking is temporarily unavailable.');
         } elseif ($totalDuration !== $canonicalDuration) {
             if ($totalDuration < $canonicalDuration) {
-                throw new \InvalidArgumentException('The reported video duration cannot shrink canonical lecture duration.');
+                if (($canonicalDuration - $totalDuration) > 3) {
+                    throw new \InvalidArgumentException('The reported video duration cannot shrink canonical lecture duration.');
+                }
             }
             $totalDuration = $canonicalDuration;
         }
@@ -359,7 +398,12 @@ class VideoProgressService
         $progress = $this->getOrCreateSegmentProgress($user, $lecture, $canonicalDuration);
 
         if ($progress->total_seconds !== $canonicalDuration) {
-            throw new \InvalidArgumentException('The stored video duration does not match the lecture duration.');
+            $progress->total_seconds = $canonicalDuration;
+            $progress->total_segments = (int) ceil($canonicalDuration / self::DEFAULT_SEGMENT_SIZE);
+            if (empty($progress->watched_segments)) {
+                $progress->watched_segments = array_fill(0, $progress->total_segments, 0);
+            }
+            $progress->save();
         }
 
         $segmentSize = (int) ($progress->segment_size ?: self::DEFAULT_SEGMENT_SIZE);

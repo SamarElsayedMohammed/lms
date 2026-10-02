@@ -306,9 +306,7 @@ class CourseProgressService
 
                 $requiresVerifiedTracking = app(VideoProgressService::class)
                     ->requiresVerifiedTracking($lecture);
-                $isCompleted = $requiresVerifiedTracking
-                    ? (bool) ($video?->is_completed ?? false)
-                    : $track?->status === 'completed';
+                $isCompleted = (bool) ($video?->is_completed ?? false) || ($track?->status === 'completed');
                 $watchPercentage = min(100.0, max(0.0, (float) ($video?->watch_percentage ?? 0)));
                 $durationSeconds = max(0, (int) ($lecture->duration_seconds ?? 0));
                 $storedVideoDuration = max(0, (int) ($video?->total_seconds ?? 0));
