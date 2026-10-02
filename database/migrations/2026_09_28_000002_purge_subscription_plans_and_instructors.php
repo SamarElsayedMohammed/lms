@@ -21,7 +21,10 @@ return new class extends Migration
     {
         Log::info('[Purge Plans & Instructors Migration] Starting execution...');
 
-        DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
+        $isMysql = DB::getDriverName() === 'mysql';
+        if ($isMysql) {
+            DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
+        }
 
         try {
             // 1. Reassign all courses to Super Admin (ID 4)
@@ -143,7 +146,9 @@ return new class extends Migration
             if (DB::getSchemaBuilder()->hasTable('users')) {
                 DB::table('users')->whereNotIn('id', [4])->delete();
                 // Ensure Super Admin is not marked as instructor
-                DB::table('users')->where('id', 4)->update(['is_instructor' => 0]);
+                if (DB::getSchemaBuilder()->hasColumn('users', 'is_instructor')) {
+                    DB::table('users')->where('id', 4)->update(['is_instructor' => 0]);
+                }
             }
 
             // 4. Reset auto-increments
@@ -154,15 +159,19 @@ return new class extends Migration
                 'subscription_plans', 'subscription_plan_prices',
                 'chatbot_conversations', 'chatbot_messages'
             ];
-            foreach ($tablesToReset as $table) {
-                if (DB::getSchemaBuilder()->hasTable($table)) {
-                    DB::statement("ALTER TABLE `{$table}` AUTO_INCREMENT = 1;");
+            if ($isMysql) {
+                foreach ($tablesToReset as $table) {
+                    if (DB::getSchemaBuilder()->hasTable($table)) {
+                        DB::statement("ALTER TABLE `{$table}` AUTO_INCREMENT = 1;");
+                    }
                 }
             }
 
             Log::info('[Purge Plans & Instructors Migration] Completed successfully!');
         } finally {
-            DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
+            if ($isMysql) {
+                DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
+            }
         }
     }
 

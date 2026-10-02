@@ -84,4 +84,95 @@ class ChatbotAvailabilityTest extends TestCase
                 ],
             ]);
     }
+
+    public function test_course_catalog_exposes_ai_assistant_flags(): void
+    {
+        $course = Course::factory()->create([
+            'chatbot_enabled' => true,
+            'ai_knowledge_content' => 'Deep learning fundamentals',
+            'ai_processing_status' => 'ready',
+        ]);
+
+        $response = $this->getJson("/api/get-course?course_id={$course->id}");
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => true,
+                'data' => [
+                    'has_ai_assistant' => true,
+                    'chatbot_enabled' => true,
+                    'ai_processing_status' => 'ready',
+                ],
+            ]);
+    }
+
+    public function test_admin_course_show_preserves_ai_knowledge_content(): void
+    {
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => 'web']);
+        $admin = User::factory()->create();
+        $admin->assignRole($role);
+
+        $course = Course::factory()->create([
+            'title' => 'Advanced Machine Learning',
+            'chatbot_enabled' => true,
+            'ai_knowledge_content' => 'Comprehensive syllabus for AI',
+            'ai_processing_status' => 'ready',
+        ]);
+
+        $response = $this->actingAs($admin, 'sanctum')
+            ->getJson("/api/admin/courses/{$course->id}");
+
+        $response->assertStatus(200);
+        $this->assertEquals('Comprehensive syllabus for AI', $response->json('data.ai_knowledge_content'));
+        $this->assertTrue($response->json('data.chatbot_enabled'));
+        $this->assertTrue($response->json('data.has_ai_assistant'));
+    }
+
+    public function test_admin_remove_ai_info_cleanses_knowledge_base_and_vector_chunks(): void
+    {
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => 'web']);
+        $admin = User::factory()->create();
+        $admin->assignRole($role);
+
+        $course = Course::factory()->create([
+            'chatbot_enabled' => true,
+            'ai_knowledge_content' => 'Existing notes',
+            'ai_processing_status' => 'ready',
+        ]);
+
+        \App\Models\ChatbotKnowledgeBase::create([
+            'course_id' => $course->id,
+            'target_audience' => 'course',
+            'title' => 'Course Notes',
+            'content' => 'Existing notes',
+            'is_active' => true,
+            'processing_status' => 'ready',
+        ]);
+
+        \App\Models\ChatbotVectorChunk::create([
+            'bot_type' => 'course',
+            'course_id' => $course->id,
+            'source_type' => 'text',
+            'title' => 'Course Notes',
+            'chunk_index' => 0,
+            'chunk_text' => 'Existing chunk',
+            'embedding' => json_encode([0.1, 0.2]),
+            'token_count' => 10,
+            'content_hash' => 'hash123',
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($admin, 'sanctum')
+            ->deleteJson("/api/admin/courses/{$course->id}/chatbot");
+
+        $response->assertStatus(200);
+
+        $course->refresh();
+        $this->assertFalse($course->chatbot_enabled);
+        $this->assertNull($course->ai_knowledge_content);
+        $this->assertEquals('not_configured', $course->ai_processing_status);
+
+        $this->assertEquals(0, \App\Models\ChatbotKnowledgeBase::where('course_id', $course->id)->count());
+        $this->assertEquals(0, \App\Models\ChatbotVectorChunk::where('course_id', $course->id)->count());
+    }
 }

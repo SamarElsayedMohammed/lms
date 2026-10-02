@@ -786,9 +786,13 @@ trait ServesCourseCatalogDetail
                 "is_enrolled" => $hasAccess,
                 "has_access" => $hasAccess,
                 "is_wishlist" => $isWishlist,
-                "has_ai_assistant" => !empty(
-                    $course->getRawOriginal("ai_knowledge_content")
+                "has_ai_assistant" => (bool) (
+                    $course->chatbot_enabled
+                    || !empty($course->getRawOriginal("ai_knowledge_content"))
+                    || !empty($course->ai_knowledge_file)
                 ),
+                "chatbot_enabled" => (bool) $course->chatbot_enabled,
+                "ai_processing_status" => $course->ai_processing_status ?? 'not_configured',
                 "enroll_students" =>
                     ($course->order_courses_count ?? 0) +
                     ($course->initial_students ?? 0),
@@ -1657,9 +1661,13 @@ trait ServesCourseCatalogDetail
                     ? $course->updated_at->format("Y-m-d H:i:s")
                     : null,
                 "is_purchased" => $isPurchased,
-                "has_ai_assistant" => !empty(
-                    $course->getRawOriginal("ai_knowledge_content")
+                "has_ai_assistant" => (bool) (
+                    $course->chatbot_enabled
+                    || !empty($course->getRawOriginal("ai_knowledge_content"))
+                    || !empty($course->ai_knowledge_file)
                 ),
+                "chatbot_enabled" => (bool) $course->chatbot_enabled,
+                "ai_processing_status" => $course->ai_processing_status ?? 'not_configured',
                 "meta_title" => $course->meta_title ?? $course->title,
                 "meta_description" =>
                     $course->meta_description ?? $course->short_description,

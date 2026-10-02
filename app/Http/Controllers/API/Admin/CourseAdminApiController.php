@@ -229,6 +229,8 @@ class CourseAdminApiController extends AdminCrudApiController
                     'folder' => FileService::coursePath($slug, 'knowledge'),
                 ]);
             }
+            // AI Knowledge Base file / content for course chatbot
+            $this->syncCourseAiKnowledge($course, $request);
 
             // ── Tags ────────────────────────────────────────────────
             $tags = $request->input('tags', []);
@@ -853,8 +855,11 @@ class CourseAdminApiController extends AdminCrudApiController
             fn ($s) => count($s['lessons']), $curriculumSections
         )) + count($standaloneLessons);
 
-        $courseData['has_ai_assistant'] = !empty($course->getRawOriginal('ai_knowledge_content'));
-        unset($courseData['ai_knowledge_content']);
+        $courseData['has_ai_assistant'] = (bool) ($course->chatbot_enabled || !empty($course->ai_knowledge_content) || !empty($course->ai_knowledge_file));
+        $courseData['ai_knowledge_content'] = $course->ai_knowledge_content;
+        $courseData['ai_knowledge_file_url'] = $course->ai_knowledge_file ? FileService::getFileUrl($course->ai_knowledge_file) : null;
+        $courseData['ai_processing_status'] = $course->ai_processing_status ?? 'not_configured';
+        $courseData['ai_chunk_count'] = (int) ($course->ai_chunk_count ?? 0);
 
         return $courseData;
     }
@@ -1090,10 +1095,17 @@ class CourseAdminApiController extends AdminCrudApiController
                     FileService::delete($course->ai_knowledge_file);
                 }
                 $course->update([
-                    'ai_knowledge_file' => null,
-                    'ai_knowledge_url' => null,
+                    'ai_knowledge_file'    => null,
+                    'ai_knowledge_url'     => null,
                     'ai_knowledge_content' => null,
+                    'ai_processing_status' => 'not_configured',
+                    'ai_chunk_count'       => 0,
+                    'ai_indexed_at'        => null,
+                    'ai_failed_at'         => null,
+                    'ai_failure_reason'    => null,
                 ]);
+                \App\Models\ChatbotKnowledgeBase::where('course_id', $course->id)->delete();
+                \App\Models\ChatbotVectorChunk::where('course_id', $course->id)->delete();
             } else {
                 $knowledgeUpdates = [];
                 if ($request->hasFile('ai_knowledge_file')) {
@@ -1114,6 +1126,8 @@ class CourseAdminApiController extends AdminCrudApiController
                 if ($knowledgeUpdates !== []) {
                     $course->update($knowledgeUpdates);
                 }
+                // AI Knowledge Base file / content for course chatbot
+                $this->syncCourseAiKnowledge($course, $request);
             }
 
             // ── Tags ────────────────────────────────────────────────
@@ -1402,7 +1416,15 @@ class CourseAdminApiController extends AdminCrudApiController
                 'ai_knowledge_file'       => null,
                 'ai_knowledge_url'        => null,
                 'ai_knowledge_content'    => null,
+                'ai_processing_status'    => 'not_configured',
+                'ai_chunk_count'          => 0,
+                'ai_indexed_at'           => null,
+                'ai_failed_at'            => null,
+                'ai_failure_reason'       => null,
             ]);
+
+            \App\Models\ChatbotKnowledgeBase::where('course_id', $course->id)->delete();
+            \App\Models\ChatbotVectorChunk::where('course_id', $course->id)->delete();
 
             DB::commit();
 
@@ -1424,6 +1446,82 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Failed to remove course AI info: ') . $e->getMessage(), 500);
         }
     }
+
+    /**
+     * Synchronize and ingest AI knowledge base for a course.
+     */
+    private function syncCourseAiKnowledge(Course $course, Request $request): void
+    {
+        if ($request->boolean('remove_ai_knowledge')) {
+            if ($course->ai_knowledge_file) {
+                FileService::delete($course->ai_knowledge_file);
+            }
+            $course->update([
+                'ai_knowledge_file'    => null,
+                'ai_knowledge_content' => null,
+                'ai_processing_status' => 'not_configured',
+                'ai_chunk_count'       => 0,
+                'ai_indexed_at'        => null,
+                'ai_failed_at'         => null,
+                'ai_failure_reason'    => null,
+            ]);
+            \App\Models\ChatbotKnowledgeBase::where('course_id', $course->id)->delete();
+            \App\Models\ChatbotVectorChunk::where('course_id', $course->id)->delete();
+            return;
+        }
+
+        if ($request->hasFile('ai_knowledge_file')) {
+            if ($course->ai_knowledge_file) {
+                FileService::delete($course->ai_knowledge_file);
+            }
+            $knowledgeFile = $request->file('ai_knowledge_file');
+            $filePath = FileService::upload($knowledgeFile, 'chatbot/course-knowledge');
+            $fileType = $knowledgeFile->getClientOriginalExtension();
+
+            $entry = \App\Models\ChatbotKnowledgeBase::updateOrCreate(
+                ['course_id' => $course->id, 'target_audience' => 'course'],
+                [
+                    'title'             => $knowledgeFile->getClientOriginalName(),
+                    'file_path'         => $filePath,
+                    'file_type'         => $fileType,
+                    'is_active'         => true,
+                    'processing_status' => 'queued',
+                ]
+            );
+
+            $course->update([
+                'ai_knowledge_file'    => $filePath,
+                'chatbot_enabled'      => true,
+                'ai_processing_status' => 'queued',
+            ]);
+
+            \App\Jobs\ProcessKnowledgeIngestionJob::dispatch($entry->id, $course->id, 'course');
+        } elseif ($request->filled('ai_knowledge_content')) {
+            $content = trim((string) $request->input('ai_knowledge_content'));
+            if ($content !== '') {
+                $entry = \App\Models\ChatbotKnowledgeBase::updateOrCreate(
+                    ['course_id' => $course->id, 'target_audience' => 'course'],
+                    [
+                        'title'             => ($course->title ?: 'Course') . ' - AI Knowledge',
+                        'content'           => $content,
+                        'file_path'         => null,
+                        'file_type'         => 'txt',
+                        'is_active'         => true,
+                        'processing_status' => 'queued',
+                    ]
+                );
+
+                $course->update([
+                    'ai_knowledge_content' => $content,
+                    'chatbot_enabled'      => true,
+                    'ai_processing_status' => 'queued',
+                ]);
+
+                \App\Jobs\ProcessKnowledgeIngestionJob::dispatch($entry->id, $course->id, 'course');
+            }
+        }
+    }
+
     /**
      * Toggle the featured status of a course.
      */

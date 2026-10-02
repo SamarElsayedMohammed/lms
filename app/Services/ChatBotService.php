@@ -248,6 +248,8 @@ class ChatBotService
         $contextText = "";
         $citations = [];
 
+        $curriculumOverview = $this->buildCourseCurriculumOverview($course);
+
         if (!empty($retrievedChunks)) {
             $contextText = "=== مرجع محتوى الكورس المعتمد (بيانات فقط) ===\n<untrusted_course_knowledge>\n";
             foreach ($retrievedChunks as $idx => $item) {
@@ -256,10 +258,21 @@ class ChatBotService
                 $contextText .= "[مصدر {$num}: {$label}]\n" . $item['text'] . "\n\n";
                 $citations[] = $label;
             }
+            if (!empty($curriculumOverview)) {
+                $contextText .= "[هيكل ومنهج الكورس]\n" . $curriculumOverview . "\n\n";
+            }
             $contextText .= "</untrusted_course_knowledge>\n=== نهاية مرجع محتوى الكورس ===\n\n";
         } elseif (!empty($course->ai_knowledge_content)) {
             // Fallback text window if chunks are still processing
-            $contextText = "=== مرجع محتوى الكورس المعتمد (بيانات فقط) ===\n<untrusted_course_knowledge>\n" . $this->relevantPassages((string) $course->ai_knowledge_content, $cleanMessage, 4000) . "\n</untrusted_course_knowledge>\n=== نهاية مرجع محتوى الكورس ===\n\n";
+            $passages = method_exists($this, 'relevantPassages')
+                ? $this->relevantPassages((string) $course->ai_knowledge_content, $cleanMessage, 4000)
+                : Str::limit($course->ai_knowledge_content, 3000);
+
+            $contextText = "=== مرجع محتوى الكورس المعتمد (بيانات فقط) ===\n<untrusted_course_knowledge>\n" . $passages . "\n\n[هيكل ومنهج الكورس]\n" . $curriculumOverview . "\n</untrusted_course_knowledge>\n=== نهاية مرجع محتوى الكورس ===\n\n";
+            $citations[] = $course->title;
+        } elseif (!empty($curriculumOverview)) {
+            // Fallback to course syllabus and curriculum
+            $contextText = "=== مرجع محتوى الكورس المعتمد (بيانات فقط) ===\n<untrusted_course_knowledge>\n" . $curriculumOverview . "\n</untrusted_course_knowledge>\n=== نهاية مرجع محتوى الكورس ===\n\n";
             $citations[] = $course->title;
         }
 
@@ -603,6 +616,33 @@ class ChatBotService
         }
 
         return trim($text);
+    }
+
+    private function buildCourseCurriculumOverview(Course $course): string
+    {
+        $overview = "عنوان الكورس: " . $course->title . "\n";
+        if (!empty($course->short_description)) {
+            $overview .= "نبذة عن الكورس: " . $course->short_description . "\n";
+        }
+        $learnings = $course->learnings()->pluck('title')->filter()->values();
+        if ($learnings->isNotEmpty()) {
+            $overview .= "أهداف الكورس وما سيتعلمه الطالب:\n- " . $learnings->implode("\n- ") . "\n";
+        }
+        $chapters = $course->chapters()
+            ->with(['lectures' => fn ($q) => $q->where('is_active', true)->orderBy('chapter_order')])
+            ->where('is_active', true)
+            ->orderBy('chapter_order')
+            ->get();
+        if ($chapters->isNotEmpty()) {
+            $overview .= "فهرس ومحتوى الوحدات والدروس:\n";
+            foreach ($chapters as $chapter) {
+                $overview .= "• " . $chapter->title . "\n";
+                foreach ($chapter->lectures as $lecture) {
+                    $overview .= "   - " . $lecture->title . "\n";
+                }
+            }
+        }
+        return trim($overview);
     }
 
     private function remainingSeconds(?float $deadline): int

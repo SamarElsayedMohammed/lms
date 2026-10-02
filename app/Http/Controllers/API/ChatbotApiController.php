@@ -132,7 +132,7 @@ class ChatbotApiController extends Controller
         $knowledgeStatus = 'ready';
         if (!empty($course->ai_processing_status)) {
             $knowledgeStatus = $course->ai_processing_status;
-        } elseif (empty($course->ai_knowledge_content) && empty($course->ai_knowledge_file)) {
+        } elseif (empty($course->ai_knowledge_content) && empty($course->ai_knowledge_file) && !$course->hasContent()) {
             $knowledgeStatus = 'not_configured';
         }
 
@@ -149,7 +149,7 @@ class ChatbotApiController extends Controller
         } elseif ($knowledgeStatus === 'failed') {
             $reasonCode = 'knowledge_failed';
             $available = false;
-        } elseif ($knowledgeStatus === 'not_configured' && empty($course->ai_knowledge_content)) {
+        } elseif ($knowledgeStatus === 'not_configured' && empty($course->ai_knowledge_content) && !$course->hasContent()) {
             $reasonCode = 'knowledge_empty';
             $available = false;
         }
@@ -171,7 +171,7 @@ class ChatbotApiController extends Controller
         return response()->json([
             'status' => true,
             'data' => [
-                'enabled' => $available,
+                'enabled' => true,
                 'available' => $available,
                 'reason_code' => $reasonCode,
                 'course_id' => $course->id,
