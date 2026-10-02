@@ -180,7 +180,14 @@ class CourseAdminApiController extends AdminCrudApiController
                 $thumbnail = $request->input('thumbnail_url');
             }
 
-            if ($request->hasFile('intro_video')) {
+            $introUploadId = trim((string) $request->input('intro_video_upload_id', ''));
+            if ($introUploadId !== '') {
+                $this->deferStaged('intro', $introUploadId, [
+                    'title' => $title,
+                    'folder' => FileService::coursePath($slug, 'intro'),
+                    'collection' => FileService::courseFolderSegment($slug),
+                ]);
+            } elseif ($request->hasFile('intro_video')) {
                 $this->deferMedia('intro', $request->file('intro_video'), [
                     'title' => $title,
                     'folder' => FileService::coursePath($slug, 'intro'),
@@ -364,6 +371,12 @@ class CourseAdminApiController extends AdminCrudApiController
     private function deferMedia(string $kind, \Illuminate\Http\UploadedFile $file, array $meta): void
     {
         $this->deferredMedia[] = array_merge($meta, CourseMediaStaging::store($file), ['kind' => $kind]);
+    }
+
+    private function deferStaged(string $kind, string $uploadId, array $meta): void
+    {
+        $userId = (int) Auth::id();
+        $this->deferredMedia[] = array_merge($meta, CourseMediaStaging::claim($userId, $uploadId), ['kind' => $kind]);
     }
 
     private function dispatchDeferredMedia(Course $course): void
@@ -653,9 +666,12 @@ class CourseAdminApiController extends AdminCrudApiController
     ): CourseChapterLecture {
         [$hours, $minutes, $seconds] = $this->parseDuration($lesson['duration'] ?? null);
         $rawType = $lesson['type'] ?? 'video';
+        $stagedUploadId = trim((string) ($lesson['file_upload_id'] ?? ''));
 
-        if ($contentFile) {
-            $extension = strtolower($contentFile->getClientOriginalExtension());
+        if ($contentFile || $stagedUploadId !== '') {
+            $extension = $contentFile
+                ? strtolower($contentFile->getClientOriginalExtension())
+                : CourseMediaStaging::extensionFor((int) Auth::id(), $stagedUploadId);
             $lecture = CourseChapterLecture::create([
                 'user_id'           => $userId,
                 'course_chapter_id' => $chapterId,
@@ -673,12 +689,17 @@ class CourseAdminApiController extends AdminCrudApiController
                 'is_active'         => true,
                 'free_preview'      => false,
             ]);
-            $this->deferMedia('lecture', $contentFile, [
+            $mediaMeta = [
                 'lecture_id' => $lecture->id,
                 'title' => (string) ($lesson['title'] ?? 'Lesson'),
                 'folder' => FileService::coursePath($courseSlug, 'lessons'),
                 'collection' => FileService::courseFolderSegment($courseSlug),
-            ]);
+            ];
+            if ($stagedUploadId !== '') {
+                $this->deferStaged('lecture', $stagedUploadId, $mediaMeta);
+            } else {
+                $this->deferMedia('lecture', $contentFile, $mediaMeta);
+            }
 
             return $lecture;
         }
@@ -1147,7 +1168,15 @@ class CourseAdminApiController extends AdminCrudApiController
                 $thumbnail = $request->input('thumbnail_url');
             }
 
-            if ($request->hasFile('intro_video')) {
+            $introUploadId = trim((string) $request->input('intro_video_upload_id', ''));
+            if ($introUploadId !== '') {
+                $this->deferStaged('intro', $introUploadId, [
+                    'title' => $newTitle,
+                    'folder' => FileService::coursePath($slug, 'intro'),
+                    'collection' => FileService::courseFolderSegment($slug),
+                    'previous' => is_string($introVideo) ? $introVideo : null,
+                ]);
+            } elseif ($request->hasFile('intro_video')) {
                 $this->deferMedia('intro', $request->file('intro_video'), [
                     'title' => $newTitle,
                     'folder' => FileService::coursePath($slug, 'intro'),

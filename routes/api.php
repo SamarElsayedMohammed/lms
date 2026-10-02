@@ -923,6 +923,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('certificate-templates', [\App\Http\Controllers\API\Admin\CertificateTemplateAdminApiController::class, 'upsertTemplate']);
         Route::post('certificate-templates/preview', [\App\Http\Controllers\API\Admin\CertificateTemplateAdminApiController::class, 'previewPdf']);
 
+        // Course videos arrive in small chunks, then a queue job uploads them.
+        Route::post('media/uploads', [\App\Http\Controllers\API\Admin\CourseMediaUploadApiController::class, 'storeChunk']);
+        Route::post('media/uploads/complete', [\App\Http\Controllers\API\Admin\CourseMediaUploadApiController::class, 'complete']);
+
         // Courses
         Route::get('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'index']);
         Route::post('courses', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'store']);
