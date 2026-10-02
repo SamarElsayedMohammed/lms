@@ -43,8 +43,12 @@ class CourseAdminApiController extends AdminCrudApiController
         $this->ensureAdmin();
         $this->checkPermission('courses-create');
 
+        if ($videoError = $this->videoUploadError($request)) {
+            return $this->jsonError($videoError, 422);
+        }
+
         // ── Validation ──────────────────────────────────────────────
-        $maxVideoKb = (int) ini_get('upload_max_filesize') * 1024;
+        $maxVideoKb = $this->maxVideoKilobytes();
 
         $validator = Validator::make($request->all(), [
             'title'                         => 'required|string|min:2|max:255',
@@ -112,6 +116,9 @@ class CourseAdminApiController extends AdminCrudApiController
         }
         if ($coverError = $this->coverUploadError($request)) {
             return $this->jsonError($coverError, 422);
+        }
+        if ($videoError = $this->videoUploadError($request)) {
+            return $this->jsonError($videoError, 422);
         }
 
         $knowledgePageUrl = trim((string) $request->input('ai_knowledge_url', ''));
@@ -551,6 +558,89 @@ class CourseAdminApiController extends AdminCrudApiController
     }
 
     /**
+     * One lesson video may be up to the PHP upload limit (2GB in this app).
+     * The ini value is a string like "2048M"; casting it to int drops the unit.
+     */
+    private function maxVideoKilobytes(): int
+    {
+        $bytes = $this->iniToBytes((string) ini_get('upload_max_filesize'));
+        if ($bytes <= 0) {
+            $bytes = 2048 * 1024 * 1024;
+        }
+
+        return (int) floor($bytes / 1024);
+    }
+
+    private function iniToBytes(string $value): int
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return 0;
+        }
+
+        $unit = strtolower(substr($value, -1));
+        $number = (float) $value;
+
+        return (int) match ($unit) {
+            'g' => $number * 1024 * 1024 * 1024,
+            'm' => $number * 1024 * 1024,
+            'k' => $number * 1024,
+            default => $number,
+        };
+    }
+
+    private function videoUploadError(Request $request): ?string
+    {
+        $postLimit = $this->iniToBytes((string) ini_get('post_max_size'));
+        $contentLength = (int) $request->server('CONTENT_LENGTH');
+        if ($postLimit > 0 && $contentLength > $postLimit) {
+            return 'حجم الملفات أكبر من الحد المسموح. كل فيديو حتى 2 جيجا، والطلب كله حتى 8 جيجا.';
+        }
+
+        $files = [];
+        foreach (['intro_video', 'promo_video'] as $field) {
+            $file = $request->file($field);
+            if ($file instanceof \Illuminate\Http\UploadedFile) {
+                $files[] = $file;
+            }
+        }
+        $this->collectUploadedFiles($request->file('standalone_lessons'), $files);
+        $this->collectUploadedFiles($request->file('curriculum_sections'), $files);
+
+        foreach ($files as $file) {
+            if ($file->isValid()) {
+                continue;
+            }
+
+            return match ($file->getError()) {
+                \UPLOAD_ERR_INI_SIZE, \UPLOAD_ERR_FORM_SIZE => 'حجم الفيديو أكبر من الحد المسموح (2 جيجا).',
+                \UPLOAD_ERR_PARTIAL => 'رفع الفيديو لم يكتمل. حاول مرة أخرى واتصال أقوى.',
+                default => 'تعذر قراءة الفيديو المرفوع.',
+            };
+        }
+
+        return null;
+    }
+
+    /** @param list<\Illuminate\Http\UploadedFile> $files */
+    private function collectUploadedFiles(mixed $node, array &$files): void
+    {
+        if ($node instanceof \Illuminate\Http\UploadedFile) {
+            $files[] = $node;
+
+            return;
+        }
+
+        if (! is_array($node)) {
+            return;
+        }
+
+        foreach ($node as $child) {
+            $this->collectUploadedFiles($child, $files);
+        }
+    }
+
+    /**
      * Create a single lecture from lesson data.
      */
     private function buildLectureData(
@@ -918,8 +1008,12 @@ class CourseAdminApiController extends AdminCrudApiController
             return $this->jsonError(__('Course not found'), 404);
         }
 
+        if ($videoError = $this->videoUploadError($request)) {
+            return $this->jsonError($videoError, 422);
+        }
+
         // ── Validation ──────────────────────────────────────────────
-        $maxVideoKb = (int) ini_get('upload_max_filesize') * 1024;
+        $maxVideoKb = $this->maxVideoKilobytes();
 
         $validator = Validator::make($request->all(), [
             'title'                         => 'required|string|min:2|max:255',
@@ -988,6 +1082,9 @@ class CourseAdminApiController extends AdminCrudApiController
         }
         if ($coverError = $this->coverUploadError($request)) {
             return $this->jsonError($coverError, 422);
+        }
+        if ($videoError = $this->videoUploadError($request)) {
+            return $this->jsonError($videoError, 422);
         }
 
         $knowledgePageUrl = trim((string) $request->input('ai_knowledge_url', ''));

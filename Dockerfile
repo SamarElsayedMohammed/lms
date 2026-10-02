@@ -66,7 +66,7 @@ RUN composer dump-autoload --optimize --ignore-platform-reqs \
 # ─── 9. PHP & FPM config ─────────────────────────────────────────────────────
 RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && printf \
-        "upload_max_filesize = 50M\npost_max_size = 50M\nmemory_limit = 256M\nmax_execution_time = 60\ndisplay_errors = Off\nlog_errors = On\nopcache.enable = 1\nopcache.memory_consumption = 64\nopcache.max_accelerated_files = 20000\n" \
+        "upload_max_filesize = 2048M\npost_max_size = 8192M\nmemory_limit = 256M\nmax_execution_time = 3600\nmax_input_time = 3600\nmax_file_uploads = 40\ndisplay_errors = Off\nlog_errors = On\nopcache.enable = 1\nopcache.memory_consumption = 64\nopcache.max_accelerated_files = 20000\n" \
         > "$PHP_INI_DIR/conf.d/uploads.ini"
 COPY docker/php/zz-skillso-fpm.conf /usr/local/etc/php-fpm.d/zz-skillso.conf
 
