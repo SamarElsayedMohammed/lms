@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class BunnyStreamService
@@ -82,6 +83,68 @@ class BunnyStreamService
             throw new RuntimeException('Uploaded video is not readable.');
         }
 
+        $bytes = (int) (@filesize($realPath) ?: 0);
+        $started = microtime(true);
+        self::putVideoFile($libraryId, $apiKey, $guid, $realPath);
+        Log::info('Bunny Stream upload finished', [
+            'library_id' => $libraryId,
+            'guid' => $guid,
+            'bytes' => $bytes,
+            'seconds' => round(microtime(true) - $started, 2),
+        ]);
+
+        return [
+            'embed_url' => "https://iframe.mediadelivery.net/embed/{$libraryId}/{$guid}",
+            'library_id' => $libraryId,
+            'guid' => $guid,
+        ];
+    }
+
+    private static function putVideoFile(string $libraryId, string $apiKey, string $guid, string $realPath): void
+    {
+        $url = "https://video.bunnycdn.com/library/{$libraryId}/videos/{$guid}";
+
+        // curl streams the file from disk. Laravel HTTP + Guzzle often buffers
+        // large bodies and makes a 200MB upload feel much slower than it is.
+        if (function_exists('curl_init')) {
+            $handle = fopen($realPath, 'rb');
+            if ($handle === false) {
+                throw new RuntimeException('Uploaded video is not readable.');
+            }
+
+            $curl = curl_init($url);
+            if ($curl === false) {
+                fclose($handle);
+                throw new RuntimeException('Unable to start Bunny Stream upload.');
+            }
+
+            curl_setopt_array($curl, [
+                CURLOPT_PUT => true,
+                CURLOPT_INFILE => $handle,
+                CURLOPT_INFILESIZE => (int) (@filesize($realPath) ?: 0),
+                CURLOPT_HTTPHEADER => [
+                    'AccessKey: '.$apiKey,
+                    'Accept: application/json',
+                    'Content-Type: application/octet-stream',
+                ],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => 15,
+                CURLOPT_TIMEOUT => 3600,
+            ]);
+
+            $body = curl_exec($curl);
+            $status = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+            $error = curl_error($curl);
+            curl_close($curl);
+            fclose($handle);
+
+            if ($body === false || $status < 200 || $status >= 300) {
+                throw new RuntimeException('Bunny Stream upload failed: '.($error !== '' ? $error : (string) $body));
+            }
+
+            return;
+        }
+
         $handle = fopen($realPath, 'rb');
         if ($handle === false) {
             throw new RuntimeException('Uploaded video is not readable.');
@@ -92,7 +155,7 @@ class BunnyStreamService
                 ->withBody(\GuzzleHttp\Psr7\Utils::streamFor($handle), 'application/octet-stream')
                 ->connectTimeout(10)
                 ->timeout(3600)
-                ->put("https://video.bunnycdn.com/library/{$libraryId}/videos/{$guid}");
+                ->put($url);
         } finally {
             if (is_resource($handle)) {
                 fclose($handle);
@@ -102,12 +165,6 @@ class BunnyStreamService
         if (! $uploaded->successful()) {
             throw new RuntimeException('Bunny Stream upload failed: '.$uploaded->body());
         }
-
-        return [
-            'embed_url' => "https://iframe.mediadelivery.net/embed/{$libraryId}/{$guid}",
-            'library_id' => $libraryId,
-            'guid' => $guid,
-        ];
     }
 
     public static function deleteByUrl(?string $url): bool

@@ -58,9 +58,16 @@ class ProcessCourseMediaUploadJob implements ShouldQueue
             $path = is_string($item['path'] ?? null) ? $item['path'] : '';
             if ($path === '' || ! is_file($path)) {
                 $itemFailed = true;
+                Log::warning('Course media item missing on disk', [
+                    'course_id' => $this->courseId,
+                    'kind' => $item['kind'] ?? null,
+                    'path' => $path,
+                ]);
                 continue;
             }
 
+            $bytes = (int) (@filesize($path) ?: 0);
+            $started = microtime(true);
             try {
                 $file = CourseMediaStaging::uploadedFile([
                     'path' => $path,
@@ -78,12 +85,21 @@ class ProcessCourseMediaUploadJob implements ShouldQueue
                 };
 
                 CourseMediaStaging::delete($path);
+                Log::info('Course media item uploaded', [
+                    'course_id' => $this->courseId,
+                    'kind' => $item['kind'] ?? null,
+                    'lecture_id' => $item['lecture_id'] ?? null,
+                    'bytes' => $bytes,
+                    'seconds' => round(microtime(true) - $started, 2),
+                ]);
             } catch (Throwable $e) {
                 $itemFailed = true;
                 Log::error('Course media item failed', [
                     'course_id' => $this->courseId,
                     'kind' => $item['kind'] ?? null,
                     'lecture_id' => $item['lecture_id'] ?? null,
+                    'bytes' => $bytes,
+                    'seconds' => round(microtime(true) - $started, 2),
                     'error' => $e->getMessage(),
                 ]);
             }

@@ -388,7 +388,8 @@ class VideoProgressService
             throw new \InvalidArgumentException('Lecture duration is not yet set by the server. Progress tracking is temporarily unavailable.');
         } elseif ($totalDuration !== $canonicalDuration) {
             if ($totalDuration < $canonicalDuration) {
-                if (($canonicalDuration - $totalDuration) > 3) {
+                $allowedShortfall = max(5, (int) round($canonicalDuration * 0.02));
+                if (($canonicalDuration - $totalDuration) > $allowedShortfall) {
                     throw new \InvalidArgumentException('The reported video duration cannot shrink canonical lecture duration.');
                 }
             }
@@ -414,24 +415,27 @@ class VideoProgressService
             VideoProgress::initializeSegments($canonicalDuration, $segmentSize);
         $nextRequiredSegment = $this->firstUnwatchedSegment($watchedSegments);
 
-        // A client may replay already watched segments, but new progress must be
-        // contiguous from the first gap. This prevents jumping to the end.
+        // Contiguous progress only. If the client skips ahead (sparse player
+        // ticks), keep the contiguous prefix instead of discarding everything.
         $newSegments = array_values(array_filter(
             $uniqueSegments,
             fn (int $index): bool => empty($watchedSegments[$index])
         ));
+        $acceptedSegments = [];
         foreach ($newSegments as $offset => $segmentIndex) {
             if ($segmentIndex !== $nextRequiredSegment + $offset) {
-                Log::warning('VideoProgressService rejected non-contiguous segments', [
+                Log::warning('VideoProgressService trimmed non-contiguous segments', [
                     'user_id' => $user->id,
                     'lecture_id' => $lecture->id,
                     'segments' => $uniqueSegments,
+                    'accepted' => $acceptedSegments,
                     'next_required' => $nextRequiredSegment,
                 ]);
-
-                return $progress;
+                break;
             }
+            $acceptedSegments[] = $segmentIndex;
         }
+        $newSegments = $acceptedSegments;
 
         $lastNewSegment = $newSegments === [] ? null : $newSegments[array_key_last($newSegments)];
         if ($currentPosition > $canonicalDuration
@@ -506,9 +510,12 @@ class VideoProgressService
         // Reaching the real end of the file finishes the lesson even if a few
         // tail segments were still queued in the browser.
         $wasAlreadyCompleted = (bool) $progress->is_completed;
+        $endTolerance = max(5, (int) round($canonicalDuration * 0.02));
         $reachedEnd = ($metadata['progress_state'] ?? '') === 'ended'
-            && $currentPosition + 3 >= $canonicalDuration
-            && $watchPercentage >= self::COMPLETION_THRESHOLD;
+            && (
+                $currentPosition + $endTolerance >= $canonicalDuration
+                || $watchPercentage >= self::COMPLETION_THRESHOLD
+            );
         if ($reachedEnd) {
             foreach ($watchedSegments as $index => $watched) {
                 if (! $watched && $index < $progress->total_segments) {
