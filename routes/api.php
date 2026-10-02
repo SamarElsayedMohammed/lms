@@ -936,6 +936,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('courses/{id}/reject', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'reject']);
         Route::put('courses/{id}/restore', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'restore']);
         Route::post('courses/{id}/update', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'update']);
+        Route::post('courses/{id}/media', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'attachMedia']);
         Route::delete('courses/{id}/chatbot', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'removeAiInfo']);
         Route::post('courses/{id}/toggle-featured', [\App\Http\Controllers\API\Admin\CourseAdminApiController::class, 'toggleFeatured']);
 

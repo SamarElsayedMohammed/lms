@@ -366,6 +366,69 @@ class CourseAdminApiController extends AdminCrudApiController
     }
 
     /**
+     * Attach videos that were already uploaded in chunks, and queue Bunny processing.
+     */
+    public function attachMedia(Request $request, int $id): JsonResponse
+    {
+        $this->ensureAdmin();
+        $this->checkPermission('courses-edit');
+
+        $course = Course::query()->find($id);
+        if (! $course) {
+            return $this->jsonError(__('Course not found'), 404);
+        }
+
+        $slug = (string) $course->slug;
+        $introUploadId = trim((string) $request->input('intro_video_upload_id', ''));
+        if ($introUploadId !== '') {
+            $this->deferStaged('intro', $introUploadId, [
+                'title' => $course->title,
+                'folder' => FileService::coursePath($slug, 'intro'),
+                'collection' => FileService::courseFolderSegment($slug),
+                'previous' => is_string($course->intro_video) ? $course->intro_video : null,
+            ]);
+        }
+
+        $lectures = $request->input('lectures', []);
+        if (is_array($lectures)) {
+            foreach ($lectures as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $lectureId = (int) ($row['lecture_id'] ?? 0);
+                $uploadId = trim((string) ($row['file_upload_id'] ?? ''));
+                if ($lectureId <= 0 || $uploadId === '') {
+                    continue;
+                }
+                $lecture = CourseChapterLecture::query()->find($lectureId);
+                if (! $lecture) {
+                    continue;
+                }
+                $ownsLecture = CourseChapter::query()
+                    ->where('id', $lecture->course_chapter_id)
+                    ->where('course_id', $course->id)
+                    ->exists();
+                if (! $ownsLecture) {
+                    continue;
+                }
+                $this->deferStaged('lecture', $uploadId, [
+                    'lecture_id' => $lecture->id,
+                    'title' => (string) $lecture->title,
+                    'folder' => FileService::coursePath($slug, 'lessons'),
+                    'collection' => FileService::courseFolderSegment($slug),
+                ]);
+            }
+        }
+
+        $this->dispatchDeferredMedia($course);
+
+        return $this->jsonSuccess('تم حفظ الدورة، ورفع الفيديو مستمر في الخلفية.', [
+            'id' => $course->id,
+            'media_upload_status' => 'queued',
+        ]);
+    }
+
+    /**
      * @param  array<string, mixed>  $meta
      */
     private function deferMedia(string $kind, \Illuminate\Http\UploadedFile $file, array $meta): void
