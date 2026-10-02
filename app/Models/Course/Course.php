@@ -280,8 +280,9 @@ class Course extends Model
         if (!$value) {
             return null;
         }
-        // If type is 'url', return the raw URL directly
-        if ($this->attributes['intro_video_type'] === 'url') {
+        // If type is 'url' or value is already a full URL, return directly
+        $type = $this->attributes['intro_video_type'] ?? null;
+        if ($type === 'url' || preg_match('/^https?:\/\//i', $value)) {
             return $value;
         }
         return FileService::getFileUrl($value);

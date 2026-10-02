@@ -1672,6 +1672,8 @@ trait ServesCourseCatalogDetail
                 "meta_description" =>
                     $course->meta_description ?? $course->short_description,
                 "preview_video" => $course->intro_video,
+                "intro_video" => $course->intro_video,
+                "intro_video_type" => $course->intro_video_type,
                 "co_instructors" => $course->instructors->map(
                     static fn($instructor) => [
                         "id" => $instructor->id,
