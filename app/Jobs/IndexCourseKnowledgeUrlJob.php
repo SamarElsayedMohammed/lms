@@ -22,6 +22,8 @@ class IndexCourseKnowledgeUrlJob implements ShouldQueue
 
     public int $timeout = 120;
 
+    public int $backoff = 30;
+
     public function __construct(
         public int $courseId,
         public string $url,

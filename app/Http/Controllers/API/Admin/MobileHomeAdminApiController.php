@@ -91,7 +91,7 @@ class MobileHomeAdminApiController extends AdminCrudApiController
 
         $arr['manual_courses'] = $manualCourses;
         $arr['manual_course_ids'] = array_map(static fn($c) => (int) $c['id'], $manualCourses);
-        $arr['layout'] = $section->layout ?? ($section->config['layout'] ?? 'carousel');
+        $arr['layout'] = $section->config['layout'] ?? $section->layout ?? 'carousel';
         $arr['audience'] = $section->audience ?? 'everyone';
         $arr['show_on_mobile'] = (bool) ($section->show_on_mobile ?? true);
         $arr['show_on_web'] = (bool) ($section->show_on_web ?? false);
@@ -293,11 +293,12 @@ class MobileHomeAdminApiController extends AdminCrudApiController
         $data = $validator->validated();
         $manualCourses = $data['manual_courses'] ?? [];
         $layout = $data['layout'] ?? ($data['config']['layout'] ?? 'carousel');
-        unset($data['manual_courses'], $data['layout']);
+        unset($data['manual_courses']);
 
         $config = is_array($data['config'] ?? null) ? $data['config'] : [];
         $config['layout'] = $layout;
         $data['config'] = $config;
+        $data['layout'] = $layout;
 
         $maxOrder = (int) (FeatureSection::max('mobile_row_order') ?? FeatureSection::max('row_order') ?? 0);
         $data['show_on_mobile'] = $request->has('show_on_mobile') ? $request->boolean('show_on_mobile') : true;
@@ -366,7 +367,6 @@ class MobileHomeAdminApiController extends AdminCrudApiController
             $config = is_array($data['config'] ?? $section->config) ? ($data['config'] ?? $section->config) : [];
             $config['layout'] = $data['layout'];
             $data['config'] = $config;
-            unset($data['layout']);
         }
 
         if (array_key_exists('show_on_mobile', $data) && $data['show_on_mobile'] && !$section->mobile_row_order) {

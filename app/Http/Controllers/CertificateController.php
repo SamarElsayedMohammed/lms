@@ -345,7 +345,7 @@ class CertificateController extends Controller
 
             return ApiResponseService::errorResponse(
                 'Failed to generate certificate PDF. Please try again.',
-                ['debug' => config('app.debug') ? $e->getMessage() : null],
+                [],
                 500
             );
         }

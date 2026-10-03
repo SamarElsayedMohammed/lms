@@ -126,7 +126,7 @@ stderr_logfile=/var/log/worker-laravel-default.log
 "worker-laravel-ingestion.conf" = '''
 [program:worker-laravel-ingestion]
 process_name=%(program_name)s_%(process_num)02d
-command=php -d memory_limit=128M /app/artisan queue:work --queue=ingestion --sleep=5 --tries=3 --timeout=7200 --max-time=7200 --max-jobs=1 --memory=128
+command=php -d memory_limit=192M /app/artisan queue:work --queue=ingestion --sleep=5 --tries=3 --timeout=7200 --max-time=7200 --max-jobs=1 --memory=192
 user=www-data
 autostart=false
 autorestart=true

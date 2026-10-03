@@ -787,7 +787,7 @@ trait ServesCourseLearning
                     ->map(fn($a) => $a->option?->question?->id)
                     ->filter()
                     ->unique();
-                $allOptions = \App\Models\QuizOption::whereIn(
+                $allOptions = QuizOption::whereIn(
                     "quiz_question_id",
                     $questionIds,
                 )->get();

@@ -47,7 +47,7 @@ class CourseCurriculumApiController extends Controller
         if ($user && ($user->hasRole(['admin', 'instructor', 'supervisor', 'Super Admin']) || $user->id === $course->user_id)) {
             $isSequential = false;
         }
-        $previousLessonCompleted = true; // First lesson is always unlocked
+        $allPriorLessonsCompleted = true; // First lesson is always unlocked
 
         foreach ($detailed['chapters'] ?? [] as $chapter) {
             $lessons = [];
@@ -62,21 +62,26 @@ class CourseCurriculumApiController extends Controller
                     $completedLessons++;
                 }
 
-                $isLocked = $isSequential ? (!$previousLessonCompleted && !$isCompleted) : false;
-                if (!$isCompleted) {
-                    $previousLessonCompleted = false;
-                } else {
-                    $previousLessonCompleted = true;
+                $isLocked = $isSequential ? (!$allPriorLessonsCompleted && !$isCompleted) : false;
+                if (! $isCompleted) {
+                    $allPriorLessonsCompleted = false;
                 }
 
                 $durationSeconds = (int) ($item['duration_seconds'] ?? 0);
+                $watchPercentage = (float) ($item['watch_percentage'] ?? 0);
+                $watchedSeconds = (int) ($item['watched_seconds'] ?? 0);
+
                 $lessons[] = [
                     'id' => $item['item_id'],
                     'title' => $item['title'] ?? '',
                     'duration_minutes' => (int) ceil(max(0, $durationSeconds) / 60),
+                    'duration_seconds' => $durationSeconds,
                     'type' => 'video',
                     'is_completed' => $isCompleted,
                     'is_locked' => $isLocked,
+                    'watch_percentage' => $watchPercentage,
+                    'progress_percentage' => $watchPercentage,
+                    'watched_seconds' => $watchedSeconds,
                     'model_id' => $item['item_id'],
                     'model_type' => 'lecture',
                     'course_chapter_id' => $chapter['chapter_id'],

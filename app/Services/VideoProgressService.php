@@ -122,8 +122,8 @@ class VideoProgressService
 
         $wasAlreadyCompleted = $existing !== null && (bool) $existing->is_completed;
         $requiresVerifiedTracking = $this->requiresVerifiedTracking($lecture);
-        $reachedEndState = ($metadata['progress_state'] ?? '') === 'ended' && $watchPercentage >= 70.0;
-        $isCompleted = $wasAlreadyCompleted || $reachedEndState || (
+        $reachedEndState = ($metadata['progress_state'] ?? '') === 'ended' && $watchPercentage >= self::COMPLETION_THRESHOLD;
+        $isCompleted = $wasAlreadyCompleted || (
             $watchPercentage >= self::COMPLETION_THRESHOLD
         );
         if ($wasAlreadyCompleted && $existing?->watch_percentage !== null) {
@@ -258,29 +258,42 @@ class VideoProgressService
             return true;
         }
 
-        $previousLecture = $this->getPreviousLecture($lecture);
-
-        if ($previousLecture === null) {
+        $allPriorLectures = $this->getAllPriorLecturesInCourse($lecture);
+        if ($allPriorLectures->isEmpty()) {
             return true; // First lesson is always unlocked
         }
 
-        $progress = VideoProgress::forUser($user->id)->forLecture($previousLecture->id)->first();
-        $isPreviousVideoCompleted = $progress !== null && (bool) $progress->is_completed;
-        $isPreviousTrackCompleted = UserCurriculumTracking::where('user_id', $user->id)
-            ->where('model_id', $previousLecture->id)
+        $priorLectureIds = $allPriorLectures->pluck('id')->all();
+        $completedVideoIds = VideoProgress::where('user_id', $user->id)
+            ->whereIn('lecture_id', $priorLectureIds)
+            ->where('is_completed', true)
+            ->pluck('lecture_id')
+            ->flip()
+            ->all();
+
+        $completedTrackingIds = UserCurriculumTracking::where('user_id', $user->id)
+            ->whereIn('model_id', $priorLectureIds)
             ->where('status', 'completed')
-            ->exists();
+            ->pluck('model_id')
+            ->flip()
+            ->all();
 
-        if ($isPreviousVideoCompleted || $isPreviousTrackCompleted) {
-            return true;
+        foreach ($allPriorLectures as $prior) {
+            if ((bool) ($prior->free_preview ?? false) || (bool) ($prior->is_free ?? false)) {
+                continue;
+            }
+
+            $isCompleted = isset($completedVideoIds[$prior->id]) || isset($completedTrackingIds[$prior->id]);
+            if (! $isCompleted) {
+                // If non-video lecture has no tracking yet, only bypass if it doesn't stream video
+                if (! $this->lectureHasVideo($prior)) {
+                    continue;
+                }
+                return false;
+            }
         }
 
-        // If previous lecture has no video and no completion tracking, check if non-video
-        if (! $this->lectureHasVideo($previousLecture)) {
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
     /**
@@ -513,11 +526,11 @@ class VideoProgressService
         $wasAlreadyCompleted = (bool) $progress->is_completed;
         $endTolerance = max(5, (int) round($canonicalDuration * 0.02));
         $reachedEnd = ($metadata['progress_state'] ?? '') === 'ended'
-            && (
-                $currentPosition + $endTolerance >= $canonicalDuration
-                || $watchPercentage >= self::COMPLETION_THRESHOLD
-            );
-        if ($reachedEnd) {
+            && ($currentPosition + $endTolerance >= $canonicalDuration);
+
+        // Anti-skip protection: reaching the end only sets 100% completion
+        // IF the user has genuinely watched at least the completion threshold!
+        if ($reachedEnd && $watchPercentage >= self::COMPLETION_THRESHOLD) {
             foreach ($watchedSegments as $index => $watched) {
                 if (! $watched && $index < $progress->total_segments) {
                     $watchedSegments[$index] = 1;
@@ -527,9 +540,9 @@ class VideoProgressService
             $watchedSeconds = $canonicalDuration;
             $watchPercentage = 100.0;
         }
-        $isCompleted = $wasAlreadyCompleted || $reachedEnd || (
-            $completedSegments === $progress->total_segments
-            && $watchPercentage >= self::COMPLETION_THRESHOLD
+
+        $isCompleted = $wasAlreadyCompleted || (
+            $watchPercentage >= self::COMPLETION_THRESHOLD
         );
         if ($wasAlreadyCompleted && $progress->watch_percentage !== null) {
             $watchPercentage = max((float) $progress->watch_percentage, $watchPercentage);
@@ -844,17 +857,40 @@ class VideoProgressService
     /**
      * @return Collection<int, CourseChapterLecture>
      */
-    private function getAllLecturesForCourse(Course $course): Collection
+    public function getAllLecturesForCourse(Course $course): Collection
     {
-        $lectures = collect();
+        $chapters = $course->chapters()
+            ->where('is_active', true)
+            ->orderBy('chapter_order')
+            ->orderBy('id')
+            ->with(['lectures' => fn ($q) => $q->where('is_active', true)->orderBy('chapter_order')->orderBy('id')])
+            ->get();
 
-        foreach ($course->chapters()->orderBy('chapter_order')->get() as $chapter) {
-            $lectures = $lectures->merge(
-                $chapter->lectures()->orderBy('chapter_order')->get()
-            );
+        return $chapters->flatMap->lectures;
+    }
+
+    /**
+     * @return Collection<int, CourseChapterLecture>
+     */
+    public function getAllPriorLecturesInCourse(CourseChapterLecture $lecture): Collection
+    {
+        $chapter = $lecture->chapter;
+        $course = $chapter?->course;
+        if (! $course) {
+            return collect();
         }
 
-        return $lectures;
+        $allLectures = $this->getAllLecturesForCourse($course);
+        $priorLectures = collect();
+
+        foreach ($allLectures as $item) {
+            if ($item->id === $lecture->id) {
+                break;
+            }
+            $priorLectures->push($item);
+        }
+
+        return $priorLectures;
     }
 
     /**

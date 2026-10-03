@@ -157,7 +157,6 @@ class DashboardController extends Controller
                 [
                     'status' => false,
                     'message' => 'Failed to load dashboard data: ' . $e->getMessage(),
-                    'error' => config('app.debug') ? $e->getTraceAsString() : null,
                 ],
                 500,
                 [],

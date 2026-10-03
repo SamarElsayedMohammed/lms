@@ -3216,6 +3216,7 @@ class InstructorApiController extends Controller
         try {
             // Get all active categories
             $allCategories = Category::where('status', 1)
+                ->withCount(['subcategories as subcategories_count' => static fn($q) => $q->where('status', true)])
                 ->where(static function ($query): void {
                     $query
                         ->whereHas('parent_category', static function ($query): void {

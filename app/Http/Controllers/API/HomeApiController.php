@@ -73,6 +73,7 @@ class HomeApiController extends Controller
         try {
             $categories = \App\Services\CachingService::cacheRemember('home_categories_with_course_count', static function () {
                 return Category::where('status', 1)
+                ->withCount(['subcategories as subcategories_count' => static fn($q) => $q->where('status', true)])
                 ->select('categories.*')
                 ->selectRaw('(SELECT COUNT(DISTINCT courses.id) FROM courses
                         WHERE courses.category_id IN (

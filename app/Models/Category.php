@@ -90,6 +90,17 @@ class Category extends Model
 
     public function getHasSubcategoryAttribute(): bool
     {
+        // If subcategories were eager-loaded, use the in-memory collection
+        if ($this->relationLoaded('subcategories')) {
+            return $this->subcategories->where('status', true)->isNotEmpty();
+        }
+
+        // If withCount was used, read from the loaded count attribute
+        if (isset($this->attributes['subcategories_count'])) {
+            return ((int) $this->attributes['subcategories_count']) > 0;
+        }
+
+        // Fallback: only hit the DB when truly necessary
         return $this->subcategories()->where('status', true)->exists();
     }
 

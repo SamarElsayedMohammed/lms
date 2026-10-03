@@ -30,6 +30,8 @@ class ProcessCourseMediaUploadJob implements ShouldQueue
 
     public int $timeout = 7000;
 
+    public int $backoff = 30;
+
     /**
      * @param  list<array<string, mixed>>  $items
      */

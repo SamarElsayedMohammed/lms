@@ -345,6 +345,7 @@ class MobileHomeApiController extends Controller
 
             case 'categories':
                 $categories = Category::where('status', 1)
+                    ->withCount(['subcategories as subcategories_count' => static fn($q) => $q->where('status', true)])
                     ->select('categories.*')
                     ->take($limit)
                     ->get();

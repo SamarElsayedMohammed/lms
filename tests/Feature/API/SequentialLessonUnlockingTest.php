@@ -152,4 +152,43 @@ final class SequentialLessonUnlockingTest extends TestCase
         $this->assertTrue($this->progressService->canAccessNextLesson($this->student, $this->lecture2));
         $this->assertTrue($this->progressService->canAccessNextLesson($this->student, $this->lecture3));
     }
+
+    public function test_seeking_to_end_and_sending_ended_state_does_not_unlock_lesson_2_without_watching(): void
+    {
+        // Malicious student seeks directly to 100 and sends ended state
+        $response = $this->actingAs($this->student, 'sanctum')
+            ->postJson("/api/lecture/{$this->lecture1->id}/progress", [
+                'current_position' => 99,
+                'total_duration' => 100,
+                'newly_watched_segments' => [9],
+                'progress_state' => 'ended',
+            ]);
+
+        $response->assertOk();
+
+        // Lesson 1 must remain incomplete
+        $progress = VideoProgress::where('user_id', $this->student->id)
+            ->where('lecture_id', $this->lecture1->id)
+            ->first();
+
+        $this->assertNotNull($progress);
+        $this->assertFalse((bool) $progress->is_completed);
+        $this->assertLessThan(85.0, (float) $progress->watch_percentage);
+
+        // Lesson 2 must remain strictly locked!
+        $this->assertFalse($this->progressService->canAccessNextLesson($this->student, $this->lecture2));
+    }
+
+    public function test_calling_locked_lecture_stream_api_returns_403_lesson_locked(): void
+    {
+        // Attempting to stream Lesson 2 when Lesson 1 is incomplete must return 403 LESSON_LOCKED
+        $response = $this->actingAs($this->student, 'sanctum')
+            ->getJson("/api/video/{$this->lecture2->id}/stream");
+
+        $response->assertStatus(403)
+            ->assertJson([
+                'error' => true,
+                'code' => 'LESSON_LOCKED',
+            ]);
+    }
 }

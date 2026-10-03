@@ -13,18 +13,22 @@ return new class extends Migration
     {
         Schema::create('feature_sections', function (Blueprint $table) {
             $table->id();
-            $table->enum('type', [
-                'top_rated_courses',
-                'newly_added_courses',
-                'offer',
-                'why_choose_us',
-                'free_courses',
-                'become_instructor',
-                'top_rated_instructors',
-                'wishlist',
-                'searching_based',
-                'recommend_for_you'
-            ]);
+            if (\Illuminate\Support\Facades\DB::getDriverName() === 'sqlite') {
+                $table->string('type', 100);
+            } else {
+                $table->enum('type', [
+                    'top_rated_courses',
+                    'newly_added_courses',
+                    'offer',
+                    'why_choose_us',
+                    'free_courses',
+                    'become_instructor',
+                    'top_rated_instructors',
+                    'wishlist',
+                    'searching_based',
+                    'recommend_for_you'
+                ]);
+            }
             $table->string('title')->nullable();
             $table->unsignedInteger('limit')->nullable();
             $table->unsignedTinyInteger('row_order')->nullable();

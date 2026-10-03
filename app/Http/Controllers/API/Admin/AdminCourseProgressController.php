@@ -41,7 +41,7 @@ class AdminCourseProgressController extends AdminCrudApiController
             if (isset($overview['error_detail'])) {
                 return ApiResponseService::errorResponse(
                     'Failed to retrieve overview: ' . $overview['error_detail']['message'],
-                    ['debug' => $overview['error_detail']],
+                    [],
                     500
                 );
             }
@@ -58,13 +58,7 @@ class AdminCourseProgressController extends AdminCrudApiController
             ]);
             return ApiResponseService::errorResponse(
                 'Failed to retrieve overview: ' . $e->getMessage(),
-                [
-                    'debug' => [
-                        'message' => $e->getMessage(),
-                        'file' => $e->getFile(),
-                        'line' => $e->getLine(),
-                    ],
-                ],
+                [],
                 500
             );
         }

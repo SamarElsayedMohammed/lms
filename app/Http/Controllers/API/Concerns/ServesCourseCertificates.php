@@ -462,7 +462,7 @@ trait ServesCourseCertificates
             if (isset($details["error"])) {
                 return ApiResponseService::errorResponse(
                     "Failed to retrieve progress: " . $details["error"],
-                    ["debug" => $details["debug"] ?? null],
+                    [],
                     500,
                 );
             }
@@ -482,13 +482,7 @@ trait ServesCourseCertificates
             ]);
             return ApiResponseService::errorResponse(
                 "Failed to retrieve progress: " . $e->getMessage(),
-                [
-                    "debug" => [
-                        "message" => $e->getMessage(),
-                        "file" => $e->getFile(),
-                        "line" => $e->getLine(),
-                    ],
-                ],
+                [],
                 500,
             );
         }

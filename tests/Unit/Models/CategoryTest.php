@@ -27,4 +27,35 @@ class CategoryTest extends TestCase
         $this->assertContains('name', $fillable);
         $this->assertContains('slug', $fillable);
     }
+
+    public function test_has_subcategory_uses_eager_loaded_subcategories_without_query(): void
+    {
+        $category = new Category();
+        $category->setRelation('subcategories', collect([
+            new Category(['status' => true]),
+        ]));
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+
+        $this->assertTrue($category->has_subcategory);
+        $this->assertEmpty(\Illuminate\Support\Facades\DB::getQueryLog());
+    }
+
+    public function test_has_subcategory_uses_subcategories_count_attribute_without_query(): void
+    {
+        $category = new Category();
+        $category->setAttribute('subcategories_count', 3);
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+
+        $this->assertTrue($category->has_subcategory);
+        $this->assertEmpty(\Illuminate\Support\Facades\DB::getQueryLog());
+
+        $categoryZero = new Category();
+        $categoryZero->setAttribute('subcategories_count', 0);
+        $this->assertFalse($categoryZero->has_subcategory);
+        $this->assertEmpty(\Illuminate\Support\Facades\DB::getQueryLog());
+    }
 }

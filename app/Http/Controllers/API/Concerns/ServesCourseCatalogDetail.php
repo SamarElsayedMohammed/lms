@@ -583,7 +583,7 @@ trait ServesCourseCatalogDetail
             $userCanBypass = $user && ($user->hasRole(["admin", "instructor", "supervisor", "Super Admin"]) || $user->id === $course->user_id);
             $enforceSequential = $isCourseSequential && !$userCanBypass;
 
-            $previousItemCompleted = true; // First item is always unlocked
+            $allPriorCompleted = true; // First item is always unlocked
             foreach ($sortedAllCurriculum as $index => $curriculumItem) {
                 $chapterIndex = $curriculumItem["chapter_index"];
                 $itemIndex = $curriculumItem["item_index"];
@@ -598,11 +598,13 @@ trait ServesCourseCatalogDetail
                     } elseif ($userCanBypass) {
                         $itemRef["is_locked"] = false;
                     } elseif ($enforceSequential) {
-                        $itemRef["is_locked"] = (!$previousItemCompleted && !$itemCompleted && !$isFree);
-                        if ($itemCompleted) {
-                            $previousItemCompleted = true;
+                        if ($itemCompleted || $isFree) {
+                            $itemRef["is_locked"] = false;
                         } else {
-                            $previousItemCompleted = false;
+                            $itemRef["is_locked"] = !$allPriorCompleted;
+                        }
+                        if (!$itemCompleted && !$isFree) {
+                            $allPriorCompleted = false;
                         }
                     } else {
                         $itemRef["is_locked"] = false;
