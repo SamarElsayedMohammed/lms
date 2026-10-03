@@ -384,6 +384,10 @@ class VideoProgressService
         array $metadata = []
     ): VideoProgress {
         $canonicalDuration = $this->getCanonicalDuration($lecture);
+        if ($canonicalDuration <= 0 && $totalDuration > 0) {
+            $canonicalDuration = $totalDuration;
+        }
+
         if ($canonicalDuration <= 0) {
             throw new \InvalidArgumentException('Lecture duration is not yet set by the server. Progress tracking is temporarily unavailable.');
         } elseif ($totalDuration !== $canonicalDuration) {
@@ -504,7 +508,7 @@ class VideoProgressService
             array_keys($watchedSegments),
             $watchedSegments,
         ));
-        $watchPercentage = round(($watchedSeconds / $canonicalDuration) * 100, 2);
+        $watchPercentage = round(($watchedSeconds / max(1, $canonicalDuration)) * 100, 2);
 
         // Check completion - Monotonic: once completed, always completed.
         // Reaching the real end of the file finishes the lesson even if a few
@@ -567,25 +571,41 @@ class VideoProgressService
             $updateData['watch_count'] = ($progress->watch_count ?? 1) + 1;
         }
 
-        // Update record
-        $progress->update($updateData);
+        // Update record safely with fallback for older schemas missing session columns
+        try {
+            $progress->update($updateData);
+        } catch (\Throwable $e) {
+            Log::warning('VideoProgressService update fallback: ' . $e->getMessage());
+            $safeFields = ['watched_segments', 'completed_segments', 'watch_percentage', 'watched_seconds', 'last_position', 'is_completed', 'completed_at'];
+            $fallbackData = array_intersect_key($updateData, array_flip($safeFields));
+            $progress->update($fallbackData);
+        }
 
         // Sync curriculum tracking if newly completed
         if ($isCompleted && ! $wasAlreadyCompleted && $lecture->course_chapter_id) {
-            $this->syncCurriculumTracking($user->id, $lecture);
+            try {
+                $this->syncCurriculumTracking($user->id, $lecture);
+            } catch (\Throwable $e) {
+                Log::warning('VideoProgressService syncCurriculumTracking error: ' . $e->getMessage());
+            }
 
             $chapter = CourseChapter::find($lecture->course_chapter_id);
             if ($chapter) {
-                CurriculumItemCompleted::dispatch($user->id, $chapter->course_id);
+                try {
+                    CurriculumItemCompleted::dispatch($user->id, $chapter->course_id);
+                } catch (\Throwable $e) {
+                    Log::warning('VideoProgressService CurriculumItemCompleted dispatch error: ' . $e->getMessage());
+                }
             }
         } elseif ($lecture->course_chapter_id) {
-            // Partial progress: the cached course aggregate (my-learning, course
-            // page, dashboard) must be refreshed too, otherwise it keeps showing
-            // 0% until the cache TTL expires. The legacy updateProgress() path
-            // already does this; the segment path did not.
+            // Partial progress: refresh course cache
             $chapter = CourseChapter::find($lecture->course_chapter_id);
             if ($chapter) {
-                app(CourseProgressService::class)->clearCache($user->id, $chapter->course_id);
+                try {
+                    app(CourseProgressService::class)->clearCache($user->id, $chapter->course_id);
+                } catch (\Throwable $e) {
+                    Log::warning('VideoProgressService clearCache error: ' . $e->getMessage());
+                }
             }
         }
 
