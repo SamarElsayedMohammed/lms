@@ -70,33 +70,15 @@ final class LectureProgressApiController extends Controller
 
             if ($canonicalDuration <= 0) {
                 if ($reportedTotal > 0) {
-                    try {
-                        $lecture->updateQuietly([
-                            'duration_seconds' => $reportedTotal,
-                            'hours' => (int) floor($reportedTotal / 3600),
-                            'minutes' => (int) floor(($reportedTotal % 3600) / 60),
-                            'seconds' => (int) ($reportedTotal % 60),
-                        ]);
-                    } catch (\Throwable $e) {
-                        try {
-                            $lecture->updateQuietly([
-                                'hours' => (int) floor($reportedTotal / 3600),
-                                'minutes' => (int) floor(($reportedTotal % 3600) / 60),
-                                'seconds' => (int) ($reportedTotal % 60),
-                            ]);
-                        } catch (\Throwable $e2) {
-                            \Log::warning('Lecture duration update error: ' . $e2->getMessage());
-                        }
+                    $lecture->updateQuietly([
+                        'duration_seconds' => $reportedTotal,
+                        'hours' => (int) floor($reportedTotal / 3600),
+                        'minutes' => (int) floor(($reportedTotal % 3600) / 60),
+                        'seconds' => (int) ($reportedTotal % 60),
+                    ]);
+                    if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
+                        \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
                     }
-
-                    try {
-                        if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
-                            \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
-                        }
-                    } catch (\Throwable $e) {
-                        \Log::warning('RecalculateCourseDurationJob dispatch error: ' . $e->getMessage());
-                    }
-
                     $canonicalDuration = $reportedTotal;
                 } else {
                     return $this->error('Lecture duration is not configured on the server', null, 422);
@@ -159,33 +141,15 @@ final class LectureProgressApiController extends Controller
         $canonicalDuration = $this->videoProgressService->getCanonicalDuration($lecture);
 
         if ($canonicalDuration <= 0 && $reportedTotal > 0) {
-            try {
-                $lecture->updateQuietly([
-                    'duration_seconds' => $reportedTotal,
-                    'hours' => (int) floor($reportedTotal / 3600),
-                    'minutes' => (int) floor(($reportedTotal % 3600) / 60),
-                    'seconds' => (int) ($reportedTotal % 60),
-                ]);
-            } catch (\Throwable $e) {
-                try {
-                    $lecture->updateQuietly([
-                        'hours' => (int) floor($reportedTotal / 3600),
-                        'minutes' => (int) floor(($reportedTotal % 3600) / 60),
-                        'seconds' => (int) ($reportedTotal % 60),
-                    ]);
-                } catch (\Throwable $e2) {
-                    \Log::warning('Lecture duration update error: ' . $e2->getMessage());
-                }
+            $lecture->updateQuietly([
+                'duration_seconds' => $reportedTotal,
+                'hours' => (int) floor($reportedTotal / 3600),
+                'minutes' => (int) floor(($reportedTotal % 3600) / 60),
+                'seconds' => (int) ($reportedTotal % 60),
+            ]);
+            if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
+                \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
             }
-
-            try {
-                if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
-                    \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
-                }
-            } catch (\Throwable $e) {
-                \Log::warning('RecalculateCourseDurationJob dispatch error: ' . $e->getMessage());
-            }
-
             $canonicalDuration = $reportedTotal;
         }
 
