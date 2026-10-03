@@ -30,6 +30,7 @@ final class LectureProgressApiController extends Controller
      */
     public function updateProgress(Request $request, int $lectureId): JsonResponse
     {
+        try {
         \Log::info('Lecture Progress request', ['lecture_id' => $lectureId, 'payload' => $request->all()]);
         $lecture = CourseChapterLecture::find($lectureId);
         if ($lecture === null) {
@@ -176,6 +177,17 @@ final class LectureProgressApiController extends Controller
             ],
             message: 'Progress updated'
         );
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'status' => false,
+                'error' => true,
+                'message' => 'DEBUG EXCEPTION: ' . $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'code' => 500
+            ], 500);
+        }
     }
 
     /**
@@ -217,6 +229,17 @@ final class LectureProgressApiController extends Controller
         }
 
         return $this->ok(data: $progress);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'status' => false,
+                'error' => true,
+                'message' => 'DEBUG EXCEPTION: ' . $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'code' => 500
+            ], 500);
+        }
     }
 
     /**
