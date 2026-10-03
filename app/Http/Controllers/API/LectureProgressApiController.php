@@ -6,7 +6,9 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course\Course;
+use App\Models\Course\CourseChapter\CourseChapter;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
+use App\Models\LectureWatchSegment;
 use App\Services\ContentAccessService;
 use App\Services\CourseProgressService;
 use App\Services\VideoProgressService;
@@ -285,5 +287,125 @@ final class LectureProgressApiController extends Controller
             'next_item'          => $detailed['next_item'],
             'lessons'            => $lessons,
         ]);
+    }
+
+    /**
+     * Record a specific watch segment [start_second, end_second] (Interval Merging).
+     */
+    public function recordWatch(Request $request, int $lectureId): JsonResponse
+    {
+        $validated = $request->validate([
+            'start_second' => ['required', 'integer', 'min:0'],
+            'end_second' => ['required', 'integer', 'gt:start_second'],
+            'total_duration' => ['nullable', 'integer', 'min:0'],
+            'current_position' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $lecture = CourseChapterLecture::find($lectureId);
+        if ($lecture === null) {
+            return $this->notFound('Lecture not found');
+        }
+
+        $user = Auth::user();
+        if ($user === null) {
+            return $this->unauthorized();
+        }
+
+        if (!$this->contentAccessService->canAccessLecture($user, $lecture)) {
+            return $this->forbidden('Course access required');
+        }
+
+        // Store the watch segment
+        LectureWatchSegment::create([
+            'user_id' => $user->id,
+            'lecture_id' => $lecture->id,
+            'start_second' => (int) $validated['start_second'],
+            'end_second' => (int) $validated['end_second'],
+        ]);
+
+        $currentPos = isset($validated['current_position']) ? (int) $validated['current_position'] : (int) $validated['end_second'];
+        $reportedTotal = isset($validated['total_duration']) ? (int) $validated['total_duration'] : null;
+
+        $progress = $this->videoProgressService->recalculateFromSegments(
+            $user->id,
+            $lecture,
+            $reportedTotal,
+            $currentPos
+        );
+
+        return $this->ok(data: [
+            'watched_seconds' => $progress->watched_seconds,
+            'total_seconds' => $progress->total_seconds,
+            'watch_percentage' => (float) $progress->watch_percentage,
+            'is_completed' => (bool) $progress->is_completed,
+            'last_position' => $progress->last_position,
+        ], message: 'Watch segment recorded successfully');
+    }
+
+    /**
+     * Check if user is allowed to access/start the lecture (Sequential Locking).
+     */
+    public function checkAccess(int $lectureId): JsonResponse
+    {
+        $lecture = CourseChapterLecture::find($lectureId);
+        if ($lecture === null) {
+            return $this->notFound('Lecture not found');
+        }
+
+        $user = Auth::user();
+        if ($user === null) {
+            return $this->unauthorized();
+        }
+
+        if (!$this->contentAccessService->canAccessLecture($user, $lecture)) {
+            return $this->forbidden('Course access required');
+        }
+
+        $chapter = $lecture->chapter;
+        if (!$chapter) {
+            return $this->ok(data: ['allowed' => true]);
+        }
+
+        $course = $chapter->course;
+        if (!$course) {
+            return $this->ok(data: ['allowed' => true]);
+        }
+
+        // Admins and instructors bypass sequential restrictions
+        if ($user->hasRole(['admin', 'instructor', 'supervisor', 'Super Admin']) || $user->id === $course->user_id) {
+            return $this->ok(data: ['allowed' => true]);
+        }
+
+        // Find previous lecture across all chapters ordered by order
+        $allLectures = CourseChapterLecture::whereIn(
+            'course_chapter_id',
+            CourseChapter::where('course_id', $course->id)->pluck('id')
+        )
+        ->where('is_active', true)
+        ->orderBy('chapter_order')
+        ->get();
+
+        $currentIndex = $allLectures->search(fn ($l) => $l->id === $lecture->id);
+        if ($currentIndex === false || $currentIndex === 0) {
+            return $this->ok(data: ['allowed' => true]);
+        }
+
+        $previousLecture = $allLectures[$currentIndex - 1];
+        $previousProgress = \App\Models\VideoProgress::where('user_id', $user->id)
+            ->where('lecture_id', $previousLecture->id)
+            ->first();
+
+        if (!$previousProgress || !$previousProgress->is_completed) {
+            return response()->json([
+                'success' => false,
+                'status' => false,
+                'allowed' => false,
+                'reason' => 'PREVIOUS_LESSON_NOT_COMPLETED',
+                'previous_lecture_id' => $previousLecture->id,
+                'previous_lecture_title' => $previousLecture->title,
+            ], 403);
+        }
+
+        return $this->ok(data: ['allowed' => true]);
     }
 }

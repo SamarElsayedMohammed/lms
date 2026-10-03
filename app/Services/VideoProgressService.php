@@ -6,6 +6,7 @@ use App\Events\CurriculumItemCompleted;
 use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\CourseChapter;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
+use App\Models\LectureWatchSegment;
 use App\Models\User;
 use App\Models\UserCurriculumTracking;
 use App\Models\VideoProgress;
@@ -854,5 +855,133 @@ class VideoProgressService
         }
 
         return $lectures;
+    }
+
+    /**
+     * Recalculate progress using merged watch segments (Interval Merging algorithm).
+     */
+    public function recalculateFromSegments(
+        int $userId,
+        CourseChapterLecture $lecture,
+        ?int $reportedDuration = null,
+        ?int $lastPosition = null
+    ): VideoProgress {
+        $segments = LectureWatchSegment::where('user_id', $userId)
+            ->where('lecture_id', $lecture->id)
+            ->orderBy('start_second')
+            ->get();
+
+        $merged = [];
+        foreach ($segments as $segment) {
+            if (empty($merged)) {
+                $merged[] = [
+                    'start' => $segment->start_second,
+                    'end' => $segment->end_second,
+                ];
+                continue;
+            }
+
+            $lastIndex = count($merged) - 1;
+            if ($segment->start_second <= $merged[$lastIndex]['end']) {
+                $merged[$lastIndex]['end'] = max(
+                    $merged[$lastIndex]['end'],
+                    $segment->end_second
+                );
+            } else {
+                $merged[] = [
+                    'start' => $segment->start_second,
+                    'end' => $segment->end_second,
+                ];
+            }
+        }
+
+        $watchedSeconds = 0;
+        foreach ($merged as $item) {
+            $watchedSeconds += ($item['end'] - $item['start']);
+        }
+
+        $canonicalDuration = $this->getCanonicalDuration($lecture);
+        if ($canonicalDuration <= 0 && $reportedDuration && $reportedDuration > 0) {
+            $canonicalDuration = $reportedDuration;
+            try {
+                $lecture->updateQuietly([
+                    'duration_seconds' => $reportedDuration,
+                    'hours' => (int) floor($reportedDuration / 3600),
+                    'minutes' => (int) floor(($reportedDuration % 3600) / 60),
+                    'seconds' => (int) ($reportedDuration % 60),
+                ]);
+            } catch (\Throwable $e) {
+                // Ignore if duration_seconds is not in schema
+            }
+        }
+
+        $duration = max(1, $canonicalDuration);
+        $percent = min(100.0, round(($watchedSeconds / $duration) * 100, 2));
+        $completed = $percent >= self::COMPLETION_THRESHOLD;
+
+        $progress = VideoProgress::firstOrCreate(
+            [
+                'user_id' => $userId,
+                'lecture_id' => $lecture->id,
+            ],
+            [
+                'total_seconds' => $duration,
+                'watched_seconds' => 0,
+                'last_position' => 0,
+                'watch_percentage' => 0,
+                'is_completed' => false,
+            ]
+        );
+
+        $wasCompleted = (bool) $progress->is_completed;
+        $isCompleted = $wasCompleted || $completed;
+
+        $updateData = [
+            'watched_seconds' => $watchedSeconds,
+            'total_seconds' => $duration,
+            'watch_percentage' => max((float) ($progress->watch_percentage ?? 0), $percent),
+            'is_completed' => $isCompleted,
+            'completed_at' => $isCompleted ? ($progress->completed_at ?? now()) : null,
+        ];
+
+        if ($lastPosition !== null && $lastPosition > 0) {
+            $updateData['last_position'] = min($lastPosition, $duration);
+        }
+
+        try {
+            $progress->update($updateData);
+        } catch (\Throwable $e) {
+            $safeFields = ['watched_seconds', 'total_seconds', 'watch_percentage', 'is_completed', 'completed_at', 'last_position'];
+            $progress->update(array_intersect_key($updateData, array_flip($safeFields)));
+        }
+
+        // If newly completed, sync tracking and fire event
+        if ($isCompleted && ! $wasCompleted && $lecture->course_chapter_id) {
+            try {
+                $this->syncCurriculumTracking($userId, $lecture);
+            } catch (\Throwable $e) {
+                Log::warning('syncCurriculumTracking error: ' . $e->getMessage());
+            }
+
+            $chapter = CourseChapter::find($lecture->course_chapter_id);
+            if ($chapter) {
+                try {
+                    CurriculumItemCompleted::dispatch($userId, $chapter->course_id);
+                } catch (\Throwable $e) {
+                    Log::warning('CurriculumItemCompleted dispatch error: ' . $e->getMessage());
+                }
+            }
+        } elseif ($lecture->course_chapter_id) {
+            $chapter = CourseChapter::find($lecture->course_chapter_id);
+            if ($chapter) {
+                try {
+                    app(CourseProgressService::class)->clearCache($userId, $chapter->course_id);
+                } catch (\Throwable $e) {
+                    // Ignore cache error
+                }
+            }
+        }
+
+        return $progress->fresh();
     }
 }
