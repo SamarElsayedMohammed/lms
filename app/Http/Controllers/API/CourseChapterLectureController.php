@@ -122,7 +122,8 @@ class CourseChapterLectureController extends Controller
         if (!$this->videoProgressService->canAccessNextLesson($user, $lecture)) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'You must complete the previous lecture first.',
+                'code' => 'LESSON_LOCKED',
+                'message' => 'يجب إكمال الدرس السابق أولاً للوصول إلى هذا المحتوى.',
             ], 403);
         }
 

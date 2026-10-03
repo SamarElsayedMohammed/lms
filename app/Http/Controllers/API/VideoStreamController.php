@@ -66,7 +66,11 @@ final class VideoStreamController extends Controller
                 }
 
                 if (!$this->videoProgressService->canAccessNextLesson($user, $courseChapterLecture)) {
-                    return $this->forbidden('Complete the previous lesson first (85% required)');
+                    return response()->json([
+                        'error' => true,
+                        'code' => 'LESSON_LOCKED',
+                        'message' => 'يجب إكمال الدرس السابق أولاً للوصول إلى هذا المحتوى.',
+                    ], 403);
                 }
             }
 
