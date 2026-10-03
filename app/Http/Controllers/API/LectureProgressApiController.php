@@ -69,22 +69,12 @@ final class LectureProgressApiController extends Controller
 
             if ($canonicalDuration <= 0) {
                 if ($reportedTotal > 0) {
-                    try {
-                        $lecture->updateQuietly([
-                            'duration_seconds' => $reportedTotal,
-                            'hours' => (int) floor($reportedTotal / 3600),
-                            'minutes' => (int) floor(($reportedTotal % 3600) / 60),
-                            'seconds' => (int) ($reportedTotal % 60),
-                        ]);
-                    } catch (\Exception $e) {
-                        // Fallback if duration_seconds column doesn't exist
-                        $lecture->updateQuietly([
-                            'hours' => (int) floor($reportedTotal / 3600),
-                            'minutes' => (int) floor(($reportedTotal % 3600) / 60),
-                            'seconds' => (int) ($reportedTotal % 60),
-                        ]);
-                    }
-
+                    $lecture->updateQuietly([
+                        'duration_seconds' => $reportedTotal,
+                        'hours' => (int) floor($reportedTotal / 3600),
+                        'minutes' => (int) floor(($reportedTotal % 3600) / 60),
+                        'seconds' => (int) ($reportedTotal % 60),
+                    ]);
                     if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
                         \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
                     }
