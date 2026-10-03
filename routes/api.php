@@ -359,8 +359,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     )->middleware('throttle:10,1');
 
     // Video progress tracking (100% contiguous segment completion rule)
+    // The player heartbeats every ~5s (12 req/min) and catch-up flushes send
+    // 3 segments per request, so 10/min starved real viewers with HTTP 429.
     Route::post('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'updateProgress'])
-        ->middleware('throttle:10,1');
+        ->middleware('throttle:60,1');
     Route::get('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'getProgress']);
     Route::get('/course/{courseId}/progress', [LectureProgressApiController::class, 'getCourseProgress']);
 
