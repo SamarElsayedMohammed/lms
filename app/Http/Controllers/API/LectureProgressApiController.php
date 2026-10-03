@@ -30,6 +30,7 @@ final class LectureProgressApiController extends Controller
      */
     public function updateProgress(Request $request, int $lectureId): JsonResponse
     {
+        \Log::info('Lecture Progress request', ['lecture_id' => $lectureId, 'payload' => $request->all()]);
         $lecture = CourseChapterLecture::find($lectureId);
         if ($lecture === null) {
             return $this->notFound('Lecture not found');
