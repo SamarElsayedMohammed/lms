@@ -578,6 +578,15 @@ class VideoProgressService
             if ($chapter) {
                 CurriculumItemCompleted::dispatch($user->id, $chapter->course_id);
             }
+        } elseif ($lecture->course_chapter_id) {
+            // Partial progress: the cached course aggregate (my-learning, course
+            // page, dashboard) must be refreshed too, otherwise it keeps showing
+            // 0% until the cache TTL expires. The legacy updateProgress() path
+            // already does this; the segment path did not.
+            $chapter = CourseChapter::find($lecture->course_chapter_id);
+            if ($chapter) {
+                app(CourseProgressService::class)->clearCache($user->id, $chapter->course_id);
+            }
         }
 
         return $progress->fresh();
