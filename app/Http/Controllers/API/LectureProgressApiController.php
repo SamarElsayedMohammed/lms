@@ -16,6 +16,7 @@ use App\Traits\HasApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 final class LectureProgressApiController extends Controller
 {
@@ -33,7 +34,7 @@ final class LectureProgressApiController extends Controller
     public function updateProgress(Request $request, int $lectureId): JsonResponse
     {
         try {
-        \Log::info('Lecture Progress request', ['lecture_id' => $lectureId, 'payload' => $request->all()]);
+        Log::info('Lecture Progress request', ['lecture_id' => $lectureId, 'payload' => $request->all()]);
         $lecture = CourseChapterLecture::find($lectureId);
         if ($lecture === null) {
             return $this->notFound('Lecture not found');
@@ -180,15 +181,8 @@ final class LectureProgressApiController extends Controller
             message: 'Progress updated'
         );
         } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'status' => false,
-                'error' => true,
-                'message' => 'DEBUG EXCEPTION: ' . $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'code' => 500
-            ], 500);
+            Log::error('Lecture progress update error', ['error' => $e->getMessage()]);
+            return $this->error('Failed to update lecture progress', null, 500);
         }
     }
 
