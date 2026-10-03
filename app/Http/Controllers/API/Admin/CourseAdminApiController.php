@@ -127,11 +127,8 @@ class CourseAdminApiController extends AdminCrudApiController
         $instructorId  = (int) ($request->input('instructor_id') ?? Auth::id());
         $isFree        = $request->has('is_free') ? $request->boolean('is_free') : true;
         $courseType    = $isFree ? 'free' : 'paid';
-        $price         = $isFree ? null : round((float) $request->input('price', 0), 2);
+        $price         = $isFree ? null : ($request->filled('price') ? round((float) $request->input('price'), 2) : null);
         $discountPrice = null;
-        if (!$isFree && $price <= 0) {
-            return $this->jsonError(__('A paid course requires a price greater than zero.'), 422);
-        }
         $status = $request->input('status', 'draft');
         if (!in_array($status, ['draft', 'pending', 'publish', 'archive'], true)) {
             $status = 'draft';
@@ -1177,11 +1174,8 @@ class CourseAdminApiController extends AdminCrudApiController
         $instructorId  = (int) ($request->input('instructor_id') ?? $course->user_id);
         $isFree        = $request->has('is_free') ? $request->boolean('is_free') : (bool) $course->is_free;
         $courseType    = $isFree ? 'free' : 'paid';
-        $price         = $isFree ? null : round((float) $request->input('price', $course->price ?? 0), 2);
+        $price         = $isFree ? null : ($request->filled('price') ? round((float) $request->input('price'), 2) : ($course->price ?? null));
         $discountPrice = null;
-        if (!$isFree && $price <= 0) {
-            return $this->jsonError(__('A paid course requires a price greater than zero.'), 422);
-        }
 
         $status = $request->input('status', $course->status);
         if (!in_array($status, ['draft', 'pending', 'publish', 'archive'], true)) {

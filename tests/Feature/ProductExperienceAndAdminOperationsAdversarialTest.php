@@ -267,7 +267,7 @@ class ProductExperienceAndAdminOperationsAdversarialTest extends TestCase
             ->assertJsonPath('data.is_active', true);
     }
 
-    public function test_course_editor_persists_paid_course_pricing_and_rejects_a_zero_price(): void
+    public function test_course_editor_allows_paid_course_without_requiring_standalone_price(): void
     {
         $admin = User::factory()->create();
         $admin->assignRole('Super Admin');
@@ -278,26 +278,20 @@ class ProductExperienceAndAdminOperationsAdversarialTest extends TestCase
             'category_id' => $course->category_id,
             'is_free' => false,
             'course_type' => 'paid',
-            'price' => 249.50,
         ];
 
+        // Paid course without price succeeds under the subscription entitlement model
         $this->actingAs($admin, 'sanctum')
             ->postJson("/api/admin/courses/{$course->id}/update", $payload)
             ->assertOk()
             ->assertJsonPath('data.is_free', false)
-            ->assertJsonPath('data.course_type', 'paid')
-            ->assertJsonPath('data.price', '249.50');
+            ->assertJsonPath('data.course_type', 'paid');
 
         $this->assertDatabaseHas('courses', [
             'id' => $course->id,
             'is_free' => 0,
             'course_type' => 'paid',
-            'price' => 249.50,
         ]);
-
-        $this->actingAs($admin, 'sanctum')
-            ->postJson("/api/admin/courses/{$course->id}/update", array_merge($payload, ['price' => 0]))
-            ->assertStatus(422);
     }
 
     public function test_course_learning_outcomes_and_requirements_are_replaced_and_persisted(): void
