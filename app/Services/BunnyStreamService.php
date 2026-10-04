@@ -167,6 +167,49 @@ class BunnyStreamService
         }
     }
 
+    /**
+     * Extract Bunny Stream library ID and video GUID from URL or iframe snippet.
+     *
+     * @return array{library_id: string, video_guid: string}|null
+     */
+    public static function extractLibraryAndGuid(?string $url): ?array
+    {
+        if (! is_string($url) || trim($url) === '') {
+            return null;
+        }
+
+        $trimmed = trim($url);
+
+        // Pattern 1: iframe or player embed URL (e.g. https://player.mediadelivery.net/embed/423625/ed69b38c-94b7-4195-970b-6ded05193a44)
+        if (preg_match('#(?:iframe|player)\.mediadelivery\.net/embed/([a-zA-Z0-9_-]+)/([a-f0-9\-]{36}|[a-zA-Z0-9_-]+)#i', $trimmed, $matches)) {
+            return [
+                'library_id' => $matches[1],
+                'video_guid' => $matches[2],
+            ];
+        }
+
+        // Pattern 2: Bunny CDN API or direct library path (e.g. video.bunnycdn.com/library/423625/videos/guid)
+        if (preg_match('#/library/([a-zA-Z0-9_-]+)/videos/([a-f0-9\-]{36}|[a-zA-Z0-9_-]+)#i', $trimmed, $matches)) {
+            return [
+                'library_id' => $matches[1],
+                'video_guid' => $matches[2],
+            ];
+        }
+
+        // Pattern 3: HLS Playlist or GUID on known Bunny Stream CDN host
+        if (preg_match('#/([a-f0-9\-]{36})(?:/playlist\.m3u8)?#i', $trimmed, $matches)) {
+            $defaultLib = self::libraryId();
+            if ($defaultLib !== '') {
+                return [
+                    'library_id' => $defaultLib,
+                    'video_guid' => $matches[1],
+                ];
+            }
+        }
+
+        return null;
+    }
+
     public static function deleteByUrl(?string $url): bool
     {
         if (! is_string($url) || $url === '') {

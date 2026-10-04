@@ -653,6 +653,14 @@ final class VideoStreamController extends Controller
         $headers['Content-Type'] = $mimeType;
         $headers['Accept-Ranges'] = 'bytes';
         $headers['X-Content-Type-Options'] ??= 'nosniff';
+        $origin = request()->header('Origin');
+        if ($origin) {
+            $headers['Access-Control-Allow-Origin'] = $origin;
+            $headers['Access-Control-Allow-Credentials'] = 'true';
+            $headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
+            $headers['Access-Control-Allow-Headers'] = 'Range, Authorization, Content-Type';
+            $headers['Access-Control-Expose-Headers'] = 'Content-Range, Content-Length, Accept-Ranges';
+        }
 
         $useXAccel = (bool) config('filesystems.x_accel_redirect');
 

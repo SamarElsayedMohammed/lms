@@ -88,6 +88,7 @@ final class LectureProgressApiController extends Controller
                         'minutes' => (int) floor(($reportedTotal % 3600) / 60),
                         'seconds' => (int) ($reportedTotal % 60),
                     ]);
+                    $lecture->refresh();
                     if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
                         \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
                     }
@@ -162,6 +163,7 @@ final class LectureProgressApiController extends Controller
             if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
                 \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
             }
+            $lecture->refresh();
             $canonicalDuration = $reportedTotal;
         }
 

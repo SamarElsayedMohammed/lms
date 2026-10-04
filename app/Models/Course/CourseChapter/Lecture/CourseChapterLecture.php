@@ -147,7 +147,35 @@ final class CourseChapterLecture extends Model
 
     public function getDurationAttribute(): int
     {
-        return (int) ($this->duration_seconds ?? 0);
+        if (!empty($this->duration_seconds) && (int) $this->duration_seconds > 0) {
+            return (int) $this->duration_seconds;
+        }
+
+        $hmsSeconds = ((int) ($this->hours ?? 0) * 3600)
+            + ((int) ($this->minutes ?? 0) * 60)
+            + ((int) ($this->seconds ?? 0));
+
+        if ($hmsSeconds > 0) {
+            return $hmsSeconds;
+        }
+
+        $rawTotal = $this->attributes['total_duration'] ?? null;
+        if ($rawTotal !== null && $rawTotal !== '') {
+            if (is_numeric($rawTotal)) {
+                return max(0, (int) $rawTotal);
+            }
+            if (is_string($rawTotal) && str_contains($rawTotal, ':')) {
+                $parts = array_map('intval', explode(':', $rawTotal));
+                if (count($parts) === 3) {
+                    return max(0, ($parts[0] * 3600) + ($parts[1] * 60) + $parts[2]);
+                }
+                if (count($parts) === 2) {
+                    return max(0, ($parts[0] * 60) + $parts[1]);
+                }
+            }
+        }
+
+        return 0;
     }
 
     /**

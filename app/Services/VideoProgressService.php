@@ -57,11 +57,28 @@ class VideoProgressService
         // Determine canonical video duration from authoritative lecture model
         $canonicalDuration = $this->getCanonicalDuration($lecture);
         if ($canonicalDuration > 0) {
-            // Server-authoritative duration wins — client-supplied value is discarded.
+            // Server-authoritative duration wins
             $totalSeconds = $canonicalDuration;
+        } elseif ($totalSeconds > 0) {
+            // Adopt reported video duration and persist to lecture
+            $canonicalDuration = $totalSeconds;
+            if ($lecture->exists) {
+                try {
+                    $lecture->updateQuietly([
+                        'duration_seconds' => $totalSeconds,
+                        'hours'            => (int) floor($totalSeconds / 3600),
+                        'minutes'          => (int) floor(($totalSeconds % 3600) / 60),
+                        'seconds'          => (int) ($totalSeconds % 60),
+                    ]);
+                    $lecture->refresh();
+                    if ($lecture->course_chapter_id && $lecture->chapter?->course_id) {
+                        \App\Jobs\RecalculateCourseDurationJob::dispatch($lecture->chapter->course_id);
+                    }
+                } catch (\Throwable $e) {
+                    // Ignore if schema mismatch
+                }
+            }
         } else {
-            // No authoritative duration in DB. Client input must NEVER mutate canonical lecture duration.
-            // Progress accumulation is blocked until server duration authority is configured.
             $totalSeconds = 0;
         }
 
@@ -122,9 +139,11 @@ class VideoProgressService
 
         $wasAlreadyCompleted = $existing !== null && (bool) $existing->is_completed;
         $requiresVerifiedTracking = $this->requiresVerifiedTracking($lecture);
-        $reachedEndState = ($metadata['progress_state'] ?? '') === 'ended' && $watchPercentage >= self::COMPLETION_THRESHOLD;
+        $progressState = $metadata['progress_state'] ?? '';
+        $nearEndTolerance = 2; // 2 seconds tolerance for floating point / media timing discrepancies
+        $reachedEndState = ($progressState === 'ended') || ($totalSeconds > 0 && $effectiveWatched >= max(0, $totalSeconds - $nearEndTolerance));
         $isCompleted = $wasAlreadyCompleted || (
-            $watchPercentage >= self::COMPLETION_THRESHOLD
+            $watchPercentage >= self::COMPLETION_THRESHOLD || $reachedEndState
         );
         if ($wasAlreadyCompleted && $existing?->watch_percentage !== null) {
             $watchPercentage = max((float) $existing->watch_percentage, $watchPercentage);

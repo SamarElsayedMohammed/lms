@@ -357,13 +357,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
      */
     Route::get('/video/{lectureId}/stream', [VideoStreamController::class, 'stream'])->name(
         'api.video.stream',
-    )->middleware('throttle:10,1');
+    )->middleware('throttle:30,1');
 
-    // Video progress tracking (100% contiguous segment completion rule)
+    // Video progress tracking
     Route::post('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'updateProgress'])
-        ->middleware('throttle:10,1');
+        ->middleware('throttle:60,1');
     Route::post('/lecture/{lectureId}/record-watch', [LectureProgressApiController::class, 'recordWatch'])
-        ->middleware('throttle:10,1');
+        ->middleware('throttle:60,1');
     Route::get('/lecture/{lectureId}/check-access', [LectureProgressApiController::class, 'checkAccess']);
     Route::get('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'getProgress']);
     Route::get('/course/{courseId}/progress', [LectureProgressApiController::class, 'getCourseProgress']);

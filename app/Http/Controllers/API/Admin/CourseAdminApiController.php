@@ -725,6 +725,18 @@ class CourseAdminApiController extends AdminCrudApiController
         string $courseSlug = '',
     ): CourseChapterLecture {
         [$hours, $minutes, $seconds] = $this->parseDuration($lesson['duration'] ?? null);
+        $durationSeconds = (int) ($lesson['duration_seconds'] ?? 0);
+        if ($durationSeconds > 0 && $hours === 0 && $minutes === 0 && $seconds === 0) {
+            $hours = (int) floor($durationSeconds / 3600);
+            $minutes = (int) floor(($durationSeconds % 3600) / 60);
+            $seconds = (int) ($durationSeconds % 60);
+        } else {
+            $computedSeconds = ($hours * 3600) + ($minutes * 60) + $seconds;
+            if ($computedSeconds > 0) {
+                $durationSeconds = $computedSeconds;
+            }
+        }
+        $isFreePreview = !empty($lesson['free_preview']) || !empty($lesson['is_free_preview']) || !empty($lesson['is_free']);
         $rawType = $lesson['type'] ?? 'video';
         $stagedUploadId = trim((string) ($lesson['file_upload_id'] ?? ''));
 
@@ -743,11 +755,11 @@ class CourseAdminApiController extends AdminCrudApiController
                 'hours'             => $hours,
                 'minutes'           => $minutes,
                 'seconds'           => $seconds,
-                'duration_seconds'  => ($hours * 3600) + ($minutes * 60) + $seconds,
+                'duration_seconds'  => $durationSeconds,
                 'youtube_url'       => null,
                 'chapter_order'     => $order,
                 'is_active'         => true,
-                'free_preview'      => false,
+                'free_preview'      => $isFreePreview,
             ]);
             $mediaMeta = [
                 'lecture_id' => $lecture->id,
@@ -777,19 +789,20 @@ class CourseAdminApiController extends AdminCrudApiController
             'hours'             => $hours,
             'minutes'           => $minutes,
             'seconds'           => $seconds,
-            'duration_seconds'  => ($hours * 3600) + ($minutes * 60) + $seconds,
+            'duration_seconds'  => $durationSeconds,
             'chapter_order'     => $order,
             'is_active'         => true,
-            'free_preview'      => false,
+            'free_preview'      => $isFreePreview,
         ]);
 
-        if ($contentUrl && $type === 'youtube_url') {
-            // Check if it's a Bunny Stream URL
-            if (preg_match('/iframe\.mediadelivery\.net\/embed\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/', $contentUrl, $matches)) {
-                $libraryId = $matches[1];
-                $videoGuid = $matches[2];
-                // Dispatch job to fetch real duration
-                \App\Jobs\FetchBunnyVideoDurationJob::dispatch($lecture->id, $libraryId, $videoGuid);
+        if ($contentUrl && ($type === 'youtube_url' || $type === 'video' || $type === 'bunny')) {
+            $bunnyInfo = \App\Services\BunnyStreamService::extractLibraryAndGuid($contentUrl);
+            if ($bunnyInfo) {
+                \App\Jobs\FetchBunnyVideoDurationJob::dispatch(
+                    $lecture->id,
+                    $bunnyInfo['library_id'],
+                    $bunnyInfo['video_guid']
+                );
             }
         }
 
