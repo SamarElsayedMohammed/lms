@@ -153,10 +153,11 @@ class DashboardController extends Controller
                 'line' => $e->getLine(),
             ]);
 
+            $isLocal = app()->environment('local') && config('app.debug');
             return response()->json(
                 [
                     'status' => false,
-                    'message' => 'Failed to load dashboard data: ' . $e->getMessage(),
+                    'message' => $isLocal ? ('Failed to load dashboard data: ' . $e->getMessage()) : 'Failed to load dashboard data.',
                 ],
                 500,
                 [],

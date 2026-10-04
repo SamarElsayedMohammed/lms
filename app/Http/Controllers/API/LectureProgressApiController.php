@@ -49,6 +49,15 @@ final class LectureProgressApiController extends Controller
             return $this->forbidden('Course access required');
         }
 
+        if (!$this->videoProgressService->canAccessNextLesson($user, $lecture)) {
+            return response()->json([
+                'status' => 'error',
+                'error' => true,
+                'code' => 'LESSON_LOCKED',
+                'message' => 'يجب إكمال الدرس السابق أولاً للوصول إلى هذا المحتوى.',
+            ], 403);
+        }
+
         $metadata = [
             'session_id' => $request->input('session_id'),
             'device' => $request->input('device'),
@@ -180,6 +189,10 @@ final class LectureProgressApiController extends Controller
             ],
             message: 'Progress updated'
         );
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Lecture progress update error', ['error' => $e->getMessage()]);
             return $this->error('Failed to update lecture progress', null, 500);
@@ -309,6 +322,15 @@ final class LectureProgressApiController extends Controller
             return $this->forbidden('Course access required');
         }
 
+        if (!$this->videoProgressService->canAccessNextLesson($user, $lecture)) {
+            return response()->json([
+                'status' => 'error',
+                'error' => true,
+                'code' => 'LESSON_LOCKED',
+                'message' => 'يجب إكمال الدرس السابق أولاً للوصول إلى هذا المحتوى.',
+            ], 403);
+        }
+
         // Store the watch segment
         LectureWatchSegment::create([
             'user_id' => $user->id,
@@ -355,48 +377,17 @@ final class LectureProgressApiController extends Controller
             return $this->forbidden('Course access required');
         }
 
-        $chapter = $lecture->chapter;
-        if (!$chapter) {
-            return $this->ok(data: ['allowed' => true]);
-        }
-
-        $course = $chapter->course;
-        if (!$course) {
-            return $this->ok(data: ['allowed' => true]);
-        }
-
-        // Admins and instructors bypass sequential restrictions
-        if ($user->hasRole(['admin', 'instructor', 'supervisor', 'Super Admin']) || $user->id === $course->user_id) {
-            return $this->ok(data: ['allowed' => true]);
-        }
-
-        // Find previous lecture across all chapters ordered by order
-        $allLectures = CourseChapterLecture::whereIn(
-            'course_chapter_id',
-            CourseChapter::where('course_id', $course->id)->pluck('id')
-        )
-        ->where('is_active', true)
-        ->orderBy('chapter_order')
-        ->get();
-
-        $currentIndex = $allLectures->search(fn ($l) => $l->id === $lecture->id);
-        if ($currentIndex === false || $currentIndex === 0) {
-            return $this->ok(data: ['allowed' => true]);
-        }
-
-        $previousLecture = $allLectures[$currentIndex - 1];
-        $previousProgress = \App\Models\VideoProgress::where('user_id', $user->id)
-            ->where('lecture_id', $previousLecture->id)
-            ->first();
-
-        if (!$previousProgress || !$previousProgress->is_completed) {
+        $allowed = $this->videoProgressService->canAccessNextLesson($user, $lecture);
+        if (!$allowed) {
             return response()->json([
                 'success' => false,
                 'status' => false,
                 'allowed' => false,
+                'error' => true,
+                'code' => 403,
+                'error_code' => 'LESSON_LOCKED',
                 'reason' => 'PREVIOUS_LESSON_NOT_COMPLETED',
-                'previous_lecture_id' => $previousLecture->id,
-                'previous_lecture_title' => $previousLecture->title,
+                'message' => 'يجب إكمال الدرس السابق أولاً للوصول إلى هذا المحتوى.',
             ], 403);
         }
 

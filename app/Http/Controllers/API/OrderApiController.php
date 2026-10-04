@@ -610,7 +610,8 @@ class OrderApiController extends Controller
                 'trace' => $th->getTraceAsString(),
             ]);
 
-            return ApiResponseService::errorResponse('Failed to generate invoice: '.$th->getMessage());
+            $isLocal = app()->environment('local') && config('app.debug');
+            return ApiResponseService::errorResponse($isLocal ? ('Failed to generate invoice: '.$th->getMessage()) : 'Failed to generate invoice.');
         }
     }
 

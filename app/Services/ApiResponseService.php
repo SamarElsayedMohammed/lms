@@ -170,7 +170,6 @@ final class ApiResponseService
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),
-                'trace' => $exception->getTrace(),
             ];
         }
 

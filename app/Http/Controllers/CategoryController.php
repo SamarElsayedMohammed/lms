@@ -738,8 +738,8 @@ class CategoryController extends Controller
                 'error' => $th->getMessage(),
                 'trace' => $th->getTraceAsString(),
             ]);
-            ResponseService::logErrorRedirect($th, 'CategoryController -> updateOrder');
-            ResponseService::errorResponse('Failed to update order: ' . $th->getMessage());
+            $isLocal = app()->environment('local') && config('app.debug');
+            ResponseService::errorResponse($isLocal ? ('Failed to update order: ' . $th->getMessage()) : 'Failed to update order.');
         }
     }
 }

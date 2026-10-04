@@ -222,12 +222,11 @@ class ResponseService
             $response['errors'] = $data;
         }
 
-        if (config('app.debug') && !empty($exception) && is_object($exception)) {
+        if (app()->environment('local') && config('app.debug') && !empty($exception) && is_object($exception)) {
             $response['debug'] = [
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),
-                'trace' => $exception->getTrace(),
             ];
         }
 

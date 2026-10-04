@@ -151,7 +151,8 @@ class WishlistApiController extends Controller
                 'exception' => $e,
                 'trace' => $e->getTraceAsString(),
             ]);
-            return ApiResponseService::errorResponse('Failed to fetch wishlist: ' . $e->getMessage());
+            $isLocal = app()->environment('local') && config('app.debug');
+            return ApiResponseService::errorResponse($isLocal ? ('Failed to fetch wishlist: ' . $e->getMessage()) : 'Failed to fetch wishlist.');
         }
     }
 

@@ -43,12 +43,11 @@ trait HasApiResponse
             'code' => $status,
         ];
 
-        if (config('app.debug') === true && $exception instanceof Throwable) {
+        if (app()->environment('local') && config('app.debug') === true && $exception instanceof Throwable) {
             $response['debug'] = [
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),
-                'trace' => $exception->getTrace(),
             ];
         }
 

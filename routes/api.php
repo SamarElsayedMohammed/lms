@@ -148,7 +148,8 @@ Route::get('active-popup', [\App\Http\Controllers\API\PopupCampaignApiController
 
 
 
-Route::post('course-view', [CourseApiController::class, 'courseView']);
+Route::post('course-view', [CourseApiController::class, 'courseView'])
+    ->middleware('throttle:30,1');
 Route::get('get-search-suggestions', [CourseApiController::class, 'getSearchSuggestions']);
 
 Route::get('sales-chart-data', [ApiController::class, 'getSalesChartData'])
@@ -216,7 +217,7 @@ Route::prefix('helpdesk')->group(function (): void {
 Route::post('contact-us', [ApiController::class, 'submitContactForm'])
     ->middleware([OptionalAuth::class, 'throttle:5,1']); // Submit Contact Us Form
 Route::post('become-instructor', [ApiController::class, 'submitBecomeInstructor'])
-    ->middleware([OptionalAuth::class]); // Submit Become an Instructor Form
+    ->middleware([OptionalAuth::class, 'throttle:5,1']); // Submit Become an Instructor Form
 Route::get('instructor-request/status', [ApiController::class, 'getInstructorRequestStatus'])
     ->middleware([OptionalAuth::class]); // Public Track Instructor Request Status
 Route::get('instructor-requests/status', [ApiController::class, 'getInstructorRequestStatus'])
@@ -361,6 +362,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Video progress tracking (100% contiguous segment completion rule)
     Route::post('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'updateProgress'])
         ->middleware('throttle:10,1');
+    Route::post('/lecture/{lectureId}/record-watch', [LectureProgressApiController::class, 'recordWatch'])
+        ->middleware('throttle:10,1');
+    Route::get('/lecture/{lectureId}/check-access', [LectureProgressApiController::class, 'checkAccess']);
     Route::get('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'getProgress']);
     Route::get('/course/{courseId}/progress', [LectureProgressApiController::class, 'getCourseProgress']);
 
@@ -502,8 +506,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
         
         // Withdrawals
         Route::get('/withdrawal-methods', [WalletApiController::class, 'getWithdrawalMethods']);
-        Route::post('/withdrawal-request', [WalletApiController::class, 'createWithdrawalRequest']); // Create withdrawal request
-        Route::post('/withdrawal-requests', [WalletApiController::class, 'createWithdrawalRequest']); // Alias
+        Route::post('/withdrawal-request', [WalletApiController::class, 'createWithdrawalRequest'])
+            ->middleware([\App\Http\Middleware\IdempotencyMiddleware::class . ':replay,optional', 'throttle:10,1']); // Create withdrawal request
+        Route::post('/withdrawal-requests', [WalletApiController::class, 'createWithdrawalRequest'])
+            ->middleware([\App\Http\Middleware\IdempotencyMiddleware::class . ':replay,optional', 'throttle:10,1']); // Alias
         Route::get('/withdrawal-requests', [WalletApiController::class, 'getWithdrawalRequests']); // Get withdrawal requests
         Route::get('/withdrawal-request/details', [WalletApiController::class, 'getWithdrawalRequestDetails']); // Get withdrawal request details
         
@@ -1241,7 +1247,8 @@ Route::middleware('auth:sanctum')->prefix('v1/admin/wallet')->middleware('role:S
 
         Route::get('wallet-transactions', [FinanceApiController::class, 'getWalletTransactions']);
         Route::get('wallet-summary', [FinanceApiController::class, 'getWalletSummary']);
-        Route::post('withdrawal-request', [FinanceApiController::class, 'createWithdrawalRequest']);
+        Route::post('withdrawal-request', [FinanceApiController::class, 'createWithdrawalRequest'])
+            ->middleware([\App\Http\Middleware\IdempotencyMiddleware::class . ':replay,optional', 'throttle:10,1']);
         Route::get('withdrawal-requests', [FinanceApiController::class, 'getWithdrawalRequests']);
     });
 

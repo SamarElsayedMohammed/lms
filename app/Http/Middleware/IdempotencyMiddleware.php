@@ -15,15 +15,14 @@ class IdempotencyMiddleware
      * @param  \Closure  $next
      * @return mixed
      */
-    public function handle(Request $request, Closure $next, string $onReplay = 'replay')
+    public function handle(Request $request, Closure $next, string $onReplay = 'replay', string $strictness = 'required')
     {
         $idempotencyKey = $request->header('Idempotency-Key') ?? $request->header('X-Idempotency-Key');
 
         if (!$idempotencyKey) {
-            // Depending on strictness, we might abort or just continue
-            // For now, if it's strictly required by spec, we might abort
-            // But let's allow if not provided, or strictly require it?
-            // "A middleware must check the Idempotency-Key header on all registrations to prevent double-charging a wallet on network retries."
+            if ($strictness === 'optional') {
+                return $next($request);
+            }
             return response()->json(['message' => 'Idempotency-Key header is required'], 400);
         }
 

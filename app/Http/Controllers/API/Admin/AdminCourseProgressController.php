@@ -56,8 +56,9 @@ class AdminCourseProgressController extends AdminCrudApiController
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+            $isLocal = app()->environment('local') && config('app.debug');
             return ApiResponseService::errorResponse(
-                'Failed to retrieve overview: ' . $e->getMessage(),
+                $isLocal ? ('Failed to retrieve overview: ' . $e->getMessage()) : 'Failed to retrieve overview.',
                 [],
                 500
             );

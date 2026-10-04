@@ -480,8 +480,9 @@ trait ServesCourseCertificates
                 "error" => $e->getMessage(),
                 "trace" => $e->getTraceAsString(),
             ]);
+            $isLocal = app()->environment('local') && config('app.debug');
             return ApiResponseService::errorResponse(
-                "Failed to retrieve progress: " . $e->getMessage(),
+                $isLocal ? ("Failed to retrieve progress: " . $e->getMessage()) : "Failed to retrieve progress.",
                 [],
                 500,
             );

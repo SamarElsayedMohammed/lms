@@ -107,9 +107,10 @@ class MobileLearningSpaceApiController extends Controller
                 'trace' => $e->getTraceAsString(),
             ]);
 
+            $isLocal = app()->environment('local') && config('app.debug');
             return response()->json([
                 'ok' => false,
-                'message' => 'Failed to load learning space data: ' . $e->getMessage(),
+                'message' => $isLocal ? ('Failed to load learning space data: ' . $e->getMessage()) : 'Failed to load learning space data.',
                 'data' => null,
             ], 500);
         }

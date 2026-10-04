@@ -191,4 +191,38 @@ final class SequentialLessonUnlockingTest extends TestCase
                 'code' => 'LESSON_LOCKED',
             ]);
     }
+
+    public function test_updating_progress_on_locked_lecture_returns_403_lesson_locked(): void
+    {
+        // Attempting to report progress on Lesson 2 when Lesson 1 is incomplete must return 403 LESSON_LOCKED
+        $response = $this->actingAs($this->student, 'sanctum')
+            ->postJson("/api/lecture/{$this->lecture2->id}/progress", [
+                'current_position' => 50,
+                'total_duration' => 100,
+                'newly_watched_segments' => [0, 1, 2, 3, 4],
+            ]);
+
+        $response->assertStatus(403)
+            ->assertJson([
+                'error' => true,
+                'code' => 'LESSON_LOCKED',
+            ]);
+    }
+
+    public function test_recording_watch_segment_on_locked_lecture_returns_403_lesson_locked(): void
+    {
+        // Attempting to record watch segment on Lesson 2 when Lesson 1 is incomplete must return 403 LESSON_LOCKED
+        $response = $this->actingAs($this->student, 'sanctum')
+            ->postJson("/api/lecture/{$this->lecture2->id}/record-watch", [
+                'start_second' => 0,
+                'end_second' => 20,
+            ]);
+
+        $response->assertStatus(403)
+            ->assertJson([
+                'error' => true,
+                'code' => 'LESSON_LOCKED',
+            ]);
+    }
 }
+

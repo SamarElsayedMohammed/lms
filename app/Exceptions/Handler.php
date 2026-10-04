@@ -186,7 +186,6 @@ class Handler extends ExceptionHandler
                     'exception' => get_class($e),
                     'file' => $e->getFile(),
                     'line' => $e->getLine(),
-                    'trace' => $e->getTrace(),
                 ];
             }
 

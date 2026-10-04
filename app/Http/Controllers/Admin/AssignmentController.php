@@ -264,9 +264,10 @@ class AssignmentController extends Controller
                 'trace' => $e->getTraceAsString(),
             ]);
 
+            $isLocal = app()->environment('local') && config('app.debug');
             return redirect()
                 ->route('admin.assignments.index')
-                ->with('error', 'Failed to load assignment submission: ' . $e->getMessage());
+                ->with('error', $isLocal ? ('Failed to load assignment submission: ' . $e->getMessage()) : 'Failed to load assignment submission.');
         }
     }
 

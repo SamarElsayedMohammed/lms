@@ -1245,8 +1245,9 @@ trait ServesApiAccount
                                         'error' => $e->getMessage(),
                                         'trace' => $e->getTraceAsString(),
                                     ]);
+                                    $isLocal = app()->environment('local') && config('app.debug');
                                     $errors[] =
-                                        "Failed to mark notification {$notificationIdInt} as read: " . $e->getMessage();
+                                        $isLocal ? ("Failed to mark notification {$notificationIdInt} as read: " . $e->getMessage()) : "Failed to mark notification {$notificationIdInt} as read.";
                                 }
                             }
                         } else {
