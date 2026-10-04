@@ -8,6 +8,7 @@ use App\Models\LectureAttachment;
 use App\Services\FileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class LectureAttachmentController extends Controller
 {
@@ -23,6 +24,10 @@ class LectureAttachmentController extends Controller
                 'message' => 'Lecture not found',
                 'code' => 404,
             ], 404);
+        }
+
+        if ($authResponse = $this->authorizeCourseModification($lecture)) {
+            return $authResponse;
         }
 
         $attachments = $lecture->attachments->map(fn ($attachment) => $this->formatAttachment($attachment));
@@ -53,6 +58,10 @@ class LectureAttachmentController extends Controller
                 'message' => 'Lecture not found',
                 'code' => 404,
             ], 404);
+        }
+
+        if ($authResponse = $this->authorizeCourseModification($lecture)) {
+            return $authResponse;
         }
 
         $file = $request->file('file');
@@ -95,6 +104,11 @@ class LectureAttachmentController extends Controller
             ], 404);
         }
 
+        $attachment->loadMissing('lecture.chapter.course');
+        if ($attachment->lecture && ($authResponse = $this->authorizeCourseModification($attachment->lecture))) {
+            return $authResponse;
+        }
+
         return response()->json([
             'error' => false,
             'message' => 'Success',
@@ -111,7 +125,7 @@ class LectureAttachmentController extends Controller
     public function update(Request $request, int $lectureId, int $attachmentId): JsonResponse
     {
         $request->validate([
-            'file' => 'nullable|file|max:51200', // 50MB
+            'file' => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx,zip,rar,jpeg,png,jpg,mp4,mp3,wav|max:51200', // 50MB
             'sort_order' => 'nullable|integer|min:0',
         ]);
 
@@ -125,11 +139,15 @@ class LectureAttachmentController extends Controller
             ], 404);
         }
 
+        $attachment->loadMissing('lecture.chapter.course');
+        if ($attachment->lecture && ($authResponse = $this->authorizeCourseModification($attachment->lecture))) {
+            return $authResponse;
+        }
+
         $data = [];
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $attachment->loadMissing('lecture.chapter.course');
             $path = FileService::replace(
                 $file,
                 FileService::coursePath($attachment->lecture?->chapter?->course?->slug, 'attachments'),
@@ -176,6 +194,11 @@ class LectureAttachmentController extends Controller
             ], 404);
         }
 
+        $attachment->loadMissing('lecture.chapter.course');
+        if ($attachment->lecture && ($authResponse = $this->authorizeCourseModification($attachment->lecture))) {
+            return $authResponse;
+        }
+
         FileService::delete($attachment->file_path);
         $attachment->delete();
 
@@ -184,6 +207,43 @@ class LectureAttachmentController extends Controller
             'message' => 'Attachment deleted',
             'code' => 200,
         ]);
+    }
+
+    private function authorizeCourseModification(CourseChapterLecture $lecture): ?JsonResponse
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            return response()->json([
+                'error' => true,
+                'message' => 'Unauthenticated',
+                'code' => 401,
+            ], 401);
+        }
+
+        if ($user->hasRole('Super Admin')) {
+            return null;
+        }
+
+        $lecture->loadMissing('chapter.course');
+        $course = $lecture->chapter?->course;
+
+        if ($course === null) {
+            return response()->json([
+                'error' => true,
+                'message' => 'Course not found',
+                'code' => 404,
+            ], 404);
+        }
+
+        if ($user->cannot('modify', $course)) {
+            return response()->json([
+                'error' => true,
+                'message' => 'You are not authorized to manage attachments for this course.',
+                'code' => 403,
+            ], 403);
+        }
+
+        return null;
     }
 
     private function findAttachment(int $lectureId, int $attachmentId): ?LectureAttachment
