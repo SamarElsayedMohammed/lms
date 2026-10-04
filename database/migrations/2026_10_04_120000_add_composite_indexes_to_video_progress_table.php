@@ -14,7 +14,6 @@ return new class extends Migration
         Schema::table('video_progress', function (Blueprint $table) {
             $table->index(['user_id', 'is_completed'], 'idx_user_progress_completed');
             $table->index(['lecture_id', 'is_completed'], 'idx_lecture_progress_completed');
-            $table->index(['user_id', 'lecture_id', 'is_completed'], 'idx_user_lecture_completed');
         });
     }
 
@@ -26,7 +25,6 @@ return new class extends Migration
         Schema::table('video_progress', function (Blueprint $table) {
             $table->dropIndex('idx_user_progress_completed');
             $table->dropIndex('idx_lecture_progress_completed');
-            $table->dropIndex('idx_user_lecture_completed');
         });
     }
 };
