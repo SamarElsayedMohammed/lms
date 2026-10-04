@@ -36,6 +36,22 @@ trait HasApiResponse
         int $status = 400,
         null|Throwable $exception = null,
     ): JsonResponse {
+        if ($exception instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Illuminate\Validation\ValidationException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Illuminate\Auth\Access\AuthorizationException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Symfony\Component\HttpKernel\Exception\HttpException) {
+            throw $exception;
+        }
+
         $response = [
             'error' => true,
             'message' => trans($message),

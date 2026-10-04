@@ -145,13 +145,32 @@ final class ApiResponseService
         if ($exception instanceof HttpResponseException) {
             throw $exception;
         }
+        if ($exception instanceof \Illuminate\Validation\ValidationException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Illuminate\Auth\Access\AuthorizationException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Symfony\Component\HttpKernel\Exception\HttpException) {
+            throw $exception;
+        }
 
         $code ??= (int) config('constants.RESPONSE_CODE.ERROR');
+        $isLocalDebug = app()->environment('local') && config('app.debug') === true;
+        $safeMessage = $message;
+
+        if (! $isLocalDebug && self::containsSensitiveErrorTokens($message)) {
+            $safeMessage = 'Internal server error.';
+        }
+
         $response = [
             'success' => false,
             'status' => false,
             'error' => true,
-            'message' => trans($message),
+            'message' => trans($safeMessage),
             'data' => $data ?? (object) [],
             'code' => $code,
         ];
@@ -165,7 +184,7 @@ final class ApiResponseService
             $response['redirect_url'] = $redirectUrl;
         }
 
-        if (app()->environment('local') && config('app.debug') === true && $exception instanceof Throwable) {
+        if ($isLocalDebug && $exception instanceof Throwable) {
             $response['debug'] = [
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
@@ -252,8 +271,32 @@ final class ApiResponseService
                     $jsonResponse->header('Access-Control-Allow-Credentials', 'true');
                 }
             }
-        } catch (Throwable) {
+        } catch (\Throwable) {
             // Ignore CORS header errors - don't break the response
         }
+    }
+
+    private static function containsSensitiveErrorTokens(string $message): bool
+    {
+        $sensitivePatterns = [
+            'sqlstate',
+            'syntax error',
+            'select *',
+            'pdoexception',
+            'queryexception',
+            'connection refused',
+            'stack trace:',
+            '.php:',
+            '.php on line',
+        ];
+
+        $lower = strtolower($message);
+        foreach ($sensitivePatterns as $pattern) {
+            if (str_contains($lower, $pattern)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

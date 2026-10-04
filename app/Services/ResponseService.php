@@ -200,21 +200,44 @@ class ResponseService
      * @param null $e
      * @return void
      */
-    public static function errorResponse(string $message = 'Error Occurred', $data = null, $exception = null)
+    public static function errorResponse(string $message = 'Error Occurred', $data = null, $exception = null, $extra = null)
     {
         $httpStatus = 400;
         if (is_int($exception) || (is_numeric($exception) && !is_object($exception))) {
             $httpStatus = (int) $exception;
-            $exception = null;
+            $exception = ($extra instanceof \Throwable) ? $extra : null;
         }
+        if ($exception instanceof HttpResponseException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Illuminate\Validation\ValidationException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Illuminate\Auth\Access\AuthorizationException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
+            throw $exception;
+        }
+        if ($exception instanceof \Symfony\Component\HttpKernel\Exception\HttpException) {
+            throw $exception;
+        }
+
         if ($httpStatus < 400 || $httpStatus > 599) {
             $httpStatus = 400;
+        }
+
+        $isLocalDebug = app()->environment('local') && config('app.debug');
+        $safeMessage = is_string($message) ? $message : 'Error Occurred';
+
+        if (! $isLocalDebug && is_string($message) && self::containsSensitiveErrorTokens($message)) {
+            $safeMessage = 'Internal server error.';
         }
 
         $response = [
             'success' => false,
             'error' => true,
-            'message' => trans($message),
+            'message' => trans($safeMessage),
             'data' => $data,
         ];
 
@@ -222,7 +245,7 @@ class ResponseService
             $response['errors'] = $data;
         }
 
-        if (app()->environment('local') && config('app.debug') && !empty($exception) && is_object($exception)) {
+        if ($isLocalDebug && !empty($exception) && is_object($exception)) {
             $response['debug'] = [
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
@@ -340,5 +363,29 @@ class ResponseService
         if ($jsonResponse && config('app.debug')) {
             throw $e;
         }
+    }
+
+    private static function containsSensitiveErrorTokens(string $message): bool
+    {
+        $sensitivePatterns = [
+            'sqlstate',
+            'syntax error',
+            'select *',
+            'pdoexception',
+            'queryexception',
+            'connection refused',
+            'stack trace:',
+            '.php:',
+            '.php on line',
+        ];
+
+        $lower = strtolower($message);
+        foreach ($sensitivePatterns as $pattern) {
+            if (str_contains($lower, $pattern)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
