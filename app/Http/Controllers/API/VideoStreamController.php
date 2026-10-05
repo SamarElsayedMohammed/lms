@@ -9,6 +9,7 @@ use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Models\OrderCourse;
 use App\Services\ContentAccessService;
 use App\Services\FeatureFlagService;
+use App\Services\LessonProgressService;
 use App\Services\VideoProgressService;
 use App\Traits\HasApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -30,6 +31,7 @@ final class VideoStreamController extends Controller
     public function __construct(
         private readonly ContentAccessService $contentAccessService,
         private readonly VideoProgressService $videoProgressService,
+        private readonly LessonProgressService $lessonProgressService,
         private readonly FeatureFlagService $featureFlagService,
     ) {}
 
@@ -65,7 +67,7 @@ final class VideoStreamController extends Controller
                     return $this->forbidden('Subscription required');
                 }
 
-                if (!$this->videoProgressService->canAccessNextLesson($user, $courseChapterLecture)) {
+                if (!$this->lessonProgressService->canAccessLesson($user, $courseChapterLecture)) {
                     return response()->json([
                         'error' => true,
                         'code' => 'LESSON_LOCKED',

@@ -7,6 +7,7 @@ use App\Models\Course\Course;
 use App\Models\Course\CourseChapter\Lecture\CourseChapterLecture;
 use App\Services\ContentAccessService;
 use App\Services\FeatureFlagService;
+use App\Services\LessonProgressService;
 use App\Services\VideoProgressService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -17,6 +18,7 @@ class CourseChapterLectureController extends Controller
     public function __construct(
         private readonly ContentAccessService $contentAccessService,
         private readonly VideoProgressService $videoProgressService,
+        private readonly LessonProgressService $lessonProgressService,
         private readonly FeatureFlagService $featureFlagService,
     ) {}
 
@@ -119,7 +121,7 @@ class CourseChapterLectureController extends Controller
         $chapter = $course->chapters()->findOrFail($chapterId);
         $lecture = $chapter->lectures()->findOrFail($lectureId);
 
-        if (!$this->videoProgressService->canAccessNextLesson($user, $lecture)) {
+        if (!$this->lessonProgressService->canAccessLesson($user, $lecture)) {
             return response()->json([
                 'status' => 'error',
                 'code' => 'LESSON_LOCKED',

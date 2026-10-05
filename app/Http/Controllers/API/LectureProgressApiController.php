@@ -350,7 +350,7 @@ final class LectureProgressApiController extends Controller
             return $this->forbidden('Course access required');
         }
 
-        if (!$this->videoProgressService->canAccessNextLesson($user, $lecture)) {
+        if (!$this->lessonProgressService->canAccessLesson($user, $lecture)) {
             return response()->json([
                 'status' => 'error',
                 'error' => true,

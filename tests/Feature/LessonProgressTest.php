@@ -111,11 +111,43 @@ class LessonProgressTest extends TestCase
                 ],
             ]);
 
-        // Second lesson must return 403 LESSON_LOCKED
+        // Second lesson must return 403 LESSON_LOCKED on progress query
         $response2 = $this->actingAs($this->student)
             ->getJson("/api/lessons/{$this->lesson2->id}/progress");
 
         $response2->assertStatus(403)
+            ->assertJson([
+                'code' => 'LESSON_LOCKED',
+            ]);
+
+        // Second lesson must return 403 LESSON_LOCKED on video stream
+        $streamResponse = $this->actingAs($this->student)
+            ->getJson("/api/video/{$this->lesson2->id}/stream");
+
+        $streamResponse->assertStatus(403)
+            ->assertJson([
+                'error' => true,
+                'code'  => 'LESSON_LOCKED',
+            ]);
+
+        // Second lesson must return 403 LESSON_LOCKED on check-access
+        $checkAccessResponse = $this->actingAs($this->student)
+            ->getJson("/api/lecture/{$this->lesson2->id}/check-access");
+
+        $checkAccessResponse->assertStatus(403)
+            ->assertJson([
+                'error_code' => 'LESSON_LOCKED',
+            ]);
+
+        // Second lesson must return 403 LESSON_LOCKED on heartbeat progress update
+        $heartbeatResponse = $this->actingAs($this->student)
+            ->postJson("/api/lessons/{$this->lesson2->id}/progress", [
+                'current_time' => 10,
+                'duration'     => 120,
+                'event'        => 'progress',
+            ]);
+
+        $heartbeatResponse->assertStatus(403)
             ->assertJson([
                 'code' => 'LESSON_LOCKED',
             ]);
