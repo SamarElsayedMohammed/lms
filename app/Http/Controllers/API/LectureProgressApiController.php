@@ -26,6 +26,7 @@ final class LectureProgressApiController extends Controller
         private readonly VideoProgressService $videoProgressService,
         private readonly CourseProgressService $courseProgressService,
         private readonly ContentAccessService $contentAccessService,
+        private readonly \App\Services\LessonProgressService $lessonProgressService,
     ) {}
 
     /**
@@ -49,7 +50,7 @@ final class LectureProgressApiController extends Controller
             return $this->forbidden('Course access required');
         }
 
-        if (!$this->videoProgressService->canAccessNextLesson($user, $lecture)) {
+        if (!$this->lessonProgressService->canAccessLesson($user, $lecture)) {
             return response()->json([
                 'status' => 'error',
                 'error' => true,
@@ -65,6 +66,31 @@ final class LectureProgressApiController extends Controller
             'ip' => $request->ip(),
             'progress_state' => $request->input('progress_state', 'playing'),
         ];
+
+        if ($request->has('current_time') || $request->has('event')) {
+            $currentTime = (float) $request->input('current_time', 0);
+            $duration = (float) $request->input('duration', 0);
+            $event = (string) $request->input('event', 'progress');
+            $progress = $this->lessonProgressService->recordHeartbeat(
+                $user,
+                $lecture,
+                $currentTime,
+                $duration,
+                $event,
+                $metadata
+            );
+            return $this->ok(data: [
+                'lesson_id' => (int) $lecture->id,
+                'watched_seconds' => (int) $progress->watched_seconds,
+                'total_seconds' => (int) ($lecture->duration_seconds ?? $duration),
+                'last_position' => (int) $progress->last_position_seconds,
+                'last_position_seconds' => (int) $progress->last_position_seconds,
+                'watch_percentage' => (float) $progress->percent,
+                'percent' => (float) $progress->percent,
+                'is_completed' => (bool) $progress->is_completed,
+                'can_seek_to' => (int) $progress->max_position_seconds,
+            ], message: 'Progress updated');
+        }
 
         $hasSegments = $request->has('newly_watched_segments');
 
@@ -379,7 +405,7 @@ final class LectureProgressApiController extends Controller
             return $this->forbidden('Course access required');
         }
 
-        $allowed = $this->videoProgressService->canAccessNextLesson($user, $lecture);
+        $allowed = $this->lessonProgressService->canAccessLesson($user, $lecture);
         if (!$allowed) {
             return response()->json([
                 'success' => false,

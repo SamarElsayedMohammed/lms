@@ -45,6 +45,11 @@ class AppServiceProvider extends ServiceProvider
 
         Model::preventLazyLoading(! $this->app->isProduction());
 
+        \Illuminate\Support\Facades\RateLimiter::for('lesson-heartbeat', function (\Illuminate\Http\Request $request) {
+            $userKey = $request->user()?->id ? 'user:'.$request->user()->id : 'ip:'.$request->ip();
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(120)->by($userKey);
+        });
+
         Event::listen(WebinarRegistered::class, SendWebinarRegisteredNotification::class);
 
         \Illuminate\Support\Facades\Gate::before(function ($user, $ability) {

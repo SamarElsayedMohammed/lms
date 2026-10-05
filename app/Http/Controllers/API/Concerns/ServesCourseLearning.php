@@ -345,10 +345,11 @@ trait ServesCourseLearning
                 $isRefundEligible = false;
                 $refundDaysRemaining = 0;
                 if ($refundEnabled && $orderDate && $course->course_type !== "free") {
-                    $daysSincePurchase = now()->diffInDays($orderDate);
+                    $orderCarbon = \Carbon\Carbon::parse($orderDate);
+                    $daysSincePurchase = (int) abs(now()->diffInDays($orderCarbon));
                     if ($daysSincePurchase <= $refundPeriodDays) {
                         $isRefundEligible = true;
-                        $refundDaysRemaining = $refundPeriodDays - $daysSincePurchase;
+                        $refundDaysRemaining = max(0, $refundPeriodDays - $daysSincePurchase);
                     }
                 }
 

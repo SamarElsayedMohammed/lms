@@ -1,21 +1,22 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * @deprecated Legacy middleware replaced by ValidateSignedHeartbeatToken.
+ * Query tokens are strictly disabled globally to prevent Authorization header leakage.
+ */
 class AllowQueryToken
 {
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, Closure $next): Response
     {
-        if (!$request->bearerToken()) {
-            $token = $request->query('token') ?? $request->query('api_token') ?? $request->query('auth_token');
-            if ($token && is_string($token) && trim($token) !== '') {
-                $request->headers->set('Authorization', 'Bearer ' . trim($token));
-            }
-        }
-
+        // Unsafe query token injection is disabled. Forward directly to next handler.
         return $next($request);
     }
 }

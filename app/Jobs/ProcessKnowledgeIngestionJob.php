@@ -74,12 +74,16 @@ class ProcessKnowledgeIngestionJob implements ShouldQueue
             ]);
 
             $title = $knowledgeEntry->title;
-            $targetCourseId = $knowledgeEntry->course_id ?: $this->courseId;
+            $targetCourseId = $this->botType === 'visitor' ? null : ($knowledgeEntry->course_id ?: $this->courseId);
             $filePath = $knowledgeEntry->file_path;
             $fileType = $knowledgeEntry->file_type;
             // Keep text that already combines a file and a page. Read the disk
             // file only when the row has no extracted text yet.
             $rawText = trim((string) ($knowledgeEntry->content ?? ''));
+        }
+
+        if ($this->botType === 'visitor') {
+            $targetCourseId = null;
         }
 
         if ($targetCourseId) {

@@ -397,7 +397,7 @@ class ChatbotAdminApiController extends AdminCrudApiController
             'file' => 'required_without_all:content,source_url|nullable|file|mimes:txt,csv,json,pdf,docx,md|max:10240', // 10MB max
             'is_active' => 'nullable|boolean',
             'target_audience' => 'nullable|in:visitor,subscriber,course',
-            'course_id' => 'nullable|integer|exists:courses,id',
+            'course_id' => 'required_if:target_audience,course|nullable|integer|exists:courses,id',
         ]);
 
         if ($validator->fails()) {
@@ -413,7 +413,10 @@ class ChatbotAdminApiController extends AdminCrudApiController
             DB::beginTransaction();
 
             $targetAudience = $request->input('target_audience', 'visitor');
-            $courseId = $request->input('course_id') ? (int) $request->input('course_id') : null;
+            // Strict scope isolation: visitor knowledge must NEVER have a course_id; course knowledge MUST have course_id
+            $courseId = ($targetAudience === 'course')
+                ? (int) $request->input('course_id')
+                : null;
 
             $data = [
                 'title' => $request->input('title'),
@@ -526,10 +529,19 @@ class ChatbotAdminApiController extends AdminCrudApiController
             }
 
             if ($request->has('target_audience')) {
-                $data['target_audience'] = $request->input('target_audience');
+                $aud = $request->input('target_audience');
+                $data['target_audience'] = $aud;
+                if ($aud !== 'course') {
+                    $data['course_id'] = null;
+                }
             }
             if ($request->has('course_id')) {
-                $data['course_id'] = $request->input('course_id');
+                $targetAud = $data['target_audience'] ?? $entry->target_audience;
+                $data['course_id'] = ($targetAud === 'course') ? $request->input('course_id') : null;
+            }
+
+            if (($data['target_audience'] ?? $entry->target_audience) === 'course' && empty($data['course_id'] ?? $entry->course_id)) {
+                return $this->jsonError(__('Course ID is required for course knowledge base entry'), 422);
             }
 
             if ($request->has('is_active')) {

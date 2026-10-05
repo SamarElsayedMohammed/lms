@@ -28,6 +28,7 @@ use App\Http\Controllers\API\SubscriptionApiController;
 use App\Http\Controllers\Admin\AffiliateController;
 use App\Http\Controllers\Admin\LectureAttachmentController;
 use App\Http\Controllers\API\LectureProgressApiController;
+use App\Http\Controllers\API\LessonProgressApiController;
 use App\Http\Controllers\API\VideoStreamController;
 use App\Http\Controllers\API\WalletApiController;
 use App\Http\Controllers\API\WishlistApiController;
@@ -359,14 +360,25 @@ Route::middleware('auth:sanctum')->group(function (): void {
         'api.video.stream',
     )->middleware('throttle:30,1');
 
-    // Video progress tracking
-    Route::post('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'updateProgress'])
-        ->middleware('throttle:60,1');
+    // Lesson & Video progress tracking (Server-Authoritative Sequential Unlock)
+    Route::get('/lessons/{lesson}/progress', [LessonProgressApiController::class, 'getProgress']);
+    Route::get('/courses/{course}/progress', [LessonProgressApiController::class, 'getCourseProgress']);
+
+    // Video progress tracking (legacy compatibility routes)
     Route::post('/lecture/{lectureId}/record-watch', [LectureProgressApiController::class, 'recordWatch'])
         ->middleware('throttle:60,1');
     Route::get('/lecture/{lectureId}/check-access', [LectureProgressApiController::class, 'checkAccess']);
-    Route::get('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'getProgress']);
-    Route::get('/course/{courseId}/progress', [LectureProgressApiController::class, 'getCourseProgress']);
+    Route::get('/lecture/{lectureId}/progress', [LessonProgressApiController::class, 'getProgress']);
+    Route::get('/course/{courseId}/progress', [LessonProgressApiController::class, 'getCourseProgress']);
+});
+
+// Heartbeat routes supporting Authorization Bearer header or verified short-lived signed tokens
+Route::middleware(['heartbeat.token', 'throttle:lesson-heartbeat'])->group(function (): void {
+    Route::post('/lessons/{lesson}/progress', [LessonProgressApiController::class, 'heartbeat']);
+    Route::post('/lecture/{lectureId}/progress', [LectureProgressApiController::class, 'updateProgress']);
+});
+
+Route::middleware('auth:sanctum')->group(function (): void {
 
     // Mobile Learning Space & Offline Systems
     Route::get('mobile/learning-space', [\App\Http\Controllers\API\MobileLearningSpaceApiController::class, 'getLearningSpaceData']);

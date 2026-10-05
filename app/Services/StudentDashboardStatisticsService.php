@@ -47,7 +47,19 @@ final class StudentDashboardStatisticsService
 
         $courseIds = $enrolled->pluck('course_id')->all();
 
-        // Batch load video progress for started check
+        // Batch load lesson progress (canonical) and fallback video progress
+        $lessonProgressMap = collect();
+        if (\Illuminate\Support\Facades\Schema::hasTable('lesson_progress')) {
+            $lessonProgressMap = DB::table('lesson_progress')
+                ->where('user_id', $user->id)
+                ->whereIn('course_id', $courseIds)
+                ->where('watched_seconds', '>', 0)
+                ->groupBy('course_id')
+                ->selectRaw('course_id, SUM(watched_seconds) as total_watched, COUNT(DISTINCT lesson_id) as started_items')
+                ->get()
+                ->keyBy('course_id');
+        }
+
         $videoWatchedMap = DB::table('video_progress')
             ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
             ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
@@ -71,14 +83,15 @@ final class StudentDashboardStatisticsService
             ->pluck('started_items', 'course_id');
 
         return $enrolled
-            ->map(function (array $item) use ($user, $videoWatchedMap, $videoStartedItemsMap): array {
+            ->map(function (array $item) use ($user, $lessonProgressMap, $videoWatchedMap, $videoStartedItemsMap): array {
                 $courseId = (int) $item['course_id'];
                 $progressObj = $this->progressService->getProgressWithCache((int) $user->id, $courseId);
                 $progressPercentage = (float) $progressObj->progress_percentage;
                 $completedItems = (int) ($progressObj->completed_items ?? 0);
                 $totalItems = (int) ($progressObj->total_items ?? 0);
-                $watchedSeconds = (int) ($videoWatchedMap->get($courseId) ?? 0);
-                $startedItems = max($completedItems, (int) ($videoStartedItemsMap->get($courseId) ?? 0));
+                $lp = $lessonProgressMap->get($courseId);
+                $watchedSeconds = (int) ($lp?->total_watched ?? $videoWatchedMap->get($courseId) ?? 0);
+                $startedItems = max($completedItems, (int) ($lp?->started_items ?? $videoStartedItemsMap->get($courseId) ?? 0));
                 $isStarted = $progressPercentage > 0 || $watchedSeconds > 0 || $completedItems > 0;
                 $learningStatus = $this->progressService->resolveLearningStatus($progressObj, $watchedSeconds);
 
@@ -134,7 +147,7 @@ final class StudentDashboardStatisticsService
 
     /**
      * Calculate learning hours ONLY for lectures inside the user's valid enrolled courses.
-     * Uses cumulative watched time (watched_seconds) from video_progress for accuracy.
+     * Uses cumulative watched time (watched_seconds) from lesson_progress (or video_progress fallback).
      */
     private function calculateLearningHoursForEnrolledCourses(int $userId, array $validCourseIds): float
     {
@@ -143,17 +156,28 @@ final class StudentDashboardStatisticsService
         }
 
         try {
-            $totalSeconds = DB::table('video_progress')
-                ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
-                ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
-                ->where('video_progress.user_id', $userId)
-                ->whereIn('course_chapters.course_id', $validCourseIds)
-                // Ensure the lecture and chapter are active
-                ->where('course_chapters.is_active', 1)
-                ->where('course_chapter_lectures.is_active', 1)
-                ->sum('video_progress.watched_seconds');
+            $totalSeconds = 0;
 
-            return round(($totalSeconds ?? 0) / 3600, 2);
+            if (\Illuminate\Support\Facades\Schema::hasTable('lesson_progress')) {
+                $totalSeconds = (int) DB::table('lesson_progress')
+                    ->where('user_id', $userId)
+                    ->whereIn('course_id', $validCourseIds)
+                    ->sum('watched_seconds');
+            }
+
+            if ($totalSeconds <= 0 && \Illuminate\Support\Facades\Schema::hasTable('video_progress')) {
+                $totalSeconds = (int) DB::table('video_progress')
+                    ->join('course_chapter_lectures', 'video_progress.lecture_id', '=', 'course_chapter_lectures.id')
+                    ->join('course_chapters', 'course_chapter_lectures.course_chapter_id', '=', 'course_chapters.id')
+                    ->where('video_progress.user_id', $userId)
+                    ->whereIn('course_chapters.course_id', $validCourseIds)
+                    // Ensure the lecture and chapter are active
+                    ->where('course_chapters.is_active', 1)
+                    ->where('course_chapter_lectures.is_active', 1)
+                    ->sum('video_progress.watched_seconds');
+            }
+
+            return round($totalSeconds / 3600, 2);
         } catch (\Throwable $e) {
             Log::error('StudentDashboardStatisticsService: could not calculate learning hours', [
                 'user_id' => $userId,

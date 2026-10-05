@@ -111,6 +111,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
             'audit.admin' => \App\Http\Middleware\LogAdminMutationMiddleware::class,
             'geo.signed' => \App\Http\Middleware\ForceSignedProxyCountry::class,
+            'heartbeat.token' => \App\Http\Middleware\ValidateSignedHeartbeatToken::class,
         ]);
 
         // Trust proxies (Traefik/Caddy/Coolify) so Laravel detects correct scheme (HTTPS) and host
@@ -135,11 +136,6 @@ return Application::configure(basePath: dirname(__DIR__))
         // Add instructor mode middleware to web group
         $middleware->web(append: [
             \App\Http\Middleware\InstructorModeMiddleware::class,
-        ]);
-
-        // Add demo mode middleware to both API and web groups
-        $middleware->api(prepend: [
-            \App\Http\Middleware\AllowQueryToken::class,
         ]);
         
         $middleware->api(append: [

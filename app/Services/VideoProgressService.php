@@ -265,6 +265,14 @@ class VideoProgressService
         }
 
         // If this lecture is already completed, it is always accessible (replay)
+        $ownLessonProgress = \App\Models\LessonProgress::where('user_id', $user->id)
+            ->where('lesson_id', $lecture->id)
+            ->where('is_completed', true)
+            ->exists();
+        if ($ownLessonProgress) {
+            return true;
+        }
+
         $ownProgress = VideoProgress::forUser($user->id)->forLecture($lecture->id)->first();
         if ($ownProgress !== null && $ownProgress->is_completed) {
             return true;
@@ -283,6 +291,13 @@ class VideoProgressService
         }
 
         $priorLectureIds = $allPriorLectures->pluck('id')->all();
+        $completedLessonIds = \App\Models\LessonProgress::where('user_id', $user->id)
+            ->whereIn('lesson_id', $priorLectureIds)
+            ->where('is_completed', true)
+            ->pluck('lesson_id')
+            ->flip()
+            ->all();
+
         $completedVideoIds = VideoProgress::where('user_id', $user->id)
             ->whereIn('lecture_id', $priorLectureIds)
             ->where('is_completed', true)
@@ -302,7 +317,9 @@ class VideoProgressService
                 continue;
             }
 
-            $isCompleted = isset($completedVideoIds[$prior->id]) || isset($completedTrackingIds[$prior->id]);
+            $isCompleted = isset($completedLessonIds[$prior->id])
+                || isset($completedVideoIds[$prior->id])
+                || isset($completedTrackingIds[$prior->id]);
             if (! $isCompleted) {
                 // If non-video lecture has no tracking yet, only bypass if it doesn't stream video
                 if (! $this->lectureHasVideo($prior)) {

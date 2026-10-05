@@ -213,6 +213,17 @@ class ChatbotApiController extends Controller
             ], 422, [], JSON_UNESCAPED_UNICODE);
         }
 
+        if ($request->filled('conversation_id')) {
+            $convId = (int) $request->input('conversation_id');
+            $conversation = ChatbotConversation::find($convId);
+            if ($conversation && ($conversation->type !== 'general' || $conversation->course_id !== null)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Invalid conversation session for general chatbot FAQs.'),
+                ], 422, [], JSON_UNESCAPED_UNICODE);
+            }
+        }
+
         $service = new ChatBotService();
         $result = $service->getFaqAnswer(
             (int) $request->input('faq_id'),
@@ -255,6 +266,43 @@ class ChatbotApiController extends Controller
                 'status' => false,
                 'message' => $validator->errors()->first(),
             ], 422, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        $userId = Auth::guard('sanctum')->id() ?: Auth::id();
+        $sessionId = $request->header('X-Chat-Session-ID');
+
+        // Enforce strict session isolation for general chatbot
+        if ($request->filled('conversation_id')) {
+            $convId = (int) $request->input('conversation_id');
+            $conversation = ChatbotConversation::find($convId);
+
+            if (!$conversation) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Conversation not found'),
+                ], 422, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // Check ownership
+            if ($userId && $conversation->user_id !== $userId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Unauthorized access to conversation'),
+                ], 403, [], JSON_UNESCAPED_UNICODE);
+            } elseif (!$userId && $sessionId && $conversation->session_id !== $sessionId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Unauthorized access to conversation'),
+                ], 403, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // Cross-chatbot session isolation: must be general with null course_id
+            if ($conversation->type !== 'general' || $conversation->course_id !== null) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Invalid conversation session for general chatbot. Course sessions cannot be used with the general bot.'),
+                ], 422, [], JSON_UNESCAPED_UNICODE);
+            }
         }
 
         $service = new ChatBotService();
@@ -328,6 +376,35 @@ class ChatbotApiController extends Controller
             ], 403, [], JSON_UNESCAPED_UNICODE);
         }
 
+        // Enforce strict session isolation for course chatbot
+        if ($request->filled('conversation_id')) {
+            $convId = (int) $request->input('conversation_id');
+            $conversation = ChatbotConversation::find($convId);
+
+            if (!$conversation) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Conversation not found'),
+                ], 422, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // Check ownership
+            if ($conversation->user_id !== $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Unauthorized access to conversation'),
+                ], 403, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // Cross-chatbot session isolation: must be course type and match current course_id
+            if ($conversation->type !== 'course' || (int) $conversation->course_id !== (int) $course->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Invalid conversation session for this course. Cross-course or general sessions are strictly rejected.'),
+                ], 422, [], JSON_UNESCAPED_UNICODE);
+            }
+        }
+
         $knowledgeStatus = $course->ai_processing_status;
         if (empty($knowledgeStatus) || (!empty($course->ai_knowledge_content) && $knowledgeStatus !== 'failed')) {
             $knowledgeStatus = (!empty($course->ai_knowledge_content) || !empty($course->ai_knowledge_file)) ? 'ready' : 'not_configured';
@@ -388,11 +465,16 @@ class ChatbotApiController extends Controller
         $type = $request->input('type');
         $courseId = $request->input('course_id');
 
-        $conversations = ChatbotConversation::where('user_id', $userId)
+        $query = ChatbotConversation::where('user_id', $userId)
             ->withCount('messages')
             ->when($type, fn ($q) => $q->where('type', $type))
-            ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
-            ->orderBy('last_message_at', 'desc')
+            ->when($courseId, fn ($q) => $q->where('course_id', $courseId));
+
+        if ($type === 'general') {
+            $query->whereNull('course_id');
+        }
+
+        $conversations = $query->orderBy('last_message_at', 'desc')
             ->limit(50)
             ->get();
 
@@ -407,15 +489,26 @@ class ChatbotApiController extends Controller
      */
     public function getConversationMessages(int $id): JsonResponse
     {
-        $userId = Auth::guard('sanctum')->id() ?: Auth::id();
-        if (!$userId) {
+        $user = Auth::guard('sanctum')->user() ?: Auth::user();
+        if (!$user) {
             return response()->json(['status' => false, 'message' => 'Unauthorized'], 401);
         }
 
-        $conversation = ChatbotConversation::where('user_id', $userId)->find($id);
+        $conversation = ChatbotConversation::where('user_id', $user->id)->find($id);
 
         if (!$conversation) {
             return response()->json(['status' => false, 'message' => 'Conversation not found'], 404);
+        }
+
+        // Verify course access for course conversations
+        if ($conversation->type === 'course' && $conversation->course_id) {
+            $course = Course::find($conversation->course_id);
+            if (!$course || !$course->isUserEntitled($user)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('You must be enrolled in this course to access this conversation'),
+                ], 403, [], JSON_UNESCAPED_UNICODE);
+            }
         }
 
         $messages = [];

@@ -279,13 +279,19 @@ class CourseProgressService
 
         try {
             $lectureIds = $course->chapters->flatMap->lectures->pluck('id')->toArray();
+            $lessonProgress = DB::table('lesson_progress')
+                ->where('user_id', $userId)
+                ->whereIn('lesson_id', $lectureIds)
+                ->get()
+                ->keyBy('lesson_id');
             $videoProgress = DB::table('video_progress')
                 ->where('user_id', $userId)
                 ->whereIn('lecture_id', $lectureIds)
                 ->get()
                 ->keyBy('lecture_id');
         } catch (\Throwable $e) {
-            Log::error('Error loading video progress: '.$e->getMessage());
+            Log::error('Error loading progress in getDetailedProgress: '.$e->getMessage());
+            $lessonProgress = collect();
             $videoProgress = collect();
         }
 
@@ -302,16 +308,17 @@ class CourseProgressService
                 $totalItems++;
                 $key = get_class($lecture).':'.$lecture->id;
                 $track = $tracking->get($key);
+                $prog = $lessonProgress->get($lecture->id);
                 $video = $videoProgress->get($lecture->id);
 
                 $requiresVerifiedTracking = app(VideoProgressService::class)
                     ->requiresVerifiedTracking($lecture);
-                $isCompleted = (bool) ($video?->is_completed ?? false) || ($track?->status === 'completed');
-                $watchPercentage = min(100.0, max(0.0, (float) ($video?->watch_percentage ?? 0)));
+                $isCompleted = (bool) ($prog?->is_completed ?? $video?->is_completed ?? ($track?->status === 'completed'));
+                $watchPercentage = min(100.0, max(0.0, (float) ($prog?->percent ?? $video?->watch_percentage ?? ($isCompleted ? 100.0 : 0.0))));
                 $durationSeconds = max(0, (int) ($lecture->duration_seconds ?? 0));
                 $storedVideoDuration = max(0, (int) ($video?->total_seconds ?? 0));
                 $durationLimit = $durationSeconds > 0 ? $durationSeconds : $storedVideoDuration;
-                $watchedSeconds = max(0, (int) ($video?->watched_seconds ?? 0));
+                $watchedSeconds = max(0, (int) ($prog?->watched_seconds ?? $video?->watched_seconds ?? 0));
                 if ($durationLimit > 0) {
                     $watchedSeconds = min($watchedSeconds, $durationLimit);
                 }

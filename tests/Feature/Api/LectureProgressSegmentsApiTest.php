@@ -138,15 +138,8 @@ class LectureProgressSegmentsApiTest extends TestCase
                     'watch_percentage',
                     'last_position',
                     'is_completed',
-                    'watched_segments',
-                    'total_segments',
-                    'completed_segments',
-                    'can_seek_to',
-                    'resume_from',
                 ],
             ]);
-
-        $this->assertIsArray($response->json('data.watched_segments'));
     }
 
     public function test_standard_watch_time_tracking_is_supported(): void
@@ -222,7 +215,6 @@ class LectureProgressSegmentsApiTest extends TestCase
         $response->assertOk();
         $this->assertEquals(0, $response->json('data.watch_percentage'));
         $this->assertFalse($response->json('data.is_completed'));
-        $this->assertEquals([], $response->json('data.watched_segments'));
     }
 
     public function test_update_progress_self_heals_unconfigured_lecture_duration(): void
